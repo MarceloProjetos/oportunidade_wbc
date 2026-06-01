@@ -1,0 +1,31 @@
+# ── Segredos / credenciais ──
+.env
+.env.*
+!.env.example
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# ── Ambiente virtual ──
+venv/
+.venv/
+env/
+
+# ── Logs ──
+logs/
+*.log
+
+# ── Arquivos temporários do projeto ──
+_*.py
+*.tmp
+
+# ── IDE / SO ──
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,6 @@
+hdbcli==2.17.22
+supabase==2.3.5
+pandas==2.1.4
+python-dotenv==1.0.0
+pyodbc==4.0.41
+apscheduler==3.10.4
