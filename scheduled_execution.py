@@ -10,6 +10,7 @@ Instalação:
 
 import os
 import logging
+from logging.handlers import TimedRotatingFileHandler
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -20,17 +21,29 @@ from extract_sap_to_supabase import main
 # Horários das execuções diárias (hora, minuto)
 HORARIOS = [(9, 0), (12, 30), (17, 35)]
 
-# Garantir o diretório de logs ANTES de configurar o FileHandler (evita erro no import)
+# Dias de log a reter (rotação diária à meia-noite)
+LOG_RETENCAO_DIAS = 12
+
+# Garantir o diretório de logs ANTES de configurar o handler (evita erro no import)
 os.makedirs('logs', exist_ok=True)
 
-# Configurar logging (console + arquivo)
+# Log com rotação diária: gera um arquivo por dia e mantém só os últimos N dias.
+# Evita o log crescer sem limite num processo 24/6.
+_file_handler = TimedRotatingFileHandler(
+    'logs/scheduled_execution.log',
+    when='midnight',
+    interval=1,
+    backupCount=LOG_RETENCAO_DIAS,
+    encoding='utf-8',
+)
+
+# force=True garante que esta configuração prevaleça sobre a do módulo importado
+# (extract_sap_to_supabase chama basicConfig no import), senão o file handler seria ignorado.
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/scheduled_execution.log', encoding='utf-8'),
-        logging.StreamHandler()
-    ]
+    handlers=[_file_handler, logging.StreamHandler()],
+    force=True,
 )
 logger = logging.getLogger(__name__)
 
