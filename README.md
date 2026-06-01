@@ -92,7 +92,7 @@ view do **SAP B1 (HANA)**, enriquece com a situação do orçamento vinda do **S
 ### 1. Clonar o repositório
 
 ```bash
-git clone https://github.com/<seu-usuario>/oportunidade_wbc.git
+git clone https://github.com/MarceloProjetos/oportunidade_wbc.git
 cd oportunidade_wbc
 ```
 
@@ -321,17 +321,21 @@ python scheduled_execution.py
 
 Para rodar no boot do servidor (24/6), registre o wrapper [run_scheduler.bat](run_scheduler.bat)
 no Task Scheduler (gatilho "Ao iniciar o sistema") ou via NSSM — ver
-[Opção B](#opção-b--windows-task-scheduler) e a seção do serviço mais abaixo.
+[Opção B](#opção-b--serviço-no-boot-windows).
 
-### Opção B — Windows Task Scheduler
+### Opção B — Serviço no boot (Windows)
 
-1. Abra o **Agendador de Tarefas** → Criar Tarefa.
-2. Ação → Iniciar programa:
-   ```
-   Programa:    C:\caminho\venv\Scripts\python.exe
-   Argumentos:  extract_sap_to_supabase.py
-   Iniciar em:  C:\Users\...\oportunidade_wbc
-   ```
+Para o agendador subir sozinho quando o servidor liga, registre o wrapper
+[run_scheduler.bat](run_scheduler.bat) com gatilho **ONSTART** (ajuste o caminho):
+
+```powershell
+schtasks /Create /TN "OrcaView-ETL" /SC ONSTART /RL HIGHEST /RU SYSTEM /F ^
+  /TR "C:\caminho\oportunidade_wbc\run_scheduler.bat"
+```
+
+Depois, em *Propriedades da tarefa → Configurações*, marque **"Reiniciar se a tarefa
+falhar"**. Alternativa: instalar como serviço dedicado via **NSSM** (`nssm install
+OrcaView-ETL ...`), que aparece em `services.msc`.
 
 ### Opção C — Linux/Mac cron
 
@@ -358,26 +362,25 @@ docker compose up --build
 
 ## Versionamento (GitHub)
 
-Este projeto ainda não está versionado. Para publicá-lo no GitHub com segurança:
+Repositório: **<https://github.com/MarceloProjetos/oportunidade_wbc>**
+
+Fluxo de trabalho do dia a dia:
 
 ```bash
-# 1. Inicializar o repositório
-git init
-git add .
-git commit -m "chore: estado inicial do extrator SAP → Supabase"
-
-# 2. Criar o repositório remoto (via gh CLI) e enviar
-gh repo create oportunidade_wbc --private --source=. --push
-
-# — ou manualmente —
-git remote add origin https://github.com/<seu-usuario>/oportunidade_wbc.git
-git branch -M main
-git push -u origin main
+git pull                       # trazer atualizações antes de começar
+# ... editar arquivos ...
+git add -A
+git commit -m "feat: descrição da mudança"
+git push
 ```
 
-> ✅ O [.gitignore](.gitignore) já protege `.env`, `logs/`, `venv/` e caches. Confirme com
-> `git status` que o `.env` **não** aparece na lista antes do primeiro commit — ele contém
-> a `service_role` e credenciais de produção.
+> ⚠️ **O `.env` nunca é versionado** — está no [.gitignore](.gitignore) (contém a
+> `service_role` e senhas de produção). Antes de qualquer commit, confirme com
+> `git status` que ele **não** aparece. Se um segredo vazar para o histórico, **rotacione
+> as chaves** no Supabase/SAP — o git guarda todo o histórico.
+>
+> 💡 O repositório está **público**. Sendo dados internos (oportunidades/clientes),
+> avalie torná-lo privado em *Settings → General → Danger Zone → Change visibility*.
 
 ---
 
