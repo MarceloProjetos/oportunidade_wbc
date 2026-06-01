@@ -358,11 +358,6 @@ def extract_sap_to_dataframe(view_name: Optional[str] = None) -> Optional[pd.Dat
         return None
 
     logger.info(f"Dados extraídos do SAP: {len(df)} registros")
-    print("\n===== DataFrame extraído do SAP =====")
-    with pd.option_context('display.max_rows', 100, 'display.max_columns', None):
-        print(df)
-    print("===== Fim do DataFrame =====\n")
-
     return df
 
 
@@ -399,12 +394,6 @@ def extract_sqlserver_view(
         logger.info("Conexão SQL Server fechada")
     except Exception:
         pass
-
-    if df is not None:
-        print("\n===== DataFrame extraído do SQL Server =====")
-        with pd.option_context('display.max_rows', 100, 'display.max_columns', None):
-            print(df)
-        print("===== Fim do DataFrame SQL Server =====\n")
 
     return df
 
@@ -464,15 +453,14 @@ class SupabaseLoader:
             logger.error(f"Erro ao inserir dados no Supabase: {e}")
             return False
     
-    def upsert_data(
-        self, table_name: str, data: List[Dict[str, Any]], primary_key: str = "id"
-    ) -> bool:
+    def upsert_data(self, table_name: str, data: List[Dict[str, Any]]) -> bool:
         """Faz upsert (atualiza se existe, insere se não) dos dados.
+
+        Usa a chave primária da própria tabela para resolver conflitos.
 
         Args:
             table_name: Nome da tabela.
             data: Lista de dicionários com os dados.
-            primary_key: Campo chave primária usado no conflito.
 
         Returns:
             ``True`` se executado com sucesso; ``False`` caso contrário.
