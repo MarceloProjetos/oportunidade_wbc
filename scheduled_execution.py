@@ -1,18 +1,22 @@
 """Agendador que executa a extração SAP → Supabase via APScheduler.
 
 Roda uma carga ao iniciar (startup) e depois nos horários fixos de ``HORARIOS``.
-Usa ``BlockingScheduler`` (processo dedicado, sem busy-wait) e é o entrypoint indicado
-para rodar como serviço/tarefa agendada 24/6.
+Usa ``BackgroundScheduler`` com um laço ``time.sleep`` no thread principal: no Windows
+o Ctrl+C interrompe o ``time.sleep`` na hora (um ``BlockingScheduler`` ficaria preso
+num ``Event.wait`` longo e ignoraria o Ctrl+C até o próximo job). É o entrypoint
+indicado para rodar como serviço/tarefa agendada 24/6.
 
 Instalação:
     pip install apscheduler
 """
 
 import os
+import time
+import signal
 import logging
 from logging.handlers import TimedRotatingFileHandler
 
-from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
 
@@ -81,9 +85,9 @@ def configurar_agenda() -> BlockingScheduler:
         - ``misfire_grace_time``: tolera atraso de até 1h (ex.: boot da segunda-feira).
 
     Returns:
-        Um ``BlockingScheduler`` configurado (ainda não iniciado).
+        Um ``BackgroundScheduler`` configurado (ainda não iniciado).
     """
-    scheduler = BlockingScheduler(
+    scheduler = BackgroundScheduler(
         job_defaults={
             'coalesce': True,
             'max_instances': 1,
@@ -120,9 +124,21 @@ def main_scheduler() -> None:
     horarios_txt = ", ".join(f"{h:02d}:{m:02d}" for h, m in HORARIOS)
     logger.info(f"Scheduler ativo. Horários: {horarios_txt}. Pressione Ctrl+C para interromper.")
 
+    # start() do BackgroundScheduler não bloqueia: os jobs rodam em threads próprias.
+    scheduler.start()
+
+    # SIGTERM permite parada limpa ao rodar como serviço (NSSM, Task Scheduler, etc.):
+    # converte o sinal em KeyboardInterrupt, reaproveitando o mesmo tratamento abaixo.
+    def _parar(signum, frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, _parar)
+
     try:
-        # start() é bloqueante no BlockingScheduler — não há busy-wait.
-        scheduler.start()
+        # time.sleep no thread principal É interrompido pelo Ctrl+C no Windows,
+        # ao contrário do Event.wait longo do BlockingScheduler.
+        while True:
+            time.sleep(1)
     except (KeyboardInterrupt, SystemExit):
         logger.info("Interrompendo scheduler...")
         scheduler.shutdown()
