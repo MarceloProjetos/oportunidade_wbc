@@ -408,11 +408,8 @@ class SupabaseLoader:
             supabase_url: URL do projeto Supabase.
             supabase_key: Chave de API (preferir a service_role para escrita).
         """
-        options = ClientOptions(
-            postgrest_client_timeout=SUPABASE_TIMEOUT_S,
-            storage_client_timeout=SUPABASE_TIMEOUT_S,
-        )
-        self.client: Client = create_client(supabase_url, supabase_key, options=options)
+
+        self.client: Client = create_client(supabase_url, supabase_key)
         logger.info("Cliente Supabase inicializado")
     
     def insert_data(

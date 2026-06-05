@@ -76,7 +76,7 @@ def job_execucao() -> None:
     logger.info("="*60)
 
 
-def configurar_agenda() -> BlockingScheduler:
+def configurar_agenda() -> BackgroundScheduler:
     """Cria e configura o scheduler com os gatilhos de execução.
 
     Os ``job_defaults`` deixam o agendamento robusto para operação 24/6:
