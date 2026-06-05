@@ -46,6 +46,10 @@ INSERT_BATCH_SIZE = 500              # registros por lote no insert ao Supabase
 MESES_RETROATIVOS = 6                # janela de dados a carregar (em meses)
 FILTRO_COLUNA_DATA = 'CreateDate'    # coluna usada no filtro de N meses
 
+# ── Log de sincronização (tabela à parte) ──
+SYNC_LOG_TABLE_NAME = 'sincronizacao_log'  # tabela que guarda hora/duração das sincronizações
+SYNC_LOG_MAX_REGISTROS = 6                 # mantém só os N registros mais recentes (apaga o mais velho)
+
 # Garantir saída UTF-8 no console (Windows usa cp1252 e quebra com ✓/✗)
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -499,6 +503,67 @@ class SupabaseLoader:
             logger.error(f"Erro ao remover execuções anteriores: {e}")
             return False
 
+    def registrar_sincronizacao(
+        self,
+        table_name: str,
+        data_hora: str,
+        duracao_seg: float,
+        status: str,
+        qtd_registros: Optional[int] = None,
+        max_registros: int = SYNC_LOG_MAX_REGISTROS,
+    ) -> bool:
+        """Grava um registro de log da sincronização e mantém só os N mais recentes.
+
+        Insere uma linha com a hora local de término, a duração e o status; em seguida
+        poda a tabela para conservar apenas os ``max_registros`` registros mais recentes
+        (apaga os mais antigos pelo ``id``, que é auto-incremental).
+
+        Esta operação é auxiliar: qualquer falha aqui é apenas logada e NÃO interrompe
+        nem afeta o fluxo principal de sincronização.
+
+        Args:
+            table_name: Nome da tabela de log.
+            data_hora: Hora local do PC (ISO 8601) ao terminar a sincronização.
+            duracao_seg: Duração do processo, em segundos.
+            status: ``'sucesso'`` ou ``'falha'``.
+            qtd_registros: Nº de registros sincronizados (opcional).
+            max_registros: Quantidade máxima de registros a manter na tabela.
+
+        Returns:
+            ``True`` se o registro foi gravado; ``False`` caso contrário.
+        """
+        try:
+            registro = {
+                'data_hora_sincronizacao': data_hora,
+                'duracao_segundos': round(float(duracao_seg), 2),
+                'status': status,
+                'qtd_registros': qtd_registros,
+            }
+            with_retries(
+                lambda: self.client.table(table_name).insert(registro).execute(),
+                what=f"insert log de sincronização ('{table_name}')",
+            )
+
+            # Poda: manter apenas os max_registros mais recentes (apaga os mais antigos)
+            res = self.client.table(table_name).select('id').order('id', desc=True).execute()
+            ids = [r['id'] for r in (res.data or [])]
+            if len(ids) > max_registros:
+                excedentes = ids[max_registros:]
+                self.client.table(table_name).delete().in_('id', excedentes).execute()
+                logger.info(
+                    f"Log de sincronização podado: {len(excedentes)} registro(s) antigo(s) "
+                    f"removido(s) (mantidos os {max_registros} mais recentes)"
+                )
+
+            logger.info(
+                f"Sincronização registrada no log ('{table_name}'): "
+                f"{status}, {duracao_seg:.2f}s, {qtd_registros} registro(s)"
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Falha ao registrar log de sincronização (ignorada): {e}")
+            return False
+
 
 def prepare_data(
     df: pd.DataFrame, execution_id: Optional[str] = None
@@ -591,7 +656,13 @@ def main(
     if not all([sap_host, sap_user, sap_password, supabase_url, supabase_key]) or not view_name:
         logger.error("Faltam variáveis de ambiente obrigatórias ou nome da view SAP não informado")
         return False
-    
+
+    # Medição da sincronização (para o log): início, contagem e resultado
+    inicio = time.monotonic()
+    sync_log_table = os.getenv('SYNC_LOG_TABLE_NAME', SYNC_LOG_TABLE_NAME)
+    qtd_registros = 0
+    resultado = False
+
     try:
         # 1. Extrair dados do SAP
         logger.info("Iniciando extração de dados do SAP...")
@@ -625,7 +696,8 @@ def main(
         # 2. Preparar dados
         logger.info("Preparando dados para inserção...")
         data_to_insert, exec_id = prepare_data(df, execution_id)
-        
+        qtd_registros = len(data_to_insert)
+
         # 3. Carregar no Supabase
         logger.info("Carregando dados no Supabase...")
         loader = SupabaseLoader(supabase_url, supabase_key)
@@ -647,14 +719,27 @@ def main(
 
         if success:
             logger.info(f"✓ Processo concluído com sucesso (ID de execução: {exec_id})")
+            resultado = True
             return True
         else:
             logger.error("✗ Erro ao carregar dados no Supabase")
             return False
-            
+
     except Exception as e:
         logger.error(f"Erro no processo: {e}")
         return False
+    finally:
+        # Registrar a sincronização no log (hora do PC + duração). Isolado em try/except
+        # próprio para nunca afetar o resultado da sincronização principal.
+        try:
+            duracao = time.monotonic() - inicio
+            data_hora_pc = datetime.now().isoformat()
+            status = 'sucesso' if resultado else 'falha'
+            SupabaseLoader(supabase_url, supabase_key).registrar_sincronizacao(
+                sync_log_table, data_hora_pc, duracao, status, qtd_registros
+            )
+        except Exception as log_exc:
+            logger.error(f"Falha ao registrar log de sincronização (ignorada): {log_exc}")
 
 
 if __name__ == "__main__":
