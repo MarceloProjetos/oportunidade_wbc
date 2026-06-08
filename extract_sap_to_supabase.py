@@ -709,6 +709,7 @@ def main(
     sync_log_table = os.getenv('SYNC_LOG_TABLE_NAME', SYNC_LOG_TABLE_NAME)
     qtd_registros = 0
     resultado = False
+    loader: Optional[SupabaseLoader] = None  # reaproveitado no finally para gravar o log
 
     try:
         # 1. Extrair dados do SAP
@@ -782,7 +783,11 @@ def main(
             duracao = time.monotonic() - inicio
             data_hora_pc = datetime.now().isoformat()
             status = 'sucesso' if resultado else 'falha'
-            SupabaseLoader(supabase_url, supabase_key).registrar_sincronizacao(
+            # Reaproveita o cliente já criado no fluxo principal; só instancia um novo se
+            # a falha ocorreu antes de ele existir (ex.: extração SAP falhou antes de
+            # chegar à carga no Supabase).
+            log_loader = loader or SupabaseLoader(supabase_url, supabase_key)
+            log_loader.registrar_sincronizacao(
                 sync_log_table, data_hora_pc, duracao, status, qtd_registros
             )
         except Exception as log_exc:
