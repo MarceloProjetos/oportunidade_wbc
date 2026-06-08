@@ -20,6 +20,7 @@ Variáveis de ambiente (.env):
 """
 
 import os
+import re
 import sys
 import time
 import logging
@@ -113,6 +114,43 @@ def with_retries(
     raise last_exc  # type: ignore[misc]
 
 
+# Identificador SQL permitido: letra/underscore seguido de alfanuméricos/underscore.
+# Aceita nome qualificado por pontos (SCHEMA.VIEW, DB.dbo.TABELA).
+_SQL_IDENTIFIER_PART = r'[A-Za-z_][A-Za-z0-9_]*'
+_SQL_QUALIFIED_NAME_RE = re.compile(
+    rf'^{_SQL_IDENTIFIER_PART}(\.{_SQL_IDENTIFIER_PART})*$'
+)
+
+
+def validate_sql_identifier(name: str, *, what: str = "identificador") -> str:
+    """Valida que ``name`` é um identificador SQL seguro (abordagem allow-list).
+
+    Aceita nomes simples (``VIEW``) ou qualificados por pontos (``SCHEMA.VIEW``,
+    ``DB.dbo.TABELA``). Rejeita qualquer coisa fora do padrão — espaços, aspas,
+    ponto-e-vírgula, hífens, comentários, etc. — impedindo injeção de SQL na
+    montagem das queries por concatenação de string.
+
+    Os nomes de view/schema vêm do ``.env`` (origem confiável), mas validamos
+    mesmo assim: defesa em profundidade. Nenhum identificador usado para montar
+    SQL deve vir de entrada não confiável sem passar por aqui.
+
+    Args:
+        name: Nome a validar.
+        what: Rótulo usado na mensagem de erro.
+
+    Returns:
+        O próprio ``name`` quando válido.
+
+    Raises:
+        ValueError: Se ``name`` for vazio ou não casar com o padrão permitido.
+    """
+    if not name or not _SQL_QUALIFIED_NAME_RE.match(name):
+        raise ValueError(
+            f"{what} inválido (esperado identificador SQL simples ou qualificado): {name!r}"
+        )
+    return name
+
+
 def build_view_query(view_name: str, schema: Optional[str] = None) -> str:
     """Monta a referência qualificada da view SAP HANA.
 
@@ -122,10 +160,15 @@ def build_view_query(view_name: str, schema: Optional[str] = None) -> str:
 
     Returns:
         A referência pronta para uso em ``FROM`` (ex.: ``"SCHEMA"."VIEW"``).
+
+    Raises:
+        ValueError: Se ``view_name`` ou ``schema`` não forem identificadores SQL válidos.
     """
+    validate_sql_identifier(view_name, what="nome da view SAP")
     if '.' in view_name:
         return view_name
     if schema:
+        validate_sql_identifier(schema, what="schema SAP")
         return f'"{schema}"."{view_name}"'
     return view_name
 
@@ -307,7 +350,11 @@ def query_sqlserver_view(view_name: str, connection: Any) -> Optional[pd.DataFra
 
     Returns:
         DataFrame com os resultados ou ``None`` em caso de erro.
+
+    Raises:
+        ValueError: Se ``view_name`` não for um identificador SQL válido.
     """
+    validate_sql_identifier(view_name, what="nome da view (SQL Server)")
     try:
         query = f"SELECT * FROM {view_name}"
         df = pd.read_sql(query, connection)

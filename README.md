@@ -393,7 +393,6 @@ oportunidade_wbc/
 ├── scheduled_execution.py       # Agendamento via APScheduler
 ├── exemplo_avancado.py          # Exemplos de uso avançado
 ├── pandas_guide.py              # Referência de manipulação com pandas
-├── config.json                  # Configuração base (placeholders ${VAR})
 ├── requirements.txt             # Dependências Python
 ├── Dockerfile                   # Imagem do container
 ├── docker-compose.yml           # Orquestração Docker

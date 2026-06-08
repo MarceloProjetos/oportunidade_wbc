@@ -283,7 +283,6 @@ oportunidade_wbc/
 ├── scheduled_execution.py       # Automação com scheduler
 ├── requirements.txt             # Dependências Python
 ├── .env.example                 # Template de configuração
-├── config.json                  # Configurações (JSON)
 ├── README.md                    # Este arquivo
 └── logs/                        # Diretório de logs
     └── execution.log
