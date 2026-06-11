@@ -1,10 +1,21 @@
 """Agendador que executa a extração SAP → Supabase via APScheduler.
 
-Roda uma carga ao iniciar (startup) e depois nos horários fixos de ``HORARIOS``.
+Roda uma carga ao iniciar (startup) e depois em intervalo fixo dentro da janela
+comercial (default: a cada 30 min, 07h–18h59, seg–sáb — configurável via ``.env``).
+Substitui a lista de horários fixos de antes (08:12, 09:00, 10:12, 12:30, 14:12,
+17:35), cujos buracos de até 3h deixavam o app mobile com status defasado
+(caso XCMG, 2026-06-11).
+
 Usa ``BackgroundScheduler`` com um laço ``time.sleep`` no thread principal: no Windows
 o Ctrl+C interrompe o ``time.sleep`` na hora (um ``BlockingScheduler`` ficaria preso
 num ``Event.wait`` longo e ignoraria o Ctrl+C até o próximo job). É o entrypoint
 indicado para rodar como serviço/tarefa agendada 24/7.
+
+Variáveis de ambiente (``.env``, todas opcionais):
+    INTERVALO_MINUTOS: minutos entre cargas (default 30; cada carga leva ~6s).
+    JANELA_HORAS: faixa de horas no formato cron (default ``7-18`` =
+        primeira carga 07:00, última 18:30 com intervalo 30).
+    DIAS_SEMANA: dias no formato cron (default ``mon-sat``).
 
 Instalação:
     pip install apscheduler
@@ -22,9 +33,6 @@ from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
 
 from extract_sap_to_supabase import main
-
-# Horários das execuções diárias (hora, minuto)
-HORARIOS = [(8, 12), (9, 0), (10, 12), (12, 30), (14, 12), (17, 35)]
 
 # Dias de log a reter (rotação diária à meia-noite)
 LOG_RETENCAO_DIAS = 12
@@ -104,18 +112,25 @@ def job_execucao() -> None:
 
 
 def configurar_agenda() -> BackgroundScheduler:
-    """Cria e configura o scheduler com os gatilhos de execução.
+    """Cria e configura o scheduler com o gatilho intervalar da janela comercial.
+
+    Lê ``INTERVALO_MINUTOS``/``JANELA_HORAS``/``DIAS_SEMANA`` do ambiente
+    (o ``load_dotenv()`` do módulo já rodou) com defaults seguros.
 
     Os ``job_defaults`` deixam o agendamento robusto para operação 24/7:
         - ``coalesce``: execuções perdidas (servidor desligado) viram uma única execução;
-        - ``max_instances=1``: impede um mesmo horário de empilhar instâncias (a exclusão
-          mútua entre horários distintos e o startup fica a cargo do lock global em
+        - ``max_instances=1``: impede o job de empilhar instâncias (a exclusão
+          mútua com a carga de startup fica a cargo do lock global em
           ``job_execucao``);
         - ``misfire_grace_time``: tolera atraso de até 1h (ex.: boot da segunda-feira).
 
     Returns:
         Um ``BackgroundScheduler`` configurado (ainda não iniciado).
     """
+    intervalo = max(5, int(os.getenv('INTERVALO_MINUTOS', '30')))  # piso de 5 min
+    janela_horas = os.getenv('JANELA_HORAS', '7-18')
+    dias_semana = os.getenv('DIAS_SEMANA', 'mon-sat')
+
     scheduler = BackgroundScheduler(
         job_defaults={
             'coalesce': True,
@@ -124,14 +139,16 @@ def configurar_agenda() -> BackgroundScheduler:
         }
     )
 
-    # Uma execução por horário definido em HORARIOS (todos os dias)
-    for hora, minuto in HORARIOS:
-        scheduler.add_job(
-            job_execucao,
-            trigger=CronTrigger(hour=hora, minute=minuto),
-            id=f'extracao_{hora:02d}{minuto:02d}',
-            name=f'Extração às {hora:02d}:{minuto:02d}',
-        )
+    scheduler.add_job(
+        job_execucao,
+        trigger=CronTrigger(
+            minute=f'*/{intervalo}',
+            hour=janela_horas,
+            day_of_week=dias_semana,
+        ),
+        id='extracao_intervalar',
+        name=f'Extração a cada {intervalo} min ({janela_horas}h, {dias_semana})',
+    )
 
     logger.info("Agenda configurada:")
     for job in scheduler.get_jobs():
@@ -150,8 +167,7 @@ def main_scheduler() -> None:
     logger.info("Executando carga inicial (startup)...")
     job_execucao()
 
-    horarios_txt = ", ".join(f"{h:02d}:{m:02d}" for h, m in HORARIOS)
-    logger.info(f"Scheduler ativo. Horários: {horarios_txt}. Pressione Ctrl+C para interromper.")
+    logger.info("Scheduler ativo (ver agenda acima). Pressione Ctrl+C para interromper.")
 
     # start() do BackgroundScheduler não bloqueia: os jobs rodam em threads próprias.
     scheduler.start()
