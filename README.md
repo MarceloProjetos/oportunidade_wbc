@@ -165,6 +165,11 @@ copy .env.example .env          # Windows
 | `SQL_HOST` / `SQL_PORT` | Host e porta do SQL Server (porta típica: `1433`) |
 | `SQL_USER` / `SQL_PASSWORD` | Credenciais do SQL Server |
 | `SQL_DATABASE` | Database (ex.: `WBCCAD`) |
+| `SQL_DRIVER` | Opcional — força um driver ODBC específico (ex.: `ODBC Driver 18 for SQL Server`) |
+
+> Variáveis do **agendamento** (`INTERVALO_MINUTOS`, `JANELA_HORAS`, `DIAS_SEMANA`,
+> `EXECUTION_MODE`) e do **log** (`SYNC_LOG_TABLE_NAME`) são opcionais e têm defaults —
+> ver [Agendamento](#agendamento-automático) e [Banco de Dados](#banco-de-dados-supabase).
 
 > ⚠️ **Segurança:** o `.env` contém a `service_role` (acesso total ao banco). Ele está no
 > [.gitignore](.gitignore) e **nunca** deve ir para o GitHub. Compartilhe credenciais por
@@ -259,6 +264,28 @@ alter table public.oportunidades
   foreign key ("SITCOD") references public.situacoes_orcamento (sitcod);
 ```
 
+### 3. Tabela de log `sincronizacao_log`
+
+Registra hora, duração e status de cada sincronização. O script grava uma linha ao final
+de cada carga e mantém só os **6 registros mais recentes** (poda os antigos). É auxiliar —
+falhas ao gravar este log são apenas registradas e **não** afetam a carga principal.
+
+```sql
+create table public.sincronizacao_log (
+  id                       bigint generated always as identity primary key,
+  data_hora_sincronizacao  timestamptz,
+  duracao_segundos         numeric(10,2),
+  status                   text,            -- 'sucesso' | 'falha'
+  qtd_registros            integer,
+  inserted_at              timestamptz default now()
+);
+
+alter table public.sincronizacao_log enable row level security;
+create policy "leitura_anon" on public.sincronizacao_log for select to anon using (true);
+```
+
+> O nome da tabela é configurável via `SYNC_LOG_TABLE_NAME` (default: `sincronizacao_log`).
+
 ### Consultar com a descrição da situação
 
 ```sql
@@ -312,12 +339,27 @@ main(view_name='VW_EVOL_OPORTUNIDADE_ALT', execution_mode='upsert')    # atualiz
 ### Opção A — APScheduler (multiplataforma)
 
 Já incluído em [scheduled_execution.py](scheduled_execution.py): roda uma carga **ao
-iniciar** (startup) e depois nos horários **09:00, 12:30 e 17:35** (editáveis na
-constante `HORARIOS`):
+iniciar** (startup) e depois **em intervalo fixo dentro da janela comercial** — por
+padrão **a cada 30 min, das 07h às 18h59, seg–sáb** (cada carga leva ~6s, última
+disparada às 18:30):
 
 ```bash
 python scheduled_execution.py
 ```
+
+Os horários são configuráveis por variáveis de ambiente (formato cron):
+
+| Variável | Default | Descrição |
+|----------|---------|-----------|
+| `INTERVALO_MINUTOS` | `30` | Minutos entre cargas (piso de 5). |
+| `JANELA_HORAS` | `7-18` | Faixa de horas (1ª carga 07:00, última 18:30 com intervalo 30). |
+| `DIAS_SEMANA` | `mon-sat` | Dias da semana. |
+| `EXECUTION_MODE` | `snapshot` | Modo de carga (`snapshot`/`insert`/`upsert`). |
+
+> Robustez 24/7: um *lock* global serializa as cargas (nunca há duas simultâneas, nem
+> com a do startup); `coalesce` + `misfire_grace_time` de 1h toleram servidor desligado;
+> log com rotação diária (`logs/scheduled_execution.log`, 12 dias) e *heartbeat* horário;
+> `SIGTERM` para parada limpa ao rodar como serviço.
 
 Para rodar no boot do servidor (24/6), registre o wrapper [run_scheduler.bat](run_scheduler.bat)
 no Task Scheduler (gatilho "Ao iniciar o sistema") ou via NSSM — ver
@@ -390,7 +432,8 @@ git push
 oportunidade_wbc/
 ├── extract_sap_to_supabase.py   # Pipeline principal (SAP + SQL Server → Supabase)
 ├── test_connections.py          # Diagnóstico de pacotes e conexões
-├── scheduled_execution.py       # Agendamento via APScheduler
+├── scheduled_execution.py       # Agendamento via APScheduler (intervalo + startup)
+├── run_scheduler.bat            # Wrapper p/ Task Scheduler / NSSM (boot 24/7)
 ├── exemplo_avancado.py          # Exemplos de uso avançado
 ├── pandas_guide.py              # Referência de manipulação com pandas
 ├── requirements.txt             # Dependências Python
@@ -400,6 +443,7 @@ oportunidade_wbc/
 ├── .env.example                 # Template de variáveis de ambiente
 ├── .env                         # Credenciais reais (NÃO versionar)
 ├── .gitignore                   # Arquivos ignorados pelo git
+├── USAGE_GUIDE.md               # Guia de uso detalhado
 └── README.md                    # Este arquivo
 ```
 
