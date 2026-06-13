@@ -1,0 +1,21 @@
+# Normaliza fim-de-linha: tudo LF no repo e no working tree.
+# Evita o churn CRLF<->LF entre git do Windows, WSL e Docker (Linux).
+* text=auto eol=lf
+
+# Scripts específicos de Windows mantêm CRLF.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# Scripts de shell sempre LF (rodam no container/Linux).
+*.sh    text eol=lf
+
+# Binários — git não deve tocar.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.xlsx  binary
+*.zip   binary
