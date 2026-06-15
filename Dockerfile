@@ -11,7 +11,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copiar código
 COPY extract_sap_to_supabase.py .
 COPY test_connections.py .
-COPY pandas_guide.py .
 
 # Criar diretório de logs
 RUN mkdir -p logs

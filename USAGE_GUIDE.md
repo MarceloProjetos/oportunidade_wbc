@@ -278,8 +278,8 @@ WHERE DataCotacao >= CURRENT_DATE - 30
 oportunidade_wbc/
 ├── extract_sap_to_supabase.py  # Script principal
 ├── test_connections.py          # Teste de conectividade
-├── exemplo_avancado.py          # Exemplos avançados
-├── pandas_guide.py              # Guia de manipulação de dados
+├── examples/
+│   └── exemplo_avancado.py      # Exemplos avançados (referência)
 ├── scheduled_execution.py       # Automação com scheduler
 ├── requirements.txt             # Dependências Python
 ├── .env.example                 # Template de configuração

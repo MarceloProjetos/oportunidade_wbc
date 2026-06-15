@@ -1,1 +1,0 @@
-"C:\Program Files\Python312\python.exe C:\Python\oportunidade_wbc\scheduled_execution.py"

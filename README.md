@@ -434,8 +434,8 @@ oportunidade_wbc/
 ├── test_connections.py          # Diagnóstico de pacotes e conexões
 ├── scheduled_execution.py       # Agendamento via APScheduler (intervalo + startup)
 ├── run_scheduler.bat            # Wrapper p/ Task Scheduler / NSSM (boot 24/7)
-├── exemplo_avancado.py          # Exemplos de uso avançado
-├── pandas_guide.py              # Referência de manipulação com pandas
+├── examples/
+│   └── exemplo_avancado.py      # Exemplos de uso avançado (referência)
 ├── requirements.txt             # Dependências Python
 ├── Dockerfile                   # Imagem do container
 ├── docker-compose.yml           # Orquestração Docker
