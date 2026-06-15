@@ -276,8 +276,7 @@ create table public.sincronizacao_log (
   data_hora_sincronizacao  timestamptz,
   duracao_segundos         numeric(10,2),
   status                   text,            -- 'sucesso' | 'falha'
-  qtd_registros            integer,
-  inserted_at              timestamptz default now()
+  qtd_registros            integer          -- data_hora_sincronizacao já registra o horário; sem inserted_at
 );
 
 alter table public.sincronizacao_log enable row level security;
