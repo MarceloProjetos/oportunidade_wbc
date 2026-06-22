@@ -181,6 +181,13 @@ copy .env.example .env          # Windows
 
 Execute os SQLs abaixo no **SQL Editor** do Supabase, na ordem.
 
+> ℹ️ **Hardening do Supabase (2026-06-22).** O projeto Supabase é **único e compartilhado**
+> (web, mobile e este extrator). Numa rodada de endurecimento via Advisor, foram otimizadas
+> policies RLS (Auth Init Plan), adicionados índices em FKs e revogado o `EXECUTE` público da
+> função `update_followup`. **Este pipeline não foi afetado:** ele escreve com a
+> **`service_role`**, que **ignora RLS** e não depende daquela função. Plano completo em
+> `web_orcaview_V117/docs/SUPABASE_ADVISOR_PLANO_2026-06-22.md`.
+
 > 💡 **Por que as colunas têm aspas?** No PostgreSQL identificadores sem aspas viram
 > minúsculas. Como o script insere usando o case exato da view SAP (`CreateDate`,
 > `N_WBC`, `NumOport`…), as colunas **precisam** ser criadas com aspas duplas para o
