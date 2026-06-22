@@ -6,7 +6,7 @@ Requisitos:
 
 Variáveis de ambiente (.env):
     SAP_HOST: Host do servidor SAP HANA.
-    SAP_PORT: Porta do servidor SAP HANA (default: 30013).
+    SAP_PORT: Porta do servidor SAP HANA (default: 30015).
     SAP_USER: Usuário do SAP HANA.
     SAP_PASSWORD: Senha do SAP HANA.
     SAP_DATABASE: Database (tenant) do SAP HANA — opcional.
@@ -16,6 +16,7 @@ Variáveis de ambiente (.env):
     SUPABASE_KEY: Chave anon do Supabase (leitura).
     SUPABASE_SERVICE_ROLE_KEY: Chave service_role do Supabase (escrita — ignora RLS).
     TABLE_NAME: Nome da tabela de destino (default: oportunidades).
+    SUPABASE_TIMEOUT_S: Timeout das chamadas REST PostgREST, em segundos (opcional).
     SQL_HOST, SQL_PORT, SQL_USER, SQL_PASSWORD, SQL_DATABASE: Conexão SQL Server (opcional).
 """
 
@@ -37,10 +38,11 @@ from supabase.client import ClientOptions
 from dotenv import load_dotenv
 
 # ── Parâmetros de robustez (timeouts e retries) ──
+SAP_PORT_DEFAULT = 30015             # porta típica do SAP HANA (indexserver)
 SAP_CONNECT_TIMEOUT_MS = 15000       # timeout de conexão ao SAP HANA (ms)
 SAP_COMM_TIMEOUT_MS = 60000          # timeout de comunicação/query ao SAP HANA (ms)
 SQL_LOGIN_TIMEOUT_S = 10             # timeout de login ao SQL Server (s)
-SUPABASE_TIMEOUT_S = 30             # timeout das chamadas REST ao Supabase (s)
+SUPABASE_TIMEOUT_S = 120             # timeout REST PostgREST ao Supabase (s); igual ao default do supabase-py
 RETRY_ATTEMPTS = 3                   # tentativas em falhas transitórias
 RETRY_BASE_DELAY_S = 2.0             # atraso base do backoff exponencial (s)
 INSERT_BATCH_SIZE = 500              # registros por lote no insert ao Supabase
@@ -120,6 +122,25 @@ _SQL_IDENTIFIER_PART = r'[A-Za-z_][A-Za-z0-9_]*'
 _SQL_QUALIFIED_NAME_RE = re.compile(
     rf'^{_SQL_IDENTIFIER_PART}(\.{_SQL_IDENTIFIER_PART})*$'
 )
+
+# Erro determinístico do hdbcli quando databaseName (tenant) não está conectado.
+_SAP_NOT_CONNECTED_RE = re.compile(r'not\s+connected', re.IGNORECASE)
+
+
+def is_sap_tenant_error(exc: BaseException) -> bool:
+    """Indica que o tenant SAP HANA (``databaseName``) não está conectado.
+
+    O hdbcli retorna mensagens como ``'not connected'`` quando o database
+    informado não existe ou não está ativo. Nesse caso o fallback é conectar
+    sem ``databaseName``.
+
+    Args:
+        exc: Exceção capturada na tentativa de conexão.
+
+    Returns:
+        ``True`` se a mensagem da exceção indica erro de tenant não conectado.
+    """
+    return bool(_SAP_NOT_CONNECTED_RE.search(str(exc)))
 
 
 def validate_sql_identifier(name: str, *, what: str = "identificador") -> str:
@@ -204,8 +225,8 @@ class SAPExtractor:
         """Conecta ao SAP HANA, com timeout e novas tentativas em falhas transitórias.
 
         Aplica timeouts de conexão/comunicação e retenta erros transitórios (rede) com
-        backoff. O erro determinístico ``not connected`` (database tenant) não é
-        retentado: dispara o fallback de conexão sem ``databaseName``.
+        backoff. O erro determinístico de tenant não conectado não é retentado:
+        dispara o fallback de conexão sem ``databaseName``.
 
         Returns:
             ``True`` se conectado com sucesso; ``False`` caso contrário.
@@ -223,8 +244,8 @@ class SAPExtractor:
         if self.database:
             connect_args['databaseName'] = self.database
 
-        # Não retentar o erro determinístico 'not connected' — ele leva ao fallback.
-        not_transient = lambda exc: 'not connected' not in str(exc).lower()
+        # Não retentar erro de tenant — leva ao fallback sem databaseName.
+        not_transient = lambda exc: not is_sap_tenant_error(exc)
 
         def _connect(args: dict):
             return with_retries(
@@ -241,7 +262,7 @@ class SAPExtractor:
             error_message = str(e)
             logger.warning(f"Falha ao conectar com databaseName='{self.database}': {error_message}")
 
-            if self.database and 'not connected' in error_message.lower():
+            if self.database and is_sap_tenant_error(e):
                 try:
                     connect_args.pop('databaseName', None)
                     self.connection = _connect(connect_args)
@@ -378,7 +399,7 @@ def extract_sap_to_dataframe(view_name: Optional[str] = None) -> Optional[pd.Dat
         DataFrame com os dados filtrados ou ``None`` em caso de erro.
     """
     sap_host = os.getenv('SAP_HOST')
-    sap_port = int(os.getenv('SAP_PORT', 30013))
+    sap_port = int(os.getenv('SAP_PORT', SAP_PORT_DEFAULT))
     sap_user = os.getenv('SAP_USER')
     sap_password = os.getenv('SAP_PASSWORD')
     sap_database = os.getenv('SAP_DATABASE')
@@ -452,16 +473,26 @@ def extract_sqlserver_view(
 class SupabaseLoader:
     """Classe para carregar dados no Supabase."""
     
-    def __init__(self, supabase_url: str, supabase_key: str):
-        """Inicializa o cliente Supabase com timeout configurado nas chamadas REST.
+    def __init__(
+        self,
+        supabase_url: str,
+        supabase_key: str,
+        timeout_s: Optional[float] = None,
+    ):
+        """Inicializa o cliente Supabase com timeout explícito nas chamadas REST.
 
         Args:
             supabase_url: URL do projeto Supabase.
             supabase_key: Chave de API (preferir a service_role para escrita).
+            timeout_s: Timeout PostgREST em segundos. Se ``None``, usa
+                ``SUPABASE_TIMEOUT_S`` do ambiente ou o default do módulo.
         """
+        if timeout_s is None:
+            timeout_s = float(os.getenv('SUPABASE_TIMEOUT_S', SUPABASE_TIMEOUT_S))
 
-        self.client: Client = create_client(supabase_url, supabase_key)
-        logger.info("Cliente Supabase inicializado")
+        options = ClientOptions(postgrest_client_timeout=timeout_s)
+        self.client: Client = create_client(supabase_url, supabase_key, options)
+        logger.info(f"Cliente Supabase inicializado (timeout REST: {timeout_s}s)")
     
     def insert_data(
         self, table_name: str, data: List[Dict[str, Any]], batch_size: int = INSERT_BATCH_SIZE
@@ -683,13 +714,10 @@ def main(
     Returns:
         ``True`` se o processo concluiu com sucesso, ``False`` caso contrário.
     """
-    # Carregar configurações
+    # Carregar configurações (SAP detalhado é relido em extract_sap_to_dataframe)
     sap_host = os.getenv('SAP_HOST')
-    sap_port = int(os.getenv('SAP_PORT', 30013))
     sap_user = os.getenv('SAP_USER')
     sap_password = os.getenv('SAP_PASSWORD')
-    sap_database = os.getenv('SAP_DATABASE')
-    sap_schema = os.getenv('SAP_SCHEMA')
     supabase_url = os.getenv('SUPABASE_URL')
     # Preferir a service_role para escrita (ignora RLS); cai para a anon se não houver
     supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('SUPABASE_KEY')

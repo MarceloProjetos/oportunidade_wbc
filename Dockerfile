@@ -17,7 +17,7 @@ RUN mkdir -p logs
 
 # Variáveis de ambiente (podem ser sobrescrita em tempo de execução)
 ENV SAP_HOST=""
-ENV SAP_PORT="30013"
+ENV SAP_PORT="30015"
 ENV SAP_USER=""
 ENV SAP_PASSWORD=""
 ENV SAP_DATABASE=""

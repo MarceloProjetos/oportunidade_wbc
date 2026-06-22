@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import pandas as pd
 
-from extract_sap_to_supabase import SAPExtractor, SupabaseLoader, prepare_data
+from extract_sap_to_supabase import SAPExtractor, SupabaseLoader, prepare_data, SAP_PORT_DEFAULT
 
 load_dotenv()
 
@@ -17,7 +17,7 @@ def exemplo_filtro_data() -> None:
 
     sap = SAPExtractor(
         host=os.getenv('SAP_HOST'),
-        port=int(os.getenv('SAP_PORT', 30013)),
+        port=int(os.getenv('SAP_PORT', SAP_PORT_DEFAULT)),
         user=os.getenv('SAP_USER'),
         password=os.getenv('SAP_PASSWORD'),
         database=os.getenv('SAP_DATABASE')
@@ -56,7 +56,7 @@ def exemplo_com_transformacao() -> None:
 
     sap = SAPExtractor(
         host=os.getenv('SAP_HOST'),
-        port=int(os.getenv('SAP_PORT', 30013)),
+        port=int(os.getenv('SAP_PORT', SAP_PORT_DEFAULT)),
         user=os.getenv('SAP_USER'),
         password=os.getenv('SAP_PASSWORD'),
         database=os.getenv('SAP_DATABASE')
@@ -100,7 +100,7 @@ def exemplo_validacao_dados() -> None:
 
     sap = SAPExtractor(
         host=os.getenv('SAP_HOST'),
-        port=int(os.getenv('SAP_PORT', 30013)),
+        port=int(os.getenv('SAP_PORT', SAP_PORT_DEFAULT)),
         user=os.getenv('SAP_USER'),
         password=os.getenv('SAP_PASSWORD'),
         database=os.getenv('SAP_DATABASE')
@@ -161,7 +161,7 @@ def exemplo_relatorio_execucao() -> None:
 
     sap = SAPExtractor(
         host=os.getenv('SAP_HOST'),
-        port=int(os.getenv('SAP_PORT', 30013)),
+        port=int(os.getenv('SAP_PORT', SAP_PORT_DEFAULT)),
         user=os.getenv('SAP_USER'),
         password=os.getenv('SAP_PASSWORD'),
         database=os.getenv('SAP_DATABASE')

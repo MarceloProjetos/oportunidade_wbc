@@ -6,7 +6,7 @@ services:
     container_name: sap-to-supabase
     environment:
       - SAP_HOST=${SAP_HOST}
-      - SAP_PORT=30013
+      - SAP_PORT=${SAP_PORT:-30015}
       - SAP_USER=${SAP_USER}
       - SAP_PASSWORD=${SAP_PASSWORD}
       - SAP_DATABASE=${SAP_DATABASE}

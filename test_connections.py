@@ -7,6 +7,8 @@ import os
 import sys
 from dotenv import load_dotenv
 
+from extract_sap_to_supabase import SAP_PORT_DEFAULT, is_sap_tenant_error
+
 # Garantir saída UTF-8 no console (Windows usa cp1252 e quebra com ✓/❌)
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -36,7 +38,7 @@ def test_sap_connection() -> bool:
     
     # Carregar configurações
     sap_host = os.getenv('SAP_HOST')
-    sap_port = int(os.getenv('SAP_PORT', 30013))
+    sap_port = int(os.getenv('SAP_PORT', SAP_PORT_DEFAULT))
     sap_user = os.getenv('SAP_USER')
     sap_password = os.getenv('SAP_PASSWORD')
     sap_database = os.getenv('SAP_DATABASE')
@@ -73,8 +75,7 @@ def test_sap_connection() -> bool:
         try:
             conn = dbapi.connect(**connect_args)
         except Exception as initial_error:
-            message = str(initial_error).lower()
-            if sap_database and 'not connected' in message:
+            if sap_database and is_sap_tenant_error(initial_error):
                 print(f"⚠ Database '{sap_database}' não conectado. Tentando sem databaseName...")
                 connect_args.pop('databaseName', None)
                 conn = dbapi.connect(**connect_args)
@@ -162,7 +163,7 @@ def test_view_exists() -> bool:
     
     # Carregar configurações
     sap_host = os.getenv('SAP_HOST')
-    sap_port = int(os.getenv('SAP_PORT', 30013))
+    sap_port = int(os.getenv('SAP_PORT', SAP_PORT_DEFAULT))
     sap_user = os.getenv('SAP_USER')
     sap_password = os.getenv('SAP_PASSWORD')
     sap_database = os.getenv('SAP_DATABASE')
@@ -182,8 +183,7 @@ def test_view_exists() -> bool:
         try:
             conn = dbapi.connect(**connect_args)
         except Exception as initial_error:
-            message = str(initial_error).lower()
-            if sap_database and 'not connected' in message:
+            if sap_database and is_sap_tenant_error(initial_error):
                 print(f"⚠ Database '{sap_database}' não conectado. Tentando sem databaseName...")
                 connect_args.pop('databaseName', None)
                 conn = dbapi.connect(**connect_args)
@@ -205,7 +205,7 @@ def test_view_exists() -> bool:
         
         print(f"✓ Views disponíveis (primeiras 20):")
         for view in views:
-            print(f"  - {view[0]}")
+            print(f"  - {view[0]}.{view[1]}")
         
         conn.close()
         return True

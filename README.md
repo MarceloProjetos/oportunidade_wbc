@@ -449,7 +449,6 @@ oportunidade_wbc/
 ├── .env.example                 # Template de variáveis de ambiente
 ├── .env                         # Credenciais reais (NÃO versionar)
 ├── .gitignore                   # Arquivos ignorados pelo git
-├── USAGE_GUIDE.md               # Guia de uso detalhado
 └── README.md                    # Este arquivo
 ```
 
