@@ -16,6 +16,7 @@ from config import (
     SAP_COMM_TIMEOUT_MS,
     SAP_CONNECT_TIMEOUT_MS,
 )
+from db_utils import read_dbapi_query
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +145,7 @@ class SAPExtractor:
         try:
             if not self.connection:
                 raise RuntimeError('Not connected to SAP HANA')
-            df = pd.read_sql(query, self.connection)
+            df = read_dbapi_query(query, self.connection)
             logger.info('Query OK: %s rows', len(df))
             return df
         except Exception as exc:

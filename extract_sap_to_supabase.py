@@ -28,6 +28,7 @@ from config import (
     get_settings,
 )
 from sap_connection import SAPExtractor, is_sap_tenant_error
+from db_utils import read_dbapi_query
 
 from config import SAP_PORT_DEFAULT  # noqa: F401 — backward compat
 
@@ -162,7 +163,7 @@ def query_sqlserver_view(view_name: str, connection: Any) -> Optional[pd.DataFra
     validate_sql_identifier(view_name, what="nome da view (SQL Server)")
     try:
         query = f"SELECT * FROM {view_name}"
-        df = pd.read_sql(query, connection)
+        df = read_dbapi_query(query, connection)
         logger.info(f"Query SQL Server executada com sucesso. {len(df)} linhas retornadas.")
         return df
     except Exception as e:

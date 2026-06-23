@@ -17,7 +17,7 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY config.py sap_connection.py feriados_br.py extract_sap_to_supabase.py .
+COPY config.py db_utils.py sap_connection.py feriados_br.py extract_sap_to_supabase.py .
 COPY scripts/ scripts/
 
 RUN mkdir -p logs
