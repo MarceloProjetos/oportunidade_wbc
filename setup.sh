@@ -35,7 +35,7 @@ fi
 # 4. Testar conexões
 echo ""
 echo "4. Testando conexões..."
-python test_connections.py
+python scripts/test_connections.py
 
 echo ""
 echo "=================================================="

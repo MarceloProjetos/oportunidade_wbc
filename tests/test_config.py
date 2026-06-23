@@ -1,6 +1,8 @@
-"""Testes de configuração centralizada."""
+"""Centralized configuration tests."""
 
 import os
+
+import pytest
 
 from config import EXECUTION_MODES, SAP_PORT_DEFAULT, Settings, get_settings, reset_settings
 
@@ -52,3 +54,22 @@ def test_sap_database_optional_empty_string(monkeypatch):
     monkeypatch.setenv('SAP_DATABASE', '')
     reset_settings()
     assert get_settings().sap_database is None
+
+
+def test_janela_horas_validated_at_load(monkeypatch):
+    monkeypatch.setenv('JANELA_HORAS', 'bad')
+    reset_settings()
+    with pytest.raises(ValueError):
+        get_settings()
+
+
+def test_sql_enrichment_view_default(monkeypatch):
+    monkeypatch.delenv('SQL_ENRICHMENT_VIEW', raising=False)
+    reset_settings()
+    assert get_settings().sql_enrichment_view == 'WBCCAD.dbo.INTEGRACAO_ORCSIT'
+
+
+def test_sql_enrichment_view_from_env(monkeypatch):
+    monkeypatch.setenv('SQL_ENRICHMENT_VIEW', 'MYDB.dbo.MY_VIEW')
+    reset_settings()
+    assert get_settings().sql_enrichment_view == 'MYDB.dbo.MY_VIEW'

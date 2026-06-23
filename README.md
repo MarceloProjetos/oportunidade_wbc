@@ -308,7 +308,7 @@ limit 100;
 ### 1. Testar as conexões (recomendado antes da 1ª carga)
 
 ```bash
-python test_connections.py
+python scripts/test_connections.py
 ```
 
 Valida pacotes, `.env`, conexão SAP e Supabase (anon + **service_role** para escrita),
@@ -359,13 +359,13 @@ main(view_name='VW_EVOL_OPORTUNIDADE_ALT', execution_mode='insert')    # acumula
 
 ### Opção A — APScheduler (multiplataforma)
 
-Já incluído em [scheduled_execution.py](scheduled_execution.py): roda uma carga **ao
+Já incluído em [scripts/scheduled_execution.py](scripts/scheduled_execution.py): roda uma carga **ao
 iniciar** (startup) e depois **em intervalo fixo dentro da janela comercial** — por
 padrão **a cada 30 min, das 07h às 18h59, seg–sex** (sem sábado, domingo nem
 feriados nacionais brasileiros — calendário até 2030):
 
 ```bash
-python scheduled_execution.py
+python scripts/scheduled_execution.py
 ```
 
 Os horários são configuráveis por variáveis de ambiente:
@@ -420,7 +420,7 @@ OrcaView-ETL ...`), que aparece em `services.msc`.
 docker compose up --build
 
 # Para rodar agendado, ajuste o `command` em docker-compose.yml:
-#   command: python scheduled_execution.py
+#   command: python scripts/scheduled_execution.py
 ```
 
 > O [Dockerfile](Dockerfile) usa `python:3.12-slim` com **ODBC Driver 18** pré-instalado
@@ -460,11 +460,10 @@ oportunidade_wbc/
 ├── sap_connection.py            # Conexão SAP HANA compartilhada
 ├── feriados_br.py               # Calendário de feriados nacionais (até 2030)
 ├── extract_sap_to_supabase.py   # Pipeline principal (SAP + SQL Server → Supabase)
-├── test_connections.py          # Diagnóstico de pacotes e conexões
-├── scheduled_execution.py       # Agendamento via APScheduler (IntervalTrigger)
+├── scripts/
+│   ├── scheduled_execution.py   # Agendamento via APScheduler (IntervalTrigger)
+│   └── test_connections.py      # Diagnóstico de pacotes e conexões
 ├── run_scheduler.bat            # Wrapper p/ Task Scheduler / NSSM (boot 24/7)
-├── examples/
-│   └── exemplo_avancado.py      # Exemplos de uso avançado (referência)
 ├── requirements.txt             # Dependências Python
 ├── requirements-dev.txt         # pytest (testes unitários)
 ├── tests/                       # Suíte pytest

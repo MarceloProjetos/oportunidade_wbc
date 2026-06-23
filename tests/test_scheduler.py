@@ -1,25 +1,25 @@
-"""Testes do agendador (janela comercial e dias úteis)."""
+"""Scheduler tests (hour window and business days)."""
 
 from datetime import date, datetime
 
 import pytest
 
+from config import parse_janela_horas
 from feriados_br import eh_dia_util
-from scheduled_execution import (
+from scripts.scheduled_execution import (
     _parse_dias_semana,
-    _parse_janela_horas,
     esta_na_janela_comercial,
     pode_executar_carga,
 )
 
 
 def test_parse_janela_horas():
-    assert _parse_janela_horas('7-18') == (7, 18)
+    assert parse_janela_horas('7-18') == (7, 18)
 
 
 def test_parse_janela_horas_invalid():
     with pytest.raises(ValueError):
-        _parse_janela_horas('7')
+        parse_janela_horas('7')
 
 
 def test_parse_dias_semana_range():
@@ -31,7 +31,7 @@ def test_parse_dias_semana_list():
 
 
 def test_esta_na_janela_comercial_dentro():
-    agora = datetime(2026, 6, 23, 10, 30)  # terça
+    agora = datetime(2026, 6, 23, 10, 30)
     assert esta_na_janela_comercial(janela_horas='7-18', agora=agora)
 
 
@@ -41,17 +41,17 @@ def test_esta_na_janela_comercial_fora_horario():
 
 
 def test_esta_na_janela_comercial_sabado():
-    agora = datetime(2026, 6, 27, 10, 0)  # sábado
+    agora = datetime(2026, 6, 27, 10, 0)
     assert not esta_na_janela_comercial(janela_horas='7-18', agora=agora)
 
 
 def test_esta_na_janela_comercial_domingo():
-    agora = datetime(2026, 6, 28, 10, 0)  # domingo
+    agora = datetime(2026, 6, 28, 10, 0)
     assert not esta_na_janela_comercial(janela_horas='7-18', agora=agora)
 
 
 def test_esta_na_janela_comercial_feriado():
-    agora = datetime(2026, 1, 1, 10, 0)  # ano novo
+    agora = datetime(2026, 1, 1, 10, 0)
     assert not esta_na_janela_comercial(janela_horas='7-18', agora=agora)
 
 
@@ -61,7 +61,7 @@ def test_pode_executar_startup_feriado_mesmo_fora_horario():
 
 
 def test_pode_executar_startup_dia_util_fora_horario():
-    agora = datetime(2026, 6, 23, 6, 0)  # terça cedo
+    agora = datetime(2026, 6, 23, 6, 0)
     assert pode_executar_carga(ignorar_janela_horaria=True, agora=agora)
 
 

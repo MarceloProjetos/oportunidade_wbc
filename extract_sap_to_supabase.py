@@ -1,24 +1,4 @@
-"""Extrai a view de oportunidades do SAP B1 (HANA), enriquece com dados do SQL Server
-(WBCcad) e carrega o resultado numa tabela do Supabase.
-
-Requisitos:
-    pip install hdbcli supabase pandas python-dotenv pyodbc
-
-Variáveis de ambiente (.env):
-    SAP_HOST: Host do servidor SAP HANA.
-    SAP_PORT: Porta do servidor SAP HANA (default: 30015).
-    SAP_USER: Usuário do SAP HANA.
-    SAP_PASSWORD: Senha do SAP HANA.
-    SAP_DATABASE: Database (tenant) do SAP HANA — opcional.
-    SAP_SCHEMA: Schema onde a view está (ex.: SBOALTAMIRAPROD).
-    SAP_VIEW_NAME: Nome da view de origem.
-    SUPABASE_URL: URL do projeto Supabase.
-    SUPABASE_KEY: Chave anon do Supabase (leitura).
-    SUPABASE_SERVICE_ROLE_KEY: Chave service_role do Supabase (escrita — ignora RLS).
-    TABLE_NAME: Nome da tabela de destino (default: oportunidades).
-    SUPABASE_TIMEOUT_S: Timeout das chamadas REST PostgREST, em segundos (opcional).
-    SQL_HOST, SQL_PORT, SQL_USER, SQL_PASSWORD, SQL_DATABASE: Conexão SQL Server (opcional).
-"""
+"""ETL: SAP HANA view → SQL Server enrichment → Supabase. See config.py and .env.example."""
 
 import re
 import sys
@@ -41,6 +21,7 @@ from config import (
     MESES_RETROATIVOS,
     RETRY_ATTEMPTS,
     RETRY_BASE_DELAY_S,
+    SQL_ENRICHMENT_VIEW_DEFAULT,
     SQL_LOGIN_TIMEOUT_S,
     SYNC_LOG_MAX_REGISTROS,
     SYNC_LOG_TABLE_NAME,
@@ -48,17 +29,15 @@ from config import (
 )
 from sap_connection import SAPExtractor, is_sap_tenant_error
 
-# Re-export para compatibilidade com imports existentes
-from config import SAP_PORT_DEFAULT  # noqa: F401
+from config import SAP_PORT_DEFAULT  # noqa: F401 — backward compat
 
-# Garantir saída UTF-8 no console (Windows usa cp1252 e quebra com ✓/✗)
+# UTF-8 console on Windows
 try:
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 except AttributeError:
     pass
 
-# Configurar logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -71,26 +50,10 @@ def with_retries(
     *,
     attempts: int = RETRY_ATTEMPTS,
     base_delay: float = RETRY_BASE_DELAY_S,
-    what: str = "operação",
+    what: str = "operation",
     retry_on: Optional[Callable[[Exception], bool]] = None,
 ) -> Any:
-    """Executa ``operation`` com novas tentativas e backoff exponencial.
-
-    Args:
-        operation: Função sem argumentos a executar.
-        attempts: Número máximo de tentativas.
-        base_delay: Atraso base em segundos; dobra a cada tentativa (2, 4, 8...).
-        what: Rótulo da operação, usado nas mensagens de log.
-        retry_on: Predicado ``(exc) -> bool``. Se retornar ``False``, a exceção é
-            propagada imediatamente, sem retry. Default: retenta em qualquer exceção.
-
-    Returns:
-        O valor retornado por ``operation``.
-
-    Raises:
-        Exception: A última exceção capturada, se todas as tentativas falharem
-            (ou imediatamente, se ``retry_on`` indicar que não se deve retentar).
-    """
+    """Run operation with exponential backoff retries."""
     last_exc: Optional[Exception] = None
     for attempt in range(1, attempts + 1):
         try:
@@ -111,36 +74,15 @@ def with_retries(
     raise last_exc  # type: ignore[misc]
 
 
-# Identificador SQL permitido: letra/underscore seguido de alfanuméricos/underscore.
-# Aceita nome qualificado por pontos (SCHEMA.VIEW, DB.dbo.TABELA).
+# Allow-list for qualified SQL identifiers (schema.view, db.dbo.table)
 _SQL_IDENTIFIER_PART = r'[A-Za-z_][A-Za-z0-9_]*'
 _SQL_QUALIFIED_NAME_RE = re.compile(
     rf'^{_SQL_IDENTIFIER_PART}(\.{_SQL_IDENTIFIER_PART})*$'
 )
 
 
-def validate_sql_identifier(name: str, *, what: str = "identificador") -> str:
-    """Valida que ``name`` é um identificador SQL seguro (abordagem allow-list).
-
-    Aceita nomes simples (``VIEW``) ou qualificados por pontos (``SCHEMA.VIEW``,
-    ``DB.dbo.TABELA``). Rejeita qualquer coisa fora do padrão — espaços, aspas,
-    ponto-e-vírgula, hífens, comentários, etc. — impedindo injeção de SQL na
-    montagem das queries por concatenação de string.
-
-    Os nomes de view/schema vêm do ``.env`` (origem confiável), mas validamos
-    mesmo assim: defesa em profundidade. Nenhum identificador usado para montar
-    SQL deve vir de entrada não confiável sem passar por aqui.
-
-    Args:
-        name: Nome a validar.
-        what: Rótulo usado na mensagem de erro.
-
-    Returns:
-        O próprio ``name`` quando válido.
-
-    Raises:
-        ValueError: Se ``name`` for vazio ou não casar com o padrão permitido.
-    """
+def validate_sql_identifier(name: str, *, what: str = "identifier") -> str:
+    """Reject names outside the allow-list to prevent SQL injection."""
     if not name or not _SQL_QUALIFIED_NAME_RE.match(name):
         raise ValueError(
             f"{what} inválido (esperado identificador SQL simples ou qualificado): {name!r}"
@@ -149,18 +91,7 @@ def validate_sql_identifier(name: str, *, what: str = "identificador") -> str:
 
 
 def build_view_query(view_name: str, schema: Optional[str] = None) -> str:
-    """Monta a referência qualificada da view SAP HANA.
-
-    Args:
-        view_name: Nome da view. Se já contiver schema (`SCHEMA.VIEW`), é usado como está.
-        schema: Schema opcional a prefixar quando ``view_name`` não o contém.
-
-    Returns:
-        A referência pronta para uso em ``FROM`` (ex.: ``"SCHEMA"."VIEW"``).
-
-    Raises:
-        ValueError: Se ``view_name`` ou ``schema`` não forem identificadores SQL válidos.
-    """
+    """Build quoted SAP HANA FROM clause (optional schema prefix)."""
     validate_sql_identifier(view_name, what="nome da view SAP")
     if '.' in view_name:
         return view_name
@@ -178,22 +109,7 @@ def get_sqlserver_connection(
     database: str,
     driver: Optional[str] = None,
 ) -> Optional[Any]:
-    """Estabelece uma conexão com o SQL Server usando pyodbc.
-
-    Tenta os drivers ODBC em ordem de preferência (18 → 17 → Native Client → SQL Server)
-    e usa o primeiro que conectar.
-
-    Args:
-        host: Host/IP do servidor SQL Server.
-        port: Porta do servidor.
-        user: Usuário do banco.
-        password: Senha do usuário.
-        database: Nome do database.
-        driver: Driver ODBC específico a tentar primeiro (opcional).
-
-    Returns:
-        Um objeto de conexão ``pyodbc.Connection`` ou ``None`` se nenhum driver conectar.
-    """
+    """Connect to SQL Server via pyodbc (tries ODBC 18 → 17 → legacy drivers)."""
     try:
         import pyodbc
     except ImportError:
@@ -285,7 +201,7 @@ def extract_sap_to_dataframe(view_name: Optional[str] = None) -> Optional[pd.Dat
     if not sap.connect():
         return None
 
-    # Filtra na origem: só os últimos MESES_RETROATIVOS meses (mais eficiente)
+    # Filter at source: last MESES_RETROATIVOS months only
     query = (
         f'SELECT * FROM {build_view_query(view_name, settings.sap_schema)} '
         f'WHERE "{FILTRO_COLUNA_DATA}" >= ADD_MONTHS(CURRENT_DATE, -{MESES_RETROATIVOS})'
@@ -302,9 +218,11 @@ def extract_sap_to_dataframe(view_name: Optional[str] = None) -> Optional[pd.Dat
 
 
 def extract_sqlserver_view(
-    view_name: str = 'WBCCAD.dbo.INTEGRACAO_ORCSIT'
+    view_name: Optional[str] = None,
 ) -> Optional[pd.DataFrame]:
-    """Conecta ao SQL Server e retorna os dados da view solicitada."""
+    """Fetch enrichment view from SQL Server (default from SQL_ENRICHMENT_VIEW env)."""
+    if view_name is None:
+        view_name = get_settings().sql_enrichment_view
     settings = get_settings()
 
     if not settings.sql_ready():
@@ -333,7 +251,7 @@ def extract_sqlserver_view(
 
 
 class SupabaseLoader:
-    """Classe para carregar dados no Supabase."""
+    """Batch insert/delete and sync log for Supabase PostgREST."""
     
     def __init__(
         self,
@@ -341,14 +259,7 @@ class SupabaseLoader:
         supabase_key: str,
         timeout_s: Optional[float] = None,
     ):
-        """Inicializa o cliente Supabase com timeout explícito nas chamadas REST.
-
-        Args:
-            supabase_url: URL do projeto Supabase.
-            supabase_key: Chave de API (preferir a service_role para escrita).
-            timeout_s: Timeout PostgREST em segundos. Se ``None``, usa
-                ``SUPABASE_TIMEOUT_S`` do ambiente ou o default do módulo.
-        """
+        """Create Supabase client with explicit REST timeout."""
         if timeout_s is None:
             timeout_s = get_settings().supabase_timeout_s
 
@@ -593,24 +504,27 @@ def main(
         
         logger.info(f"Total de registros extraídos: {len(df)}")
 
-        # 1.1. Enriquecer com SITCOD e ORCALTDTH do SQL Server (join N_WBC = ORCNUM)
-        logger.info("Conectando ao SQL Server para buscar SITCOD/ORCALTDTH (INTEGRACAO_ORCSIT)...")
-        sql_df = extract_sqlserver_view('WBCCAD.dbo.INTEGRACAO_ORCSIT')
+        # 1.1 SQL Server enrichment: join N_WBC = ORCNUM → SITCOD, ORCALTDTH
+        enrich_view = settings.sql_enrichment_view
+        logger.info("SQL Server enrichment from %s...", enrich_view)
+        if 'N_WBC' not in df.columns:
+            logger.error("SAP data missing N_WBC column; cannot merge enrichment")
+            return False
+        sql_df = extract_sqlserver_view(enrich_view)
         if sql_df is None or len(sql_df) == 0:
-            logger.warning("SQL Server indisponível; SITCOD/ORCALTDTH ficarão nulos")
+            logger.warning("SQL Server unavailable; SITCOD/ORCALTDTH will be null")
             df['SITCOD'] = None
             df['ORCALTDTH'] = None
         else:
-            logger.info(f"Dados SQL Server extraídos: {len(sql_df)} registros")
+            logger.info("SQL Server rows: %s", len(sql_df))
             sit = sql_df[['ORCNUM', 'SITCOD', 'ORCALTDTH']].copy()
             sit['ORCNUM'] = sit['ORCNUM'].astype(str).str.strip()
-            # Se houver histórico para o mesmo ORCNUM, manter o registro mais recente
             sit = sit.sort_values('ORCALTDTH').drop_duplicates(subset='ORCNUM', keep='last')
             df['_key'] = df['N_WBC'].astype(str).str.strip()
             df = df.merge(sit, how='left', left_on='_key', right_on='ORCNUM')
             df = df.drop(columns=['_key', 'ORCNUM'])
             matched = int(df['SITCOD'].notna().sum())
-            logger.info(f"SITCOD/ORCALTDTH preenchidos em {matched} de {len(df)} registros")
+            logger.info("Enrichment matched %s / %s rows", matched, len(df))
         
         # 2. Preparar dados
         logger.info("Preparando dados para inserção...")

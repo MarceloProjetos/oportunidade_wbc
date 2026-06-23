@@ -17,4 +17,4 @@ if exist "venv\Scripts\python.exe" (
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
 
-"%PY%" scheduled_execution.py
+"%PY%" scripts\scheduled_execution.py

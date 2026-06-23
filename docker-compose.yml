@@ -25,6 +25,7 @@ services:
       SQL_USER: ${SQL_USER:-}
       SQL_PASSWORD: ${SQL_PASSWORD:-}
       SQL_DATABASE: ${SQL_DATABASE:-WBCCAD}
+      SQL_ENRICHMENT_VIEW: ${SQL_ENRICHMENT_VIEW:-WBCCAD.dbo.INTEGRACAO_ORCSIT}
       SQL_DRIVER: ${SQL_DRIVER:-}
       INTERVALO_MINUTOS: ${INTERVALO_MINUTOS:-30}
       JANELA_HORAS: ${JANELA_HORAS:-7-18}
@@ -35,4 +36,4 @@ services:
     restart: unless-stopped
     # Execução única (default):
     command: python extract_sap_to_supabase.py
-    # Agendado: command: python scheduled_execution.py
+    # Scheduled: command: python scripts/scheduled_execution.py

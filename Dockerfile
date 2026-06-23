@@ -2,7 +2,7 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# ODBC Driver 18 para SQL Server (enriquecimento SITCOD/ORCALTDTH)
+# ODBC Driver 18 for SQL Server enrichment
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl gnupg apt-transport-https unixodbc unixodbc-dev \
     && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
@@ -17,8 +17,8 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY config.py sap_connection.py feriados_br.py .
-COPY extract_sap_to_supabase.py scheduled_execution.py test_connections.py .
+COPY config.py sap_connection.py feriados_br.py extract_sap_to_supabase.py .
+COPY scripts/ scripts/
 
 RUN mkdir -p logs
 
@@ -38,6 +38,7 @@ ENV PYTHONUNBUFFERED=1 \
     SQL_PORT="1433" \
     SQL_USER="" \
     SQL_PASSWORD="" \
-    SQL_DATABASE="WBCCAD"
+    SQL_DATABASE="WBCCAD" \
+    SQL_ENRICHMENT_VIEW="WBCCAD.dbo.INTEGRACAO_ORCSIT"
 
 CMD ["python", "extract_sap_to_supabase.py"]
