@@ -361,8 +361,8 @@ main(view_name='VW_EVOL_OPORTUNIDADE_ALT', execution_mode='insert')    # acumula
 
 Já incluído em [scheduled_execution.py](scheduled_execution.py): roda uma carga **ao
 iniciar** (startup) e depois **em intervalo fixo dentro da janela comercial** — por
-padrão **a cada 30 min, das 07h às 18h59, seg–sáb** (cada carga leva ~6s, última
-disparada às 18:30):
+padrão **a cada 30 min, das 07h às 18h59, seg–sex** (sem sábado, domingo nem
+feriados nacionais brasileiros — calendário até 2030):
 
 ```bash
 python scheduled_execution.py
@@ -374,11 +374,13 @@ Os horários são configuráveis por variáveis de ambiente:
 |----------|---------|-----------|
 | `INTERVALO_MINUTOS` | `30` | Minutos entre cargas (piso de 5; aceita valores > 59). |
 | `JANELA_HORAS` | `7-18` | Faixa de horas inclusiva (ex.: `7-18` = 07h às 18h59). |
-| `DIAS_SEMANA` | `mon-sat` | Dias da semana (formato cron: `mon-sat`, `mon-fri`, `mon,wed`). |
+| `DIAS_SEMANA` | `mon-fri` | Legado (a execução usa seg–sex + feriados BR automático). |
 | `EXECUTION_MODE` | `snapshot` | Modo de carga (`snapshot` ou `insert`). |
 
-> O agendador usa `IntervalTrigger` (intervalo fixo em minutos) e filtra pela janela
-> comercial dentro do job. A carga de **startup** ignora a janela e roda sempre ao iniciar.
+> **Dias úteis:** o agendador não roda em sábados, domingos nem feriados nacionais
+> (fixos e móveis: Carnaval, Sexta-feira Santa, Corpus Christi etc.), calendário
+> pré-carregado até **2030** em `feriados_br.py`. A carga de startup também respeita
+> essa regra (só ignora a faixa de horas em dia útil).
 
 > Robustez 24/7: um *lock* global serializa as cargas (nunca há duas simultâneas, nem
 > com a do startup); `coalesce` + `misfire_grace_time` de 1h toleram servidor desligado;
@@ -456,6 +458,7 @@ git push
 oportunidade_wbc/
 ├── config.py                    # Configuração centralizada (.env)
 ├── sap_connection.py            # Conexão SAP HANA compartilhada
+├── feriados_br.py               # Calendário de feriados nacionais (até 2030)
 ├── extract_sap_to_supabase.py   # Pipeline principal (SAP + SQL Server → Supabase)
 ├── test_connections.py          # Diagnóstico de pacotes e conexões
 ├── scheduled_execution.py       # Agendamento via APScheduler (IntervalTrigger)

@@ -1,7 +1,9 @@
 """Agendador que executa a extração SAP → Supabase via APScheduler.
 
 Roda uma carga ao iniciar (startup) e depois em intervalo fixo dentro da janela
-comercial (default: a cada 30 min, 07h–18h59, seg–sáb — configurável via ``.env``).
+comercial (default: a cada 30 min, 07h–18h59, seg–sex — configurável via ``.env``).
+Não executa em finais de semana nem em feriados nacionais brasileiros (calendário
+até 2030, ver ``feriados_br.py``).
 Substitui a lista de horários fixos de antes (08:12, 09:00, 10:12, 12:30, 14:12,
 17:35), cujos buracos de até 3h deixavam o app mobile com status defasado
 (caso XCMG, 2026-06-11).
@@ -14,7 +16,7 @@ indicado para rodar como serviço/tarefa agendada 24/7.
 Variáveis de ambiente (``.env``, todas opcionais):
     INTERVALO_MINUTOS: minutos entre cargas (default 30; piso 5; sem limite de 59).
     JANELA_HORAS: faixa de horas inclusiva (default ``7-18``).
-    DIAS_SEMANA: dias no formato cron (default ``mon-sat``).
+    DIAS_SEMANA: legado/documentação (execução efetiva: seg–sex + feriados BR).
 
 Instalação:
     pip install apscheduler
@@ -34,6 +36,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from config import get_settings
 from extract_sap_to_supabase import main
+from feriados_br import eh_dia_util, eh_feriado_nacional
 
 # Dias de log a reter (rotação diária à meia-noite)
 LOG_RETENCAO_DIAS = 12
@@ -110,15 +113,34 @@ def _parse_dias_semana(expr: str) -> Set[int]:
 def esta_na_janela_comercial(
     *,
     janela_horas: str,
-    dias_semana: str,
     agora: Optional[datetime] = None,
+    dias_semana: Optional[str] = None,
 ) -> bool:
-    """Retorna ``True`` se ``agora`` cai na janela comercial configurada."""
+    """Retorna ``True`` se ``agora`` é dia útil (seg–sex, sem feriado) e na faixa de horas.
+
+    Args:
+        janela_horas: Faixa inclusiva de horas (ex.: ``7-18``).
+        agora: Momento a avaliar (default: agora).
+        dias_semana: Ignorado (mantido por compatibilidade de assinatura).
+    """
+    del dias_semana
     agora = agora or datetime.now()
-    h_ini, h_fim = _parse_janela_horas(janela_horas)
-    if not (h_ini <= agora.hour <= h_fim):
+    if not eh_dia_util(agora.date()):
         return False
-    return agora.weekday() in _parse_dias_semana(dias_semana)
+    h_ini, h_fim = _parse_janela_horas(janela_horas)
+    return h_ini <= agora.hour <= h_fim
+
+
+def pode_executar_carga(*, ignorar_janela_horaria: bool = False, agora: Optional[datetime] = None) -> bool:
+    """Verifica se a carga pode rodar (dia útil + janela de horas opcional)."""
+    agora = agora or datetime.now()
+    if not eh_dia_util(agora.date()):
+        return False
+    if ignorar_janela_horaria:
+        return True
+    settings = get_settings()
+    h_ini, h_fim = _parse_janela_horas(settings.janela_horas)
+    return h_ini <= agora.hour <= h_fim
 
 
 def job_execucao(*, ignorar_janela: bool = False) -> None:
@@ -133,17 +155,18 @@ def job_execucao(*, ignorar_janela: bool = False) -> None:
     pular é seguro e preferível a arriscar um ``insere-depois-poda`` concorrente.
 
     Args:
-        ignorar_janela: Se ``True``, executa mesmo fora de ``JANELA_HORAS``/``DIAS_SEMANA``
-            (usado na carga de startup).
+        ignorar_janela: Se ``True``, ignora apenas ``JANELA_HORAS`` (usado no startup).
+            Finais de semana e feriados nacionais **sempre** bloqueiam a execução.
     """
-    if not ignorar_janela:
-        settings = get_settings()
-        if not esta_na_janela_comercial(
-            janela_horas=settings.janela_horas,
-            dias_semana=settings.dias_semana,
-        ):
-            logger.debug("Fora da janela comercial; execução agendada ignorada.")
-            return
+    if not pode_executar_carga(ignorar_janela_horaria=ignorar_janela):
+        agora = datetime.now()
+        if agora.weekday() >= 5:
+            logger.debug("Fim de semana; execução ignorada.")
+        elif eh_feriado_nacional(agora.date()):
+            logger.debug("Feriado nacional (%s); execução ignorada.", agora.date().isoformat())
+        else:
+            logger.debug("Fora da janela de horas; execução agendada ignorada.")
+        return
 
     if not _execucao_lock.acquire(blocking=False):
         logger.warning("Execução já em andamento; esta foi descartada para evitar sobreposição.")
@@ -209,7 +232,7 @@ def configurar_agenda() -> BackgroundScheduler:
         job_execucao,
         trigger=IntervalTrigger(minutes=intervalo),
         id='extracao_intervalar',
-        name=f'Extração a cada {intervalo} min ({janela_horas}h, {dias_semana})',
+        name=f'Extração a cada {intervalo} min ({janela_horas}h, seg-sex, sem feriados)',
     )
 
     logger.info("Agenda configurada:")
