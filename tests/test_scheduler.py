@@ -4,10 +4,9 @@ from datetime import date, datetime
 
 import pytest
 
-from config import parse_janela_horas
+from config import parse_dias_semana, parse_janela_horas
 from feriados_br import eh_dia_util
 from scripts.scheduled_execution import (
-    _parse_dias_semana,
     esta_na_janela_comercial,
     pode_executar_carga,
 )
@@ -23,11 +22,11 @@ def test_parse_janela_horas_invalid():
 
 
 def test_parse_dias_semana_range():
-    assert _parse_dias_semana('mon-fri') == {0, 1, 2, 3, 4}
+    assert parse_dias_semana('mon-fri') == {0, 1, 2, 3, 4}
 
 
 def test_parse_dias_semana_list():
-    assert _parse_dias_semana('mon,wed,fri') == {0, 2, 4}
+    assert parse_dias_semana('mon,wed,fri') == {0, 2, 4}
 
 
 def test_esta_na_janela_comercial_dentro():

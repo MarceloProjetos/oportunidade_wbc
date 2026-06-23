@@ -267,6 +267,32 @@ class SupabaseLoader:
         self.client: Client = create_client(supabase_url, supabase_key, options)
         logger.info(f"Cliente Supabase inicializado (timeout REST: {timeout_s}s)")
     
+    def fetch_sitcod_domain(self, table_name: str) -> Optional[set[int]]:
+        """Load valid sitcod values from Supabase domain table (FK reference)."""
+        try:
+            res = with_retries(
+                lambda: self.client.table(table_name).select('sitcod').execute(),
+                what=f"[SITCOD] fetch domain ('{table_name}')",
+            )
+            codes: set[int] = set()
+            for row in res.data or []:
+                raw = row.get('sitcod')
+                if raw is None:
+                    continue
+                try:
+                    f = float(raw)
+                    codes.add(int(f))
+                except (TypeError, ValueError):
+                    logger.warning("[SITCOD] Skipping non-integer domain value: %r", raw)
+            logger.info("[SITCOD] Loaded %s valid code(s) from '%s'", len(codes), table_name)
+            return codes
+        except Exception as exc:
+            logger.error(
+                "[SITCOD] Failed to load domain table '%s' — FK validation skipped: %s",
+                table_name, exc,
+            )
+            return None
+
     def insert_data(
         self, table_name: str, data: List[Dict[str, Any]], batch_size: int = INSERT_BATCH_SIZE
     ) -> bool:
@@ -369,28 +395,91 @@ class SupabaseLoader:
             }
             with_retries(
                 lambda: self.client.table(table_name).insert(registro).execute(),
-                what=f"insert log de sincronização ('{table_name}')",
+                what=f"[SYNC_LOG] insert ('{table_name}')",
             )
 
-            # Poda: manter apenas os max_registros mais recentes (apaga os mais antigos)
-            res = self.client.table(table_name).select('id').order('id', desc=True).execute()
+            res = with_retries(
+                lambda: self.client.table(table_name).select('id').order('id', desc=True).execute(),
+                what=f"[SYNC_LOG] list ids ('{table_name}')",
+            )
             ids = [r['id'] for r in (res.data or [])]
             if len(ids) > max_registros:
                 excedentes = ids[max_registros:]
-                self.client.table(table_name).delete().in_('id', excedentes).execute()
+                with_retries(
+                    lambda e=excedentes: self.client.table(table_name).delete().in_('id', e).execute(),
+                    what=f"[SYNC_LOG] prune old rows ('{table_name}')",
+                )
                 logger.info(
-                    f"Log de sincronização podado: {len(excedentes)} registro(s) antigo(s) "
-                    f"removido(s) (mantidos os {max_registros} mais recentes)"
+                    "[SYNC_LOG] Pruned %s old row(s) from '%s' (keeping %s most recent)",
+                    len(excedentes), table_name, max_registros,
                 )
 
             logger.info(
-                f"Sincronização registrada no log ('{table_name}'): "
-                f"{status}, {duracao_seg:.2f}s, {qtd_registros} registro(s)"
+                "[SYNC_LOG] Recorded sync on '%s': status=%s, duration=%.2fs, rows=%s",
+                table_name, status, duracao_seg, qtd_registros,
             )
             return True
         except Exception as e:
-            logger.error(f"Falha ao registrar log de sincronização (ignorada): {e}")
+            logger.error(
+                "[SYNC_LOG] Failed to write/prune sync log on '%s' (ignored, pipeline unaffected): %s",
+                table_name, e,
+            )
             return False
+
+
+def _sitcod_as_int(value: Any) -> Optional[int]:
+    """Normalize SITCOD cell to int or None."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    if pd.isna(value):
+        return None
+    try:
+        f = float(value)
+        return int(f)
+    except (TypeError, ValueError):
+        return None
+
+
+def validate_sitcod_fk(
+    df: pd.DataFrame,
+    loader: SupabaseLoader,
+    *,
+    domain_table: str,
+) -> pd.DataFrame:
+    """Null out SITCOD values missing from situacoes_orcamento (avoids FK violation)."""
+    if 'SITCOD' not in df.columns:
+        return df
+
+    valid = loader.fetch_sitcod_domain(domain_table)
+    if valid is None:
+        logger.warning(
+            "[SITCOD] FK validation skipped — could not load domain from '%s'",
+            domain_table,
+        )
+        return df
+
+    normalized = df['SITCOD'].map(_sitcod_as_int)
+    has_value = normalized.notna()
+    invalid_mask = has_value & ~normalized.isin(valid)
+    n_invalid = int(invalid_mask.sum())
+
+    if n_invalid:
+        samples = sorted({normalized.loc[i] for i in df.index[invalid_mask]})[:10]
+        logger.error(
+            "[SITCOD] FK violation prevented: %s row(s) have unknown SITCOD %s "
+            "(not in '%s'). Setting those values to NULL.",
+            n_invalid, samples, domain_table,
+        )
+        df = df.copy()
+        df.loc[invalid_mask, 'SITCOD'] = None
+    else:
+        with_sitcod = int(has_value.sum())
+        logger.info(
+            "[SITCOD] FK validation OK — %s non-null row(s), all exist in '%s'",
+            with_sitcod, domain_table,
+        )
+
+    return df
 
 
 def prepare_data(
@@ -526,14 +615,16 @@ def main(
             matched = int(df['SITCOD'].notna().sum())
             logger.info("Enrichment matched %s / %s rows", matched, len(df))
         
-        # 2. Preparar dados
+        # 2. Validate SITCOD FK, then prepare payload
+        logger.info("Carregando dados no Supabase...")
+        loader = SupabaseLoader(settings.supabase_url, settings.supabase_write_key)
+        df = validate_sitcod_fk(df, loader, domain_table=settings.sitcod_domain_table)
+
         logger.info("Preparando dados para inserção...")
         data_to_insert, exec_id = prepare_data(df, execution_id)
         qtd_registros = len(data_to_insert)
 
-        # 3. Carregar no Supabase
-        logger.info("Carregando dados no Supabase...")
-        loader = SupabaseLoader(settings.supabase_url, settings.supabase_write_key)
+        # 3. Insert into Supabase
         success = loader.insert_data(settings.table_name, data_to_insert)
 
         # Modo snapshot: carrega-depois-poda — só removemos as execuções anteriores

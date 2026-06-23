@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from config import EXECUTION_MODES, SAP_PORT_DEFAULT, Settings, get_settings, reset_settings
+from config import EXECUTION_MODES, SAP_PORT_DEFAULT, parse_dias_semana, get_settings, reset_settings
 
 
 def test_sap_port_default():
@@ -73,3 +73,16 @@ def test_sql_enrichment_view_from_env(monkeypatch):
     monkeypatch.setenv('SQL_ENRICHMENT_VIEW', 'MYDB.dbo.MY_VIEW')
     reset_settings()
     assert get_settings().sql_enrichment_view == 'MYDB.dbo.MY_VIEW'
+
+
+def test_parse_dias_semana_range():
+    assert parse_dias_semana('mon-fri') == {0, 1, 2, 3, 4}
+
+
+def test_parse_dias_semana_list():
+    assert parse_dias_semana('mon,wed,fri') == {0, 2, 4}
+
+
+def test_parse_dias_semana_invalid_regex(monkeypatch):
+    with pytest.raises(ValueError, match='Invalid DIAS_SEMANA'):
+        parse_dias_semana('monday-fri')

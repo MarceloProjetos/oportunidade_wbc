@@ -11,19 +11,17 @@ import threading
 import time
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
-from typing import Optional, Set
+from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
-from config import get_settings, parse_janela_horas
+from config import get_settings, parse_dias_semana, parse_janela_horas
 from extract_sap_to_supabase import main
 from feriados_br import is_business_day, is_national_holiday
 
 LOG_RETENTION_DAYS = 12
 HEARTBEAT_INTERVAL_S = 3600
-
-_DOW_CRON = {'mon': 0, 'tue': 1, 'wed': 2, 'thu': 3, 'fri': 4, 'sat': 5, 'sun': 6}
 
 os.makedirs('logs', exist_ok=True)
 
@@ -45,25 +43,8 @@ logger = logging.getLogger(__name__)
 
 _execution_lock = threading.Lock()
 
-
-def _parse_dias_semana(expr: str) -> Set[int]:
-    """Legacy DIAS_SEMANA parser (validated at startup; runtime uses is_business_day)."""
-    expr = expr.strip().lower()
-    if '-' in expr:
-        start, end = expr.split('-', 1)
-        if start.strip() not in _DOW_CRON or end.strip() not in _DOW_CRON:
-            raise ValueError(f'Invalid DIAS_SEMANA: {expr!r}')
-        a, b = _DOW_CRON[start.strip()], _DOW_CRON[end.strip()]
-        if a > b:
-            raise ValueError(f'Invalid DIAS_SEMANA range: {expr!r}')
-        return set(range(a, b + 1))
-    days: Set[int] = set()
-    for part in expr.split(','):
-        p = part.strip()
-        if p not in _DOW_CRON:
-            raise ValueError(f'Invalid DIAS_SEMANA: {expr!r}')
-        days.add(_DOW_CRON[p])
-    return days
+# Backward-compatible alias for tests
+_parse_dias_semana = parse_dias_semana
 
 
 def is_within_commercial_window(
@@ -152,8 +133,13 @@ def job_execucao(*, ignorar_janela: bool = False) -> None:
 
 def configurar_agenda() -> BackgroundScheduler:
     settings = get_settings()
-    parse_janela_horas(settings.janela_horas)
-    _parse_dias_semana(settings.dias_semana)
+    # DIAS_SEMANA already validated in get_settings(); re-check for scheduler startup log
+    try:
+        parse_janela_horas(settings.janela_horas)
+        parse_dias_semana(settings.dias_semana)
+    except ValueError as exc:
+        logger.error('[CONFIG] Scheduler startup aborted — fix .env: %s', exc)
+        raise
 
     scheduler = BackgroundScheduler(
         job_defaults={'coalesce': True, 'max_instances': 1, 'misfire_grace_time': 3600},
