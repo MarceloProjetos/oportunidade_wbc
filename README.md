@@ -311,7 +311,20 @@ limit 100;
 python test_connections.py
 ```
 
-Valida pacotes, `.env`, conexão SAP e Supabase, e lista views disponíveis.
+Valida pacotes, `.env`, conexão SAP e Supabase (anon + **service_role** para escrita),
+SQL Server (se configurado), e lista views disponíveis.
+
+---
+
+## Testes unitários
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Cobertura atual: `config`, validação SQL, erro de tenant SAP, modos de execução e janela
+do agendador. Não exige credenciais reais (sem integração com SAP/Supabase em CI).
 
 ### 2. Executar a extração
 
@@ -408,8 +421,8 @@ docker compose up --build
 #   command: python scheduled_execution.py
 ```
 
-> O [Dockerfile](Dockerfile) usa `python:3.11-slim`. Para usar o SQL Server dentro do
-> container, será necessário instalar o `msodbcsql18` na imagem (ver passo 3 da Instalação).
+> O [Dockerfile](Dockerfile) usa `python:3.12-slim` com **ODBC Driver 18** pré-instalado
+> (SQL Server opcional). Passe as variáveis via `.env` (`env_file` no compose).
 
 ---
 
@@ -450,7 +463,9 @@ oportunidade_wbc/
 ├── examples/
 │   └── exemplo_avancado.py      # Exemplos de uso avançado (referência)
 ├── requirements.txt             # Dependências Python
-├── Dockerfile                   # Imagem do container
+├── requirements-dev.txt         # pytest (testes unitários)
+├── tests/                       # Suíte pytest
+├── Dockerfile                   # Imagem do container (Python 3.12 + ODBC 18)
 ├── docker-compose.yml           # Orquestração Docker
 ├── setup.sh                     # Setup rápido (Linux/Mac)
 ├── .env.example                 # Template de variáveis de ambiente

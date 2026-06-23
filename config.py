@@ -149,3 +149,9 @@ def get_settings() -> Settings:
     if _settings is None:
         _settings = Settings.from_env()
     return _settings
+
+
+def reset_settings() -> None:
+    """Limpa o cache de configuração (útil em testes)."""
+    global _settings
+    _settings = None

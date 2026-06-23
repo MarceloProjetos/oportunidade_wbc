@@ -3,10 +3,15 @@ Script de teste para validar conexões com SAP e Supabase antes de executar.
 Execute: python test_connections.py
 """
 
+from __future__ import annotations
+
 import os
 import sys
+from datetime import datetime, timezone
+from typing import Optional
 
 from config import get_settings
+from extract_sap_to_supabase import get_sqlserver_connection
 from sap_connection import connect_sap_hana
 
 # Garantir saída UTF-8 no console (Windows usa cp1252 e quebra com ✓/❌)
@@ -17,21 +22,42 @@ except AttributeError:
     pass
 
 
-def test_sap_connection() -> bool:
-    """Testa a conexão com o SAP HANA executando uma query simples.
+def test_python_packages() -> bool:
+    """Verifica se os pacotes Python obrigatórios estão instalados."""
+    print("\n" + "=" * 60)
+    print("VERIFICANDO PACOTES PYTHON")
+    print("=" * 60)
 
-    Returns:
-        ``True`` se conectou e a query retornou; ``False`` caso contrário.
-    """
+    packages = {
+        'hdbcli': 'SAP HANA',
+        'supabase': 'Supabase',
+        'pandas': 'Pandas',
+        'dotenv': 'Python-dotenv',
+        'pyodbc': 'SQL Server (pyodbc)',
+        'apscheduler': 'Agendador (APScheduler)',
+    }
+
+    all_ok = True
+    for package, name in packages.items():
+        try:
+            __import__(package)
+            print(f"✓ {name} ({package})")
+        except ImportError:
+            print(f"❌ {name} ({package}) - não instalado")
+            all_ok = False
+
+    if not all_ok:
+        print("\nInstale os pacotes faltantes com:")
+        print("  pip install -r requirements.txt")
+
+    return all_ok
+
+
+def test_sap_connection() -> bool:
+    """Testa a conexão com o SAP HANA executando uma query simples."""
     print("\n" + "=" * 60)
     print("TESTANDO CONEXÃO SAP HANA")
     print("=" * 60)
-
-    try:
-        from hdbcli import dbapi  # noqa: F401 — verifica instalação
-    except ImportError:
-        print("❌ hdbcli não instalado. Execute: pip install hdbcli")
-        return False
 
     settings = get_settings()
 
@@ -76,20 +102,10 @@ def test_sap_connection() -> bool:
 
 
 def test_supabase_connection() -> bool:
-    """Testa a conexão com o Supabase lendo um registro da tabela de destino.
-
-    Returns:
-        ``True`` se a tabela é acessível; ``False`` caso contrário.
-    """
+    """Testa leitura Supabase com a chave anon."""
     print("\n" + "=" * 60)
-    print("TESTANDO CONEXÃO SUPABASE")
+    print("TESTANDO CONEXÃO SUPABASE (ANON — LEITURA)")
     print("=" * 60)
-
-    try:
-        from supabase import create_client
-    except ImportError:
-        print("❌ supabase não instalado. Execute: pip install supabase")
-        return False
 
     settings = get_settings()
 
@@ -105,10 +121,12 @@ def test_supabase_connection() -> bool:
         return False
 
     try:
+        from supabase import create_client
+
         client = create_client(settings.supabase_url, settings.supabase_key)
         response = client.table(settings.table_name).select('*').limit(1).execute()
 
-        print("✓ Conectado com sucesso!")
+        print("✓ Leitura anon OK!")
         print(f"  Tabela '{settings.table_name}' acessível")
         print(f"  Registros na amostra: {len(response.data)}")
 
@@ -118,12 +136,97 @@ def test_supabase_connection() -> bool:
         return False
 
 
-def test_view_exists() -> bool:
-    """Lista as primeiras views disponíveis no SAP HANA (sanity check de acesso).
+def test_supabase_service_role_write() -> Optional[bool]:
+    """Testa escrita com service_role (insert + delete de sonda no log).
 
     Returns:
-        ``True`` se conseguiu listar as views; ``False`` caso contrário.
+        ``True`` se escrita OK; ``False`` se falhou; ``None`` se não configurado.
     """
+    print("\n" + "=" * 60)
+    print("TESTANDO SUPABASE (SERVICE_ROLE — ESCRITA)")
+    print("=" * 60)
+
+    settings = get_settings()
+
+    if not settings.supabase_url or not settings.supabase_service_role_key:
+        print("⬜ SUPABASE_SERVICE_ROLE_KEY não configurada — pulando teste de escrita")
+        return None
+
+    try:
+        from supabase import create_client
+
+        client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+        tabela = settings.sync_log_table_name
+        agora = datetime.now(timezone.utc).isoformat()
+
+        insert = client.table(tabela).insert({
+            'data_hora_sincronizacao': agora,
+            'duracao_segundos': 0,
+            'status': 'teste_conexao',
+            'qtd_registros': 0,
+        }).execute()
+
+        if not insert.data:
+            print("❌ Insert de sonda não retornou dados")
+            return False
+
+        probe_id = insert.data[0]['id']
+        client.table(tabela).delete().eq('id', probe_id).execute()
+
+        print("✓ Escrita service_role OK!")
+        print(f"  Insert/delete de sonda na tabela '{tabela}' bem-sucedido")
+        return True
+    except Exception as exc:
+        print(f"❌ Erro no teste de escrita service_role: {exc}")
+        return False
+
+
+def test_sqlserver_connection() -> Optional[bool]:
+    """Testa conexão ao SQL Server (opcional).
+
+    Returns:
+        ``True``/``False`` se configurado; ``None`` se SQL Server não está no .env.
+    """
+    print("\n" + "=" * 60)
+    print("TESTANDO CONEXÃO SQL SERVER")
+    print("=" * 60)
+
+    settings = get_settings()
+
+    if not settings.sql_ready():
+        print("⬜ SQL Server não configurado (SQL_HOST/USER/PASSWORD) — pulando")
+        return None
+
+    print(f"Host: {settings.sql_host}:{settings.sql_port}")
+    print(f"Database: {settings.sql_database}")
+
+    try:
+        conn = get_sqlserver_connection(
+            host=settings.sql_host,
+            port=settings.sql_port,
+            user=settings.sql_user,
+            password=settings.sql_password,
+            database=settings.sql_database,
+            driver=settings.sql_driver,
+        )
+        if conn is None:
+            print("❌ Não foi possível conectar (driver ODBC ou credenciais)")
+            return False
+
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        cursor.fetchone()
+        conn.close()
+
+        print("✓ Conectado com sucesso!")
+        return True
+    except Exception as exc:
+        print(f"❌ Erro ao conectar: {exc}")
+        return False
+
+
+def test_view_exists() -> bool:
+    """Lista as primeiras views disponíveis no SAP HANA."""
     print("\n" + "=" * 60)
     print("TESTANDO VIEWS SAP")
     print("=" * 60)
@@ -146,14 +249,13 @@ def test_view_exists() -> bool:
         )
 
         cursor = conn.cursor()
-        query = """
+        cursor.execute("""
         SELECT SCHEMA_NAME, VIEW_NAME
         FROM SYS.VIEWS
         WHERE SCHEMA_NAME NOT IN ('SYS', '_SYS_')
         ORDER BY SCHEMA_NAME, VIEW_NAME
         LIMIT 20
-        """
-        cursor.execute(query)
+        """)
         views = cursor.fetchall()
 
         print("✓ Views disponíveis (primeiras 20):")
@@ -167,51 +269,13 @@ def test_view_exists() -> bool:
         return False
 
 
-def test_python_packages() -> bool:
-    """Verifica se os pacotes Python obrigatórios estão instalados.
-
-    Returns:
-        ``True`` se todos os pacotes foram importados; ``False`` se algum faltou.
-    """
-    print("\n" + "=" * 60)
-    print("VERIFICANDO PACOTES PYTHON")
-    print("=" * 60)
-
-    packages = {
-        'hdbcli': 'SAP HANA',
-        'supabase': 'Supabase',
-        'pandas': 'Pandas',
-        'dotenv': 'Python-dotenv',
-    }
-
-    all_ok = True
-    for package, name in packages.items():
-        try:
-            __import__(package)
-            print(f"✓ {name} ({package})")
-        except ImportError:
-            print(f"❌ {name} ({package}) - não instalado")
-            all_ok = False
-
-    if not all_ok:
-        print("\nInstale os pacotes faltantes com:")
-        print("  pip install -r requirements.txt")
-
-    return all_ok
-
-
 def main() -> bool:
-    """Executa toda a bateria de testes (pacotes, .env e conexões).
-
-    Returns:
-        ``True`` se SAP e Supabase conectaram; ``False`` caso contrário.
-    """
+    """Executa a bateria de testes (pacotes, .env e conexões)."""
     print("\n" + "=" * 60)
     print("TESTE DE CONEXÕES - SAP B1 TO SUPABASE")
     print("=" * 60)
 
-    packages_ok = test_python_packages()
-    if not packages_ok:
+    if not test_python_packages():
         print("\n❌ Instale os pacotes faltantes antes de continuar")
         return False
 
@@ -222,6 +286,8 @@ def main() -> bool:
 
     sap_ok = test_sap_connection()
     supabase_ok = test_supabase_connection()
+    service_role_ok = test_supabase_service_role_write()
+    sql_ok = test_sqlserver_connection()
 
     if sap_ok:
         test_view_exists()
@@ -229,11 +295,22 @@ def main() -> bool:
     print("\n" + "=" * 60)
     print("RESUMO DOS TESTES")
     print("=" * 60)
-    print(f"SAP HANA:  {'✓' if sap_ok else '❌'}")
-    print(f"Supabase:  {'✓' if supabase_ok else '❌'}")
+    print(f"SAP HANA:       {'✓' if sap_ok else '❌'}")
+    print(f"Supabase anon:  {'✓' if supabase_ok else '❌'}")
+    if service_role_ok is None:
+        print("Supabase write: ⬜ (service_role não configurada)")
+    else:
+        print(f"Supabase write: {'✓' if service_role_ok else '❌'}")
+    if sql_ok is None:
+        print("SQL Server:     ⬜ (não configurado)")
+    else:
+        print(f"SQL Server:     {'✓' if sql_ok else '❌'}")
 
-    if sap_ok and supabase_ok:
-        print("\n✓ Todas as conexões estão OK!")
+    core_ok = sap_ok and supabase_ok
+    write_ok = service_role_ok is not False
+
+    if core_ok and write_ok:
+        print("\n✓ Conexões principais OK!")
         print("\nVocê pode executar:")
         print("  python extract_sap_to_supabase.py")
         return True

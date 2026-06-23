@@ -4,21 +4,35 @@ services:
   sap-extractor:
     build: .
     container_name: sap-to-supabase
+    env_file:
+      - .env
     environment:
-      - SAP_HOST=${SAP_HOST}
-      - SAP_PORT=${SAP_PORT:-30015}
-      - SAP_USER=${SAP_USER}
-      - SAP_PASSWORD=${SAP_PASSWORD}
-      - SAP_DATABASE=${SAP_DATABASE}
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_KEY=${SUPABASE_KEY}
-      - TABLE_NAME=oportunidades
+      SAP_HOST: ${SAP_HOST}
+      SAP_PORT: ${SAP_PORT:-30015}
+      SAP_USER: ${SAP_USER}
+      SAP_PASSWORD: ${SAP_PASSWORD}
+      SAP_DATABASE: ${SAP_DATABASE:-}
+      SAP_SCHEMA: ${SAP_SCHEMA:-}
+      SAP_VIEW_NAME: ${SAP_VIEW_NAME:-}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_KEY: ${SUPABASE_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      SUPABASE_TIMEOUT_S: ${SUPABASE_TIMEOUT_S:-120}
+      TABLE_NAME: ${TABLE_NAME:-oportunidades}
+      SYNC_LOG_TABLE_NAME: ${SYNC_LOG_TABLE_NAME:-sincronizacao_log}
+      SQL_HOST: ${SQL_HOST:-}
+      SQL_PORT: ${SQL_PORT:-1433}
+      SQL_USER: ${SQL_USER:-}
+      SQL_PASSWORD: ${SQL_PASSWORD:-}
+      SQL_DATABASE: ${SQL_DATABASE:-WBCCAD}
+      SQL_DRIVER: ${SQL_DRIVER:-}
+      INTERVALO_MINUTOS: ${INTERVALO_MINUTOS:-30}
+      JANELA_HORAS: ${JANELA_HORAS:-7-18}
+      DIAS_SEMANA: ${DIAS_SEMANA:-mon-sat}
+      EXECUTION_MODE: ${EXECUTION_MODE:-snapshot}
     volumes:
       - ./logs:/app/logs
     restart: unless-stopped
-    
-    # Para executar agendadamente, descomente e configure:
-    # command: python scheduled_execution.py
-    
-    # Ou execute uma única vez:
+    # Execução única (default):
     command: python extract_sap_to_supabase.py
+    # Agendado: command: python scheduled_execution.py
