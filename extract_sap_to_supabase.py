@@ -53,6 +53,10 @@ FILTRO_COLUNA_DATA = 'CreateDate'    # coluna usada no filtro de N meses
 SYNC_LOG_TABLE_NAME = 'sincronizacao_log'  # tabela que guarda hora/duração das sincronizações
 SYNC_LOG_MAX_REGISTROS = 6                 # mantém só os N registros mais recentes (apaga o mais velho)
 
+# Modos de carga suportados. ``upsert`` foi removido: exigia índice UNIQUE de negócio
+# inexistente e só duplicava registros (PK ``id`` é auto-increment, não vai no payload).
+EXECUTION_MODES = ('snapshot', 'insert')
+
 # Garantir saída UTF-8 no console (Windows usa cp1252 e quebra com ✓/✗)
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -532,29 +536,6 @@ class SupabaseLoader:
             logger.error(f"Erro ao inserir dados no Supabase: {e}")
             return False
     
-    def upsert_data(self, table_name: str, data: List[Dict[str, Any]]) -> bool:
-        """Faz upsert (atualiza se existe, insere se não) dos dados.
-
-        Usa a chave primária da própria tabela para resolver conflitos.
-
-        Args:
-            table_name: Nome da tabela.
-            data: Lista de dicionários com os dados.
-
-        Returns:
-            ``True`` se executado com sucesso; ``False`` caso contrário.
-        """
-        try:
-            with_retries(
-                lambda: self.client.table(table_name).upsert(data).execute(),
-                what=f"upsert no Supabase ('{table_name}')",
-            )
-            logger.info(f"{len(data)} registro(s) processado(s) com sucesso na tabela '{table_name}'")
-            return True
-        except Exception as e:
-            logger.error(f"Erro ao fazer upsert no Supabase: {e}")
-            return False
-
     def delete_other_executions(self, table_name: str, keep_execution_id: str) -> bool:
         """Remove os registros de execuções anteriores, preservando a execução atual.
 
@@ -707,8 +688,7 @@ def main(
             ``'snapshot'`` (default) — insere a nova carga e remove as execuções
             anteriores (carrega-depois-poda); a tabela reflete o estado atual e nunca
             fica vazia se algo falhar;
-            ``'insert'`` — apenas insere (acumula histórico, pode duplicar);
-            ``'upsert'`` — atualiza existentes ou insere novos.
+            ``'insert'`` — apenas insere (acumula histórico, pode duplicar).
         execution_id: ID customizado para rastreamento. Gerado automaticamente se ``None``.
 
     Returns:
@@ -730,6 +710,21 @@ def main(
     # Validar configurações
     if not all([sap_host, sap_user, sap_password, supabase_url, supabase_key]) or not view_name:
         logger.error("Faltam variáveis de ambiente obrigatórias ou nome da view SAP não informado")
+        return False
+
+    if execution_mode == 'upsert':
+        logger.error(
+            "Modo 'upsert' não é suportado (removido): não havia chave de negócio para "
+            "ON CONFLICT e o modo só duplicava registros. Use 'snapshot' (default) para "
+            "manter o estado atual ou 'insert' para acumular histórico."
+        )
+        return False
+
+    if execution_mode not in EXECUTION_MODES:
+        logger.error(
+            f"execution_mode inválido: {execution_mode!r}. "
+            f"Valores aceitos: {', '.join(EXECUTION_MODES)}"
+        )
         return False
 
     # Medição da sincronização (para o log): início, contagem e resultado
@@ -777,12 +772,7 @@ def main(
         # 3. Carregar no Supabase
         logger.info("Carregando dados no Supabase...")
         loader = SupabaseLoader(supabase_url, supabase_key)
-        
-        if execution_mode == 'upsert':
-            success = loader.upsert_data(table_name, data_to_insert)
-        else:
-            # 'insert' e 'snapshot' inserem os novos registros primeiro
-            success = loader.insert_data(table_name, data_to_insert)
+        success = loader.insert_data(table_name, data_to_insert)
 
         # Modo snapshot: carrega-depois-poda — só removemos as execuções anteriores
         # APÓS a inserção dar certo, garantindo que a tabela nunca fique vazia.
@@ -825,6 +815,6 @@ def main(
 if __name__ == "__main__":
     # Parâmetros (todos opcionais):
     #   view_name      — view SAP; se omitido, usa SAP_VIEW_NAME do .env
-    #   execution_mode — 'snapshot' (default), 'insert' ou 'upsert'
+    #   execution_mode — 'snapshot' (default) ou 'insert'
     #   execution_id   — None gera um UUID automaticamente
     main(execution_mode='snapshot')

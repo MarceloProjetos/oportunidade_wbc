@@ -326,14 +326,16 @@ from extract_sap_to_supabase import main
 
 main(view_name='VW_EVOL_OPORTUNIDADE_ALT', execution_mode='snapshot')  # default
 main(view_name='VW_EVOL_OPORTUNIDADE_ALT', execution_mode='insert')    # acumula histórico
-main(view_name='VW_EVOL_OPORTUNIDADE_ALT', execution_mode='upsert')    # atualiza/insere
 ```
 
 | Modo | Comportamento |
 | --- | --- |
 | `snapshot` (default) | Insere a nova carga e remove as execuções anteriores (carrega-depois-poda). A tabela reflete o estado atual e nunca fica vazia se algo falhar. |
 | `insert` | Apenas insere (acumula histórico por `id_execucao`; pode duplicar). |
-| `upsert` | Atualiza existentes ou insere novos. |
+
+> O modo `upsert` foi **removido**: a tabela não tinha índice UNIQUE de negócio e o
+> PostgREST não conseguia resolver conflitos (só duplicava linhas). Para manter o
+> estado atual, use `snapshot`.
 
 > No modo `snapshot` (default), a tabela mantém sempre os **últimos 6 meses** de
 > oportunidades (janela deslizante recalculada a cada execução).
@@ -360,7 +362,7 @@ Os horários são configuráveis por variáveis de ambiente (formato cron):
 | `INTERVALO_MINUTOS` | `30` | Minutos entre cargas (piso de 5). |
 | `JANELA_HORAS` | `7-18` | Faixa de horas (1ª carga 07:00, última 18:30 com intervalo 30). |
 | `DIAS_SEMANA` | `mon-sat` | Dias da semana. |
-| `EXECUTION_MODE` | `snapshot` | Modo de carga (`snapshot`/`insert`/`upsert`). |
+| `EXECUTION_MODE` | `snapshot` | Modo de carga (`snapshot` ou `insert`). |
 
 > Robustez 24/7: um *lock* global serializa as cargas (nunca há duas simultâneas, nem
 > com a do startup); `coalesce` + `misfire_grace_time` de 1h toleram servidor desligado;
