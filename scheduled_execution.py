@@ -12,9 +12,8 @@ num ``Event.wait`` longo e ignoraria o Ctrl+C até o próximo job). É o entrypo
 indicado para rodar como serviço/tarefa agendada 24/7.
 
 Variáveis de ambiente (``.env``, todas opcionais):
-    INTERVALO_MINUTOS: minutos entre cargas (default 30; cada carga leva ~6s).
-    JANELA_HORAS: faixa de horas no formato cron (default ``7-18`` =
-        primeira carga 07:00, última 18:30 com intervalo 30).
+    INTERVALO_MINUTOS: minutos entre cargas (default 30; piso 5; sem limite de 59).
+    JANELA_HORAS: faixa de horas inclusiva (default ``7-18``).
     DIAS_SEMANA: dias no formato cron (default ``mon-sat``).
 
 Instalação:
@@ -22,16 +21,18 @@ Instalação:
 """
 
 import os
+import re
 import time
 import signal
 import logging
 import threading
+from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
+from typing import Optional, Set
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-from dotenv import load_dotenv
-
+from apscheduler.triggers.interval import IntervalTrigger
+from config import get_settings
 from extract_sap_to_supabase import main
 
 # Dias de log a reter (rotação diária à meia-noite)
@@ -41,6 +42,10 @@ LOG_RETENCAO_DIAS = 12
 # a próxima execução agendada. Permite detectar, só pelo log, se o scheduler parou de
 # disparar silenciosamente num processo 24/7 (1h = 24 linhas/dia, ruído desprezível).
 HEARTBEAT_INTERVALO_S = 3600
+
+# Mapa dia-da-semana no formato cron do APScheduler (seg=0 … dom=6)
+_DOW_CRON = {'mon': 0, 'tue': 1, 'wed': 2, 'thu': 3, 'fri': 4, 'sat': 5, 'sun': 6}
+_JANELA_HORAS_RE = re.compile(r'^\d{1,2}-\d{1,2}$')
 
 # Garantir o diretório de logs ANTES de configurar o handler (evita erro no import)
 os.makedirs('logs', exist_ok=True)
@@ -65,16 +70,58 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Carregar variáveis de ambiente
-load_dotenv()
-
 # Lock global de execução: serializa job_execucao para que NUNCA haja duas cargas
 # simultâneas, independentemente do gatilho (startup ou qualquer horário agendado).
 # Ver a nota em job_execucao sobre por que o max_instances=1 do APScheduler não basta.
 _execucao_lock = threading.Lock()
 
 
-def job_execucao() -> None:
+def _parse_janela_horas(expr: str) -> tuple[int, int]:
+    """Interpreta ``JANELA_HORAS`` (ex.: ``7-18``) como faixa inclusiva de horas."""
+    expr = expr.strip()
+    if not _JANELA_HORAS_RE.fullmatch(expr):
+        raise ValueError(f"JANELA_HORAS inválida: {expr!r} (esperado ex.: '7-18')")
+    h_ini, h_fim = (int(x) for x in expr.split('-', 1))
+    if not (0 <= h_ini <= 23 and 0 <= h_fim <= 23 and h_ini <= h_fim):
+        raise ValueError(f"JANELA_HORAS fora de 0-23 ou invertida: {expr!r}")
+    return h_ini, h_fim
+
+
+def _parse_dias_semana(expr: str) -> Set[int]:
+    """Interpreta ``DIAS_SEMANA`` no formato cron (ex.: ``mon-sat``, ``mon,wed,fri``)."""
+    expr = expr.strip().lower()
+    if '-' in expr:
+        ini, fim = expr.split('-', 1)
+        if ini.strip() not in _DOW_CRON or fim.strip() not in _DOW_CRON:
+            raise ValueError(f"DIAS_SEMANA inválido: {expr!r}")
+        a, b = _DOW_CRON[ini.strip()], _DOW_CRON[fim.strip()]
+        if a > b:
+            raise ValueError(f"DIAS_SEMANA inválido (faixa invertida): {expr!r}")
+        return set(range(a, b + 1))
+    dias: Set[int] = set()
+    for parte in expr.split(','):
+        p = parte.strip()
+        if p not in _DOW_CRON:
+            raise ValueError(f"DIAS_SEMANA inválido: {expr!r}")
+        dias.add(_DOW_CRON[p])
+    return dias
+
+
+def esta_na_janela_comercial(
+    *,
+    janela_horas: str,
+    dias_semana: str,
+    agora: Optional[datetime] = None,
+) -> bool:
+    """Retorna ``True`` se ``agora`` cai na janela comercial configurada."""
+    agora = agora or datetime.now()
+    h_ini, h_fim = _parse_janela_horas(janela_horas)
+    if not (h_ini <= agora.hour <= h_fim):
+        return False
+    return agora.weekday() in _parse_dias_semana(dias_semana)
+
+
+def job_execucao(*, ignorar_janela: bool = False) -> None:
     """Executa uma rodada da extração, lendo view e modo das variáveis de ambiente.
 
     Protegido pelo lock global ``_execucao_lock``, que garante exclusão mútua entre
@@ -84,7 +131,20 @@ def job_execucao() -> None:
     até 10:12) nem a carga de startup, que roda fora do scheduler. Se já há uma carga em
     andamento, esta é descartada — no modo snapshot a próxima rodada repõe o dado, então
     pular é seguro e preferível a arriscar um ``insere-depois-poda`` concorrente.
+
+    Args:
+        ignorar_janela: Se ``True``, executa mesmo fora de ``JANELA_HORAS``/``DIAS_SEMANA``
+            (usado na carga de startup).
     """
+    if not ignorar_janela:
+        settings = get_settings()
+        if not esta_na_janela_comercial(
+            janela_horas=settings.janela_horas,
+            dias_semana=settings.dias_semana,
+        ):
+            logger.debug("Fora da janela comercial; execução agendada ignorada.")
+            return
+
     if not _execucao_lock.acquire(blocking=False):
         logger.warning("Execução já em andamento; esta foi descartada para evitar sobreposição.")
         return
@@ -94,8 +154,9 @@ def job_execucao() -> None:
         logger.info("INICIANDO EXECUÇÃO AGENDADA")
         logger.info("="*60)
 
-        view_name = os.getenv('SAP_VIEW_NAME', 'SUA_VIEW_SAP')
-        execution_mode = os.getenv('EXECUTION_MODE', 'snapshot')
+        settings = get_settings()
+        view_name = settings.sap_view_name or 'SUA_VIEW_SAP'
+        execution_mode = settings.execution_mode
 
         try:
             success = main(view_name=view_name, execution_mode=execution_mode)
@@ -127,9 +188,14 @@ def configurar_agenda() -> BackgroundScheduler:
     Returns:
         Um ``BackgroundScheduler`` configurado (ainda não iniciado).
     """
-    intervalo = max(5, int(os.getenv('INTERVALO_MINUTOS', '30')))  # piso de 5 min
-    janela_horas = os.getenv('JANELA_HORAS', '7-18')
-    dias_semana = os.getenv('DIAS_SEMANA', 'mon-sat')
+    settings = get_settings()
+    intervalo = settings.intervalo_minutos
+    janela_horas = settings.janela_horas
+    dias_semana = settings.dias_semana
+
+    # Valida a janela na inicialização (falha cedo se .env estiver malformado)
+    _parse_janela_horas(janela_horas)
+    _parse_dias_semana(dias_semana)
 
     scheduler = BackgroundScheduler(
         job_defaults={
@@ -141,11 +207,7 @@ def configurar_agenda() -> BackgroundScheduler:
 
     scheduler.add_job(
         job_execucao,
-        trigger=CronTrigger(
-            minute=f'*/{intervalo}',
-            hour=janela_horas,
-            day_of_week=dias_semana,
-        ),
+        trigger=IntervalTrigger(minutes=intervalo),
         id='extracao_intervalar',
         name=f'Extração a cada {intervalo} min ({janela_horas}h, {dias_semana})',
     )
@@ -165,7 +227,7 @@ def main_scheduler() -> None:
 
     # Execução imediata ao iniciar (run on startup) — falhas são tratadas dentro do job
     logger.info("Executando carga inicial (startup)...")
-    job_execucao()
+    job_execucao(ignorar_janela=True)
 
     logger.info("Scheduler ativo (ver agenda acima). Pressione Ctrl+C para interromper.")
 

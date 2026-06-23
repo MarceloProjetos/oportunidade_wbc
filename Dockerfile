@@ -9,6 +9,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copiar código
+COPY config.py .
+COPY sap_connection.py .
 COPY extract_sap_to_supabase.py .
 COPY test_connections.py .
 

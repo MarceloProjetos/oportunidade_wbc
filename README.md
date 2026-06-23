@@ -355,14 +355,17 @@ disparada às 18:30):
 python scheduled_execution.py
 ```
 
-Os horários são configuráveis por variáveis de ambiente (formato cron):
+Os horários são configuráveis por variáveis de ambiente:
 
 | Variável | Default | Descrição |
 |----------|---------|-----------|
-| `INTERVALO_MINUTOS` | `30` | Minutos entre cargas (piso de 5). |
-| `JANELA_HORAS` | `7-18` | Faixa de horas (1ª carga 07:00, última 18:30 com intervalo 30). |
-| `DIAS_SEMANA` | `mon-sat` | Dias da semana. |
+| `INTERVALO_MINUTOS` | `30` | Minutos entre cargas (piso de 5; aceita valores > 59). |
+| `JANELA_HORAS` | `7-18` | Faixa de horas inclusiva (ex.: `7-18` = 07h às 18h59). |
+| `DIAS_SEMANA` | `mon-sat` | Dias da semana (formato cron: `mon-sat`, `mon-fri`, `mon,wed`). |
 | `EXECUTION_MODE` | `snapshot` | Modo de carga (`snapshot` ou `insert`). |
+
+> O agendador usa `IntervalTrigger` (intervalo fixo em minutos) e filtra pela janela
+> comercial dentro do job. A carga de **startup** ignora a janela e roda sempre ao iniciar.
 
 > Robustez 24/7: um *lock* global serializa as cargas (nunca há duas simultâneas, nem
 > com a do startup); `coalesce` + `misfire_grace_time` de 1h toleram servidor desligado;
@@ -438,9 +441,11 @@ git push
 
 ```text
 oportunidade_wbc/
+├── config.py                    # Configuração centralizada (.env)
+├── sap_connection.py            # Conexão SAP HANA compartilhada
 ├── extract_sap_to_supabase.py   # Pipeline principal (SAP + SQL Server → Supabase)
 ├── test_connections.py          # Diagnóstico de pacotes e conexões
-├── scheduled_execution.py       # Agendamento via APScheduler (intervalo + startup)
+├── scheduled_execution.py       # Agendamento via APScheduler (IntervalTrigger)
 ├── run_scheduler.bat            # Wrapper p/ Task Scheduler / NSSM (boot 24/7)
 ├── examples/
 │   └── exemplo_avancado.py      # Exemplos de uso avançado (referência)

@@ -20,7 +20,6 @@ Variáveis de ambiente (.env):
     SQL_HOST, SQL_PORT, SQL_USER, SQL_PASSWORD, SQL_DATABASE: Conexão SQL Server (opcional).
 """
 
-import os
 import re
 import sys
 import time
@@ -32,30 +31,25 @@ import uuid
 
 import numpy as np
 import pandas as pd
-from hdbcli import dbapi
 from supabase import create_client, Client
 from supabase.client import ClientOptions
-from dotenv import load_dotenv
 
-# ── Parâmetros de robustez (timeouts e retries) ──
-SAP_PORT_DEFAULT = 30015             # porta típica do SAP HANA (indexserver)
-SAP_CONNECT_TIMEOUT_MS = 15000       # timeout de conexão ao SAP HANA (ms)
-SAP_COMM_TIMEOUT_MS = 60000          # timeout de comunicação/query ao SAP HANA (ms)
-SQL_LOGIN_TIMEOUT_S = 10             # timeout de login ao SQL Server (s)
-SUPABASE_TIMEOUT_S = 120             # timeout REST PostgREST ao Supabase (s); igual ao default do supabase-py
-RETRY_ATTEMPTS = 3                   # tentativas em falhas transitórias
-RETRY_BASE_DELAY_S = 2.0             # atraso base do backoff exponencial (s)
-INSERT_BATCH_SIZE = 500              # registros por lote no insert ao Supabase
-MESES_RETROATIVOS = 6                # janela de dados a carregar (em meses)
-FILTRO_COLUNA_DATA = 'CreateDate'    # coluna usada no filtro de N meses
+from config import (
+    EXECUTION_MODES,
+    FILTRO_COLUNA_DATA,
+    INSERT_BATCH_SIZE,
+    MESES_RETROATIVOS,
+    RETRY_ATTEMPTS,
+    RETRY_BASE_DELAY_S,
+    SQL_LOGIN_TIMEOUT_S,
+    SYNC_LOG_MAX_REGISTROS,
+    SYNC_LOG_TABLE_NAME,
+    get_settings,
+)
+from sap_connection import SAPExtractor, is_sap_tenant_error
 
-# ── Log de sincronização (tabela à parte) ──
-SYNC_LOG_TABLE_NAME = 'sincronizacao_log'  # tabela que guarda hora/duração das sincronizações
-SYNC_LOG_MAX_REGISTROS = 6                 # mantém só os N registros mais recentes (apaga o mais velho)
-
-# Modos de carga suportados. ``upsert`` foi removido: exigia índice UNIQUE de negócio
-# inexistente e só duplicava registros (PK ``id`` é auto-increment, não vai no payload).
-EXECUTION_MODES = ('snapshot', 'insert')
+# Re-export para compatibilidade com imports existentes
+from config import SAP_PORT_DEFAULT  # noqa: F401
 
 # Garantir saída UTF-8 no console (Windows usa cp1252 e quebra com ✓/✗)
 try:
@@ -70,9 +64,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# Carregar variáveis de ambiente
-load_dotenv()
 
 
 def with_retries(
@@ -127,25 +118,6 @@ _SQL_QUALIFIED_NAME_RE = re.compile(
     rf'^{_SQL_IDENTIFIER_PART}(\.{_SQL_IDENTIFIER_PART})*$'
 )
 
-# Erro determinístico do hdbcli quando databaseName (tenant) não está conectado.
-_SAP_NOT_CONNECTED_RE = re.compile(r'not\s+connected', re.IGNORECASE)
-
-
-def is_sap_tenant_error(exc: BaseException) -> bool:
-    """Indica que o tenant SAP HANA (``databaseName``) não está conectado.
-
-    O hdbcli retorna mensagens como ``'not connected'`` quando o database
-    informado não existe ou não está ativo. Nesse caso o fallback é conectar
-    sem ``databaseName``.
-
-    Args:
-        exc: Exceção capturada na tentativa de conexão.
-
-    Returns:
-        ``True`` se a mensagem da exceção indica erro de tenant não conectado.
-    """
-    return bool(_SAP_NOT_CONNECTED_RE.search(str(exc)))
-
 
 def validate_sql_identifier(name: str, *, what: str = "identificador") -> str:
     """Valida que ``name`` é um identificador SQL seguro (abordagem allow-list).
@@ -196,114 +168,6 @@ def build_view_query(view_name: str, schema: Optional[str] = None) -> str:
         validate_sql_identifier(schema, what="schema SAP")
         return f'"{schema}"."{view_name}"'
     return view_name
-
-
-class SAPExtractor:
-    """Classe para extrair dados do SAP B1 (HANA)."""
-    
-    def __init__(
-        self,
-        host: str,
-        port: int,
-        user: str,
-        password: str,
-        database: Optional[str] = None,
-    ) -> None:
-        """Guarda os parâmetros de conexão com o SAP HANA.
-
-        Args:
-            host: Host do servidor SAP HANA.
-            port: Porta do servidor.
-            user: Usuário do SAP HANA.
-            password: Senha do SAP HANA.
-            database: Database (tenant) do SAP HANA — opcional.
-        """
-        self.host = host
-        self.port = port
-        self.user = user
-        self.password = password
-        self.database = database
-        self.connection: Optional[Any] = None
-    
-    def connect(self) -> bool:
-        """Conecta ao SAP HANA, com timeout e novas tentativas em falhas transitórias.
-
-        Aplica timeouts de conexão/comunicação e retenta erros transitórios (rede) com
-        backoff. O erro determinístico de tenant não conectado não é retentado:
-        dispara o fallback de conexão sem ``databaseName``.
-
-        Returns:
-            ``True`` se conectado com sucesso; ``False`` caso contrário.
-        """
-        connect_args = {
-            'address': self.host,
-            'port': self.port,
-            'user': self.user,
-            'password': self.password,
-            'CHARSET': 'UTF8',
-            'connectTimeout': SAP_CONNECT_TIMEOUT_MS,
-            'communicationTimeout': SAP_COMM_TIMEOUT_MS,
-        }
-
-        if self.database:
-            connect_args['databaseName'] = self.database
-
-        # Não retentar erro de tenant — leva ao fallback sem databaseName.
-        not_transient = lambda exc: not is_sap_tenant_error(exc)
-
-        def _connect(args: dict):
-            return with_retries(
-                lambda: dbapi.connect(**args),
-                what=f"conexão SAP HANA ({self.host}:{self.port})",
-                retry_on=not_transient,
-            )
-
-        try:
-            self.connection = _connect(connect_args)
-            logger.info(f"Conectado ao SAP HANA ({self.host}:{self.port})")
-            return True
-        except Exception as e:
-            error_message = str(e)
-            logger.warning(f"Falha ao conectar com databaseName='{self.database}': {error_message}")
-
-            if self.database and is_sap_tenant_error(e):
-                try:
-                    connect_args.pop('databaseName', None)
-                    self.connection = _connect(connect_args)
-                    logger.info(f"Conectado ao SAP HANA ({self.host}:{self.port}) sem databaseName")
-                    return True
-                except Exception as fallback_error:
-                    logger.error(f"Erro ao conectar sem databaseName: {fallback_error}")
-                    return False
-
-            logger.error(f"Erro ao conectar ao SAP HANA: {error_message}")
-            return False
-    
-    def execute_query(self, query: str) -> Optional[pd.DataFrame]:
-        """Executa uma query no SAP HANA e retorna os resultados em DataFrame.
-
-        Args:
-            query: Query SQL a executar.
-
-        Returns:
-            DataFrame com os resultados ou ``None`` em caso de erro.
-        """
-        try:
-            if not self.connection:
-                raise Exception("Não conectado ao SAP HANA")
-            
-            df = pd.read_sql(query, self.connection)
-            logger.info(f"Query executada com sucesso. {len(df)} linhas retornadas.")
-            return df
-        except Exception as e:
-            logger.error(f"Erro ao executar query: {e}")
-            return None
-    
-    def close(self) -> None:
-        """Fecha a conexão com SAP HANA, se aberta."""
-        if self.connection:
-            self.connection.close()
-            logger.info("Conexão com SAP HANA fechada")
 
 
 def get_sqlserver_connection(
@@ -402,28 +266,28 @@ def extract_sap_to_dataframe(view_name: Optional[str] = None) -> Optional[pd.Dat
     Returns:
         DataFrame com os dados filtrados ou ``None`` em caso de erro.
     """
-    sap_host = os.getenv('SAP_HOST')
-    sap_port = int(os.getenv('SAP_PORT', SAP_PORT_DEFAULT))
-    sap_user = os.getenv('SAP_USER')
-    sap_password = os.getenv('SAP_PASSWORD')
-    sap_database = os.getenv('SAP_DATABASE')
-    sap_schema = os.getenv('SAP_SCHEMA')
-    env_view_name = os.getenv('SAP_VIEW_NAME')
+    settings = get_settings()
 
     if not view_name:
-        view_name = env_view_name
+        view_name = settings.sap_view_name
 
-    if not all([sap_host, sap_user, sap_password]) or not view_name:
+    if not settings.sap_ready() or not view_name:
         logger.error("Faltam variáveis de ambiente obrigatórias ou nome da view SAP não informado")
         return None
 
-    sap = SAPExtractor(sap_host, sap_port, sap_user, sap_password, sap_database)
+    sap = SAPExtractor(
+        settings.sap_host,
+        settings.sap_port,
+        settings.sap_user,
+        settings.sap_password,
+        settings.sap_database,
+    )
     if not sap.connect():
         return None
 
     # Filtra na origem: só os últimos MESES_RETROATIVOS meses (mais eficiente)
     query = (
-        f'SELECT * FROM {build_view_query(view_name, sap_schema)} '
+        f'SELECT * FROM {build_view_query(view_name, settings.sap_schema)} '
         f'WHERE "{FILTRO_COLUNA_DATA}" >= ADD_MONTHS(CURRENT_DATE, -{MESES_RETROATIVOS})'
     )
     df = sap.execute_query(query)
@@ -441,25 +305,19 @@ def extract_sqlserver_view(
     view_name: str = 'WBCCAD.dbo.INTEGRACAO_ORCSIT'
 ) -> Optional[pd.DataFrame]:
     """Conecta ao SQL Server e retorna os dados da view solicitada."""
-    # Aceita tanto SQLSERVER_* quanto SQL_* (nomes usados no .env)
-    sql_host = os.getenv('SQLSERVER_HOST') or os.getenv('SQL_HOST')
-    sql_port = int(os.getenv('SQLSERVER_PORT') or os.getenv('SQL_PORT') or 1433)
-    sql_user = os.getenv('SQLSERVER_USER') or os.getenv('SQL_USER')
-    sql_password = os.getenv('SQLSERVER_PASSWORD') or os.getenv('SQL_PASSWORD')
-    sql_database = os.getenv('SQLSERVER_DATABASE') or os.getenv('SQL_DATABASE') or 'WBCCAD'
-    sql_driver = os.getenv('SQLSERVER_DRIVER') or os.getenv('SQL_DRIVER')
+    settings = get_settings()
 
-    if not all([sql_host, sql_user, sql_password]):
+    if not settings.sql_ready():
         logger.error("Faltam variáveis de ambiente obrigatórias para SQL Server")
         return None
 
     conn = get_sqlserver_connection(
-        host=sql_host,
-        port=sql_port,
-        user=sql_user,
-        password=sql_password,
-        database=sql_database,
-        driver=sql_driver
+        host=settings.sql_host,
+        port=settings.sql_port,
+        user=settings.sql_user,
+        password=settings.sql_password,
+        database=settings.sql_database,
+        driver=settings.sql_driver,
     )
     if conn is None:
         return None
@@ -492,7 +350,7 @@ class SupabaseLoader:
                 ``SUPABASE_TIMEOUT_S`` do ambiente ou o default do módulo.
         """
         if timeout_s is None:
-            timeout_s = float(os.getenv('SUPABASE_TIMEOUT_S', SUPABASE_TIMEOUT_S))
+            timeout_s = get_settings().supabase_timeout_s
 
         options = ClientOptions(postgrest_client_timeout=timeout_s)
         self.client: Client = create_client(supabase_url, supabase_key, options)
@@ -694,21 +552,11 @@ def main(
     Returns:
         ``True`` se o processo concluiu com sucesso, ``False`` caso contrário.
     """
-    # Carregar configurações (SAP detalhado é relido em extract_sap_to_dataframe)
-    sap_host = os.getenv('SAP_HOST')
-    sap_user = os.getenv('SAP_USER')
-    sap_password = os.getenv('SAP_PASSWORD')
-    supabase_url = os.getenv('SUPABASE_URL')
-    # Preferir a service_role para escrita (ignora RLS); cai para a anon se não houver
-    supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('SUPABASE_KEY')
-    table_name = os.getenv('TABLE_NAME', 'oportunidades')
-    env_view_name = os.getenv('SAP_VIEW_NAME')
-    
-    if not view_name:
-        view_name = env_view_name
-    
-    # Validar configurações
-    if not all([sap_host, sap_user, sap_password, supabase_url, supabase_key]) or not view_name:
+    # Carregar configurações
+    settings = get_settings()
+    view_name = view_name or settings.sap_view_name
+
+    if not settings.sap_ready() or not settings.supabase_ready() or not view_name:
         logger.error("Faltam variáveis de ambiente obrigatórias ou nome da view SAP não informado")
         return False
 
@@ -729,7 +577,7 @@ def main(
 
     # Medição da sincronização (para o log): início, contagem e resultado
     inicio = time.monotonic()
-    sync_log_table = os.getenv('SYNC_LOG_TABLE_NAME', SYNC_LOG_TABLE_NAME)
+    sync_log_table = settings.sync_log_table_name
     qtd_registros = 0
     resultado = False
     loader: Optional[SupabaseLoader] = None  # reaproveitado no finally para gravar o log
@@ -771,13 +619,13 @@ def main(
 
         # 3. Carregar no Supabase
         logger.info("Carregando dados no Supabase...")
-        loader = SupabaseLoader(supabase_url, supabase_key)
-        success = loader.insert_data(table_name, data_to_insert)
+        loader = SupabaseLoader(settings.supabase_url, settings.supabase_write_key)
+        success = loader.insert_data(settings.table_name, data_to_insert)
 
         # Modo snapshot: carrega-depois-poda — só removemos as execuções anteriores
         # APÓS a inserção dar certo, garantindo que a tabela nunca fique vazia.
         if success and execution_mode == 'snapshot':
-            if not loader.delete_other_executions(table_name, exec_id):
+            if not loader.delete_other_executions(settings.table_name, exec_id):
                 logger.warning(
                     "Inserção OK, mas a remoção das execuções anteriores falhou. "
                     "A tabela pode conter registros duplicados de execuções passadas."
@@ -804,7 +652,9 @@ def main(
             # Reaproveita o cliente já criado no fluxo principal; só instancia um novo se
             # a falha ocorreu antes de ele existir (ex.: extração SAP falhou antes de
             # chegar à carga no Supabase).
-            log_loader = loader or SupabaseLoader(supabase_url, supabase_key)
+            log_loader = loader or SupabaseLoader(
+                settings.supabase_url, settings.supabase_write_key
+            )
             log_loader.registrar_sincronizacao(
                 sync_log_table, data_hora_pc, duracao, status, qtd_registros
             )
