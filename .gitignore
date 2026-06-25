@@ -32,3 +32,6 @@ _*.py
 .idea/
 .DS_Store
 Thumbs.db
+
+# ── Config local de agente (Claude Code) ──
+.claude/
