@@ -355,6 +355,69 @@ main(view_name='VW_EVOL_OPORTUNIDADE_ALT', execution_mode='insert')    # acumula
 
 ---
 
+## Pipeline de Ordens de Serviço (Engenharia)
+
+Pipeline **independente** do de oportunidades, que sincroniza a view SAP
+`VW_EXPORT_ORDENS_SERVICO_1` (Ordens de Serviço de Engenharia) para o Supabase
+**sob demanda, por `NPED`**. Usa a **mesma conexão SAP** e reaproveita o núcleo
+compartilhado [pipeline_core.py](pipeline_core.py) (`SupabaseLoader`, `prepare_data`, etc.).
+**Não** faz enriquecimento com SQL Server nem usa `SITCOD`.
+
+**1. Criar as tabelas** — execute [sql/ordens_servico_engenharia.sql](sql/ordens_servico_engenharia.sql)
+no SQL Editor do Supabase (cria `ordens_servico_engenharia`, o lookup
+`status_ordens_servico_eng` e o log `sincronizacao_log_os_eng`).
+
+**2. Sincronizar um ou mais pedidos:**
+
+```bash
+python extract_ordens_servico_engenharia.py 84080            # um pedido
+python extract_ordens_servico_engenharia.py 84080 84095      # vários
+```
+
+Ou de forma programática:
+
+```python
+from extract_ordens_servico_engenharia import main, run_npeds
+main(84080)                 # um NPED
+run_npeds([84080, 84095])   # vários
+```
+
+| Modo (`OS_EXECUTION_MODE`) | Comportamento |
+| --- | --- |
+| `replace_nped` (default) | Carrega-depois-poda **escopado ao NPED**: insere as linhas do pedido e remove só as linhas antigas **daquele** pedido. A tabela acumula vários pedidos, cada um atualizável de forma independente; um NPED nunca fica vazio se a carga falhar. |
+| `insert` | Apenas insere (acumula histórico por `id_execucao`; pode duplicar). |
+
+> Se a view retornar **0 linhas** para o `NPED` (pedido inexistente), a tabela é
+> **mantida inalterada** — não apaga um pedido válido já carregado.
+
+A tabela tem os campos de controle `id_execucao`, `data_hora_extracao`, `origem_view`
+e `inserted_at`. Consulta com a descrição do status:
+
+```sql
+select o.*, s.descricao as status_desc
+from public.ordens_servico_engenharia o
+left join public.status_ordens_servico_eng s on s.codigo = o."Status"
+where o."NPED" = 84080;
+```
+
+> Códigos de `Status` na view: `P` Planejado · `R` Liberado · `L` Encerrado
+> (`C` Cancelado é semeado no lookup mas não aparece na view hoje).
+
+**3. Exportar para JSON** (lê a tabela já sincronizada, via `service_role`):
+
+```bash
+python export_os_json.py 84080                        # 1 pedido → exports/<gerado>.json
+python export_os_json.py 84080 84095 --slim           # vários, sem os textos NCLOB
+python export_os_json.py --all -o exports/todas.json  # tabela inteira
+python export_os_json.py 84080 --stdout --array       # p/ pipe (só o array)
+```
+
+> Passo a passo didático, com exemplos e saídas reais, no
+> **[GUIA_ORDENS_SERVICO_ENGENHARIA.md](GUIA_ORDENS_SERVICO_ENGENHARIA.md)**.
+> Planejamento e decisões em [PLANO_SYNC_ORDENS_SERVICO.md](PLANO_SYNC_ORDENS_SERVICO.md).
+
+---
+
 ## Agendamento (Automático)
 
 ### Opção A — APScheduler (multiplataforma)

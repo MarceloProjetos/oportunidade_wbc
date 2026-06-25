@@ -43,6 +43,16 @@ SYNC_LOG_MAX_REGISTROS = 6
 
 EXECUTION_MODES = ('snapshot', 'insert')
 
+# Ordens de Serviço (Engenharia) — pipeline sob demanda, por NPED
+OS_SAP_VIEW_NAME_DEFAULT = 'VW_EXPORT_ORDENS_SERVICO_1'
+OS_TABLE_NAME_DEFAULT = 'ordens_servico_engenharia'
+OS_STATUS_TABLE_DEFAULT = 'status_ordens_servico_eng'
+OS_SYNC_LOG_TABLE_DEFAULT = 'sincronizacao_log_os_eng'
+OS_EXECUTION_MODE_DEFAULT = 'replace_nped'
+OS_EXECUTION_MODES = ('replace_nped', 'insert')
+OS_INSERT_BATCH_SIZE_DEFAULT = 200
+OS_SYNC_LOG_MAX_REGISTROS = 100
+
 # Scheduler
 INTERVALO_MINUTOS_DEFAULT = 30
 INTERVALO_PISO_MIN = 5
@@ -155,6 +165,14 @@ class Settings:
     sql_driver: Optional[str]
     sql_enrichment_view: str
 
+    # Ordens de Serviço (Engenharia)
+    os_sap_view_name: str
+    os_table_name: str
+    os_status_table: str
+    os_sync_log_table: str
+    os_execution_mode: str
+    os_insert_batch_size: int
+
     intervalo_minutos: int
     janela_horas: str
     dias_semana: str
@@ -189,6 +207,14 @@ class Settings:
             sql_database=_env('SQLSERVER_DATABASE', 'SQL_DATABASE') or SQL_DATABASE_DEFAULT,
             sql_driver=_env('SQLSERVER_DRIVER', 'SQL_DRIVER'),
             sql_enrichment_view=os.getenv('SQL_ENRICHMENT_VIEW', SQL_ENRICHMENT_VIEW_DEFAULT),
+            os_sap_view_name=os.getenv('OS_SAP_VIEW_NAME', OS_SAP_VIEW_NAME_DEFAULT),
+            os_table_name=os.getenv('OS_TABLE_NAME', OS_TABLE_NAME_DEFAULT),
+            os_status_table=os.getenv('OS_STATUS_TABLE_NAME', OS_STATUS_TABLE_DEFAULT),
+            os_sync_log_table=os.getenv('OS_SYNC_LOG_TABLE_NAME', OS_SYNC_LOG_TABLE_DEFAULT),
+            os_execution_mode=os.getenv('OS_EXECUTION_MODE', OS_EXECUTION_MODE_DEFAULT),
+            os_insert_batch_size=int(
+                os.getenv('OS_INSERT_BATCH_SIZE', OS_INSERT_BATCH_SIZE_DEFAULT)
+            ),
             intervalo_minutos=max(
                 INTERVALO_PISO_MIN,
                 int(os.getenv('INTERVALO_MINUTOS', INTERVALO_MINUTOS_DEFAULT)),

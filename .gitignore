@@ -20,6 +20,9 @@ env/
 logs/
 *.log
 
+# ── Exportações JSON (contêm dados de cliente — não versionar) ──
+exports/
+
 # ── Arquivos temporários do projeto ──
 _*.py
 *.tmp
