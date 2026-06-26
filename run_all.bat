@@ -14,4 +14,4 @@ start "OrcaView-Scheduler" cmd /c run_scheduler.bat
 start "OrcaView-OS-API"    cmd /c run_api.bat
 
 echo Iniciados: Agendador (oportunidades) + API (ordens de servico).
-echo Esta janela pode ser fechada — os dois seguem rodando em janelas proprias.
+echo Esta janela pode ser fechada - os dois seguem rodando em janelas proprias.
