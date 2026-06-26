@@ -3,6 +3,28 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-06-25] — API de disparo + endurecimento (pós-revisão)
+
+### Adicionado
+
+- **API HTTP** (`api.py`, Flask) para o app disparar a sync por NPED:
+  `POST /sync/ordens-servico/<nped>`, `POST /sync/ordens-servico` (corpo
+  `{"nped": N}` ou `{"npeds": [...]}`) e `GET /health`. Autenticação **opcional** por
+  `OS_API_KEY` (header `X-API-Key` ou `Authorization: Bearer`); cargas **serializadas**
+  por lock; respostas `200/207/400/401/502`. Config `OS_API_*`; `flask`/`waitress` no
+  `requirements.txt`; testes em `tests/test_api.py`.
+- **`pipeline_core.coerce_positive_int`** (regex `^\d+$` + `> 0`) — validação de NPED
+  reutilizada por `extract`/`export`/`api` (rejeita negativo, zero, sinal e decimal).
+  Testes em `tests/test_pipeline_core.py`.
+
+### Alterado
+
+- Logger `httpx` rebaixado para `WARNING` nos entrypoints de OS (logs de produção
+  sem a URL gigante por requisição).
+- `export_os_json` valida os NPEDs antes de filtrar no PostgREST.
+
+Total da suíte: **106 testes passando**.
+
 ## [2026-06-25] — Ordens de Serviço de Engenharia
 
 Novo pipeline **independente** do de oportunidades: sincroniza Ordens de Serviço do

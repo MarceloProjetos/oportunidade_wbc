@@ -412,7 +412,32 @@ python export_os_json.py --all -o exports/todas.json  # tabela inteira
 python export_os_json.py 84080 --stdout --array       # p/ pipe (só o array)
 ```
 
-> Passo a passo didático, com exemplos e saídas reais, no
+**4. Disparar pela API (do app)** — um endpoint HTTP que o app chama para sincronizar
+um pedido sob demanda (a escrita continua via `service_role`):
+
+```bash
+# subir o serviço (produção, Windows): waitress
+waitress-serve --listen=0.0.0.0:8077 api:app
+# ou, para dev:  python api.py
+
+# disparar a sync de um pedido:
+curl -X POST http://localhost:8077/sync/ordens-servico/84080 -H "X-API-Key: SUA_CHAVE"
+# vários: curl -X POST .../sync/ordens-servico -H "Content-Type: application/json" \
+#              -H "X-API-Key: SUA_CHAVE" -d '{"npeds":[84080,84095]}'
+```
+
+| Rota | Método | O que faz |
+| --- | --- | --- |
+| `/health` | GET | Liveness (`{"status":"ok"}`). |
+| `/sync/ordens-servico/<nped>` | POST | Sincroniza um pedido. |
+| `/sync/ordens-servico` | POST | Corpo `{"nped":N}` ou `{"npeds":[...]}`. |
+
+> 🔑 Defina `OS_API_KEY` no `.env` para exigir o header `X-API-Key` (ou `Authorization:
+> Bearer`). Sem ela, o endpoint fica aberto — use só em rede interna/dev. As cargas são
+> **serializadas** (nunca duas ao mesmo tempo).
+
+> Passo a passo didático, com exemplos e saídas reais (incl. a API e um exemplo de
+> `fetch` no front), no
 > **[GUIA_ORDENS_SERVICO_ENGENHARIA.md](GUIA_ORDENS_SERVICO_ENGENHARIA.md)**.
 > Planejamento e decisões em [PLANO_SYNC_ORDENS_SERVICO.md](PLANO_SYNC_ORDENS_SERVICO.md).
 

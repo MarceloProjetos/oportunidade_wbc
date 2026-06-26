@@ -1,0 +1,90 @@
+"""Testes da API HTTP de disparo da sync de OS (sem rede; sync_os mockado)."""
+
+import pytest
+
+pytest.importorskip('flask')  # pula o módulo se flask não estiver instalado
+
+import api as apimod  # noqa: E402
+from config import reset_settings  # noqa: E402
+
+
+@pytest.fixture
+def client(monkeypatch):
+    # sync_os mockado: registra os NPEDs chamados e devolve sucesso por padrão
+    chamados = []
+    monkeypatch.setattr(apimod, 'sync_os', lambda n: chamados.append(n) or True)
+    apimod.app.config.update(TESTING=True)
+    c = apimod.app.test_client()
+    c._chamados = chamados
+    return c
+
+
+def test_health(client):
+    r = client.get('/health')
+    assert r.status_code == 200
+    assert r.get_json()['status'] == 'ok'
+
+
+def test_sync_single_ok(client):
+    r = client.post('/sync/ordens-servico/84080')
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['ok'] is True
+    assert body['results'] == [{'nped': 84080, 'ok': True}]
+    assert client._chamados == [84080]
+
+
+def test_sync_batch_ok(client):
+    r = client.post('/sync/ordens-servico', json={'npeds': [84080, 84095]})
+    assert r.status_code == 200
+    assert r.get_json()['summary'] == {'total': 2, 'sucesso': 2, 'falha': 0}
+    assert client._chamados == [84080, 84095]
+
+
+def test_sync_body_single_nped(client):
+    r = client.post('/sync/ordens-servico', json={'nped': 84080})
+    assert r.status_code == 200
+    assert client._chamados == [84080]
+
+
+@pytest.mark.parametrize('bad', ['-5', '0', 'abc', '84080.0'])
+def test_sync_invalid_nped_path_400(client, bad):
+    r = client.post(f'/sync/ordens-servico/{bad}')
+    assert r.status_code == 400
+    assert client._chamados == []  # não chamou a sync
+
+
+def test_sync_missing_body_400(client):
+    r = client.post('/sync/ordens-servico', json={})
+    assert r.status_code == 400
+
+
+def test_partial_failure_207(client, monkeypatch):
+    monkeypatch.setattr(apimod, 'sync_os', lambda n: n == 84080)
+    r = client.post('/sync/ordens-servico', json={'npeds': [84080, 99999]})
+    assert r.status_code == 207
+    assert r.get_json()['summary'] == {'total': 2, 'sucesso': 1, 'falha': 1}
+
+
+def test_all_failed_502(client, monkeypatch):
+    monkeypatch.setattr(apimod, 'sync_os', lambda n: False)
+    r = client.post('/sync/ordens-servico/84080')
+    assert r.status_code == 502
+    assert r.get_json()['ok'] is False
+
+
+def test_auth_required_when_key_set(client, monkeypatch):
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    # sem header → 401 (e não chama a sync)
+    assert client.post('/sync/ordens-servico/84080').status_code == 401
+    assert client._chamados == []
+    # X-API-Key correto → 200
+    assert client.post('/sync/ordens-servico/84080',
+                       headers={'X-API-Key': 'segredo'}).status_code == 200
+    # Authorization: Bearer correto → 200
+    assert client.post('/sync/ordens-servico/84080',
+                       headers={'Authorization': 'Bearer segredo'}).status_code == 200
+    # chave errada → 401
+    assert client.post('/sync/ordens-servico/84080',
+                       headers={'X-API-Key': 'errada'}).status_code == 401

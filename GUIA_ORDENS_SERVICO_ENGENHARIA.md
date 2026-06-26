@@ -23,6 +23,7 @@ operar do zero.
 - [4. Pré-requisitos](#4-pré-requisitos)
 - [5. Passo 1 — Criar as tabelas (uma vez)](#5-passo-1--criar-as-tabelas-uma-vez)
 - [6. Passo 2 — Sincronizar um pedido](#6-passo-2--sincronizar-um-pedido)
+  - [6.1 Disparar pela API (do app)](#61-disparar-pela-api-do-app)
 - [7. Como funciona o `replace_nped` (exemplo passo a passo)](#7-como-funciona-o-replace_nped-exemplo-passo-a-passo)
 - [8. Passo 3 — Exportar para JSON](#8-passo-3--exportar-para-json)
 - [9. Anatomia do JSON exportado](#9-anatomia-do-json-exportado)
@@ -161,6 +162,77 @@ run_npeds([84080, 84095, 84100]) # vários → retorna {84080: True, ...}
 > ⚠️ **Pedido inexistente:** se a view retornar **0 linhas** para o NPED, o pipeline
 > **não apaga** o que já existe — ele avisa e encerra. Isso evita zerar por engano um
 > pedido válido já carregado.
+
+---
+
+### 6.1 Disparar pela API (do app)
+
+Para o **app** disparar a sincronização (ex.: um botão "Atualizar OS deste pedido"),
+há uma API HTTP em [api.py](api.py). O app só faz um `POST`; a escrita continua sendo
+do backend (`service_role`).
+
+**Subir o serviço:**
+
+```bash
+# Produção (Windows) — via waitress:
+waitress-serve --listen=0.0.0.0:8077 api:app
+
+# Dev:
+python api.py
+```
+
+**Rotas:**
+
+| Rota | Método | Descrição |
+|---|---|---|
+| `/health` | GET | Verifica se está no ar (`{"status":"ok"}`). |
+| `/sync/ordens-servico/<nped>` | POST | Sincroniza **um** pedido. |
+| `/sync/ordens-servico` | POST | Corpo `{"nped": N}` ou `{"npeds": [...]}`. |
+
+**Disparar (curl):**
+
+```bash
+curl -X POST http://localhost:8077/sync/ordens-servico/84080 \
+     -H "X-API-Key: SUA_CHAVE"
+```
+
+**Resposta (200):**
+
+```json
+{
+  "ok": true,
+  "results": [{ "nped": 84080, "ok": true }],
+  "summary": { "total": 1, "sucesso": 1, "falha": 0 }
+}
+```
+
+**Códigos de status:** `200` todos OK · `207` parcial (vários NPEDs, alguns falharam) ·
+`400` NPED inválido / corpo ausente · `401` sem/má `X-API-Key` · `502` nenhum sincronizou.
+
+**No front (exemplo `fetch`):**
+
+```js
+async function sincronizarOS(nped) {
+  const resp = await fetch(`http://SERVIDOR:8077/sync/ordens-servico/${nped}`, {
+    method: 'POST',
+    headers: { 'X-API-Key': API_KEY },
+  });
+  const data = await resp.json();
+  if (data.ok) {
+    alert(`Pedido ${nped} sincronizado!`);
+  } else {
+    alert(`Falha ao sincronizar ${nped}`);
+  }
+}
+```
+
+**Autenticação:** defina `OS_API_KEY` no `.env` para exigir o header
+`X-API-Key: <chave>` (ou `Authorization: Bearer <chave>`). Sem ela, o endpoint fica
+**aberto** — use só em rede interna/dev.
+
+> ⏳ As cargas são **serializadas** (um lock interno): se dois disparos chegarem juntos,
+> rodam em sequência (evita duas conexões SAP simultâneas). Cada sync leva ~3–4 s — o app
+> pode mostrar um "carregando" enquanto aguarda a resposta.
 
 ---
 
@@ -402,6 +474,11 @@ python export_os_json.py 84080                               # 1 pedido, arquivo
 python export_os_json.py 84080 84095 --slim                  # vários, enxuto
 python export_os_json.py --all -o exports/todas.json         # tudo, caminho fixo
 python export_os_json.py 84080 --stdout --array --compact    # p/ pipe
+
+# ── API (disparo pelo app) ──
+waitress-serve --listen=0.0.0.0:8077 api:app                 # subir (produção)
+python api.py                                                # subir (dev)
+curl -X POST http://localhost:8077/sync/ordens-servico/84080 -H "X-API-Key: SUA_CHAVE"
 
 # ── Testes (sem credenciais) ──
 pytest -q

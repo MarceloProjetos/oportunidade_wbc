@@ -53,6 +53,10 @@ OS_EXECUTION_MODES = ('replace_nped', 'insert')
 OS_INSERT_BATCH_SIZE_DEFAULT = 200
 OS_SYNC_LOG_MAX_REGISTROS = 100
 
+# API HTTP de disparo da sync de OS (api.py)
+OS_API_HOST_DEFAULT = '0.0.0.0'
+OS_API_PORT_DEFAULT = 8077
+
 # Scheduler
 INTERVALO_MINUTOS_DEFAULT = 30
 INTERVALO_PISO_MIN = 5
@@ -172,6 +176,9 @@ class Settings:
     os_sync_log_table: str
     os_execution_mode: str
     os_insert_batch_size: int
+    os_api_key: Optional[str]
+    os_api_host: str
+    os_api_port: int
 
     intervalo_minutos: int
     janela_horas: str
@@ -215,6 +222,9 @@ class Settings:
             os_insert_batch_size=int(
                 os.getenv('OS_INSERT_BATCH_SIZE', OS_INSERT_BATCH_SIZE_DEFAULT)
             ),
+            os_api_key=os.getenv('OS_API_KEY') or None,
+            os_api_host=os.getenv('OS_API_HOST', OS_API_HOST_DEFAULT),
+            os_api_port=int(os.getenv('OS_API_PORT', OS_API_PORT_DEFAULT)),
             intervalo_minutos=max(
                 INTERVALO_PISO_MIN,
                 int(os.getenv('INTERVALO_MINUTOS', INTERVALO_MINUTOS_DEFAULT)),
