@@ -434,6 +434,7 @@ curl -X POST http://localhost:8077/sync/ordens-servico/84080 -H "X-API-Key: SUA_
 | `/sync/ordens-servico/<nped>` | POST | Sincroniza um pedido. |
 | `/sync/ordens-servico` | POST | Corpo `{"nped":N}` ou `{"npeds":[...]}`. |
 | `/oportunidades/historico` | GET · DELETE | Histórico do pipeline agendado · limpar. Requer `X-API-Key`. |
+| `/oportunidades/info` | GET | Total de linhas na tabela + agenda (intervalo/janela). Requer `X-API-Key`. |
 | `/oportunidades/sincronizar` | POST | **Força** a carga completa de oportunidades (lock cross-process; `409` se já houver uma rodando). |
 
 > 🖱️ **Jeito mais fácil:** abra `http://<servidor>:8077/` no navegador — uma telinha

@@ -10,8 +10,10 @@ Mudanças notáveis deste projeto. Formato inspirado em
 - **Painel unificado** em `GET /` (2 colunas): **Ordens de Serviço** (por NPED, sob demanda)
   e **Oportunidades** (carga completa agendada). Chave única compartilhada na página.
 - **Endpoints de oportunidades** (`api.py`): `GET/DELETE /oportunidades/historico` (lê/limpa
-  o `sincronizacao_log`) e `POST /oportunidades/sincronizar` (**força** a carga completa — a
-  mesma do agendador). Todos exigem `X-API-Key`.
+  o `sincronizacao_log`), `GET /oportunidades/info` (total de linhas na tabela + agenda
+  intervalo/janela) e `POST /oportunidades/sincronizar` (**força** a carga completa — a
+  mesma do agendador). Todos exigem `X-API-Key`. A coluna de Oportunidades mostra
+  "📊 N linhas · 🕑 a cada 30 min · 07–18h · dias úteis".
 - **Lock de arquivo cross-process** (`pipeline_core.oportunidades_sync_lock`, lib `filelock`)
   compartilhado entre o agendador (`scripts/scheduled_execution.py`) e o "forçar sincronismo"
   da API: nunca rodam duas cargas snapshot de oportunidades ao mesmo tempo (a 2ª recebe `409`

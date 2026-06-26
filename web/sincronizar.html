@@ -58,6 +58,8 @@
       border-top-color: #fff; border-radius: 50%; animation: r .7s linear infinite; display: none; }
     @keyframes r { to { transform: rotate(360deg); } }
     .note { color: var(--muted); font-size: 12.5px; margin: 0 0 12px; }
+    .note.ctx { border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+    .note.ctx strong { color: var(--ink); }
     .results { margin-top: 14px; display: none; }
     .summary { font-weight: 700; margin: 0 0 10px; }
     .row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px;
@@ -148,6 +150,7 @@
         <h2>Oportunidades (agendado)</h2>
 
         <div class="card">
+          <p class="note ctx" id="oportInfo">📊 — · 🕑 —</p>
           <p class="note">Roda a <strong>carga completa</strong> de oportunidades (a mesma do agendador,
             últimos 6 meses). Pode levar até ~1&nbsp;min.</p>
           <button type="button" class="go alt" id="oportGo">
@@ -300,9 +303,25 @@
     const oportGo = $('oportGo'), oportGoTxt = $('oportGoTxt'), oportSpin = $('oportSpin'),
           oportBanner = $('oportBanner'), oportHistBody = $('oportHistBody');
 
+    const oportInfo = $('oportInfo');
     const loadOportHist = () => carregarHist('/oportunidades/historico', oportHistBody, false);
     $('oportRefresh').addEventListener('click', loadOportHist);
     $('oportClear').addEventListener('click', () => limparHist('/oportunidades/historico', oportHistBody, loadOportHist));
+
+    async function loadOportInfo() {
+      const key = keyEl.value.trim();
+      if (!key) { oportInfo.innerHTML = '📊 — · 🕑 —'; return; }
+      try {
+        const resp = await fetch('/oportunidades/info', { headers: { 'X-API-Key': key } });
+        if (!resp.ok) { oportInfo.innerHTML = '📊 — · 🕑 —'; return; }
+        const d = await resp.json();
+        if (!d.ok) { oportInfo.innerHTML = '📊 — · 🕑 —'; return; }
+        const total = (d.total != null) ? Number(d.total).toLocaleString('pt-BR') : '—';
+        const jh = String(d.janela_horas || '').split('-').map(x => x.padStart(2, '0')).join('–');
+        oportInfo.innerHTML = `📊 <strong>${total}</strong> linhas na tabela`
+          + ` · 🕑 a cada ${d.intervalo_minutos} min · ${jh}h · dias úteis`;
+      } catch (e) { oportInfo.innerHTML = '📊 — · 🕑 —'; }
+    }
 
     function setOportLoading(on) { oportGo.disabled = on; oportSpin.style.display = on ? 'inline-block' : 'none'; oportGoTxt.textContent = on ? 'Sincronizando… (pode demorar)' : 'Forçar sincronismo'; }
 
@@ -325,11 +344,12 @@
       } finally {
         setOportLoading(false);
         loadOportHist();
+        loadOportInfo();  // total muda após a carga
       }
     });
 
-    // carrega os dois históricos ao abrir, se houver chave lembrada
-    if (saved) { loadOsHist(); loadOportHist(); }
+    // carrega históricos + contexto ao abrir, se houver chave lembrada
+    if (saved) { loadOsHist(); loadOportHist(); loadOportInfo(); }
   </script>
 </body>
 </html>

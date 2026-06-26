@@ -191,6 +191,7 @@ python api.py
 | `/sync/ordens-servico/<nped>` | POST | Sincroniza **um** pedido. |
 | `/sync/ordens-servico` | POST | Corpo `{"nped": N}` ou `{"npeds": [...]}`. |
 | `/oportunidades/historico` | GET · DELETE | Histórico do pipeline agendado · limpar. Requer `X-API-Key`. |
+| `/oportunidades/info` | GET | Total de linhas + agenda (intervalo/janela). Requer `X-API-Key`. |
 | `/oportunidades/sincronizar` | POST | **Força** a carga completa de oportunidades (lock; `409` se ocupado). |
 
 > O painel em `/` tem duas colunas: **Ordens de Serviço** (por NPED, sob demanda) e

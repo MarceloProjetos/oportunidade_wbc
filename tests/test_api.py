@@ -142,6 +142,15 @@ def test_oport_sincronizar_requires_key_when_set(client, monkeypatch):
     assert client.post('/oportunidades/sincronizar').status_code == 401
 
 
+def test_oport_info(client, monkeypatch):
+    monkeypatch.setattr(apimod, '_count_rows', lambda table: 1543)
+    r = client.get('/oportunidades/info')
+    assert r.status_code == 200
+    d = r.get_json()
+    assert d['ok'] is True and d['total'] == 1543
+    assert 'intervalo_minutos' in d and 'janela_horas' in d
+
+
 def test_sync_single_ok(client):
     r = client.post('/sync/ordens-servico/84080')
     assert r.status_code == 200

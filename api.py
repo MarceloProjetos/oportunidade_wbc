@@ -34,7 +34,7 @@ import logging
 import os
 import sys
 import threading
-from typing import Any, List, Tuple
+from typing import Any, List, Optional, Tuple
 
 from flask import Flask, jsonify, request, send_from_directory
 
@@ -95,6 +95,12 @@ def _clear_log(table: str) -> int:
     # PostgREST exige um filtro no delete; 'id <> 0' casa todas as linhas (id começa em 1).
     res = _supabase().table(table).delete().neq('id', 0).execute()
     return len(res.data or [])
+
+
+def _count_rows(table: str) -> Optional[int]:
+    """Total de linhas da tabela ``table`` (via count exato do PostgREST)."""
+    res = _supabase().table(table).select('id', count='exact').limit(1).execute()
+    return res.count
 
 
 def _autorizado() -> bool:
@@ -238,6 +244,25 @@ def oport_historico_limpar():
         logger.error("Erro ao limpar histórico de oportunidades: %s", exc)
         return jsonify(ok=False, error='falha ao limpar o histórico'), 502
     return jsonify(ok=True, removed=removidos)
+
+
+@app.get('/oportunidades/info')
+def oport_info():
+    """Contexto do pipeline de oportunidades: total de linhas + agenda. Requer X-API-Key."""
+    if not _autorizado():
+        return jsonify(ok=False, error='unauthorized'), 401
+    s = get_settings()
+    total = None
+    try:
+        total = _count_rows(s.table_name)
+    except Exception as exc:
+        logger.error("Erro ao contar oportunidades: %s", exc)
+    return jsonify(
+        ok=True,
+        total=total,
+        intervalo_minutos=s.intervalo_minutos,
+        janela_horas=s.janela_horas,
+    )
 
 
 @app.post('/oportunidades/sincronizar')
