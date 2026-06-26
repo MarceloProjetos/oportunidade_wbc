@@ -548,6 +548,57 @@ OrcaView-ETL ...`), que aparece em `services.msc`.
 
 ---
 
+## Operação (iniciar / parar / serviços)
+
+No servidor rodam **dois processos** 24/7:
+
+| Processo | O que faz | Sobe com |
+| --- | --- | --- |
+| **Agendador** | carga de **oportunidades** a cada 30 min (07–18h, dias úteis) | `run_scheduler.bat` |
+| **API / painel** | endpoint + página em `:8077` (OS sob demanda · forçar oportunidades) | `run_api.bat` |
+
+### Iniciar
+
+- **Como serviço (recomendado, 24/7)** — rode **uma vez**, como Administrador, com o
+  [NSSM](https://nssm.cc) no PATH:
+  ```bat
+  install_services.bat
+  ```
+  Registra `OrcaView-Scheduler` e `OrcaView-OS-API` com **auto-start no boot**, **restart se
+  cair** e log em `logs/`. Gerencie em `services.msc`.
+- **Manual (teste/temporário)** — `run_all.bat` (sobe os dois em janelas próprias), ou cada
+  um isolado (`run_scheduler.bat` / `run_api.bat`).
+
+### Parar
+
+- **Serviço:** `nssm stop OrcaView-OS-API` e `nssm stop OrcaView-Scheduler` (ou pelo
+  `services.msc`). Parada **limpa** — o agendador **espera** uma carga em andamento terminar.
+- **Janela manual:** `Ctrl+C` na janela (a da API ainda pergunta *Terminate batch job? Y*).
+  O Ctrl+C de uma janela para **só** aquele processo.
+
+> ⚠️ Não misture: se registrou como serviço, **não** deixe janelas manuais abertas também
+> (brigam pela porta 8077).
+
+### Fim do dia / reinício do servidor
+
+- É **24/7** — **não** se encerra no fim do dia. Fora do horário (07–18h), fins de semana e
+  feriados, o agendador fica **ocioso** e volta sozinho no próximo dia útil às 07h.
+- Se o servidor desligar/reiniciar (backup, Windows Update): como **serviço**, encerra limpo e
+  **religa no boot**.
+- **Integridade garantida:** OS (`replace_nped`) e Oportunidades (`snapshot`) usam
+  *carrega-depois-poda* — se interrompidos no meio, **permanece a versão anterior** (nunca
+  tabela vazia/corrompida). O lock de arquivo é liberado quando o processo termina.
+
+### Logs
+
+| Arquivo | Conteúdo |
+| --- | --- |
+| `logs/scheduled_execution.log` | agendador (rotação diária, 12 dias) |
+| `logs/api.log` | API (rotação diária, 12 dias) |
+| `logs/scheduler_service.log` · `logs/api_service.log` | saída bruta dos serviços (via NSSM) |
+
+---
+
 ## Docker
 
 ```bash
