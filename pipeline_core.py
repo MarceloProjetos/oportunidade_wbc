@@ -91,6 +91,29 @@ def build_view_query(view_name: str, schema: Optional[str] = None) -> str:
     return view_name
 
 
+# Inteiro positivo (só dígitos) — usado p/ validar chaves numéricas (ex.: NPED)
+# antes de interpolá-las numa query. Rejeita sinais, decimais e espaços internos.
+_POSITIVE_INT_RE = re.compile(r'^\d+$')
+
+
+def coerce_positive_int(value: Any, *, what: str = "valor") -> int:
+    """Valida e normaliza ``value`` como inteiro **positivo** (defesa contra injeção).
+
+    Aceita ``int`` ou string numérica (com espaços nas pontas). Rejeita não-dígitos,
+    negativos e zero — garantindo um identificador seguro para interpolar em SQL.
+
+    Raises:
+        ValueError: se ``value`` não for um inteiro positivo.
+    """
+    s = str(value).strip()
+    if not _POSITIVE_INT_RE.match(s):
+        raise ValueError(f"{what} inválido (esperado inteiro positivo): {value!r}")
+    n = int(s)
+    if n <= 0:
+        raise ValueError(f"{what} inválido (deve ser > 0): {value!r}")
+    return n
+
+
 class SupabaseLoader:
     """Batch insert/delete and sync log for Supabase PostgREST."""
 

@@ -60,7 +60,10 @@ def test_extract_accepts_numeric_string(monkeypatch):
     assert _FakeSAP.last_query.endswith('WHERE "NPED" = 84080')
 
 
-@pytest.mark.parametrize('bad', ['84080; DROP TABLE x', "1 OR 1=1", 'abc', ''])
+@pytest.mark.parametrize('bad', [
+    '84080; DROP TABLE x', "1 OR 1=1", 'abc', '',
+    '-5', '0', '+5', '84080.0',   # negativos/zero/sinal/decimal também são rejeitados
+])
 def test_extract_rejects_non_integer_nped(monkeypatch, bad):
     _set_sap_env(monkeypatch)
     monkeypatch.setattr(mod, 'SAPExtractor', _FakeSAP)

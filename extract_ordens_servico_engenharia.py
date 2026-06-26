@@ -33,7 +33,7 @@ from config import (
     OS_SYNC_LOG_MAX_REGISTROS,
     get_settings,
 )
-from pipeline_core import SupabaseLoader, build_view_query, prepare_data
+from pipeline_core import SupabaseLoader, build_view_query, coerce_positive_int, prepare_data
 from sap_connection import SAPExtractor
 
 # UTF-8 console on Windows
@@ -47,16 +47,9 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
 )
+# httpx loga cada requisição (URL com todas as colunas) em INFO — ruidoso em produção.
+logging.getLogger('httpx').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
-
-
-def _coerce_nped(nped: object) -> int:
-    """Valida/normaliza o NPED como inteiro (defesa contra SQL injection).
-
-    Raises:
-        ValueError: se ``nped`` não representar um inteiro.
-    """
-    return int(str(nped).strip())
 
 
 def extract_os_to_dataframe(nped: object) -> Optional[pd.DataFrame]:
@@ -73,7 +66,7 @@ def extract_os_to_dataframe(nped: object) -> Optional[pd.DataFrame]:
         ValueError: se ``nped`` não for um inteiro válido.
     """
     settings = get_settings()
-    nped_int = _coerce_nped(nped)  # propaga ValueError p/ o chamador tratar
+    nped_int = coerce_positive_int(nped, what='NPED')  # propaga ValueError p/ o chamador tratar
 
     if not settings.sap_ready():
         logger.error("Faltam variáveis de ambiente obrigatórias do SAP")
@@ -139,7 +132,7 @@ def main(
     loader: Optional[SupabaseLoader] = None
 
     try:
-        nped_int = _coerce_nped(nped)
+        nped_int = coerce_positive_int(nped, what='NPED')
     except ValueError:
         logger.error("NPED inválido (esperado inteiro): %r", nped)
         return False

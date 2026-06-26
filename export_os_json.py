@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 from datetime import datetime
@@ -40,6 +41,7 @@ from supabase import create_client, Client
 from supabase.client import ClientOptions
 
 from config import get_settings
+from pipeline_core import coerce_positive_int
 
 # UTF-8 console on Windows
 try:
@@ -47,6 +49,9 @@ try:
     sys.stderr.reconfigure(encoding="utf-8")
 except AttributeError:
     pass
+
+# httpx loga cada requisição em INFO — ruidoso ao paginar/exportar.
+logging.getLogger('httpx').setLevel(logging.WARNING)
 
 # Colunas de texto grande (NCLOB/NVARCHAR(5000)) descartadas no modo --slim:
 # são repetidas em cada linha do pedido e podem inflar bastante o JSON.
@@ -180,12 +185,15 @@ def export_os(
     if not all_rows and not npeds:
         raise ValueError("Informe npeds=[...] ou all_rows=True")
 
+    # Valida/normaliza os NPEDs (inteiros positivos) antes de filtrar no PostgREST.
+    npeds_validos = None if all_rows else [coerce_positive_int(n, what='NPED') for n in npeds]
+
     client = _client()
-    rows = fetch_rows(client, table, npeds=None if all_rows else npeds)
+    rows = fetch_rows(client, table, npeds=npeds_validos)
     status_map = fetch_status_map(client, status_table) if with_status else {}
     rows = transform_rows(rows, slim=slim, with_status=with_status, status_map=status_map)
 
-    filter_desc: Dict[str, Any] = {'all': True} if all_rows else {'nped': npeds}
+    filter_desc: Dict[str, Any] = {'all': True} if all_rows else {'nped': npeds_validos}
     return build_payload(rows, table=table, filter_desc=filter_desc, as_array=as_array)
 
 
