@@ -21,6 +21,8 @@ Mudanças notáveis deste projeto. Formato inspirado em
 - **Histórico das últimas sincronizações**: endpoint `GET /historico` (lê a tabela de log
   via service_role; requer `X-API-Key`; `?limit=N`, default 20, máx 100) e seção
   "Últimas sincronizações" na página (atualiza após cada disparo e tem botão ↻).
+  **Limpar histórico**: endpoint `DELETE /historico` (apaga o log; requer `X-API-Key`) +
+  botão 🗑 na página (com confirmação).
 - **Diagnóstico "OS não gerada" / "OS cancelada"**: `diagnosticar_nped` consulta a `OWOR`
   (`OriginNum` = nº do pedido) **antes** de sincronizar. Sem OP → `tipo: "sem_os"`; todas
   as OPs com `Status='C'` → `tipo: "cancelada"`. Nesses casos a API **não** tenta a carga

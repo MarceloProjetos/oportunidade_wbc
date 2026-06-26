@@ -90,6 +90,14 @@ def _fetch_log(limit: int) -> List[dict]:
     return res.data or []
 
 
+def _clear_log() -> int:
+    """Apaga todos os registros da tabela de log. Retorna quantos foram removidos."""
+    s = get_settings()
+    # PostgREST exige um filtro no delete; 'id <> 0' casa todas as linhas (id começa em 1).
+    res = _supabase().table(s.os_sync_log_table).delete().neq('id', 0).execute()
+    return len(res.data or [])
+
+
 def _autorizado() -> bool:
     """True se ``OS_API_KEY`` não está definido (aberto) ou se a chave bate."""
     chave = get_settings().os_api_key
@@ -182,6 +190,19 @@ def historico():
         logger.error("Erro ao ler histórico: %s", exc)
         return jsonify(ok=False, error='falha ao ler o histórico'), 502
     return jsonify(ok=True, items=itens)
+
+
+@app.delete('/historico')
+def historico_limpar():
+    """Limpa o histórico (apaga a tabela de log). Requer X-API-Key."""
+    if not _autorizado():
+        return jsonify(ok=False, error='unauthorized'), 401
+    try:
+        removidos = _clear_log()
+    except Exception as exc:
+        logger.error("Erro ao limpar histórico: %s", exc)
+        return jsonify(ok=False, error='falha ao limpar o histórico'), 502
+    return jsonify(ok=True, removed=removidos)
 
 
 @app.post('/sync/ordens-servico/<nped>')

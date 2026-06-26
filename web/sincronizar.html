@@ -86,9 +86,12 @@
     .hist { margin-top: 16px; }
     .hist-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
     .hist-head h2 { font-size: 15px; margin: 0; }
+    .hist-actions { display: flex; gap: 2px; }
     .refresh { border: 0; background: none; color: var(--brand); cursor: pointer; font: inherit;
       font-size: 13px; padding: 4px 8px; border-radius: 7px; }
     .refresh:hover { background: var(--line); }
+    .refresh.danger { color: var(--muted); }
+    .refresh.danger:hover { background: var(--err-bg); color: var(--err); }
     .hmuted { color: var(--muted); font-size: 13px; margin: 8px 2px; }
     .hrow { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--line); }
     .hrow:last-child { border-bottom: 0; }
@@ -139,7 +142,10 @@
     <section class="card hist">
       <div class="hist-head">
         <h2>Últimas sincronizações</h2>
-        <button type="button" class="refresh" id="refresh">↻ atualizar</button>
+        <div class="hist-actions">
+          <button type="button" class="refresh" id="refresh">↻ atualizar</button>
+          <button type="button" class="refresh danger" id="clearHist" title="Limpar histórico">🗑 limpar</button>
+        </div>
       </div>
       <div id="histBody"><p class="hmuted">Informe a chave para ver o histórico.</p></div>
     </section>
@@ -152,7 +158,7 @@
     const form = $('form'), npedEl = $('nped'), keyEl = $('key'), go = $('go'),
           goTxt = $('goTxt'), spin = $('spin'), results = $('results'),
           npedErr = $('npedErr'), remember = $('remember'), eye = $('eye'),
-          histBody = $('histBody'), refresh = $('refresh');
+          histBody = $('histBody'), refresh = $('refresh'), clearHist = $('clearHist');
     const KEY_STORE = 'os_api_key';
 
     $('origin').textContent = location.origin;
@@ -196,6 +202,22 @@
     }
 
     refresh.addEventListener('click', loadHistorico);
+
+    clearHist.addEventListener('click', async () => {
+      const key = keyEl.value.trim();
+      if (!key) { histBody.innerHTML = '<p class="hmuted">Informe a chave para limpar.</p>'; return; }
+      if (!confirm('Limpar todo o histórico de sincronizações? Esta ação não pode ser desfeita.')) return;
+      histBody.innerHTML = '<p class="hmuted">Limpando…</p>';
+      try {
+        const resp = await fetch('/historico', { method: 'DELETE', headers: { 'X-API-Key': key } });
+        if (resp.status === 401) { histBody.innerHTML = '<p class="hmuted">Chave inválida — não foi possível limpar.</p>'; return; }
+        if (!resp.ok) { histBody.innerHTML = '<p class="hmuted">Não foi possível limpar o histórico.</p>'; return; }
+        loadHistorico();
+      } catch (e) {
+        histBody.innerHTML = '<p class="hmuted">Não foi possível limpar (API no ar?).</p>';
+      }
+    });
+
     if (saved) loadHistorico();
 
     eye.addEventListener('click', () => {

@@ -68,6 +68,28 @@ def test_historico_requires_key_when_set(client, monkeypatch):
     assert client.get('/historico', headers={'X-API-Key': 'segredo'}).status_code == 200
 
 
+def test_limpar_historico(client, monkeypatch):
+    chamado = {}
+
+    def _fake_clear():
+        chamado['ok'] = True
+        return 3
+
+    monkeypatch.setattr(apimod, '_clear_log', _fake_clear)
+    r = client.delete('/historico')
+    assert r.status_code == 200
+    assert r.get_json() == {'ok': True, 'removed': 3}
+    assert chamado.get('ok') is True
+
+
+def test_limpar_historico_requires_key_when_set(client, monkeypatch):
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    monkeypatch.setattr(apimod, '_clear_log', lambda: 0)
+    assert client.delete('/historico').status_code == 401
+    assert client.delete('/historico', headers={'X-API-Key': 'segredo'}).status_code == 200
+
+
 def test_sync_single_ok(client):
     r = client.post('/sync/ordens-servico/84080')
     assert r.status_code == 200

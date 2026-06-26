@@ -188,6 +188,7 @@ python api.py
 | `/` | GET | **Página pronta** para sincronizar (campo + botão + histórico). |
 | `/health` | GET | Verifica se está no ar (`{"status":"ok"}`). |
 | `/historico` | GET | Últimas sincronizações (lê o log). Requer `X-API-Key`. `?limit=N` (default 20, máx 100). |
+| `/historico` | DELETE | **Limpa** o histórico (apaga o log). Requer `X-API-Key`. |
 | `/sync/ordens-servico/<nped>` | POST | Sincroniza **um** pedido. |
 | `/sync/ordens-servico` | POST | Corpo `{"nped": N}` ou `{"npeds": [...]}`. |
 
