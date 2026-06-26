@@ -31,11 +31,12 @@ Exemplo de chamada::
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import threading
 from typing import Any, List, Tuple
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 
 from config import get_settings
 from pipeline_core import coerce_positive_int
@@ -56,6 +57,7 @@ logging.getLogger('httpx').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+_WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web')
 
 # Serializa as cargas: nunca duas sincronizações simultâneas (evita múltiplas
 # conexões SAP e corridas no replace_nped). O volume é baixo (gatilho sob demanda).
@@ -97,6 +99,17 @@ def _sincronizar(npeds: List[int]) -> Tuple[Any, int]:
     # 200 tudo ok · 207 parcial · 502 nenhum sincronizou
     http = 200 if sucesso == total else (207 if sucesso else 502)
     return jsonify(payload), http
+
+
+@app.get('/')
+def ui():
+    """Página amigável (campo de pedido + chave + botão Sincronizar)."""
+    return send_from_directory(_WEB_DIR, 'sincronizar.html')
+
+
+@app.get('/favicon.ico')
+def favicon():
+    return ('', 204)  # evita 404 ruidoso no log
 
 
 @app.get('/health')

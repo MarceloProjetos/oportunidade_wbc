@@ -428,9 +428,14 @@ curl -X POST http://localhost:8077/sync/ordens-servico/84080 -H "X-API-Key: SUA_
 
 | Rota | Método | O que faz |
 | --- | --- | --- |
+| `/` | GET | **Página pronta** (campo do pedido + chave + botão Sincronizar). |
 | `/health` | GET | Liveness (`{"status":"ok"}`). |
 | `/sync/ordens-servico/<nped>` | POST | Sincroniza um pedido. |
 | `/sync/ordens-servico` | POST | Corpo `{"nped":N}` ou `{"npeds":[...]}`. |
+
+> 🖱️ **Jeito mais fácil:** abra `http://<servidor>:8077/` no navegador — uma telinha
+> ([web/sincronizar.html](web/sincronizar.html)) com campo do pedido, chave (com "lembrar")
+> e botão **Sincronizar** (aceita vários pedidos). Sem curl/DevTools.
 
 **Notas operacionais:**
 
@@ -588,6 +593,7 @@ oportunidade_wbc/
 ├── extract_ordens_servico_engenharia.py  # Sync de OS por NPED (replace_nped)
 ├── export_os_json.py            # Exporta a tabela de OS para JSON
 ├── api.py                       # API HTTP de disparo da sync de OS (Flask)
+├── web/                         # Página servida pela API (sincronizar.html)
 ├── sql/                         # DDL do Supabase (ordens_servico_engenharia.sql)
 ├── scripts/
 │   ├── scheduled_execution.py   # Agendamento via APScheduler (IntervalTrigger)

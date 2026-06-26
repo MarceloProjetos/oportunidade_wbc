@@ -15,6 +15,9 @@ Mudanças notáveis deste projeto. Formato inspirado em
   `requirements.txt`; testes em `tests/test_api.py`.
 - **`run_api.bat`** — wrapper para subir a API no boot do servidor (Task Scheduler
   ONSTART / NSSM), espelhando o `run_scheduler.bat`. Instruções no README e no GUIA §6.1.
+- **Página amigável** (`web/sincronizar.html`) servida em `GET /`: campo do nº do pedido +
+  chave (com "lembrar") + botão **Sincronizar** (aceita vários pedidos, mostra resultado).
+  Sem dependências, same-origin (sem CORS). Rota `GET /favicon.ico` → 204.
 - **`pipeline_core.coerce_positive_int`** (regex `^\d+$` + `> 0`) — validação de NPED
   reutilizada por `extract`/`export`/`api` (rejeita negativo, zero, sinal e decimal).
   Testes em `tests/test_pipeline_core.py`.

@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sincronizar Ordem de Serviço</title>
+  <style>
+    :root {
+      --bg: #eef2f7;
+      --card: #ffffff;
+      --ink: #1f2933;
+      --muted: #6b7280;
+      --line: #e3e8ef;
+      --brand: #1565c0;
+      --brand-d: #0d47a1;
+      --ok: #178a4c;
+      --ok-bg: #e7f6ec;
+      --err: #c0341d;
+      --err-bg: #fbeae6;
+      --shadow: 0 10px 30px rgba(16,42,76,.12);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink);
+      font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+      display: flex; align-items: flex-start; justify-content: center; padding: 32px 16px;
+    }
+    .wrap { width: 100%; max-width: 560px; }
+    header.top { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+    .logo {
+      width: 40px; height: 40px; border-radius: 10px; flex: none;
+      background: linear-gradient(135deg, var(--brand), var(--brand-d));
+      color: #fff; font-weight: 700; font-size: 18px;
+      display: grid; place-items: center; box-shadow: var(--shadow);
+    }
+    header.top h1 { font-size: 19px; margin: 0; }
+    header.top p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+            box-shadow: var(--shadow); padding: 22px; }
+    label { display: block; font-weight: 600; font-size: 13px; margin: 0 0 6px; }
+    .hint { color: var(--muted); font-weight: 400; font-size: 12px; }
+    input[type=text], input[type=password], textarea {
+      width: 100%; padding: 11px 13px; border: 1px solid var(--line); border-radius: 10px;
+      font: inherit; color: var(--ink); background: #fbfcfe; transition: border-color .15s, box-shadow .15s;
+    }
+    textarea { resize: vertical; min-height: 46px; }
+    input:focus, textarea:focus { outline: none; border-color: var(--brand);
+      box-shadow: 0 0 0 3px rgba(21,101,192,.15); background: #fff; }
+    .field { margin-bottom: 16px; }
+    .key-row { position: relative; }
+    .key-row button.eye { position: absolute; right: 8px; top: 7px; border: 0; background: none;
+      cursor: pointer; color: var(--muted); font-size: 12px; padding: 4px 6px; border-radius: 6px; }
+    .key-row button.eye:hover { background: var(--line); }
+    .opts { display: flex; align-items: center; gap: 6px; margin-top: 7px; color: var(--muted); font-size: 13px; }
+    .opts input { width: auto; }
+    button.go {
+      width: 100%; padding: 13px; border: 0; border-radius: 11px; cursor: pointer;
+      background: linear-gradient(135deg, var(--brand), var(--brand-d)); color: #fff;
+      font-weight: 700; font-size: 15px; letter-spacing: .2px;
+      display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+      transition: filter .15s, transform .05s;
+    }
+    button.go:hover:not(:disabled) { filter: brightness(1.07); }
+    button.go:active:not(:disabled) { transform: translateY(1px); }
+    button.go:disabled { opacity: .65; cursor: progress; }
+    .spin { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.45);
+      border-top-color: #fff; border-radius: 50%; animation: r .7s linear infinite; display: none; }
+    @keyframes r { to { transform: rotate(360deg); } }
+    .results { margin-top: 18px; display: none; }
+    .summary { font-weight: 700; margin: 0 0 10px; }
+    .row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px;
+      border: 1px solid var(--line); margin-bottom: 8px; background: #fbfcfe; }
+    .badge { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; flex: none; }
+    .b-ok { color: var(--ok); background: var(--ok-bg); }
+    .b-err { color: var(--err); background: var(--err-bg); }
+    .row .np { font-variant-numeric: tabular-nums; font-weight: 600; }
+    .row .msg { color: var(--muted); font-size: 13px; margin-left: auto; }
+    .banner { padding: 11px 13px; border-radius: 10px; margin-bottom: 12px; font-size: 14px; }
+    .banner.err { color: var(--err); background: var(--err-bg); border: 1px solid #f1c9bf; }
+    .inline-err { color: var(--err); font-size: 12px; margin-top: 6px; display: none; }
+    footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 16px; }
+    footer code { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <div class="logo">OS</div>
+      <div>
+        <h1>Sincronizar Ordem de Serviço</h1>
+        <p>Atualiza os dados do pedido a partir do SAP (Engenharia).</p>
+      </div>
+    </header>
+
+    <form class="card" id="form" autocomplete="off">
+      <div class="field">
+        <label for="nped">Nº do pedido (NPED)
+          <span class="hint">— um ou vários (separe por espaço ou vírgula)</span>
+        </label>
+        <textarea id="nped" placeholder="Ex.: 84080  ou  84080, 84095" inputmode="numeric"></textarea>
+        <div class="inline-err" id="npedErr"></div>
+      </div>
+
+      <div class="field">
+        <label for="key">Chave de acesso (X-API-Key)</label>
+        <div class="key-row">
+          <input type="password" id="key" placeholder="cole a OS_API_KEY" />
+          <button type="button" class="eye" id="eye">mostrar</button>
+        </div>
+        <div class="opts">
+          <input type="checkbox" id="remember" />
+          <label for="remember" style="font-weight:400;margin:0;cursor:pointer">Lembrar a chave neste navegador</label>
+        </div>
+      </div>
+
+      <button type="submit" class="go" id="go">
+        <span class="spin" id="spin"></span>
+        <span id="goTxt">Sincronizar</span>
+      </button>
+
+      <div class="results" id="results"></div>
+    </form>
+
+    <footer>API: <code id="origin"></code> · Atualiza = re-sincroniza o pedido (substitui, não duplica)</footer>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const form = $('form'), npedEl = $('nped'), keyEl = $('key'), go = $('go'),
+          goTxt = $('goTxt'), spin = $('spin'), results = $('results'),
+          npedErr = $('npedErr'), remember = $('remember'), eye = $('eye');
+    const KEY_STORE = 'os_api_key';
+
+    $('origin').textContent = location.origin;
+
+    // Restaura a chave lembrada
+    const saved = localStorage.getItem(KEY_STORE);
+    if (saved) { keyEl.value = saved; remember.checked = true; }
+
+    eye.addEventListener('click', () => {
+      const show = keyEl.type === 'password';
+      keyEl.type = show ? 'text' : 'password';
+      eye.textContent = show ? 'ocultar' : 'mostrar';
+    });
+
+    function parseNpeds(raw) {
+      const partes = raw.split(/[\s,;]+/).filter(Boolean);
+      const npeds = [], invalidos = [];
+      for (const p of partes) {
+        if (/^\d+$/.test(p) && Number(p) > 0) npeds.push(Number(p));
+        else invalidos.push(p);
+      }
+      return { npeds, invalidos };
+    }
+
+    function setLoading(on) {
+      go.disabled = on;
+      spin.style.display = on ? 'inline-block' : 'none';
+      goTxt.textContent = on ? 'Sincronizando…' : 'Sincronizar';
+    }
+
+    function showErr(el, msg) { el.textContent = msg; el.style.display = 'block'; }
+    function hide(el) { el.style.display = 'none'; }
+
+    function render(payload) {
+      results.style.display = 'block';
+      const s = payload.summary || {};
+      const todosOk = payload.ok;
+      let html = `<p class="summary">${todosOk ? '✓' : '⚠'} ${s.sucesso || 0}/${s.total || 0} pedido(s) sincronizado(s)`
+               + `${s.falha ? ` · ${s.falha} com falha` : ''}</p>`;
+      for (const r of (payload.results || [])) {
+        html += `<div class="row">`
+              + `<span class="badge ${r.ok ? 'b-ok' : 'b-err'}">${r.ok ? 'OK' : 'FALHA'}</span>`
+              + `<span class="np">Pedido ${r.nped}</span>`
+              + `<span class="msg">${r.ok ? 'atualizado no Supabase' : 'não sincronizou'}</span>`
+              + `</div>`;
+      }
+      results.innerHTML = html;
+    }
+
+    function renderBanner(msg) {
+      results.style.display = 'block';
+      results.innerHTML = `<div class="banner err">${msg}</div>`;
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hide(npedErr); hide(results);
+
+      const { npeds, invalidos } = parseNpeds(npedEl.value);
+      if (invalidos.length) { showErr(npedErr, `Valor inválido: ${invalidos.join(', ')} (use só números positivos).`); return; }
+      if (!npeds.length) { showErr(npedErr, 'Informe ao menos um nº de pedido.'); return; }
+
+      const key = keyEl.value.trim();
+      if (!key) { showErr(npedErr, 'Cole a chave de acesso (X-API-Key).'); return; }
+
+      if (remember.checked) localStorage.setItem(KEY_STORE, key);
+      else localStorage.removeItem(KEY_STORE);
+
+      setLoading(true);
+      try {
+        const resp = await fetch('/sync/ordens-servico', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+          body: JSON.stringify({ npeds }),
+        });
+        if (resp.status === 401) { renderBanner('🔒 Chave inválida ou ausente (401). Confira a X-API-Key.'); return; }
+        const data = await resp.json().catch(() => null);
+        if (!data) { renderBanner(`Resposta inesperada do servidor (HTTP ${resp.status}).`); return; }
+        if (resp.status === 400) { renderBanner(`⚠ ${data.error || 'Requisição inválida (400).'}`); return; }
+        render(data);
+      } catch (err) {
+        renderBanner('Não foi possível falar com a API. Ela está no ar? ' + (err && err.message ? err.message : ''));
+      } finally {
+        setLoading(false);
+      }
+    });
+  </script>
+</body>
+</html>

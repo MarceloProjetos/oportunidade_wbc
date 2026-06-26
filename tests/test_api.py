@@ -25,6 +25,16 @@ def test_health(client):
     assert r.get_json()['status'] == 'ok'
 
 
+def test_ui_served_at_root(client):
+    r = client.get('/')
+    assert r.status_code == 200
+    assert b'Sincronizar Ordem de Servi' in r.data  # a pagina HTML
+
+
+def test_favicon_no_content(client):
+    assert client.get('/favicon.ico').status_code == 204
+
+
 def test_sync_single_ok(client):
     r = client.post('/sync/ordens-servico/84080')
     assert r.status_code == 200

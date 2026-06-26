@@ -185,9 +185,21 @@ python api.py
 
 | Rota | Método | Descrição |
 |---|---|---|
+| `/` | GET | **Página pronta** para sincronizar (campo + botão). |
 | `/health` | GET | Verifica se está no ar (`{"status":"ok"}`). |
 | `/sync/ordens-servico/<nped>` | POST | Sincroniza **um** pedido. |
 | `/sync/ordens-servico` | POST | Corpo `{"nped": N}` ou `{"npeds": [...]}`. |
+
+**Jeito mais fácil — página pronta (sem curl/DevTools).** Abra no navegador a **raiz da API**:
+
+```text
+http://192.168.7.11:8077/
+```
+
+É uma telinha com **campo do nº do pedido**, **campo da chave** (com opção de "lembrar
+neste navegador") e botão **Sincronizar** — aceita **vários pedidos** (separados por espaço
+ou vírgula) e mostra o resultado de cada um. Servida pela própria API ([web/sincronizar.html](web/sincronizar.html)),
+então funciona sem CORS. Ideal para o uso do dia a dia / usuário final.
 
 **Disparar (curl):**
 
