@@ -449,6 +449,8 @@ curl -X POST http://localhost:8077/sync/ordens-servico/84080 -H "X-API-Key: SUA_
 - 🔒 As cargas são **serializadas** (nunca duas ao mesmo tempo — evita conexões SAP
   concorrentes).
 - 🧹 O log do `httpx` é rebaixado para `WARNING` (sem a URL gigante a cada requisição).
+- 📒 A API grava em **`logs/api.log`** (rotação diária, 12 dias) além do console — o log
+  persiste mesmo fechando a janela / rodando como serviço.
 - 🚀 `api.py` usa **waitress** (produção); se ele não estiver instalado, cai no servidor
   de **dev do Flask**. Host/porta vêm de `OS_API_HOST`/`OS_API_PORT` (default `0.0.0.0:8077`).
 

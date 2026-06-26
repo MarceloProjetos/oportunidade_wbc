@@ -22,6 +22,8 @@ Mudanças notáveis deste projeto. Formato inspirado em
 - **`install_services.bat`** — registra agendador + API como **serviços NSSM** (auto-start
   no boot, restart automático se cair, log em arquivo com rotação). Para o servidor não
   depender de janela manual / sobreviver a reboot.
+- **Log em arquivo na API** (`logs/api.log`, `TimedRotatingFileHandler`, rotação diária,
+  12 dias) além do console — o log persiste ao fechar a janela / rodar como serviço.
 
 ### Alterado
 

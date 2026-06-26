@@ -34,6 +34,7 @@ import logging
 import os
 import sys
 import threading
+from logging.handlers import TimedRotatingFileHandler
 from typing import Any, List, Optional, Tuple
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -50,9 +51,19 @@ try:
 except AttributeError:
     pass
 
+# Log em arquivo com rotação diária (igual ao agendador) + console. Assim o log
+# da API persiste mesmo quando a janela é fechada / roda como serviço.
+_LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+os.makedirs(_LOG_DIR, exist_ok=True)
+_api_file_handler = TimedRotatingFileHandler(
+    os.path.join(_LOG_DIR, 'api.log'),
+    when='midnight', interval=1, backupCount=12, encoding='utf-8',
+)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[_api_file_handler, logging.StreamHandler()],
+    force=True,
 )
 logging.getLogger('httpx').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
