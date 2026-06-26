@@ -23,6 +23,9 @@ logs/
 # ── Exportações JSON (contêm dados de cliente — não versionar) ──
 exports/
 
+# ── Handoffs com chaves/credenciais (passados a terceiros — NÃO versionar) ──
+HANDOFF_*.md
+
 # ── Arquivos temporários do projeto ──
 _*.py
 *.tmp
