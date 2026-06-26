@@ -432,9 +432,29 @@ curl -X POST http://localhost:8077/sync/ordens-servico/84080 -H "X-API-Key: SUA_
 | `/sync/ordens-servico/<nped>` | POST | Sincroniza um pedido. |
 | `/sync/ordens-servico` | POST | Corpo `{"nped":N}` ou `{"npeds":[...]}`. |
 
-> 🔑 Defina `OS_API_KEY` no `.env` para exigir o header `X-API-Key` (ou `Authorization:
-> Bearer`). Sem ela, o endpoint fica aberto — use só em rede interna/dev. As cargas são
-> **serializadas** (nunca duas ao mesmo tempo).
+**Notas operacionais:**
+
+- 🔑 Defina `OS_API_KEY` no `.env` para exigir o header `X-API-Key` (ou `Authorization:
+  Bearer`). Sem ela, o endpoint fica aberto e o serviço **loga um aviso no startup** —
+  use só em rede interna/dev.
+- 🔒 As cargas são **serializadas** (nunca duas ao mesmo tempo — evita conexões SAP
+  concorrentes).
+- 🧹 O log do `httpx` é rebaixado para `WARNING` (sem a URL gigante a cada requisição).
+- 🚀 `api.py` usa **waitress** (produção); se ele não estiver instalado, cai no servidor
+  de **dev do Flask**. Host/porta vêm de `OS_API_HOST`/`OS_API_PORT` (default `0.0.0.0:8077`).
+
+**Subir a API no boot (Windows).** Use o wrapper [run_api.bat](run_api.bat) com gatilho
+**ONSTART** (mesmo padrão do agendador — ajuste o caminho):
+
+```powershell
+schtasks /Create /TN "OrcaView-OS-API" /SC ONSTART /RL HIGHEST /RU SYSTEM /F ^
+  /TR "C:\caminho\oportunidade_wbc\run_api.bat"
+```
+
+Em *Propriedades da tarefa → Configurações*, marque **"Reiniciar se a tarefa falhar"**.
+Alternativa: instalar como serviço dedicado via **NSSM** (`nssm install OrcaView-OS-API
+C:\caminho\oportunidade_wbc\run_api.bat`), que aparece em `services.msc`. Confira depois
+com `curl http://localhost:8077/health`.
 
 > Passo a passo didático, com exemplos e saídas reais (incl. a API e um exemplo de
 > `fetch` no front), no
@@ -548,10 +568,16 @@ oportunidade_wbc/
 ├── sap_connection.py            # Conexão SAP HANA compartilhada
 ├── feriados_br.py               # Calendário de feriados nacionais (até 2030)
 ├── extract_sap_to_supabase.py   # Pipeline principal (SAP + SQL Server → Supabase)
+├── pipeline_core.py             # Núcleo compartilhado (SupabaseLoader, prepare_data, …)
+├── extract_ordens_servico_engenharia.py  # Sync de OS por NPED (replace_nped)
+├── export_os_json.py            # Exporta a tabela de OS para JSON
+├── api.py                       # API HTTP de disparo da sync de OS (Flask)
+├── sql/                         # DDL do Supabase (ordens_servico_engenharia.sql)
 ├── scripts/
 │   ├── scheduled_execution.py   # Agendamento via APScheduler (IntervalTrigger)
 │   └── test_connections.py      # Diagnóstico de pacotes e conexões
-├── run_scheduler.bat            # Wrapper p/ Task Scheduler / NSSM (boot 24/7)
+├── run_scheduler.bat            # Wrapper p/ Task Scheduler / NSSM (agendador, boot 24/7)
+├── run_api.bat                  # Wrapper p/ Task Scheduler / NSSM (API, boot 24/7)
 ├── requirements.txt             # Dependências Python
 ├── requirements-dev.txt         # pytest (testes unitários)
 ├── tests/                       # Suíte pytest

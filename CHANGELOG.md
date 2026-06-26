@@ -13,6 +13,8 @@ Mudanças notáveis deste projeto. Formato inspirado em
   `OS_API_KEY` (header `X-API-Key` ou `Authorization: Bearer`); cargas **serializadas**
   por lock; respostas `200/207/400/401/502`. Config `OS_API_*`; `flask`/`waitress` no
   `requirements.txt`; testes em `tests/test_api.py`.
+- **`run_api.bat`** — wrapper para subir a API no boot do servidor (Task Scheduler
+  ONSTART / NSSM), espelhando o `run_scheduler.bat`. Instruções no README e no GUIA §6.1.
 - **`pipeline_core.coerce_positive_int`** (regex `^\d+$` + `> 0`) — validação de NPED
   reutilizada por `extract`/`export`/`api` (rejeita negativo, zero, sinal e decimal).
   Testes em `tests/test_pipeline_core.py`.

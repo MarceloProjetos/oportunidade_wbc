@@ -234,6 +234,27 @@ async function sincronizarOS(nped) {
 > rodam em sequência (evita duas conexões SAP simultâneas). Cada sync leva ~3–4 s — o app
 > pode mostrar um "carregando" enquanto aguarda a resposta.
 
+**Subir a API no boot do servidor (Windows).** Há um wrapper pronto: [run_api.bat](run_api.bat)
+(acha o Python do venv ou do sistema, força UTF-8 e roda `api.py`). Registre com gatilho
+**ONSTART** no Task Scheduler:
+
+```powershell
+schtasks /Create /TN "OrcaView-OS-API" /SC ONSTART /RL HIGHEST /RU SYSTEM /F ^
+  /TR "C:\caminho\oportunidade_wbc\run_api.bat"
+```
+
+Em *Propriedades da tarefa → Configurações*, marque **"Reiniciar se a tarefa falhar"**.
+Alternativa (serviço dedicado, aparece em `services.msc`):
+
+```powershell
+nssm install OrcaView-OS-API "C:\caminho\oportunidade_wbc\run_api.bat"
+```
+
+Depois confirme: `curl http://localhost:8077/health` deve responder `{"status":"ok"}`.
+
+> ⚠️ **Antes de subir em produção:** defina `OS_API_KEY` no `.env` (senão o serviço sobe
+> aberto e loga um aviso) e libere a porta `8077` no firewall se o app chamar de outra máquina.
+
 ---
 
 ## 7. Como funciona o `replace_nped` (exemplo passo a passo)
