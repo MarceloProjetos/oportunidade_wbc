@@ -443,18 +443,34 @@ curl -X POST http://localhost:8077/sync/ordens-servico/84080 -H "X-API-Key: SUA_
 - 🚀 `api.py` usa **waitress** (produção); se ele não estiver instalado, cai no servidor
   de **dev do Flask**. Host/porta vêm de `OS_API_HOST`/`OS_API_PORT` (default `0.0.0.0:8077`).
 
-**Subir a API no boot (Windows).** Use o wrapper [run_api.bat](run_api.bat) com gatilho
-**ONSTART** (mesmo padrão do agendador — ajuste o caminho):
+**Subir a API no boot (Windows).** Use o wrapper [run_api.bat](run_api.bat). Pré-requisitos:
+`python -m pip install waitress` e definir `OS_API_KEY` no `.env`.
 
-```powershell
+Opção recomendada — **NSSM** (serviço dedicado, reinicia sozinho, aparece em `services.msc`):
+
+```bat
+nssm install OrcaView-OS-API "C:\caminho\oportunidade_wbc\run_api.bat"
+nssm set OrcaView-OS-API AppDirectory "C:\caminho\oportunidade_wbc"
+nssm set OrcaView-OS-API Start SERVICE_AUTO_START
+nssm start OrcaView-OS-API
+```
+
+Alternativa — **Task Scheduler** (gatilho ONSTART; marque "Reiniciar se a tarefa falhar"):
+
+```bat
 schtasks /Create /TN "OrcaView-OS-API" /SC ONSTART /RL HIGHEST /RU SYSTEM /F ^
   /TR "C:\caminho\oportunidade_wbc\run_api.bat"
 ```
 
-Em *Propriedades da tarefa → Configurações*, marque **"Reiniciar se a tarefa falhar"**.
-Alternativa: instalar como serviço dedicado via **NSSM** (`nssm install OrcaView-OS-API
-C:\caminho\oportunidade_wbc\run_api.bat`), que aparece em `services.msc`. Confira depois
-com `curl http://localhost:8077/health`.
+Liberar a porta no firewall (acesso de outras máquinas):
+
+```bat
+netsh advfirewall firewall add rule name="OrcaView OS API 8077" dir=in action=allow protocol=TCP localport=8077
+```
+
+Conferir: abra `http://127.0.0.1:8077/health` (ou de outra máquina `http://<ip-servidor>:8077/health`)
+→ `{"status":"ok"}`. **Não** deixe o `run_api.bat` aberto manualmente junto com o serviço
+(brigam pela porta 8077).
 
 > Passo a passo didático, com exemplos e saídas reais (incl. a API e um exemplo de
 > `fetch` no front), no
