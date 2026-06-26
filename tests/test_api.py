@@ -5,7 +5,7 @@ import pytest
 pytest.importorskip('flask')  # pula o módulo se flask não estiver instalado
 
 import api as apimod  # noqa: E402
-from config import reset_settings  # noqa: E402
+from config import get_settings, reset_settings  # noqa: E402
 
 
 @pytest.fixture
@@ -34,7 +34,7 @@ def test_health(client):
 def test_ui_served_at_root(client):
     r = client.get('/')
     assert r.status_code == 200
-    assert b'Sincronizar Ordem de Servi' in r.data  # a pagina HTML
+    assert b'Painel de Sincroniza' in r.data  # a pagina HTML
 
 
 def test_favicon_no_content(client):
@@ -42,7 +42,7 @@ def test_favicon_no_content(client):
 
 
 def test_historico_returns_items(client, monkeypatch):
-    monkeypatch.setattr(apimod, '_fetch_log', lambda n: [
+    monkeypatch.setattr(apimod, '_fetch_log', lambda table, n: [
         {'nped': 84080, 'status': 'sucesso', 'qtd_registros': 383,
          'duracao_segundos': 3.7, 'data_hora_sincronizacao': '2026-06-26T11:19:00+00:00'},
     ])
@@ -55,7 +55,7 @@ def test_historico_returns_items(client, monkeypatch):
 
 def test_historico_respects_limit(client, monkeypatch):
     captured = {}
-    monkeypatch.setattr(apimod, '_fetch_log', lambda n: captured.setdefault('n', n) or [])
+    monkeypatch.setattr(apimod, '_fetch_log', lambda table, n: captured.__setitem__('n', n) or [])
     client.get('/historico?limit=5')
     assert captured['n'] == 5
 
@@ -63,7 +63,7 @@ def test_historico_respects_limit(client, monkeypatch):
 def test_historico_requires_key_when_set(client, monkeypatch):
     monkeypatch.setenv('OS_API_KEY', 'segredo')
     reset_settings()
-    monkeypatch.setattr(apimod, '_fetch_log', lambda n: [])
+    monkeypatch.setattr(apimod, '_fetch_log', lambda table, n: [])
     assert client.get('/historico').status_code == 401
     assert client.get('/historico', headers={'X-API-Key': 'segredo'}).status_code == 200
 
@@ -71,7 +71,7 @@ def test_historico_requires_key_when_set(client, monkeypatch):
 def test_limpar_historico(client, monkeypatch):
     chamado = {}
 
-    def _fake_clear():
+    def _fake_clear(table):
         chamado['ok'] = True
         return 3
 
@@ -85,9 +85,61 @@ def test_limpar_historico(client, monkeypatch):
 def test_limpar_historico_requires_key_when_set(client, monkeypatch):
     monkeypatch.setenv('OS_API_KEY', 'segredo')
     reset_settings()
-    monkeypatch.setattr(apimod, '_clear_log', lambda: 0)
+    monkeypatch.setattr(apimod, '_clear_log', lambda table: 0)
     assert client.delete('/historico').status_code == 401
     assert client.delete('/historico', headers={'X-API-Key': 'segredo'}).status_code == 200
+
+
+# ----- Oportunidades (pipeline agendado) -----
+
+def test_oport_historico_returns_items(client, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(apimod, '_fetch_log',
+                        lambda table, n: captured.update(table=table) or [{'status': 'sucesso'}])
+    r = client.get('/oportunidades/historico')
+    assert r.status_code == 200 and r.get_json()['ok'] is True
+    assert captured['table'] == get_settings().sync_log_table_name  # lê o log de oportunidades
+
+
+def test_oport_limpar(client, monkeypatch):
+    monkeypatch.setattr(apimod, '_clear_log', lambda table: 5)
+    r = client.delete('/oportunidades/historico')
+    assert r.status_code == 200 and r.get_json() == {'ok': True, 'removed': 5}
+
+
+def test_oport_sincronizar_ok(client, monkeypatch):
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _fake_lock(timeout=0):
+        yield
+
+    monkeypatch.setattr(apimod, 'oportunidades_sync_lock', _fake_lock)
+    monkeypatch.setattr(apimod, 'sync_oportunidades', lambda: True)
+    r = client.post('/oportunidades/sincronizar')
+    assert r.status_code == 200 and r.get_json()['ok'] is True
+
+
+def test_oport_sincronizar_busy_409(client, monkeypatch):
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _busy_lock(timeout=0):
+        raise apimod.FileLockTimeout('busy')
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(apimod, 'oportunidades_sync_lock', _busy_lock)
+    monkeypatch.setattr(apimod, 'sync_oportunidades', lambda: True)
+    r = client.post('/oportunidades/sincronizar')
+    assert r.status_code == 409
+    assert r.get_json()['tipo'] == 'ocupado'
+
+
+def test_oport_sincronizar_requires_key_when_set(client, monkeypatch):
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    monkeypatch.setattr(apimod, 'sync_oportunidades', lambda: True)
+    assert client.post('/oportunidades/sincronizar').status_code == 401
 
 
 def test_sync_single_ok(client):

@@ -20,6 +20,9 @@ env/
 logs/
 *.log
 
+# ── Locks de arquivo (cross-process) ──
+.locks/
+
 # ── Exportações JSON (contêm dados de cliente — não versionar) ──
 exports/
 

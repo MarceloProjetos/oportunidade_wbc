@@ -9,3 +9,5 @@ websockets==15.0.1
 # API HTTP de disparo da sync de OS por NPED (api.py) — waitress p/ produção (Windows)
 flask>=3.0,<4
 waitress>=3.0,<4
+# lock de arquivo (cross-process) p/ serializar a carga de oportunidades (scheduler + API)
+filelock>=3,<4

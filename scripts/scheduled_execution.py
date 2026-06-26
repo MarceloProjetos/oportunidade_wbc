@@ -19,6 +19,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from config import get_settings, parse_dias_semana, parse_janela_horas
 from extract_sap_to_supabase import main
 from feriados_br import is_business_day, is_national_holiday
+from pipeline_core import oportunidades_sync_lock, FileLockTimeout
 
 LOG_RETENTION_DAYS = 12
 HEARTBEAT_INTERVAL_S = 3600
@@ -122,8 +123,14 @@ def job_execucao(*, ignorar_janela: bool = False) -> None:
         settings = get_settings()
         view_name = settings.sap_view_name or 'SUA_VIEW_SAP'
         try:
-            success = main(view_name=view_name, execution_mode=settings.execution_mode)
+            # Lock de arquivo: nunca roda junto com o "forçar sincronismo" da API.
+            with oportunidades_sync_lock(timeout=0):
+                success = main(view_name=view_name, execution_mode=settings.execution_mode)
             logger.info('Run finished: %s', 'OK' if success else 'FAILED')
+        except FileLockTimeout:
+            logger.warning(
+                'Run skipped: sincronização de oportunidades já em andamento (lock de arquivo)'
+            )
         except Exception as exc:
             logger.error('Run error: %s', exc)
         logger.info('=' * 60)

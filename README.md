@@ -428,12 +428,13 @@ curl -X POST http://localhost:8077/sync/ordens-servico/84080 -H "X-API-Key: SUA_
 
 | Rota | Método | O que faz |
 | --- | --- | --- |
-| `/` | GET | **Página pronta** (pedido + chave + botão Sincronizar + histórico). |
+| `/` | GET | **Painel** unificado: OS (sob demanda) + Oportunidades (agendado). |
 | `/health` | GET | Liveness (`{"status":"ok"}`). |
-| `/historico` | GET | Últimas sincronizações (lê o log). Requer `X-API-Key`; `?limit=N`. |
-| `/historico` | DELETE | Limpa o histórico (apaga o log). Requer `X-API-Key`. |
+| `/historico` | GET · DELETE | Histórico de OS (lê o log) · limpar. Requer `X-API-Key`; `?limit=N`. |
 | `/sync/ordens-servico/<nped>` | POST | Sincroniza um pedido. |
 | `/sync/ordens-servico` | POST | Corpo `{"nped":N}` ou `{"npeds":[...]}`. |
+| `/oportunidades/historico` | GET · DELETE | Histórico do pipeline agendado · limpar. Requer `X-API-Key`. |
+| `/oportunidades/sincronizar` | POST | **Força** a carga completa de oportunidades (lock cross-process; `409` se já houver uma rodando). |
 
 > 🖱️ **Jeito mais fácil:** abra `http://<servidor>:8077/` no navegador — uma telinha
 > ([web/sincronizar.html](web/sincronizar.html)) com campo do pedido, chave (com "lembrar")
@@ -602,6 +603,7 @@ oportunidade_wbc/
 │   └── test_connections.py      # Diagnóstico de pacotes e conexões
 ├── run_scheduler.bat            # Wrapper p/ Task Scheduler / NSSM (agendador, boot 24/7)
 ├── run_api.bat                  # Wrapper p/ Task Scheduler / NSSM (API, boot 24/7)
+├── run_all.bat                  # Sobe agendador + API juntos (Task Scheduler/manual)
 ├── requirements.txt             # Dependências Python
 ├── requirements-dev.txt         # pytest (testes unitários)
 ├── tests/                       # Suíte pytest

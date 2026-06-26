@@ -3,72 +3,62 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Sincronizar Ordem de Serviço</title>
+  <title>Painel de Sincronização</title>
   <style>
     :root {
-      --bg: #eef2f7;
-      --card: #ffffff;
-      --ink: #1f2933;
-      --muted: #6b7280;
-      --line: #e3e8ef;
-      --brand: #1565c0;
-      --brand-d: #0d47a1;
-      --ok: #178a4c;
-      --ok-bg: #e7f6ec;
-      --err: #c0341d;
-      --err-bg: #fbeae6;
-      --warn: #9a6700;
-      --warn-bg: #fff4e0;
+      --bg: #eef2f7; --card: #fff; --ink: #1f2933; --muted: #6b7280; --line: #e3e8ef;
+      --brand: #1565c0; --brand-d: #0d47a1;
+      --ok: #178a4c; --ok-bg: #e7f6ec;
+      --err: #c0341d; --err-bg: #fbeae6;
+      --warn: #9a6700; --warn-bg: #fff4e0;
       --shadow: 0 10px 30px rgba(16,42,76,.12);
     }
     * { box-sizing: border-box; }
-    body {
-      margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink);
+    body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink);
       font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-      display: flex; align-items: flex-start; justify-content: center; padding: 32px 16px;
-    }
-    .wrap { width: 100%; max-width: 560px; }
-    header.top { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
-    .logo {
-      width: 40px; height: 40px; border-radius: 10px; flex: none;
-      background: linear-gradient(135deg, var(--brand), var(--brand-d));
-      color: #fff; font-weight: 700; font-size: 18px;
-      display: grid; place-items: center; box-shadow: var(--shadow);
-    }
+      display: flex; justify-content: center; padding: 32px 16px; }
+    .wrap { width: 100%; max-width: 960px; }
+    header.top { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .logo { width: 40px; height: 40px; border-radius: 10px; flex: none;
+      background: linear-gradient(135deg, var(--brand), var(--brand-d)); color: #fff;
+      font-weight: 700; font-size: 18px; display: grid; place-items: center; box-shadow: var(--shadow); }
     header.top h1 { font-size: 19px; margin: 0; }
     header.top p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
     .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px;
-            box-shadow: var(--shadow); padding: 22px; }
+      box-shadow: var(--shadow); padding: 20px; }
+    .keybar { margin-bottom: 18px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+    @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+    .col { display: flex; flex-direction: column; gap: 14px; }
+    .col > h2 { font-size: 16px; margin: 2px 2px -2px; }
     label { display: block; font-weight: 600; font-size: 13px; margin: 0 0 6px; }
     .hint { color: var(--muted); font-weight: 400; font-size: 12px; }
     input[type=text], input[type=password], textarea {
       width: 100%; padding: 11px 13px; border: 1px solid var(--line); border-radius: 10px;
-      font: inherit; color: var(--ink); background: #fbfcfe; transition: border-color .15s, box-shadow .15s;
-    }
+      font: inherit; color: var(--ink); background: #fbfcfe; transition: border-color .15s, box-shadow .15s; }
     textarea { resize: vertical; min-height: 46px; }
     input:focus, textarea:focus { outline: none; border-color: var(--brand);
       box-shadow: 0 0 0 3px rgba(21,101,192,.15); background: #fff; }
-    .field { margin-bottom: 16px; }
+    .field { margin-bottom: 14px; }
     .key-row { position: relative; }
     .key-row button.eye { position: absolute; right: 8px; top: 7px; border: 0; background: none;
       cursor: pointer; color: var(--muted); font-size: 12px; padding: 4px 6px; border-radius: 6px; }
     .key-row button.eye:hover { background: var(--line); }
     .opts { display: flex; align-items: center; gap: 6px; margin-top: 7px; color: var(--muted); font-size: 13px; }
     .opts input { width: auto; }
-    button.go {
-      width: 100%; padding: 13px; border: 0; border-radius: 11px; cursor: pointer;
+    button.go { width: 100%; padding: 12px; border: 0; border-radius: 11px; cursor: pointer;
       background: linear-gradient(135deg, var(--brand), var(--brand-d)); color: #fff;
-      font-weight: 700; font-size: 15px; letter-spacing: .2px;
-      display: inline-flex; align-items: center; justify-content: center; gap: 9px;
-      transition: filter .15s, transform .05s;
-    }
+      font-weight: 700; font-size: 15px; display: inline-flex; align-items: center; justify-content: center;
+      gap: 9px; transition: filter .15s, transform .05s; }
+    button.go.alt { background: linear-gradient(135deg, #2e7d32, #1b5e20); }
     button.go:hover:not(:disabled) { filter: brightness(1.07); }
     button.go:active:not(:disabled) { transform: translateY(1px); }
     button.go:disabled { opacity: .65; cursor: progress; }
     .spin { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.45);
       border-top-color: #fff; border-radius: 50%; animation: r .7s linear infinite; display: none; }
     @keyframes r { to { transform: rotate(360deg); } }
-    .results { margin-top: 18px; display: none; }
+    .note { color: var(--muted); font-size: 12.5px; margin: 0 0 12px; }
+    .results { margin-top: 14px; display: none; }
     .summary { font-weight: 700; margin: 0 0 10px; }
     .row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px;
       border: 1px solid var(--line); margin-bottom: 8px; background: #fbfcfe; }
@@ -76,16 +66,15 @@
     .b-ok { color: var(--ok); background: var(--ok-bg); }
     .b-err { color: var(--err); background: var(--err-bg); }
     .b-warn { color: var(--warn); background: var(--warn-bg); }
-    .row .np { font-variant-numeric: tabular-nums; font-weight: 600; }
-    .row .msg { color: var(--muted); font-size: 13px; margin-left: auto; }
-    .banner { padding: 11px 13px; border-radius: 10px; margin-bottom: 12px; font-size: 14px; }
+    .row .np { font-weight: 600; }
+    .row .msg { color: var(--muted); font-size: 13px; margin-left: auto; text-align: right; }
+    .banner { padding: 11px 13px; border-radius: 10px; margin-top: 14px; font-size: 14px; display: none; }
     .banner.err { color: var(--err); background: var(--err-bg); border: 1px solid #f1c9bf; }
+    .banner.warn { color: var(--warn); background: var(--warn-bg); border: 1px solid #f0dcae; }
+    .banner.ok { color: var(--ok); background: var(--ok-bg); border: 1px solid #bfe3cc; }
     .inline-err { color: var(--err); font-size: 12px; margin-top: 6px; display: none; }
-    footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 16px; }
-    footer code { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
-    .hist { margin-top: 16px; }
     .hist-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-    .hist-head h2 { font-size: 15px; margin: 0; }
+    .hist-head h3 { font-size: 14px; margin: 0; }
     .hist-actions { display: flex; gap: 2px; }
     .refresh { border: 0; background: none; color: var(--brand); cursor: pointer; font: inherit;
       font-size: 13px; padding: 4px 8px; border-radius: 7px; }
@@ -95,9 +84,11 @@
     .hmuted { color: var(--muted); font-size: 13px; margin: 8px 2px; }
     .hrow { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--line); }
     .hrow:last-child { border-bottom: 0; }
-    .hrow .np { font-weight: 600; font-variant-numeric: tabular-nums; }
+    .hrow .np { font-weight: 600; }
     .hrow .hmeta { color: var(--muted); font-size: 12.5px; }
-    .hrow .htime { margin-left: auto; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .hrow .htime { margin-left: auto; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+    footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 18px; }
+    footer code { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
   </style>
 </head>
 <body>
@@ -105,120 +96,90 @@
     <header class="top">
       <div class="logo">OS</div>
       <div>
-        <h1>Sincronizar Ordem de Serviço</h1>
-        <p>Atualiza os dados do pedido a partir do SAP (Engenharia).</p>
+        <h1>Painel de Sincronização</h1>
+        <p>Ordens de Serviço (sob demanda) e Oportunidades (agendado) — a partir do SAP.</p>
       </div>
     </header>
 
-    <form class="card" id="form" autocomplete="off">
-      <div class="field">
-        <label for="nped">Nº do pedido (NPED)
-          <span class="hint">— um ou vários (separe por espaço ou vírgula)</span>
-        </label>
-        <textarea id="nped" placeholder="Ex.: 84080  ou  84080, 84095" inputmode="numeric"></textarea>
-        <div class="inline-err" id="npedErr"></div>
+    <!-- Chave compartilhada -->
+    <div class="card keybar">
+      <label for="key">Chave de acesso (X-API-Key) <span class="hint">— vale para tudo nesta página</span></label>
+      <div class="key-row">
+        <input type="password" id="key" placeholder="cole a OS_API_KEY" autocomplete="off" />
+        <button type="button" class="eye" id="eye">mostrar</button>
       </div>
-
-      <div class="field">
-        <label for="key">Chave de acesso (X-API-Key)</label>
-        <div class="key-row">
-          <input type="password" id="key" placeholder="cole a OS_API_KEY" />
-          <button type="button" class="eye" id="eye">mostrar</button>
-        </div>
-        <div class="opts">
-          <input type="checkbox" id="remember" />
-          <label for="remember" style="font-weight:400;margin:0;cursor:pointer">Lembrar a chave neste navegador</label>
-        </div>
+      <div class="opts">
+        <input type="checkbox" id="remember" />
+        <label for="remember" style="font-weight:400;margin:0;cursor:pointer">Lembrar a chave neste navegador</label>
       </div>
+    </div>
 
-      <button type="submit" class="go" id="go">
-        <span class="spin" id="spin"></span>
-        <span id="goTxt">Sincronizar</span>
-      </button>
+    <div class="grid">
+      <!-- ===================== COLUNA OS ===================== -->
+      <section class="col">
+        <h2>Ordens de Serviço (Engenharia)</h2>
 
-      <div class="results" id="results"></div>
-    </form>
+        <form class="card" id="osForm" autocomplete="off">
+          <div class="field">
+            <label for="nped">Nº do pedido (NPED) <span class="hint">— um ou vários (espaço/vírgula)</span></label>
+            <textarea id="nped" placeholder="Ex.: 84080  ou  84080, 84095" inputmode="numeric"></textarea>
+            <div class="inline-err" id="npedErr"></div>
+          </div>
+          <button type="submit" class="go" id="osGo">
+            <span class="spin" id="osSpin"></span><span id="osGoTxt">Sincronizar</span>
+          </button>
+          <div class="results" id="osResults"></div>
+        </form>
 
-    <section class="card hist">
-      <div class="hist-head">
-        <h2>Últimas sincronizações</h2>
-        <div class="hist-actions">
-          <button type="button" class="refresh" id="refresh">↻ atualizar</button>
-          <button type="button" class="refresh danger" id="clearHist" title="Limpar histórico">🗑 limpar</button>
+        <div class="card">
+          <div class="hist-head">
+            <h3>Últimas sincronizações</h3>
+            <div class="hist-actions">
+              <button type="button" class="refresh" id="osRefresh">↻ atualizar</button>
+              <button type="button" class="refresh danger" id="osClear" title="Limpar histórico">🗑 limpar</button>
+            </div>
+          </div>
+          <div id="osHistBody"><p class="hmuted">Informe a chave para ver o histórico.</p></div>
         </div>
-      </div>
-      <div id="histBody"><p class="hmuted">Informe a chave para ver o histórico.</p></div>
-    </section>
+      </section>
 
-    <footer>API: <code id="origin"></code> · Atualiza = re-sincroniza o pedido (substitui, não duplica)</footer>
+      <!-- ================= COLUNA OPORTUNIDADES ================= -->
+      <section class="col">
+        <h2>Oportunidades (agendado)</h2>
+
+        <div class="card">
+          <p class="note">Roda a <strong>carga completa</strong> de oportunidades (a mesma do agendador,
+            últimos 6 meses). Pode levar até ~1&nbsp;min.</p>
+          <button type="button" class="go alt" id="oportGo">
+            <span class="spin" id="oportSpin"></span><span id="oportGoTxt">Forçar sincronismo</span>
+          </button>
+          <div class="banner" id="oportBanner"></div>
+        </div>
+
+        <div class="card">
+          <div class="hist-head">
+            <h3>Últimos sincronismos</h3>
+            <div class="hist-actions">
+              <button type="button" class="refresh" id="oportRefresh">↻ atualizar</button>
+              <button type="button" class="refresh danger" id="oportClear" title="Limpar log">🗑 limpar</button>
+            </div>
+          </div>
+          <div id="oportHistBody"><p class="hmuted">Informe a chave para ver o histórico.</p></div>
+        </div>
+      </section>
+    </div>
+
+    <footer>API: <code id="origin"></code> · Atualizar OS = re-sincroniza o pedido · Forçar = carga total de oportunidades</footer>
   </div>
 
   <script>
     const $ = (id) => document.getElementById(id);
-    const form = $('form'), npedEl = $('nped'), keyEl = $('key'), go = $('go'),
-          goTxt = $('goTxt'), spin = $('spin'), results = $('results'),
-          npedErr = $('npedErr'), remember = $('remember'), eye = $('eye'),
-          histBody = $('histBody'), refresh = $('refresh'), clearHist = $('clearHist');
+    const keyEl = $('key'), remember = $('remember'), eye = $('eye');
     const KEY_STORE = 'os_api_key';
-
     $('origin').textContent = location.origin;
 
-    // Restaura a chave lembrada
     const saved = localStorage.getItem(KEY_STORE);
     if (saved) { keyEl.value = saved; remember.checked = true; }
-
-    function fmtTime(iso) {
-      if (!iso) return '';
-      const d = new Date(iso);
-      return isNaN(d) ? iso : d.toLocaleString('pt-BR',
-        { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-    }
-
-    async function loadHistorico() {
-      const key = keyEl.value.trim();
-      if (!key) { histBody.innerHTML = '<p class="hmuted">Informe a chave para ver o histórico.</p>'; return; }
-      histBody.innerHTML = '<p class="hmuted">Carregando…</p>';
-      try {
-        const resp = await fetch('/historico?limit=20', { headers: { 'X-API-Key': key } });
-        if (resp.status === 401) { histBody.innerHTML = '<p class="hmuted">Chave inválida — histórico indisponível.</p>'; return; }
-        const data = await resp.json().catch(() => null);
-        if (!data || !data.ok) { histBody.innerHTML = '<p class="hmuted">Não foi possível carregar o histórico.</p>'; return; }
-        if (!data.items.length) { histBody.innerHTML = '<p class="hmuted">Nenhuma sincronização registrada ainda.</p>'; return; }
-        histBody.innerHTML = data.items.map((it) => {
-          const ok = it.status === 'sucesso';
-          const qtd = (it.qtd_registros != null) ? `${it.qtd_registros} linhas` : '';
-          const dur = (it.duracao_segundos != null) ? `${Number(it.duracao_segundos).toFixed(1)}s` : '';
-          const meta = [qtd, dur].filter(Boolean).join(' · ');
-          return `<div class="hrow">`
-               + `<span class="badge ${ok ? 'b-ok' : 'b-err'}">${ok ? 'OK' : 'FALHA'}</span>`
-               + `<span class="np">Pedido ${it.nped != null ? it.nped : '—'}</span>`
-               + `<span class="hmeta">${meta}</span>`
-               + `<span class="htime">${fmtTime(it.data_hora_sincronizacao)}</span>`
-               + `</div>`;
-        }).join('');
-      } catch (e) {
-        histBody.innerHTML = '<p class="hmuted">Não foi possível carregar o histórico (API no ar?).</p>';
-      }
-    }
-
-    refresh.addEventListener('click', loadHistorico);
-
-    clearHist.addEventListener('click', async () => {
-      const key = keyEl.value.trim();
-      if (!key) { histBody.innerHTML = '<p class="hmuted">Informe a chave para limpar.</p>'; return; }
-      if (!confirm('Limpar todo o histórico de sincronizações? Esta ação não pode ser desfeita.')) return;
-      histBody.innerHTML = '<p class="hmuted">Limpando…</p>';
-      try {
-        const resp = await fetch('/historico', { method: 'DELETE', headers: { 'X-API-Key': key } });
-        if (resp.status === 401) { histBody.innerHTML = '<p class="hmuted">Chave inválida — não foi possível limpar.</p>'; return; }
-        if (!resp.ok) { histBody.innerHTML = '<p class="hmuted">Não foi possível limpar o histórico.</p>'; return; }
-        loadHistorico();
-      } catch (e) {
-        histBody.innerHTML = '<p class="hmuted">Não foi possível limpar (API no ar?).</p>';
-      }
-    });
-
-    if (saved) loadHistorico();
 
     eye.addEventListener('click', () => {
       const show = keyEl.type === 'password';
@@ -226,83 +187,149 @@
       eye.textContent = show ? 'ocultar' : 'mostrar';
     });
 
-    function parseNpeds(raw) {
-      const partes = raw.split(/[\s,;]+/).filter(Boolean);
-      const npeds = [], invalidos = [];
-      for (const p of partes) {
-        if (/^\d+$/.test(p) && Number(p) > 0) npeds.push(Number(p));
-        else invalidos.push(p);
+    function getKey() {
+      const k = keyEl.value.trim();
+      if (remember.checked && k) localStorage.setItem(KEY_STORE, k);
+      else if (!remember.checked) localStorage.removeItem(KEY_STORE);
+      return k;
+    }
+    function fmtTime(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      return isNaN(d) ? iso : d.toLocaleString('pt-BR',
+        { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    }
+    function showBanner(el, cls, msg) { el.className = 'banner ' + cls; el.textContent = msg; el.style.display = 'block'; }
+
+    // ---------- histórico genérico (serve OS e Oportunidades) ----------
+    async function carregarHist(endpoint, bodyEl, comNped) {
+      const key = keyEl.value.trim();
+      if (!key) { bodyEl.innerHTML = '<p class="hmuted">Informe a chave para ver o histórico.</p>'; return; }
+      bodyEl.innerHTML = '<p class="hmuted">Carregando…</p>';
+      try {
+        const resp = await fetch(endpoint + '?limit=20', { headers: { 'X-API-Key': key } });
+        if (resp.status === 401) { bodyEl.innerHTML = '<p class="hmuted">Chave inválida — histórico indisponível.</p>'; return; }
+        const data = await resp.json().catch(() => null);
+        if (!data || !data.ok) { bodyEl.innerHTML = '<p class="hmuted">Não foi possível carregar o histórico.</p>'; return; }
+        if (!data.items.length) { bodyEl.innerHTML = '<p class="hmuted">Nenhuma sincronização registrada ainda.</p>'; return; }
+        bodyEl.innerHTML = data.items.map((it) => {
+          const ok = it.status === 'sucesso';
+          const qtd = (it.qtd_registros != null) ? `${it.qtd_registros} linhas` : '';
+          const dur = (it.duracao_segundos != null) ? `${Number(it.duracao_segundos).toFixed(1)}s` : '';
+          const meta = [qtd, dur].filter(Boolean).join(' · ');
+          const alvo = comNped ? `Pedido ${it.nped != null ? it.nped : '—'}` : 'Carga total';
+          return `<div class="hrow"><span class="badge ${ok ? 'b-ok' : 'b-err'}">${ok ? 'OK' : 'FALHA'}</span>`
+               + `<span class="np">${alvo}</span><span class="hmeta">${meta}</span>`
+               + `<span class="htime">${fmtTime(it.data_hora_sincronizacao)}</span></div>`;
+        }).join('');
+      } catch (e) {
+        bodyEl.innerHTML = '<p class="hmuted">Não foi possível carregar o histórico (API no ar?).</p>';
       }
+    }
+    async function limparHist(endpoint, bodyEl, recarregar) {
+      const key = keyEl.value.trim();
+      if (!key) { bodyEl.innerHTML = '<p class="hmuted">Informe a chave para limpar.</p>'; return; }
+      if (!confirm('Limpar todo o histórico? Esta ação não pode ser desfeita.')) return;
+      bodyEl.innerHTML = '<p class="hmuted">Limpando…</p>';
+      try {
+        const resp = await fetch(endpoint, { method: 'DELETE', headers: { 'X-API-Key': key } });
+        if (resp.status === 401) { bodyEl.innerHTML = '<p class="hmuted">Chave inválida — não foi possível limpar.</p>'; return; }
+        if (!resp.ok) { bodyEl.innerHTML = '<p class="hmuted">Não foi possível limpar.</p>'; return; }
+        recarregar();
+      } catch (e) {
+        bodyEl.innerHTML = '<p class="hmuted">Não foi possível limpar (API no ar?).</p>';
+      }
+    }
+
+    // ===================== OS =====================
+    const osForm = $('osForm'), npedEl = $('nped'), npedErr = $('npedErr'),
+          osGo = $('osGo'), osGoTxt = $('osGoTxt'), osSpin = $('osSpin'),
+          osResults = $('osResults'), osHistBody = $('osHistBody');
+
+    const loadOsHist = () => carregarHist('/historico', osHistBody, true);
+    $('osRefresh').addEventListener('click', loadOsHist);
+    $('osClear').addEventListener('click', () => limparHist('/historico', osHistBody, loadOsHist));
+
+    function parseNpeds(raw) {
+      const partes = raw.split(/[\s,;]+/).filter(Boolean), npeds = [], invalidos = [];
+      for (const p of partes) { if (/^\d+$/.test(p) && Number(p) > 0) npeds.push(Number(p)); else invalidos.push(p); }
       return { npeds, invalidos };
     }
+    function setOsLoading(on) { osGo.disabled = on; osSpin.style.display = on ? 'inline-block' : 'none'; osGoTxt.textContent = on ? 'Sincronizando…' : 'Sincronizar'; }
 
-    function setLoading(on) {
-      go.disabled = on;
-      spin.style.display = on ? 'inline-block' : 'none';
-      goTxt.textContent = on ? 'Sincronizando…' : 'Sincronizar';
-    }
-
-    function showErr(el, msg) { el.textContent = msg; el.style.display = 'block'; }
-    function hide(el) { el.style.display = 'none'; }
-
-    function render(payload) {
-      results.style.display = 'block';
-      const s = payload.summary || {};
-      const todosOk = payload.ok;
-      let html = `<p class="summary">${todosOk ? '✓' : '⚠'} ${s.sucesso || 0}/${s.total || 0} pedido(s) sincronizado(s)`
-               + `${s.falha ? ` · ${s.falha} não sincronizado(s)` : ''}</p>`;
-      for (const r of (payload.results || [])) {
-        let cls = 'b-err', txt = 'FALHA', msg = r.motivo || 'não sincronizou';
-        if (r.ok) { cls = 'b-ok'; txt = 'OK'; msg = 'atualizado no Supabase'; }
-        else if (r.tipo === 'sem_os') { cls = 'b-warn'; txt = 'SEM OS'; }
-        else if (r.tipo === 'cancelada') { cls = 'b-warn'; txt = 'CANCELADA'; }
-        html += `<div class="row">`
-              + `<span class="badge ${cls}">${txt}</span>`
-              + `<span class="np">Pedido ${r.nped}</span>`
-              + `<span class="msg">${msg}</span>`
-              + `</div>`;
-      }
-      results.innerHTML = html;
-    }
-
-    function renderBanner(msg) {
-      results.style.display = 'block';
-      results.innerHTML = `<div class="banner err">${msg}</div>`;
-    }
-
-    form.addEventListener('submit', async (e) => {
+    osForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      hide(npedErr); hide(results);
-
+      npedErr.style.display = 'none'; osResults.style.display = 'none';
       const { npeds, invalidos } = parseNpeds(npedEl.value);
-      if (invalidos.length) { showErr(npedErr, `Valor inválido: ${invalidos.join(', ')} (use só números positivos).`); return; }
-      if (!npeds.length) { showErr(npedErr, 'Informe ao menos um nº de pedido.'); return; }
-
-      const key = keyEl.value.trim();
-      if (!key) { showErr(npedErr, 'Cole a chave de acesso (X-API-Key).'); return; }
-
-      if (remember.checked) localStorage.setItem(KEY_STORE, key);
-      else localStorage.removeItem(KEY_STORE);
-
-      setLoading(true);
+      if (invalidos.length) { npedErr.textContent = `Valor inválido: ${invalidos.join(', ')} (use só números positivos).`; npedErr.style.display = 'block'; return; }
+      if (!npeds.length) { npedErr.textContent = 'Informe ao menos um nº de pedido.'; npedErr.style.display = 'block'; return; }
+      const key = getKey();
+      if (!key) { npedErr.textContent = 'Cole a chave de acesso (X-API-Key).'; npedErr.style.display = 'block'; return; }
+      setOsLoading(true);
       try {
         const resp = await fetch('/sync/ordens-servico', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
           body: JSON.stringify({ npeds }),
         });
-        if (resp.status === 401) { renderBanner('🔒 Chave inválida ou ausente (401). Confira a X-API-Key.'); return; }
+        osResults.style.display = 'block';
+        if (resp.status === 401) { osResults.innerHTML = '<div class="banner err" style="display:block">🔒 Chave inválida ou ausente (401).</div>'; return; }
         const data = await resp.json().catch(() => null);
-        if (!data) { renderBanner(`Resposta inesperada do servidor (HTTP ${resp.status}).`); return; }
-        if (resp.status === 400) { renderBanner(`⚠ ${data.error || 'Requisição inválida (400).'}`); return; }
-        render(data);
+        if (!data) { osResults.innerHTML = `<div class="banner err" style="display:block">Resposta inesperada (HTTP ${resp.status}).</div>`; return; }
+        const s = data.summary || {};
+        let html = `<p class="summary">${data.ok ? '✓' : '⚠'} ${s.sucesso || 0}/${s.total || 0} pedido(s) sincronizado(s)`
+                 + `${s.falha ? ` · ${s.falha} não sincronizado(s)` : ''}</p>`;
+        for (const r of (data.results || [])) {
+          let cls = 'b-err', txt = 'FALHA', msg = r.motivo || 'não sincronizou';
+          if (r.ok) { cls = 'b-ok'; txt = 'OK'; msg = 'atualizado no Supabase'; }
+          else if (r.tipo === 'sem_os') { cls = 'b-warn'; txt = 'SEM OS'; }
+          else if (r.tipo === 'cancelada') { cls = 'b-warn'; txt = 'CANCELADA'; }
+          html += `<div class="row"><span class="badge ${cls}">${txt}</span>`
+                + `<span class="np">Pedido ${r.nped}</span><span class="msg">${msg}</span></div>`;
+        }
+        osResults.innerHTML = html;
       } catch (err) {
-        renderBanner('Não foi possível falar com a API. Ela está no ar? ' + (err && err.message ? err.message : ''));
+        osResults.style.display = 'block';
+        osResults.innerHTML = '<div class="banner err" style="display:block">Não foi possível falar com a API.</div>';
       } finally {
-        setLoading(false);
-        loadHistorico();  // atualiza o histórico após cada disparo
+        setOsLoading(false);
+        loadOsHist();
       }
     });
+
+    // ================= OPORTUNIDADES =================
+    const oportGo = $('oportGo'), oportGoTxt = $('oportGoTxt'), oportSpin = $('oportSpin'),
+          oportBanner = $('oportBanner'), oportHistBody = $('oportHistBody');
+
+    const loadOportHist = () => carregarHist('/oportunidades/historico', oportHistBody, false);
+    $('oportRefresh').addEventListener('click', loadOportHist);
+    $('oportClear').addEventListener('click', () => limparHist('/oportunidades/historico', oportHistBody, loadOportHist));
+
+    function setOportLoading(on) { oportGo.disabled = on; oportSpin.style.display = on ? 'inline-block' : 'none'; oportGoTxt.textContent = on ? 'Sincronizando… (pode demorar)' : 'Forçar sincronismo'; }
+
+    oportGo.addEventListener('click', async () => {
+      oportBanner.style.display = 'none';
+      const key = getKey();
+      if (!key) { showBanner(oportBanner, 'err', 'Cole a chave de acesso (X-API-Key).'); return; }
+      if (!confirm('Forçar a carga COMPLETA de oportunidades agora? Pode levar até ~1 min.')) return;
+      setOportLoading(true);
+      try {
+        const resp = await fetch('/oportunidades/sincronizar', { method: 'POST', headers: { 'X-API-Key': key } });
+        if (resp.status === 401) { showBanner(oportBanner, 'err', '🔒 Chave inválida ou ausente (401).'); return; }
+        if (resp.status === 409) { const d = await resp.json().catch(() => ({})); showBanner(oportBanner, 'warn', '⏳ ' + (d.motivo || 'Já há uma sincronização em andamento.')); return; }
+        const data = await resp.json().catch(() => null);
+        if (!data) { showBanner(oportBanner, 'err', `Resposta inesperada (HTTP ${resp.status}).`); return; }
+        if (data.ok) { showBanner(oportBanner, 'ok', '✓ Oportunidades sincronizadas com sucesso.'); }
+        else { showBanner(oportBanner, 'err', '⚠ ' + (data.motivo || 'Não foi possível sincronizar.')); }
+      } catch (err) {
+        showBanner(oportBanner, 'err', 'Não foi possível falar com a API.');
+      } finally {
+        setOportLoading(false);
+        loadOportHist();
+      }
+    });
+
+    // carrega os dois históricos ao abrir, se houver chave lembrada
+    if (saved) { loadOsHist(); loadOportHist(); }
   </script>
 </body>
 </html>

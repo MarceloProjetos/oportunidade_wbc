@@ -185,12 +185,19 @@ python api.py
 
 | Rota | Método | Descrição |
 |---|---|---|
-| `/` | GET | **Página pronta** para sincronizar (campo + botão + histórico). |
+| `/` | GET | **Painel** unificado: OS + Oportunidades (2 colunas). |
 | `/health` | GET | Verifica se está no ar (`{"status":"ok"}`). |
-| `/historico` | GET | Últimas sincronizações (lê o log). Requer `X-API-Key`. `?limit=N` (default 20, máx 100). |
-| `/historico` | DELETE | **Limpa** o histórico (apaga o log). Requer `X-API-Key`. |
+| `/historico` | GET · DELETE | Histórico de OS (lê o log) · limpar. Requer `X-API-Key`. `?limit=N`. |
 | `/sync/ordens-servico/<nped>` | POST | Sincroniza **um** pedido. |
 | `/sync/ordens-servico` | POST | Corpo `{"nped": N}` ou `{"npeds": [...]}`. |
+| `/oportunidades/historico` | GET · DELETE | Histórico do pipeline agendado · limpar. Requer `X-API-Key`. |
+| `/oportunidades/sincronizar` | POST | **Força** a carga completa de oportunidades (lock; `409` se ocupado). |
+
+> O painel em `/` tem duas colunas: **Ordens de Serviço** (por NPED, sob demanda) e
+> **Oportunidades** (carga completa agendada — botão "Forçar sincronismo"). O "forçar" usa
+> um **lock de arquivo** compartilhado com o agendador (`run_scheduler.bat`): nunca rodam as
+> duas cargas de oportunidades ao mesmo tempo. Para subir agendador + API juntos no boot, use
+> **`run_all.bat`** (com NSSM, registre os dois `.bat` separados — ver `PLANO_PAINEL_OPORTUNIDADES.md`).
 
 **Jeito mais fácil — página pronta (sem curl/DevTools).** Abra no navegador a **raiz da API**:
 

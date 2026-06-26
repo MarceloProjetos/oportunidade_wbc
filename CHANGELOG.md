@@ -3,6 +3,28 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-06-26] — Painel unificado + Oportunidades
+
+### Adicionado
+
+- **Painel unificado** em `GET /` (2 colunas): **Ordens de Serviço** (por NPED, sob demanda)
+  e **Oportunidades** (carga completa agendada). Chave única compartilhada na página.
+- **Endpoints de oportunidades** (`api.py`): `GET/DELETE /oportunidades/historico` (lê/limpa
+  o `sincronizacao_log`) e `POST /oportunidades/sincronizar` (**força** a carga completa — a
+  mesma do agendador). Todos exigem `X-API-Key`.
+- **Lock de arquivo cross-process** (`pipeline_core.oportunidades_sync_lock`, lib `filelock`)
+  compartilhado entre o agendador (`scripts/scheduled_execution.py`) e o "forçar sincronismo"
+  da API: nunca rodam duas cargas snapshot de oportunidades ao mesmo tempo (a 2ª recebe `409`
+  / o agendado pula). Dependência `filelock` no `requirements.txt`; `.locks/` no `.gitignore`.
+- **`run_all.bat`** — launcher único que sobe `run_scheduler.bat` + `run_api.bat`.
+
+### Alterado
+
+- `_fetch_log`/`_clear_log` da API passam a receber o **nome da tabela** (servem OS e
+  oportunidades). Página reescrita (layout de 2 colunas, mantendo toda a função de OS).
+
+Plano e decisões: `PLANO_PAINEL_OPORTUNIDADES.md`. Suíte: **123 testes**.
+
 ## [2026-06-25] — API de disparo + endurecimento (pós-revisão)
 
 ### Adicionado

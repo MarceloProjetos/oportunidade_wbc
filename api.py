@@ -39,8 +39,9 @@ from typing import Any, List, Tuple
 from flask import Flask, jsonify, request, send_from_directory
 
 from config import get_settings
-from pipeline_core import coerce_positive_int
+from pipeline_core import coerce_positive_int, oportunidades_sync_lock, FileLockTimeout
 from extract_ordens_servico_engenharia import main as sync_os, diagnosticar_nped
+from extract_sap_to_supabase import main as sync_oportunidades
 
 # UTF-8 console on Windows
 try:
@@ -80,21 +81,19 @@ def _supabase():
     return _supabase_client
 
 
-def _fetch_log(limit: int) -> List[dict]:
-    """Últimas ``limit`` sincronizações (mais recentes primeiro) da tabela de log."""
-    s = get_settings()
+def _fetch_log(table: str, limit: int) -> List[dict]:
+    """Últimas ``limit`` sincronizações (mais recentes primeiro) da tabela ``table``."""
     res = (
-        _supabase().table(s.os_sync_log_table)
+        _supabase().table(table)
         .select('*').order('id', desc=True).limit(limit).execute()
     )
     return res.data or []
 
 
-def _clear_log() -> int:
-    """Apaga todos os registros da tabela de log. Retorna quantos foram removidos."""
-    s = get_settings()
+def _clear_log(table: str) -> int:
+    """Apaga todos os registros da tabela de log ``table``. Retorna quantos removeu."""
     # PostgREST exige um filtro no delete; 'id <> 0' casa todas as linhas (id começa em 1).
-    res = _supabase().table(s.os_sync_log_table).delete().neq('id', 0).execute()
+    res = _supabase().table(table).delete().neq('id', 0).execute()
     return len(res.data or [])
 
 
@@ -185,7 +184,7 @@ def historico():
         limit = 20
     limit = max(1, min(limit, 100))
     try:
-        itens = _fetch_log(limit)
+        itens = _fetch_log(get_settings().os_sync_log_table, limit)
     except Exception as exc:
         logger.error("Erro ao ler histórico: %s", exc)
         return jsonify(ok=False, error='falha ao ler o histórico'), 502
@@ -194,15 +193,74 @@ def historico():
 
 @app.delete('/historico')
 def historico_limpar():
-    """Limpa o histórico (apaga a tabela de log). Requer X-API-Key."""
+    """Limpa o histórico de OS (apaga a tabela de log). Requer X-API-Key."""
     if not _autorizado():
         return jsonify(ok=False, error='unauthorized'), 401
     try:
-        removidos = _clear_log()
+        removidos = _clear_log(get_settings().os_sync_log_table)
     except Exception as exc:
         logger.error("Erro ao limpar histórico: %s", exc)
         return jsonify(ok=False, error='falha ao limpar o histórico'), 502
     return jsonify(ok=True, removed=removidos)
+
+
+# ===================== Oportunidades (pipeline agendado) =====================
+
+def _limit_arg(default: int = 20, maximo: int = 100) -> int:
+    try:
+        limit = int(request.args.get('limit', default))
+    except (TypeError, ValueError):
+        limit = default
+    return max(1, min(limit, maximo))
+
+
+@app.get('/oportunidades/historico')
+def oport_historico():
+    """Últimos sincronismos de oportunidades (lê sincronizacao_log). Requer X-API-Key."""
+    if not _autorizado():
+        return jsonify(ok=False, error='unauthorized'), 401
+    try:
+        itens = _fetch_log(get_settings().sync_log_table_name, _limit_arg())
+    except Exception as exc:
+        logger.error("Erro ao ler histórico de oportunidades: %s", exc)
+        return jsonify(ok=False, error='falha ao ler o histórico'), 502
+    return jsonify(ok=True, items=itens)
+
+
+@app.delete('/oportunidades/historico')
+def oport_historico_limpar():
+    """Limpa o log de oportunidades. Requer X-API-Key."""
+    if not _autorizado():
+        return jsonify(ok=False, error='unauthorized'), 401
+    try:
+        removidos = _clear_log(get_settings().sync_log_table_name)
+    except Exception as exc:
+        logger.error("Erro ao limpar histórico de oportunidades: %s", exc)
+        return jsonify(ok=False, error='falha ao limpar o histórico'), 502
+    return jsonify(ok=True, removed=removidos)
+
+
+@app.post('/oportunidades/sincronizar')
+def oport_sincronizar():
+    """Força a carga COMPLETA de oportunidades (a mesma do agendador). Requer X-API-Key.
+
+    Usa um lock de arquivo cross-process: se o agendador (ou outro disparo) já estiver
+    rodando, responde 409 em vez de rodar duas cargas snapshot ao mesmo tempo.
+    """
+    if not _autorizado():
+        return jsonify(ok=False, error='unauthorized'), 401
+    try:
+        with oportunidades_sync_lock(timeout=0):
+            ok = bool(sync_oportunidades())
+    except FileLockTimeout:
+        return jsonify(ok=False, tipo='ocupado',
+                       motivo='Já há uma sincronização de oportunidades em andamento.'), 409
+    except Exception as exc:
+        logger.error("Erro ao sincronizar oportunidades: %s", exc)
+        return jsonify(ok=False, tipo='erro', motivo='Não foi possível sincronizar.'), 502
+    if ok:
+        return jsonify(ok=True)
+    return jsonify(ok=False, tipo='erro', motivo='Não foi possível sincronizar (0 registros?).')
 
 
 @app.post('/sync/ordens-servico/<nped>')

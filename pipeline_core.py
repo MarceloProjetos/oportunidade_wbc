@@ -12,9 +12,11 @@ pipeline de ``oportunidades`` quanto o de ``ordens_servico_engenharia`` o usem.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import time
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, date
 from decimal import Decimal
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -33,6 +35,43 @@ from config import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Lock de arquivo (cross-process) p/ serializar a carga de oportunidades entre o
+# agendador (run_scheduler.bat) e o "forçar sincronismo" da API (run_api.bat).
+try:
+    from filelock import FileLock, Timeout as FileLockTimeout
+except ImportError:  # pragma: no cover - filelock é dependência de produção
+    FileLock = None  # type: ignore[assignment]
+
+    class FileLockTimeout(Exception):  # type: ignore[no-redef]
+        """Fallback quando 'filelock' não está instalado."""
+
+_LOCK_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.locks')
+_OPORTUNIDADES_LOCK_PATH = os.path.join(_LOCK_DIR, 'oportunidades_sync.lock')
+
+
+@contextmanager
+def oportunidades_sync_lock(timeout: float = 0):
+    """Lock de arquivo (cross-process) para a carga de oportunidades.
+
+    Compartilhado entre o agendador e o "forçar sincronismo" da API, evitando duas
+    cargas snapshot simultâneas (uma poderia podar as linhas da outra).
+
+    Args:
+        timeout: segundos a esperar pelo lock. ``0`` = não espera — levanta
+            ``FileLockTimeout`` se já houver carga em andamento.
+
+    Note:
+        Se ``filelock`` não estiver instalado, vira **no-op** (sem proteção
+        cross-process) — instale com ``pip install filelock``.
+    """
+    if FileLock is None:
+        logger.warning("filelock não instalado — carga de oportunidades SEM lock cross-process")
+        yield
+        return
+    os.makedirs(_LOCK_DIR, exist_ok=True)
+    with FileLock(_OPORTUNIDADES_LOCK_PATH, timeout=timeout):
+        yield
 
 
 def with_retries(
