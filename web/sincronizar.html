@@ -80,6 +80,18 @@
     .inline-err { color: var(--err); font-size: 12px; margin-top: 6px; display: none; }
     footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 16px; }
     footer code { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+    .hist { margin-top: 16px; }
+    .hist-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .hist-head h2 { font-size: 15px; margin: 0; }
+    .refresh { border: 0; background: none; color: var(--brand); cursor: pointer; font: inherit;
+      font-size: 13px; padding: 4px 8px; border-radius: 7px; }
+    .refresh:hover { background: var(--line); }
+    .hmuted { color: var(--muted); font-size: 13px; margin: 8px 2px; }
+    .hrow { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--line); }
+    .hrow:last-child { border-bottom: 0; }
+    .hrow .np { font-weight: 600; font-variant-numeric: tabular-nums; }
+    .hrow .hmeta { color: var(--muted); font-size: 12.5px; }
+    .hrow .htime { margin-left: auto; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -121,6 +133,14 @@
       <div class="results" id="results"></div>
     </form>
 
+    <section class="card hist">
+      <div class="hist-head">
+        <h2>Últimas sincronizações</h2>
+        <button type="button" class="refresh" id="refresh">↻ atualizar</button>
+      </div>
+      <div id="histBody"><p class="hmuted">Informe a chave para ver o histórico.</p></div>
+    </section>
+
     <footer>API: <code id="origin"></code> · Atualiza = re-sincroniza o pedido (substitui, não duplica)</footer>
   </div>
 
@@ -128,7 +148,8 @@
     const $ = (id) => document.getElementById(id);
     const form = $('form'), npedEl = $('nped'), keyEl = $('key'), go = $('go'),
           goTxt = $('goTxt'), spin = $('spin'), results = $('results'),
-          npedErr = $('npedErr'), remember = $('remember'), eye = $('eye');
+          npedErr = $('npedErr'), remember = $('remember'), eye = $('eye'),
+          histBody = $('histBody'), refresh = $('refresh');
     const KEY_STORE = 'os_api_key';
 
     $('origin').textContent = location.origin;
@@ -136,6 +157,43 @@
     // Restaura a chave lembrada
     const saved = localStorage.getItem(KEY_STORE);
     if (saved) { keyEl.value = saved; remember.checked = true; }
+
+    function fmtTime(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      return isNaN(d) ? iso : d.toLocaleString('pt-BR',
+        { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    }
+
+    async function loadHistorico() {
+      const key = keyEl.value.trim();
+      if (!key) { histBody.innerHTML = '<p class="hmuted">Informe a chave para ver o histórico.</p>'; return; }
+      histBody.innerHTML = '<p class="hmuted">Carregando…</p>';
+      try {
+        const resp = await fetch('/historico?limit=20', { headers: { 'X-API-Key': key } });
+        if (resp.status === 401) { histBody.innerHTML = '<p class="hmuted">Chave inválida — histórico indisponível.</p>'; return; }
+        const data = await resp.json().catch(() => null);
+        if (!data || !data.ok) { histBody.innerHTML = '<p class="hmuted">Não foi possível carregar o histórico.</p>'; return; }
+        if (!data.items.length) { histBody.innerHTML = '<p class="hmuted">Nenhuma sincronização registrada ainda.</p>'; return; }
+        histBody.innerHTML = data.items.map((it) => {
+          const ok = it.status === 'sucesso';
+          const qtd = (it.qtd_registros != null) ? `${it.qtd_registros} linhas` : '';
+          const dur = (it.duracao_segundos != null) ? `${Number(it.duracao_segundos).toFixed(1)}s` : '';
+          const meta = [qtd, dur].filter(Boolean).join(' · ');
+          return `<div class="hrow">`
+               + `<span class="badge ${ok ? 'b-ok' : 'b-err'}">${ok ? 'OK' : 'FALHA'}</span>`
+               + `<span class="np">Pedido ${it.nped != null ? it.nped : '—'}</span>`
+               + `<span class="hmeta">${meta}</span>`
+               + `<span class="htime">${fmtTime(it.data_hora_sincronizacao)}</span>`
+               + `</div>`;
+        }).join('');
+      } catch (e) {
+        histBody.innerHTML = '<p class="hmuted">Não foi possível carregar o histórico (API no ar?).</p>';
+      }
+    }
+
+    refresh.addEventListener('click', loadHistorico);
+    if (saved) loadHistorico();
 
     eye.addEventListener('click', () => {
       const show = keyEl.type === 'password';
@@ -213,6 +271,7 @@
         renderBanner('Não foi possível falar com a API. Ela está no ar? ' + (err && err.message ? err.message : ''));
       } finally {
         setLoading(false);
+        loadHistorico();  // atualiza o histórico após cada disparo
       }
     });
   </script>

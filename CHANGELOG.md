@@ -18,6 +18,9 @@ Mudanças notáveis deste projeto. Formato inspirado em
 - **Página amigável** (`web/sincronizar.html`) servida em `GET /`: campo do nº do pedido +
   chave (com "lembrar") + botão **Sincronizar** (aceita vários pedidos, mostra resultado).
   Sem dependências, same-origin (sem CORS). Rota `GET /favicon.ico` → 204.
+- **Histórico das últimas sincronizações**: endpoint `GET /historico` (lê a tabela de log
+  via service_role; requer `X-API-Key`; `?limit=N`, default 20, máx 100) e seção
+  "Últimas sincronizações" na página (atualiza após cada disparo e tem botão ↻).
 - **`pipeline_core.coerce_positive_int`** (regex `^\d+$` + `> 0`) — validação de NPED
   reutilizada por `extract`/`export`/`api` (rejeita negativo, zero, sinal e decimal).
   Testes em `tests/test_pipeline_core.py`.

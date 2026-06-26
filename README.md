@@ -428,8 +428,9 @@ curl -X POST http://localhost:8077/sync/ordens-servico/84080 -H "X-API-Key: SUA_
 
 | Rota | Método | O que faz |
 | --- | --- | --- |
-| `/` | GET | **Página pronta** (campo do pedido + chave + botão Sincronizar). |
+| `/` | GET | **Página pronta** (pedido + chave + botão Sincronizar + histórico). |
 | `/health` | GET | Liveness (`{"status":"ok"}`). |
+| `/historico` | GET | Últimas sincronizações (lê o log). Requer `X-API-Key`; `?limit=N`. |
 | `/sync/ordens-servico/<nped>` | POST | Sincroniza um pedido. |
 | `/sync/ordens-servico` | POST | Corpo `{"nped":N}` ou `{"npeds":[...]}`. |
 

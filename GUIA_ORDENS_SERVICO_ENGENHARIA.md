@@ -185,8 +185,9 @@ python api.py
 
 | Rota | Método | Descrição |
 |---|---|---|
-| `/` | GET | **Página pronta** para sincronizar (campo + botão). |
+| `/` | GET | **Página pronta** para sincronizar (campo + botão + histórico). |
 | `/health` | GET | Verifica se está no ar (`{"status":"ok"}`). |
+| `/historico` | GET | Últimas sincronizações (lê o log). Requer `X-API-Key`. `?limit=N` (default 20, máx 100). |
 | `/sync/ordens-servico/<nped>` | POST | Sincroniza **um** pedido. |
 | `/sync/ordens-servico` | POST | Corpo `{"nped": N}` ou `{"npeds": [...]}`. |
 

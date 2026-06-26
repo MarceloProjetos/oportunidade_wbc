@@ -35,6 +35,33 @@ def test_favicon_no_content(client):
     assert client.get('/favicon.ico').status_code == 204
 
 
+def test_historico_returns_items(client, monkeypatch):
+    monkeypatch.setattr(apimod, '_fetch_log', lambda n: [
+        {'nped': 84080, 'status': 'sucesso', 'qtd_registros': 383,
+         'duracao_segundos': 3.7, 'data_hora_sincronizacao': '2026-06-26T11:19:00+00:00'},
+    ])
+    r = client.get('/historico')
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['ok'] is True
+    assert body['items'][0]['nped'] == 84080
+
+
+def test_historico_respects_limit(client, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(apimod, '_fetch_log', lambda n: captured.setdefault('n', n) or [])
+    client.get('/historico?limit=5')
+    assert captured['n'] == 5
+
+
+def test_historico_requires_key_when_set(client, monkeypatch):
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    monkeypatch.setattr(apimod, '_fetch_log', lambda n: [])
+    assert client.get('/historico').status_code == 401
+    assert client.get('/historico', headers={'X-API-Key': 'segredo'}).status_code == 200
+
+
 def test_sync_single_ok(client):
     r = client.post('/sync/ordens-servico/84080')
     assert r.status_code == 200

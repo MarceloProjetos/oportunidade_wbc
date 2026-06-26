@@ -63,6 +63,32 @@ _WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web')
 # conexões SAP e corridas no replace_nped). O volume é baixo (gatilho sob demanda).
 _sync_lock = threading.Lock()
 
+# Cliente Supabase (service_role) p/ ler o log — criado sob demanda e reaproveitado.
+_supabase_client = None
+
+
+def _supabase():
+    global _supabase_client
+    if _supabase_client is None:
+        from supabase import create_client
+        from supabase.client import ClientOptions
+        s = get_settings()
+        _supabase_client = create_client(
+            s.supabase_url, s.supabase_write_key,
+            ClientOptions(postgrest_client_timeout=s.supabase_timeout_s),
+        )
+    return _supabase_client
+
+
+def _fetch_log(limit: int) -> List[dict]:
+    """Últimas ``limit`` sincronizações (mais recentes primeiro) da tabela de log."""
+    s = get_settings()
+    res = (
+        _supabase().table(s.os_sync_log_table)
+        .select('*').order('id', desc=True).limit(limit).execute()
+    )
+    return res.data or []
+
 
 def _autorizado() -> bool:
     """True se ``OS_API_KEY`` não está definido (aberto) ou se a chave bate."""
@@ -115,6 +141,24 @@ def favicon():
 @app.get('/health')
 def health():
     return jsonify(status='ok', service='ordens-servico-engenharia')
+
+
+@app.get('/historico')
+def historico():
+    """Últimas sincronizações (lê a tabela de log). Requer X-API-Key."""
+    if not _autorizado():
+        return jsonify(ok=False, error='unauthorized'), 401
+    try:
+        limit = int(request.args.get('limit', 20))
+    except (TypeError, ValueError):
+        limit = 20
+    limit = max(1, min(limit, 100))
+    try:
+        itens = _fetch_log(limit)
+    except Exception as exc:
+        logger.error("Erro ao ler histórico: %s", exc)
+        return jsonify(ok=False, error='falha ao ler o histórico'), 502
+    return jsonify(ok=True, items=itens)
 
 
 @app.post('/sync/ordens-servico/<nped>')
