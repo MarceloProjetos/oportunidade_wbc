@@ -231,8 +231,18 @@ fetch('/sync/ordens-servico/84080', {
 }
 ```
 
-**Códigos de status:** `200` todos OK · `207` parcial (vários NPEDs, alguns falharam) ·
-`400` NPED inválido / corpo ausente · `401` sem/má `X-API-Key` · `502` nenhum sincronizou.
+**Códigos de status:** `200` todos OK · `207` algum não sincronizou · `400` NPED
+inválido / corpo ausente · `401` sem/má `X-API-Key`.
+
+**Avisos por pedido** (campo `tipo` em cada item de `results`). Antes de sincronizar, a API
+consulta a `OWOR` (ordem de produção). Um pedido pode voltar `ok:false` com:
+
+- `tipo: "sem_os"` → **OS ainda não gerada** (não há OP na `OWOR` com `OriginNum` = nº do pedido);
+- `tipo: "cancelada"` → **OS cancelada** (todas as OPs com `Status` = `C`);
+- `tipo: "erro"` → falha genérica ao sincronizar.
+
+Nos dois primeiros, a sincronização **nem é tentada** (não gera log de falha). Na página,
+aparecem com selo âmbar **SEM OS** / **CANCELADA** e a explicação ao lado.
 
 **No front (exemplo `fetch`):**
 

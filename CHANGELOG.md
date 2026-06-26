@@ -21,6 +21,11 @@ Mudanças notáveis deste projeto. Formato inspirado em
 - **Histórico das últimas sincronizações**: endpoint `GET /historico` (lê a tabela de log
   via service_role; requer `X-API-Key`; `?limit=N`, default 20, máx 100) e seção
   "Últimas sincronizações" na página (atualiza após cada disparo e tem botão ↻).
+- **Diagnóstico "OS não gerada" / "OS cancelada"**: `diagnosticar_nped` consulta a `OWOR`
+  (`OriginNum` = nº do pedido) **antes** de sincronizar. Sem OP → `tipo: "sem_os"`; todas
+  as OPs com `Status='C'` → `tipo: "cancelada"`. Nesses casos a API **não** tenta a carga
+  (sem log de falha) e a página mostra selo âmbar **SEM OS** / **CANCELADA**. O batch passa
+  a responder `200`/`207` (sem `502`).
 - **`pipeline_core.coerce_positive_int`** (regex `^\d+$` + `> 0`) — validação de NPED
   reutilizada por `extract`/`export`/`api` (rejeita negativo, zero, sinal e decimal).
   Testes em `tests/test_pipeline_core.py`.

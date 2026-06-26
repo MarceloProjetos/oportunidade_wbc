@@ -96,6 +96,49 @@ def extract_os_to_dataframe(nped: object) -> Optional[pd.DataFrame]:
     return df
 
 
+def diagnosticar_nped(nped: object) -> dict:
+    """Classifica um NPED consultando a OWOR (ordem de produção), no SAP.
+
+    Regra (SAP B1): a OS existe quando há linha em ``OWOR`` com ``OriginNum`` = nº do
+    pedido. Sem linha → OS ainda não gerada. Se **todas** as linhas estão com
+    ``Status`` = ``'C'`` → OS cancelada.
+
+    Returns:
+        ``{'tem_os': bool, 'cancelada': bool, 'status': [...]}`` ou
+        ``{'erro': '<motivo>'}`` se não for possível consultar.
+
+    Raises:
+        ValueError: se ``nped`` não for um inteiro positivo.
+    """
+    settings = get_settings()
+    nped_int = coerce_positive_int(nped, what='NPED')
+
+    if not settings.sap_ready():
+        return {'erro': 'sap_config'}
+
+    sap = SAPExtractor(
+        settings.sap_host, settings.sap_port, settings.sap_user,
+        settings.sap_password, settings.sap_database,
+    )
+    if not sap.connect():
+        return {'erro': 'sap_conexao'}
+
+    base = build_view_query('OWOR', settings.sap_schema)  # "SCHEMA"."OWOR"
+    # GROUP BY → só os status DISTINTOS (poucas linhas), em vez de uma por OP.
+    df = sap.execute_query(
+        f'SELECT "Status" FROM {base} WHERE "OriginNum" = {nped_int} GROUP BY "Status"'
+    )
+    sap.close()
+
+    if df is None:
+        return {'erro': 'consulta'}
+
+    statuses = [str(s).strip() for s in df['Status'].tolist()] if len(df) else []
+    tem_os = len(statuses) > 0
+    cancelada = tem_os and all(s == 'C' for s in statuses)
+    return {'tem_os': tem_os, 'cancelada': cancelada, 'status': statuses}
+
+
 def main(
     nped: object,
     execution_mode: str = OS_EXECUTION_MODE_DEFAULT,

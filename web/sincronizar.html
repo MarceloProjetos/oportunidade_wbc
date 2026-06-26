@@ -17,6 +17,8 @@
       --ok-bg: #e7f6ec;
       --err: #c0341d;
       --err-bg: #fbeae6;
+      --warn: #9a6700;
+      --warn-bg: #fff4e0;
       --shadow: 0 10px 30px rgba(16,42,76,.12);
     }
     * { box-sizing: border-box; }
@@ -73,6 +75,7 @@
     .badge { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; flex: none; }
     .b-ok { color: var(--ok); background: var(--ok-bg); }
     .b-err { color: var(--err); background: var(--err-bg); }
+    .b-warn { color: var(--warn); background: var(--warn-bg); }
     .row .np { font-variant-numeric: tabular-nums; font-weight: 600; }
     .row .msg { color: var(--muted); font-size: 13px; margin-left: auto; }
     .banner { padding: 11px 13px; border-radius: 10px; margin-bottom: 12px; font-size: 14px; }
@@ -225,12 +228,16 @@
       const s = payload.summary || {};
       const todosOk = payload.ok;
       let html = `<p class="summary">${todosOk ? '✓' : '⚠'} ${s.sucesso || 0}/${s.total || 0} pedido(s) sincronizado(s)`
-               + `${s.falha ? ` · ${s.falha} com falha` : ''}</p>`;
+               + `${s.falha ? ` · ${s.falha} não sincronizado(s)` : ''}</p>`;
       for (const r of (payload.results || [])) {
+        let cls = 'b-err', txt = 'FALHA', msg = r.motivo || 'não sincronizou';
+        if (r.ok) { cls = 'b-ok'; txt = 'OK'; msg = 'atualizado no Supabase'; }
+        else if (r.tipo === 'sem_os') { cls = 'b-warn'; txt = 'SEM OS'; }
+        else if (r.tipo === 'cancelada') { cls = 'b-warn'; txt = 'CANCELADA'; }
         html += `<div class="row">`
-              + `<span class="badge ${r.ok ? 'b-ok' : 'b-err'}">${r.ok ? 'OK' : 'FALHA'}</span>`
+              + `<span class="badge ${cls}">${txt}</span>`
               + `<span class="np">Pedido ${r.nped}</span>`
-              + `<span class="msg">${r.ok ? 'atualizado no Supabase' : 'não sincronizou'}</span>`
+              + `<span class="msg">${msg}</span>`
               + `</div>`;
       }
       results.innerHTML = html;

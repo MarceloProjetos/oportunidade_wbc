@@ -40,7 +40,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from config import get_settings
 from pipeline_core import coerce_positive_int
-from extract_ordens_servico_engenharia import main as sync_os
+from extract_ordens_servico_engenharia import main as sync_os, diagnosticar_nped
 
 # UTF-8 console on Windows
 try:
@@ -103,17 +103,41 @@ def _autorizado() -> bool:
     return enviado == chave
 
 
+def _sync_one(nped: int) -> dict:
+    """Sincroniza um NPED. Antes, diagnostica via OWOR: se não há OS ainda, ou se a
+    OS está cancelada, devolve um aviso **sem** tentar sincronizar (não gera log de falha).
+    """
+    try:
+        diag = diagnosticar_nped(nped)
+    except Exception as exc:
+        logger.error("Erro ao diagnosticar NPED %s: %s", nped, exc)
+        diag = {'erro': str(exc)}
+
+    if diag.get('tem_os') is False:
+        return {'nped': nped, 'ok': False, 'tipo': 'sem_os',
+                'motivo': 'OS ainda não gerada para este pedido.'}
+    if diag.get('cancelada'):
+        return {'nped': nped, 'ok': False, 'tipo': 'cancelada',
+                'motivo': 'A OS deste pedido está cancelada.'}
+
+    # OS existe (ou não deu para diagnosticar) → tenta sincronizar
+    try:
+        ok = bool(sync_os(nped))
+    except Exception as exc:  # nunca deixa a request estourar 500 silenciosamente
+        logger.error("Erro ao sincronizar NPED %s: %s", nped, exc)
+        ok = False
+
+    if ok:
+        return {'nped': nped, 'ok': True, 'tipo': None, 'motivo': None}
+    return {'nped': nped, 'ok': False, 'tipo': 'erro', 'motivo': 'Não foi possível sincronizar.'}
+
+
 def _sincronizar(npeds: List[int]) -> Tuple[Any, int]:
     """Sincroniza os NPEDs (serializados) e devolve ``(json, http_status)``."""
     resultados = []
     with _sync_lock:
         for n in npeds:
-            try:
-                ok = bool(sync_os(n))
-            except Exception as exc:  # nunca deixa a request estourar 500 silenciosamente
-                logger.error("Erro ao sincronizar NPED %s: %s", n, exc)
-                ok = False
-            resultados.append({'nped': n, 'ok': ok})
+            resultados.append(_sync_one(n))
 
     sucesso = sum(1 for r in resultados if r['ok'])
     total = len(resultados)
@@ -122,8 +146,7 @@ def _sincronizar(npeds: List[int]) -> Tuple[Any, int]:
         'results': resultados,
         'summary': {'total': total, 'sucesso': sucesso, 'falha': total - sucesso},
     }
-    # 200 tudo ok · 207 parcial · 502 nenhum sincronizou
-    http = 200 if sucesso == total else (207 if sucesso else 502)
+    http = 200 if sucesso == total else 207  # 207 = algum não sincronizou (parcial)
     return jsonify(payload), http
 
 

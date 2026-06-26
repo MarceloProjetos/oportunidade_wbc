@@ -117,6 +117,44 @@ def test_replace_nped_prunes_scoped_to_nped(monkeypatch):
     assert call.kwargs['where_eq'] == {'NPED': 84080}
 
 
+def _fake_sap_statuses(statuses):
+    """Fábrica de um SAPExtractor falso cujo SELECT devolve os Status dados."""
+    class _FS:
+        def __init__(self, *a, **k):
+            pass
+
+        def connect(self):
+            return True
+
+        def execute_query(self, query):
+            return pd.DataFrame({'Status': statuses})
+
+        def close(self):
+            pass
+    return _FS
+
+
+def test_diagnosticar_sem_os(monkeypatch):
+    _set_sap_env(monkeypatch)
+    monkeypatch.setattr(mod, 'SAPExtractor', _fake_sap_statuses([]))
+    d = mod.diagnosticar_nped(84106)
+    assert d == {'tem_os': False, 'cancelada': False, 'status': []}
+
+
+def test_diagnosticar_tem_os(monkeypatch):
+    _set_sap_env(monkeypatch)
+    monkeypatch.setattr(mod, 'SAPExtractor', _fake_sap_statuses(['R']))
+    d = mod.diagnosticar_nped(84080)
+    assert d['tem_os'] is True and d['cancelada'] is False
+
+
+def test_diagnosticar_cancelada(monkeypatch):
+    _set_sap_env(monkeypatch)
+    monkeypatch.setattr(mod, 'SAPExtractor', _fake_sap_statuses(['C']))
+    d = mod.diagnosticar_nped(84080)
+    assert d['tem_os'] is True and d['cancelada'] is True
+
+
 def test_insert_mode_does_not_prune(monkeypatch):
     _set_supabase_env(monkeypatch)
     df = pd.DataFrame({'NPED': [84080], 'N_OP': [1]})
