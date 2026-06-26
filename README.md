@@ -605,6 +605,7 @@ oportunidade_wbc/
 ├── run_scheduler.bat            # Wrapper p/ Task Scheduler / NSSM (agendador, boot 24/7)
 ├── run_api.bat                  # Wrapper p/ Task Scheduler / NSSM (API, boot 24/7)
 ├── run_all.bat                  # Sobe agendador + API juntos (Task Scheduler/manual)
+├── install_services.bat         # Registra agendador + API como serviços NSSM (boot + restart)
 ├── requirements.txt             # Dependências Python
 ├── requirements-dev.txt         # pytest (testes unitários)
 ├── tests/                       # Suíte pytest

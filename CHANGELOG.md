@@ -19,6 +19,9 @@ Mudanças notáveis deste projeto. Formato inspirado em
   da API: nunca rodam duas cargas snapshot de oportunidades ao mesmo tempo (a 2ª recebe `409`
   / o agendado pula). Dependência `filelock` no `requirements.txt`; `.locks/` no `.gitignore`.
 - **`run_all.bat`** — launcher único que sobe `run_scheduler.bat` + `run_api.bat`.
+- **`install_services.bat`** — registra agendador + API como **serviços NSSM** (auto-start
+  no boot, restart automático se cair, log em arquivo com rotação). Para o servidor não
+  depender de janela manual / sobreviver a reboot.
 
 ### Alterado
 
