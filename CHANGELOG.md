@@ -3,6 +3,20 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-06-29] — Faxina: remoção de planos, docs e deploy não usado
+
+### Removido
+
+- **Docs de planejamento** de features já concluídas: `PLANO_PAINEL_OPORTUNIDADES.md` e
+  `PLANO_SYNC_ORDENS_SERVICO.md` (links no README/GUIA ajustados).
+- **Suporte Docker** (deploy real é NSSM/Windows): `Dockerfile`, `docker-compose.yml`,
+  `.dockerignore` + badge/TOC/seção no README.
+- **`run_all.bat`** — launcher manual que brigava pela porta 8077 com os serviços NSSM.
+  Use `install_services.bat`; ou, para teste, `run_scheduler.bat`/`run_api.bat` isolados.
+- **`scripts/test_connections.py` + `setup.sh`** — diagnóstico/setup que executava conexões
+  **reais** durante o `pytest`. Suíte agora roda **113 testes**, sem chamadas externas.
+- Bytecode órfão em `__pycache__` (`exemplo_avancado`, `pandas_guide` — `.py` já inexistentes).
+
 ## [2026-06-29] — Log deixa de ser configurado no import
 
 ### Corrigido

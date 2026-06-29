@@ -8,7 +8,6 @@ view do **SAP B1 (HANA)**, enriquece com a situação do orçamento vinda do **S
 ![SAP HANA](https://img.shields.io/badge/SAP-HANA-orange)
 ![SQL Server](https://img.shields.io/badge/SQL%20Server-2016-red)
 ![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-darkgreen)
-![Docker](https://img.shields.io/badge/Docker-ready-blue)
 
 ---
 
@@ -24,7 +23,6 @@ view do **SAP B1 (HANA)**, enriquece com a situação do orçamento vinda do **S
 - [Banco de Dados (Supabase)](#banco-de-dados-supabase)
 - [Como Rodar](#como-rodar)
 - [Agendamento (Automático)](#agendamento-automático)
-- [Docker](#docker)
 - [Versionamento (GitHub)](#versionamento-github)
 - [Estrutura de Diretórios](#estrutura-de-diretórios)
 - [Troubleshooting](#troubleshooting)
@@ -80,7 +78,6 @@ view do **SAP B1 (HANA)**, enriquece com a situação do orçamento vinda do **S
 | Supabase | Free/Pro | ✅ | Destino dos dados (PostgreSQL) |
 | SQL Server (`pyodbc`) | 2016+ | ⬜ | Apenas para `SITCOD`/`ORCALTDTH` |
 | **ODBC Driver 18** | 18.x | ⬜ | Necessário se usar o SQL Server |
-| Docker | — | ⬜ | Execução em container (opcional) |
 
 > ⬜ = opcional. Sem o SQL Server / ODBC Driver, o pipeline ainda roda — as colunas
 > `SITCOD` e `ORCALTDTH` simplesmente ficam nulas (LEFT JOIN com fallback).
@@ -305,28 +302,7 @@ limit 100;
 
 ## Como Rodar
 
-### 1. Testar as conexões (recomendado antes da 1ª carga)
-
-```bash
-python scripts/test_connections.py
-```
-
-Valida pacotes, `.env`, conexão SAP e Supabase (anon + **service_role** para escrita),
-SQL Server (se configurado), e lista views disponíveis.
-
----
-
-## Testes unitários
-
-```bash
-pip install -r requirements-dev.txt
-pytest
-```
-
-Cobertura atual: `config`, validação SQL, erro de tenant SAP, modos de execução e janela
-do agendador. Não exige credenciais reais (sem integração com SAP/Supabase em CI).
-
-### 2. Executar a extração
+### Executar a extração
 
 ```bash
 python extract_sap_to_supabase.py
@@ -352,6 +328,18 @@ main(view_name='VW_EVOL_OPORTUNIDADE_ALT', execution_mode='insert')    # acumula
 
 > No modo `snapshot` (default), a tabela mantém sempre os **últimos 6 meses** de
 > oportunidades (janela deslizante recalculada a cada execução).
+
+---
+
+## Testes unitários
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Cobertura atual: `config`, validação SQL, erro de tenant SAP, modos de execução e janela
+do agendador. Não exige credenciais reais (sem integração com SAP/Supabase em CI).
 
 ---
 
@@ -486,7 +474,6 @@ Conferir: abra `http://127.0.0.1:8077/health` (ou de outra máquina `http://<ip-
 > Passo a passo didático, com exemplos e saídas reais (incl. a API e um exemplo de
 > `fetch` no front), no
 > **[GUIA_ORDENS_SERVICO_ENGENHARIA.md](GUIA_ORDENS_SERVICO_ENGENHARIA.md)**.
-> Planejamento e decisões em [PLANO_SYNC_ORDENS_SERVICO.md](PLANO_SYNC_ORDENS_SERVICO.md).
 
 ---
 
@@ -565,8 +552,8 @@ No servidor rodam **dois processos** 24/7:
   ```
   Registra `OrcaView-Scheduler` e `OrcaView-OS-API` com **auto-start no boot**, **restart se
   cair** e log em `logs/`. Gerencie em `services.msc`.
-- **Manual (teste/temporário)** — `run_all.bat` (sobe os dois em janelas próprias), ou cada
-  um isolado (`run_scheduler.bat` / `run_api.bat`).
+- **Manual (teste/temporário)** — cada um isolado em sua janela: `run_scheduler.bat`
+  (agendador) e `run_api.bat` (API).
 
 ### Parar
 
@@ -599,21 +586,6 @@ No servidor rodam **dois processos** 24/7:
 > Os logs são gravados em **UTF-8**. No **PowerShell**, leia com `-Encoding utf8`,
 > senão os acentos saem trocados (ex.: `execuÃ§Ã£o`):
 > `Get-Content .\logs\scheduled_execution.log -Tail 30 -Encoding utf8`
-
----
-
-## Docker
-
-```bash
-# Build + execução única
-docker compose up --build
-
-# Para rodar agendado, ajuste o `command` em docker-compose.yml:
-#   command: python scripts/scheduled_execution.py
-```
-
-> O [Dockerfile](Dockerfile) usa `python:3.12-slim` com **ODBC Driver 18** pré-instalado
-> (SQL Server opcional). Passe as variáveis via `.env` (`env_file` no compose).
 
 ---
 
@@ -656,18 +628,13 @@ oportunidade_wbc/
 ├── web/                         # Página servida pela API (sincronizar.html)
 ├── sql/                         # DDL do Supabase (ordens_servico_engenharia.sql)
 ├── scripts/
-│   ├── scheduled_execution.py   # Agendamento via APScheduler (IntervalTrigger)
-│   └── test_connections.py      # Diagnóstico de pacotes e conexões
+│   └── scheduled_execution.py   # Agendamento via APScheduler (IntervalTrigger)
 ├── run_scheduler.bat            # Wrapper p/ Task Scheduler / NSSM (agendador, boot 24/7)
 ├── run_api.bat                  # Wrapper p/ Task Scheduler / NSSM (API, boot 24/7)
-├── run_all.bat                  # Sobe agendador + API juntos (Task Scheduler/manual)
 ├── install_services.bat         # Registra agendador + API como serviços NSSM (boot + restart)
 ├── requirements.txt             # Dependências Python
 ├── requirements-dev.txt         # pytest (testes unitários)
 ├── tests/                       # Suíte pytest
-├── Dockerfile                   # Imagem do container (Python 3.12 + ODBC 18)
-├── docker-compose.yml           # Orquestração Docker
-├── setup.sh                     # Setup rápido (Linux/Mac)
 ├── .env.example                 # Template de variáveis de ambiente
 ├── .env                         # Credenciais reais (NÃO versionar)
 ├── .gitignore                   # Arquivos ignorados pelo git

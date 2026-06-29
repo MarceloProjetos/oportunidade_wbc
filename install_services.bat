@@ -6,7 +6,7 @@ REM   - OrcaView-Scheduler : agendador de oportunidades (run_scheduler.bat)
 REM   - OrcaView-OS-API    : API / painel na porta 8077 (run_api.bat)
 REM
 REM Rode COMO ADMINISTRADOR, uma vez. Requer o NSSM (https://nssm.cc) no PATH.
-REM Depois disso, NAO use mais o run_all.bat manual (os servicos sobem sozinhos).
+REM Depois disso, os servicos sobem sozinhos no boot (nao precisa iniciar na mao).
 REM
 REM Antes: confirme que 'run_scheduler.bat' e 'run_api.bat' rodam sem erro
 REM (registrar um servico que quebra vira loop de restart).
@@ -52,6 +52,6 @@ echo OK. Servicos registrados (sobem no boot e reiniciam se cairem):
 echo   - OrcaView-Scheduler  -^> logs\scheduler_service.log
 echo   - OrcaView-OS-API     -^> logs\api_service.log  (porta 8077)
 echo Gerencie em services.msc  ou:  nssm restart OrcaView-OS-API
-echo IMPORTANTE: feche as janelas manuais do run_all.bat (brigam pela porta 8077).
+echo IMPORTANTE: feche janelas manuais de run_api.bat/run_scheduler.bat (brigam pela 8077).
 echo Para remover depois:  nssm remove OrcaView-Scheduler confirm  ^&  nssm remove OrcaView-OS-API confirm
 endlocal

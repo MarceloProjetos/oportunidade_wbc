@@ -197,8 +197,8 @@ python api.py
 > O painel em `/` tem duas colunas: **Ordens de Serviço** (por NPED, sob demanda) e
 > **Oportunidades** (carga completa agendada — botão "Forçar sincronismo"). O "forçar" usa
 > um **lock de arquivo** compartilhado com o agendador (`run_scheduler.bat`): nunca rodam as
-> duas cargas de oportunidades ao mesmo tempo. Para subir agendador + API juntos no boot, use
-> **`run_all.bat`** (com NSSM, registre os dois `.bat` separados — ver `PLANO_PAINEL_OPORTUNIDADES.md`).
+> duas cargas de oportunidades ao mesmo tempo. Para subir agendador + API no boot, registre os
+> dois `.bat` como serviços via `install_services.bat` (NSSM).
 
 **Jeito mais fácil — página pronta (sem curl/DevTools).** Abra no navegador a **raiz da API**:
 
@@ -485,8 +485,6 @@ As 3 tabelas têm **RLS `ENABLE` + `FORCE` e nenhuma policy**. Tradução:
 > O Advisor pode mostrar um **INFO** "RLS enabled, no policy" — é **intencional** (tabela só-backend).
 > Se um dia um app precisar ler, adiciona-se uma policy de `SELECT` para a role certa.
 
-Detalhes da decisão: [PLANO_SYNC_ORDENS_SERVICO.md §5.5](PLANO_SYNC_ORDENS_SERVICO.md).
-
 ---
 
 ## 13. Consultas SQL úteis
@@ -567,5 +565,4 @@ pytest -q
 
 ---
 
-Mais contexto e decisões de projeto: [PLANO_SYNC_ORDENS_SERVICO.md](PLANO_SYNC_ORDENS_SERVICO.md) ·
-visão geral do repositório: [README.md](README.md).
+Visão geral do repositório: [README.md](README.md).
