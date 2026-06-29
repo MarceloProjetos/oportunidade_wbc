@@ -3,6 +3,19 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-06-29] — Correção: agendador não subia (ModuleNotFoundError)
+
+### Corrigido
+
+- **`run_scheduler.bat`** passa a iniciar o agendador como módulo
+  (`python -m scripts.scheduled_execution`) em vez de `python scripts\scheduled_execution.py`.
+  Rodar o arquivo direto colocava apenas a pasta `scripts\` no `sys.path`, então a 1ª linha
+  `import scripts._bootstrap` quebrava com `ModuleNotFoundError: No module named 'scripts'` —
+  o processo morria na largada. Como serviço NSSM isso aparecia como `SERVICE_PAUSED` e, na
+  prática, **o sincronismo agendado de oportunidades (a cada 30 min, 07–18h, dias úteis) nunca
+  rodava**; só o "Forçar sincronismo" (via API, sem apscheduler) funcionava. A API não era
+  afetada porque `api.py` fica na raiz do projeto.
+
 ## [2026-06-26] — Painel unificado + Oportunidades
 
 ### Adicionado

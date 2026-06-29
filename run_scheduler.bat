@@ -17,4 +17,7 @@ if exist "venv\Scripts\python.exe" (
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
 
-"%PY%" scripts\scheduled_execution.py
+REM Rodar como modulo (-m) garante a RAIZ do projeto no sys.path; rodar
+REM "python scripts\scheduled_execution.py" coloca so a pasta scripts\ no path
+REM e quebra em "import scripts._bootstrap" (ModuleNotFoundError: No module named 'scripts').
+"%PY%" -m scripts.scheduled_execution
