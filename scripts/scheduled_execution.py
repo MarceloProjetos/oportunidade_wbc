@@ -16,7 +16,7 @@ from typing import Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
-from config import get_settings, parse_dias_semana, parse_janela_horas
+from config import get_settings, parse_janela_horas
 from extract_sap_to_supabase import main
 from feriados_br import is_business_day, is_national_holiday
 from pipeline_core import oportunidades_sync_lock, FileLockTimeout
@@ -44,18 +44,11 @@ logger = logging.getLogger(__name__)
 
 _execution_lock = threading.Lock()
 
-# Backward-compatible alias for tests
-_parse_dias_semana = parse_dias_semana
-
 
 def is_within_commercial_window(
-    *,
-    janela_horas: str,
-    now: Optional[datetime] = None,
-    dias_semana: Optional[str] = None,
+    *, janela_horas: str, now: Optional[datetime] = None,
 ) -> bool:
     """True on business day within inclusive hour window."""
-    del dias_semana
     now = now or datetime.now()
     if not is_business_day(now.date()):
         return False
@@ -70,33 +63,7 @@ def can_run_load(*, ignore_hour_window: bool = False, now: Optional[datetime] = 
         return False
     if ignore_hour_window:
         return True
-    h_start, h_end = parse_janela_horas(get_settings().janela_horas)
-    return h_start <= now.hour <= h_end
-
-
-def esta_na_janela_comercial(
-    *,
-    janela_horas: str,
-    agora: Optional[datetime] = None,
-    now: Optional[datetime] = None,
-    dias_semana: Optional[str] = None,
-) -> bool:
-    return is_within_commercial_window(
-        janela_horas=janela_horas, now=agora or now, dias_semana=dias_semana,
-    )
-
-
-def pode_executar_carga(
-    *,
-    ignorar_janela_horaria: bool = False,
-    ignorar_janela: bool = False,
-    agora: Optional[datetime] = None,
-    now: Optional[datetime] = None,
-) -> bool:
-    return can_run_load(
-        ignore_hour_window=ignorar_janela_horaria or ignorar_janela,
-        now=agora or now,
-    )
+    return is_within_commercial_window(janela_horas=get_settings().janela_horas, now=now)
 
 
 def job_execucao(*, ignorar_janela: bool = False) -> None:
@@ -140,10 +107,9 @@ def job_execucao(*, ignorar_janela: bool = False) -> None:
 
 def configurar_agenda() -> BackgroundScheduler:
     settings = get_settings()
-    # DIAS_SEMANA already validated in get_settings(); re-check for scheduler startup log
+    # JANELA_HORAS already validated in get_settings(); re-check for scheduler startup log
     try:
         parse_janela_horas(settings.janela_horas)
-        parse_dias_semana(settings.dias_semana)
     except ValueError as exc:
         logger.error('[CONFIG] Scheduler startup aborted — fix .env: %s', exc)
         raise

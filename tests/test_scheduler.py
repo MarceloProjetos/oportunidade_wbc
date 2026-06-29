@@ -4,11 +4,11 @@ from datetime import date, datetime
 
 import pytest
 
-from config import parse_dias_semana, parse_janela_horas
+from config import parse_janela_horas
 from feriados_br import eh_dia_util
 from scripts.scheduled_execution import (
-    esta_na_janela_comercial,
-    pode_executar_carga,
+    can_run_load,
+    is_within_commercial_window,
 )
 
 
@@ -21,47 +21,39 @@ def test_parse_janela_horas_invalid():
         parse_janela_horas('7')
 
 
-def test_parse_dias_semana_range():
-    assert parse_dias_semana('mon-fri') == {0, 1, 2, 3, 4}
+def test_dentro_da_janela():
+    now = datetime(2026, 6, 23, 10, 30)
+    assert is_within_commercial_window(janela_horas='7-18', now=now)
 
 
-def test_parse_dias_semana_list():
-    assert parse_dias_semana('mon,wed,fri') == {0, 2, 4}
+def test_fora_do_horario():
+    now = datetime(2026, 6, 23, 20, 0)
+    assert not is_within_commercial_window(janela_horas='7-18', now=now)
 
 
-def test_esta_na_janela_comercial_dentro():
-    agora = datetime(2026, 6, 23, 10, 30)
-    assert esta_na_janela_comercial(janela_horas='7-18', agora=agora)
+def test_sabado():
+    now = datetime(2026, 6, 27, 10, 0)
+    assert not is_within_commercial_window(janela_horas='7-18', now=now)
 
 
-def test_esta_na_janela_comercial_fora_horario():
-    agora = datetime(2026, 6, 23, 20, 0)
-    assert not esta_na_janela_comercial(janela_horas='7-18', agora=agora)
+def test_domingo():
+    now = datetime(2026, 6, 28, 10, 0)
+    assert not is_within_commercial_window(janela_horas='7-18', now=now)
 
 
-def test_esta_na_janela_comercial_sabado():
-    agora = datetime(2026, 6, 27, 10, 0)
-    assert not esta_na_janela_comercial(janela_horas='7-18', agora=agora)
+def test_feriado():
+    now = datetime(2026, 1, 1, 10, 0)
+    assert not is_within_commercial_window(janela_horas='7-18', now=now)
 
 
-def test_esta_na_janela_comercial_domingo():
-    agora = datetime(2026, 6, 28, 10, 0)
-    assert not esta_na_janela_comercial(janela_horas='7-18', agora=agora)
+def test_startup_feriado_mesmo_fora_horario():
+    now = datetime(2026, 1, 1, 6, 0)
+    assert not can_run_load(ignore_hour_window=True, now=now)
 
 
-def test_esta_na_janela_comercial_feriado():
-    agora = datetime(2026, 1, 1, 10, 0)
-    assert not esta_na_janela_comercial(janela_horas='7-18', agora=agora)
-
-
-def test_pode_executar_startup_feriado_mesmo_fora_horario():
-    agora = datetime(2026, 1, 1, 6, 0)
-    assert not pode_executar_carga(ignorar_janela_horaria=True, agora=agora)
-
-
-def test_pode_executar_startup_dia_util_fora_horario():
-    agora = datetime(2026, 6, 23, 6, 0)
-    assert pode_executar_carga(ignorar_janela_horaria=True, agora=agora)
+def test_startup_dia_util_fora_horario():
+    now = datetime(2026, 6, 23, 6, 0)
+    assert can_run_load(ignore_hour_window=True, now=now)
 
 
 def test_eh_dia_util_sabado():

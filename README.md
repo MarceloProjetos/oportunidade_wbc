@@ -167,7 +167,7 @@ copy .env.example .env          # Windows
 | `SQL_DATABASE` | Database (ex.: `WBCCAD`) |
 | `SQL_DRIVER` | Opcional — força um driver ODBC específico (ex.: `ODBC Driver 18 for SQL Server`) |
 
-> Variáveis do **agendamento** (`INTERVALO_MINUTOS`, `JANELA_HORAS`, `DIAS_SEMANA`,
+> Variáveis do **agendamento** (`INTERVALO_MINUTOS`, `JANELA_HORAS`,
 > `EXECUTION_MODE`) e do **log** (`SYNC_LOG_TABLE_NAME`) são opcionais e têm defaults —
 > ver [Agendamento](#agendamento-automático) e [Banco de Dados](#banco-de-dados-supabase).
 
@@ -509,7 +509,6 @@ Os horários são configuráveis por variáveis de ambiente:
 |----------|---------|-----------|
 | `INTERVALO_MINUTOS` | `30` | Minutos entre cargas (piso de 5; aceita valores > 59). |
 | `JANELA_HORAS` | `7-18` | Faixa de horas inclusiva (ex.: `7-18` = 07h às 18h59). |
-| `DIAS_SEMANA` | `mon-fri` | Legado (a execução usa seg–sex + feriados BR automático). |
 | `EXECUTION_MODE` | `snapshot` | Modo de carga (`snapshot` ou `insert`). |
 
 > **Dias úteis:** o agendador não roda em sábados, domingos nem feriados nacionais

@@ -6,7 +6,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from typing import Optional, Set
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -61,21 +61,10 @@ OS_API_PORT_DEFAULT = 8077
 INTERVALO_MINUTOS_DEFAULT = 30
 INTERVALO_PISO_MIN = 5
 JANELA_HORAS_DEFAULT = '7-18'
-DIAS_SEMANA_DEFAULT = 'mon-fri'
 EXECUTION_MODE_DEFAULT = 'snapshot'
 
 # JANELA_HORAS must match start-end hour range (e.g. 7-18)
 JANELA_HORAS_RE = re.compile(r'^\d{1,2}-\d{1,2}$')
-
-# DIAS_SEMANA: mon-fri or mon,wed,fri (scheduler also uses is_business_day at runtime)
-_DOW_TOKEN = r'(?:mon|tue|wed|thu|fri|sat|sun)'
-DIAS_SEMANA_RE = re.compile(
-    rf'^{_DOW_TOKEN}(?:-{_DOW_TOKEN})?(?:,{_DOW_TOKEN}(?:-{_DOW_TOKEN})?)*$',
-    re.IGNORECASE,
-)
-DOW_CRON: dict[str, int] = {
-    'mon': 0, 'tue': 1, 'wed': 2, 'thu': 3, 'fri': 4, 'sat': 5, 'sun': 6,
-}
 
 
 def parse_janela_horas(expr: str) -> tuple[int, int]:
@@ -91,45 +80,6 @@ def parse_janela_horas(expr: str) -> tuple[int, int]:
         logger.error('[CONFIG] %s', msg)
         raise ValueError(msg)
     return h_start, h_end
-
-
-def parse_dias_semana(expr: str) -> Set[int]:
-    """Parse DIAS_SEMANA env into weekday indices (0=Mon … 6=Sun)."""
-    raw = expr.strip()
-    if not DIAS_SEMANA_RE.fullmatch(raw):
-        msg = (
-            f"Invalid DIAS_SEMANA: {raw!r} "
-            "(expected e.g. 'mon-fri' or 'mon,wed,fri')"
-        )
-        logger.error('[CONFIG] %s', msg)
-        raise ValueError(msg)
-
-    lowered = raw.lower()
-    days: Set[int] = set()
-    try:
-        if '-' in lowered and ',' not in lowered:
-            start, end = lowered.split('-', 1)
-            a, b = DOW_CRON[start.strip()], DOW_CRON[end.strip()]
-            if a > b:
-                raise ValueError(f"invalid range {raw!r}")
-            days = set(range(a, b + 1))
-        else:
-            for part in lowered.split(','):
-                token = part.strip()
-                if '-' in token:
-                    start, end = token.split('-', 1)
-                    a, b = DOW_CRON[start.strip()], DOW_CRON[end.strip()]
-                    if a > b:
-                        raise ValueError(f"invalid range {token!r}")
-                    days.update(range(a, b + 1))
-                else:
-                    days.add(DOW_CRON[token])
-    except KeyError as exc:
-        msg = f"Invalid DIAS_SEMANA token in {raw!r}: {exc}"
-        logger.error('[CONFIG] %s', msg)
-        raise ValueError(msg) from exc
-
-    return days
 
 
 def _env(*keys: str) -> Optional[str]:
@@ -182,15 +132,12 @@ class Settings:
 
     intervalo_minutos: int
     janela_horas: str
-    dias_semana: str
     execution_mode: str
 
     @classmethod
     def from_env(cls) -> Settings:
         janela_horas = os.getenv('JANELA_HORAS', JANELA_HORAS_DEFAULT)
-        dias_semana = os.getenv('DIAS_SEMANA', DIAS_SEMANA_DEFAULT)
         parse_janela_horas(janela_horas)
-        parse_dias_semana(dias_semana)
 
         return cls(
             sap_host=os.getenv('SAP_HOST'),
@@ -230,7 +177,6 @@ class Settings:
                 int(os.getenv('INTERVALO_MINUTOS', INTERVALO_MINUTOS_DEFAULT)),
             ),
             janela_horas=janela_horas,
-            dias_semana=dias_semana,
             execution_mode=os.getenv('EXECUTION_MODE', EXECUTION_MODE_DEFAULT),
         )
 

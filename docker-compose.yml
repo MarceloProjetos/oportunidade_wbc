@@ -29,7 +29,6 @@ services:
       SQL_DRIVER: ${SQL_DRIVER:-}
       INTERVALO_MINUTOS: ${INTERVALO_MINUTOS:-30}
       JANELA_HORAS: ${JANELA_HORAS:-7-18}
-      DIAS_SEMANA: ${DIAS_SEMANA:-mon-fri}
       EXECUTION_MODE: ${EXECUTION_MODE:-snapshot}
     volumes:
       - ./logs:/app/logs

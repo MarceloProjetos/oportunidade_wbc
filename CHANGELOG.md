@@ -3,6 +3,21 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-06-29] — Limpeza: config morta + dedupe de helpers
+
+### Removido
+
+- **`DIAS_SEMANA`** (env/config) — era validado mas **nunca aplicado**: o agendador
+  decide rodar só por `is_business_day` (seg–sex menos feriados BR), então `DIAS_SEMANA`
+  não restringia nada (config enganosa). Removidos `parse_dias_semana`, `DIAS_SEMANA_RE`,
+  `DOW_CRON`, `DIAS_SEMANA_DEFAULT`, o campo `Settings.dias_semana` e as menções em
+  `.env.example`, `README.md` e `docker-compose.yml`. A regra continua a mesma:
+  **dias úteis (seg–sex, sem feriados nacionais)**.
+- **Aliases bilíngues duplicados** em `scripts/scheduled_execution.py`
+  (`esta_na_janela_comercial`, `pode_executar_carga`, `_parse_dias_semana` e o parâmetro
+  `dias_semana` descartado) — ficam só as funções canônicas `is_within_commercial_window`
+  e `can_run_load`. Testes ajustados para os nomes canônicos.
+
 ## [2026-06-29] — Correção: agendador não subia (ModuleNotFoundError)
 
 ### Corrigido
