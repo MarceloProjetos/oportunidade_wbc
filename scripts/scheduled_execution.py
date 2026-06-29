@@ -24,23 +24,30 @@ from pipeline_core import oportunidades_sync_lock, FileLockTimeout
 LOG_RETENTION_DAYS = 12
 HEARTBEAT_INTERVAL_S = 3600
 
-os.makedirs('logs', exist_ok=True)
-
-_file_handler = TimedRotatingFileHandler(
-    'logs/scheduled_execution.log',
-    when='midnight',
-    interval=1,
-    backupCount=LOG_RETENTION_DAYS,
-    encoding='utf-8',
-)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[_file_handler, logging.StreamHandler()],
-    force=True,
-)
 logger = logging.getLogger(__name__)
+
+
+def _configure_logging() -> None:
+    """Configura o log (arquivo rotativo + console).
+
+    Chamado só pelo entrypoint (``main_scheduler``), **não no import** — assim
+    importar o módulo nos testes não redireciona o log da suíte para o arquivo
+    de produção ``logs/scheduled_execution.log``.
+    """
+    os.makedirs('logs', exist_ok=True)
+    file_handler = TimedRotatingFileHandler(
+        'logs/scheduled_execution.log',
+        when='midnight',
+        interval=1,
+        backupCount=LOG_RETENTION_DAYS,
+        encoding='utf-8',
+    )
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[file_handler, logging.StreamHandler()],
+        force=True,
+    )
 
 _execution_lock = threading.Lock()
 
@@ -132,6 +139,7 @@ def configurar_agenda() -> BackgroundScheduler:
 
 
 def main_scheduler() -> None:
+    _configure_logging()
     logger.info('Starting scheduler...')
     scheduler = configurar_agenda()
 

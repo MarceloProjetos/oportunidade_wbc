@@ -3,6 +3,24 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-06-29] — Log deixa de ser configurado no import
+
+### Corrigido
+
+- **Logging só no entrypoint, não no import.** `scheduled_execution.py`, `api.py` e os dois
+  `extract_*.py` chamavam `logging.basicConfig` no nível do módulo — então **importar** o
+  módulo (ex.: na suíte de testes) redirecionava todo o log da sessão para o arquivo de
+  produção (`logs/scheduled_execution.log` / `logs/api.log`). A configuração foi movida para
+  uma função `_configure_logging()` chamada só no `main`/`__main__`. Verificado: rodar a
+  suíte completa não escreve mais nos logs de produção. (Nota: servir via
+  `waitress-serve api:app` não passa por `main()` — use `python api.py` para ter o log em
+  arquivo.)
+
+### Documentação
+
+- README: nota para ler os logs no **PowerShell** com `-Encoding utf8` (são UTF-8; sem isso
+  os acentos saem trocados, ex.: `execuÃ§Ã£o`).
+
 ## [2026-06-29] — Limpeza: config morta + dedupe de helpers
 
 ### Removido

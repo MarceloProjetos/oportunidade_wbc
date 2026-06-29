@@ -43,13 +43,18 @@ try:
 except AttributeError:
     pass
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-)
-# httpx loga cada requisição (URL com todas as colunas) em INFO — ruidoso em produção.
-logging.getLogger('httpx').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+
+
+def _configure_logging() -> None:
+    """Log básico no console. Chamado só pelo entrypoint (CLI), não no import —
+    como lib (importado pela API), não deve mexer no logging global."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    )
+    # httpx loga cada requisição (URL com todas as colunas) em INFO — ruidoso em produção.
+    logging.getLogger('httpx').setLevel(logging.WARNING)
 
 
 def extract_os_to_dataframe(nped: object) -> Optional[pd.DataFrame]:
@@ -266,6 +271,7 @@ def _parse_args(argv: List[str]) -> List[str]:
 
 
 if __name__ == "__main__":
+    _configure_logging()
     args = _parse_args(sys.argv[1:])
     if not args:
         print(

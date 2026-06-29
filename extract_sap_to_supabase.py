@@ -36,11 +36,16 @@ try:
 except AttributeError:
     pass
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
+
+
+def _configure_logging() -> None:
+    """Log básico no console. Chamado só pelo entrypoint (CLI), não no import —
+    como lib (importado pela API/agendador), não deve mexer no logging global."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    )
 
 
 def get_sqlserver_connection(
@@ -382,6 +387,7 @@ def main(
 
 
 if __name__ == "__main__":
+    _configure_logging()
     # Parâmetros (todos opcionais):
     #   view_name      — view SAP; se omitido, usa SAP_VIEW_NAME do .env
     #   execution_mode — 'snapshot' (default) ou 'insert'

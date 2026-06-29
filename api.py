@@ -18,9 +18,10 @@ o endpoint fica **aberto** (use só em rede interna confiável / desenvolvimento
 
 Como rodar
 ----------
-- Dev:        ``python api.py``
-- Produção:   ``waitress-serve --listen=0.0.0.0:8077 api:app``
-              (ou ``python api.py`` — cai no waitress se instalado, senão no Flask dev)
+- Dev/Produção:  ``python api.py`` (forma suportada — sobe via waitress se instalado,
+                 senão Flask dev, e configura o log em arquivo ``logs/api.log``).
+- Alternativa:   ``waitress-serve --listen=0.0.0.0:8077 api:app`` — importa só o ``app``,
+                 então **não** passa por ``main()``: o log usa o default (sem arquivo).
 
 Exemplo de chamada::
 
@@ -51,22 +52,29 @@ try:
 except AttributeError:
     pass
 
-# Log em arquivo com rotação diária (igual ao agendador) + console. Assim o log
-# da API persiste mesmo quando a janela é fechada / roda como serviço.
-_LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
-os.makedirs(_LOG_DIR, exist_ok=True)
-_api_file_handler = TimedRotatingFileHandler(
-    os.path.join(_LOG_DIR, 'api.log'),
-    when='midnight', interval=1, backupCount=12, encoding='utf-8',
-)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[_api_file_handler, logging.StreamHandler()],
-    force=True,
-)
-logging.getLogger('httpx').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+
+
+def _configure_logging() -> None:
+    """Configura o log (arquivo rotativo + console).
+
+    Chamado só pelo entrypoint (``main``), **não no import** — assim importar o
+    módulo nos testes não redireciona o log da suíte para ``logs/api.log``. Com
+    arquivo, o log da API persiste ao fechar a janela / rodar como serviço.
+    """
+    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    file_handler = TimedRotatingFileHandler(
+        os.path.join(log_dir, 'api.log'),
+        when='midnight', interval=1, backupCount=12, encoding='utf-8',
+    )
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[file_handler, logging.StreamHandler()],
+        force=True,
+    )
+    logging.getLogger('httpx').setLevel(logging.WARNING)
 
 app = Flask(__name__)
 _WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web')
@@ -331,6 +339,7 @@ def sync_varios():
 
 def main() -> None:
     """Sobe o servidor (waitress em produção; Flask dev como fallback)."""
+    _configure_logging()
     s = get_settings()
     if not s.os_api_key:
         logger.warning(

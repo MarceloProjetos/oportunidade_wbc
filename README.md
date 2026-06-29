@@ -596,6 +596,10 @@ No servidor rodam **dois processos** 24/7:
 | `logs/api.log` | API (rotação diária, 12 dias) |
 | `logs/scheduler_service.log` · `logs/api_service.log` | saída bruta dos serviços (via NSSM) |
 
+> Os logs são gravados em **UTF-8**. No **PowerShell**, leia com `-Encoding utf8`,
+> senão os acentos saem trocados (ex.: `execuÃ§Ã£o`):
+> `Get-Content .\logs\scheduled_execution.log -Tail 30 -Encoding utf8`
+
 ---
 
 ## Docker
