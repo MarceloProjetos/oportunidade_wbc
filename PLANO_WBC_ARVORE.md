@@ -1,6 +1,9 @@
 # Plano — Sincronização da Árvore de Produto WBC (`INTEGRACAO_ORCPRDARV`)
 
-> **Status:** implementado (pendente de validação contra o SAP/SQL reais e de rodar o SQL no Supabase).
+> **Status:** implementado. **Supabase aplicado em produção em 2026-06-30** — tabelas criadas,
+> RLS forçado, policy de SELECT p/ `anon` e o case das colunas conferidos. **Pendente:** deploy
+> do código no servidor (`extract_wbc_arvore.py`, `api.py`, `config.py`, `db_utils.py` + restart)
+> e 1 teste real (valida o `NºOrçament→ORCNUM` e a inserção via pyodbc).
 
 ## Objetivo
 

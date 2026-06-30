@@ -20,6 +20,9 @@ Mudanças notáveis deste projeto. Formato inspirado em
 - Config `WBC_ARVORE_VIEW` / `WBC_ARVORE_TABLE` / `WBC_ARVORE_SYNC_LOG_TABLE` /
   `WBC_ARVORE_INSERT_BATCH_SIZE`. `db_utils.read_dbapi_query` passa a aceitar `params`
   (consulta parametrizada). Plano em `PLANO_WBC_ARVORE.md`.
+- **Supabase aplicado em produção (2026-06-30):** `wbc_arvore.sql` + `wbc_arvore_read_policy.sql`
+  rodados e verificados — RLS forçado nas 2 tabelas, policy `SELECT` para `anon` e case das
+  colunas confere. Pendente: deploy do código no servidor + 1 teste real.
 
 ## [2026-06-30] — `/status` aberto + chave aceita via `?key=`
 
