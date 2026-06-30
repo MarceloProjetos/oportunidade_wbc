@@ -53,6 +53,14 @@ OS_EXECUTION_MODES = ('replace_nped', 'insert')
 OS_INSERT_BATCH_SIZE_DEFAULT = 200
 OS_SYNC_LOG_MAX_REGISTROS = 100
 
+# WBC — Árvore de Produto (INTEGRACAO_ORCPRDARV). Sub-sync disparada após a OS por
+# NPED: resolve o ORCNUM (= NºOrçament no SAP) e espelha a árvore no Supabase.
+WBC_ARVORE_VIEW_DEFAULT = 'WBCCAD.dbo.INTEGRACAO_ORCPRDARV'
+WBC_ARVORE_TABLE_DEFAULT = 'wbc_arvore_produto'
+WBC_ARVORE_SYNC_LOG_DEFAULT = 'sincronizacao_log_wbc_arvore'
+WBC_ARVORE_INSERT_BATCH_SIZE_DEFAULT = 500
+WBC_ARVORE_SYNC_LOG_MAX_REGISTROS = 100
+
 # API HTTP de disparo da sync de OS (api.py)
 OS_API_HOST_DEFAULT = '0.0.0.0'
 OS_API_PORT_DEFAULT = 8077
@@ -130,6 +138,12 @@ class Settings:
     os_api_host: str
     os_api_port: int
 
+    # WBC — Árvore de Produto (INTEGRACAO_ORCPRDARV)
+    wbc_arvore_view: str
+    wbc_arvore_table: str
+    wbc_arvore_sync_log: str
+    wbc_arvore_insert_batch_size: int
+
     intervalo_minutos: int
     janela_horas: str
     execution_mode: str
@@ -172,6 +186,12 @@ class Settings:
             os_api_key=os.getenv('OS_API_KEY') or None,
             os_api_host=os.getenv('OS_API_HOST', OS_API_HOST_DEFAULT),
             os_api_port=int(os.getenv('OS_API_PORT', OS_API_PORT_DEFAULT)),
+            wbc_arvore_view=os.getenv('WBC_ARVORE_VIEW', WBC_ARVORE_VIEW_DEFAULT),
+            wbc_arvore_table=os.getenv('WBC_ARVORE_TABLE', WBC_ARVORE_TABLE_DEFAULT),
+            wbc_arvore_sync_log=os.getenv('WBC_ARVORE_SYNC_LOG_TABLE', WBC_ARVORE_SYNC_LOG_DEFAULT),
+            wbc_arvore_insert_batch_size=int(
+                os.getenv('WBC_ARVORE_INSERT_BATCH_SIZE', WBC_ARVORE_INSERT_BATCH_SIZE_DEFAULT)
+            ),
             intervalo_minutos=max(
                 INTERVALO_PISO_MIN,
                 int(os.getenv('INTERVALO_MINUTOS', INTERVALO_MINUTOS_DEFAULT)),

@@ -3,6 +3,24 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-06-30] — Árvore de Produto WBC (sub-sync após a OS)
+
+### Adicionado
+
+- **Sincronização da árvore WBC** (`WBCCAD.dbo.INTEGRACAO_ORCPRDARV`) para o Supabase,
+  disparada **após a OS** de um pedido quando a OS está OK (existe e não cancelada) — sem
+  mudança para o usuário (mesmo botão "Sincronizar"). Novo `extract_wbc_arvore.py`:
+  resolve o `ORCNUM` (= `NºOrçament` na view de OS do SAP) → `SELECT * INTEGRACAO_ORCPRDARV
+  WHERE ORCNUM=?` → grava em `wbc_arvore_produto` com **replace por ORCNUM**
+  (carrega-depois-poda escopado) + log em `sincronizacao_log_wbc_arvore`. Hook em
+  `api.py` (`_sync_one`) é **best-effort**: falha na árvore não quebra a resposta da OS
+  (vem no campo `wbc`).
+- **DDL Supabase**: `sql/wbc_arvore.sql` (tabela espelho + log, RLS forçado sem policy) e
+  `sql/wbc_arvore_read_policy.sql` (SELECT para `anon` → consumidor read-only com a anon key).
+- Config `WBC_ARVORE_VIEW` / `WBC_ARVORE_TABLE` / `WBC_ARVORE_SYNC_LOG_TABLE` /
+  `WBC_ARVORE_INSERT_BATCH_SIZE`. `db_utils.read_dbapi_query` passa a aceitar `params`
+  (consulta parametrizada). Plano em `PLANO_WBC_ARVORE.md`.
+
 ## [2026-06-30] — `/status` aberto + chave aceita via `?key=`
 
 ### Alterado

@@ -48,6 +48,7 @@ from extract_ordens_servico_engenharia import (
     diagnosticar_nped,
     listar_pedidos_com_os,
 )
+from extract_wbc_arvore import main as sync_wbc_arvore
 from extract_sap_to_supabase import main as sync_oportunidades
 
 # UTF-8 console on Windows
@@ -172,8 +173,19 @@ def _sync_one(nped: int) -> dict:
         ok = False
 
     if ok:
-        return {'nped': nped, 'ok': True, 'tipo': None, 'motivo': None}
+        # OS OK → dispara também a sync da árvore WBC (best-effort: nunca quebra a OS).
+        wbc_ok = _sync_wbc_safe(nped)
+        return {'nped': nped, 'ok': True, 'tipo': None, 'motivo': None, 'wbc': wbc_ok}
     return {'nped': nped, 'ok': False, 'tipo': 'erro', 'motivo': 'Não foi possível sincronizar.'}
+
+
+def _sync_wbc_safe(nped: int) -> bool:
+    """Sincroniza a árvore WBC do pedido após a OS. Falha aqui é logada e NÃO afeta a OS."""
+    try:
+        return bool(sync_wbc_arvore(nped))
+    except Exception as exc:
+        logger.error("Árvore WBC: falha no NPED %s (ignorada p/ a OS): %s", nped, exc)
+        return False
 
 
 def _sincronizar(npeds: List[int]) -> Tuple[Any, int]:

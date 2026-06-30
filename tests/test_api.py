@@ -17,6 +17,8 @@ def client(monkeypatch):
     # sync_os mockado: registra os NPEDs chamados e devolve sucesso por padrão
     chamados = []
     monkeypatch.setattr(apimod, 'sync_os', lambda n: chamados.append(n) or True)
+    # sync da árvore WBC (disparada após a OS) mockada: não abre SAP/SQL nos testes
+    monkeypatch.setattr(apimod, 'sync_wbc_arvore', lambda n: True)
     # diagnóstico mockado: por padrão "tem OS, não cancelada" → segue p/ sincronizar
     monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {'tem_os': True, 'cancelada': False})
     apimod.app.config.update(TESTING=True)
@@ -219,6 +221,35 @@ def test_cancelada_aviso(client, monkeypatch):
     assert res['ok'] is False and res['tipo'] == 'cancelada'
     assert 'cancel' in res['motivo'].lower()
     assert client._chamados == []
+
+
+# ----- Hook da árvore WBC (dispara após a OS OK) -----
+
+def test_wbc_dispara_apos_os_ok(client, monkeypatch):
+    chamados_wbc = []
+    monkeypatch.setattr(apimod, 'sync_wbc_arvore', lambda n: chamados_wbc.append(n) or True)
+    r = client.post('/sync/ordens-servico/84080')
+    assert r.status_code == 200
+    assert r.get_json()['results'][0]['wbc'] is True
+    assert chamados_wbc == [84080]            # OS OK → WBC disparou
+
+
+def test_wbc_nao_dispara_sem_os(client, monkeypatch):
+    chamados_wbc = []
+    monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {'tem_os': False, 'cancelada': False})
+    monkeypatch.setattr(apimod, 'sync_wbc_arvore', lambda n: chamados_wbc.append(n) or True)
+    client.post('/sync/ordens-servico/84106')
+    assert chamados_wbc == []                 # sem OS → não dispara WBC
+
+
+def test_wbc_falha_nao_quebra_os(client, monkeypatch):
+    """Se a sync WBC falhar, a OS ainda responde OK (best-effort)."""
+    monkeypatch.setattr(apimod, 'sync_wbc_arvore',
+                        lambda n: (_ for _ in ()).throw(RuntimeError('SQL fora')))
+    r = client.post('/sync/ordens-servico/84080')
+    assert r.status_code == 200
+    res = r.get_json()['results'][0]
+    assert res['ok'] is True and res['wbc'] is False
 
 
 def test_auth_required_when_key_set(client, monkeypatch):
