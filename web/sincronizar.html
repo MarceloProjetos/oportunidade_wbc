@@ -47,6 +47,8 @@
     input:focus, textarea:focus { outline: none; border-color: var(--brand);
       box-shadow: 0 0 0 3px rgba(21,101,192,.15); background: #fff; }
     .field { margin-bottom: 14px; }
+    .field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+    .field-head label { margin: 0; }
     .key-row { position: relative; }
     .key-row button.eye { position: absolute; right: 8px; top: 7px; border: 0; background: none;
       cursor: pointer; color: var(--muted); font-size: 12px; padding: 4px 6px; border-radius: 6px; }
@@ -163,7 +165,10 @@
 
         <form class="card" id="osForm" autocomplete="off">
           <div class="field">
-            <label for="nped">Nº do pedido (NPED) <span class="hint">— um ou vários (espaço/vírgula)</span></label>
+            <div class="field-head">
+              <label for="nped">Nº do pedido (NPED) <span class="hint">— um ou vários (espaço/vírgula)</span></label>
+              <button type="button" class="refresh danger" id="osClearNped" title="Limpar o campo">🗑 limpar</button>
+            </div>
             <textarea id="nped" placeholder="Ex.: 84080  ou  84080, 84095" inputmode="numeric"></textarea>
             <div class="inline-err" id="npedErr"></div>
           </div>
@@ -324,6 +329,9 @@
     const loadOsHist = () => carregarHist('/historico', osHistBody, true);
     $('osRefresh').addEventListener('click', loadOsHist);
     $('osClear').addEventListener('click', () => limparHist('/historico', osHistBody, loadOsHist));
+    $('osClearNped').addEventListener('click', () => {
+      npedEl.value = ''; npedErr.style.display = 'none'; npedEl.focus();
+    });
 
     function parseNpeds(raw) {
       const partes = raw.split(/[\s,;]+/).filter(Boolean), npeds = [], invalidos = [];

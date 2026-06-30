@@ -41,6 +41,7 @@ from typing import Any, List, Optional, Tuple
 from flask import Flask, jsonify, request, send_from_directory
 
 from config import get_settings
+from monitoring import collect_status
 from pipeline_core import coerce_positive_int, oportunidades_sync_lock, FileLockTimeout
 from extract_ordens_servico_engenharia import (
     main as sync_os,
@@ -199,7 +200,47 @@ def favicon():
 
 @app.get('/health')
 def health():
+    """Liveness leve (a API está de pé?). Sem chave, sem checagem externa — rápido e
+    sempre disponível. Para o diagnóstico profundo, use ``/status``."""
     return jsonify(status='ok', service='ordens-servico-engenharia')
+
+
+# aliases aceitos no ?checks= → nome canônico da checagem
+_CHECK_ALIASES = {
+    'sql': 'sql_server', 'sqlserver': 'sql_server', 'wbc': 'sql_server',
+    'hana': 'sap', 'agendador': 'scheduler', 'sched': 'scheduler',
+}
+
+
+@app.get('/status')
+def status_detalhado():
+    """Diagnóstico **sob demanda**: SAP, SQL Server (WBC), Supabase (com latência), sinal
+    do agendador e sistema (CPU/memória/disco/IP/uptime). Requer ``X-API-Key``.
+
+    Roda só quando chamado (sem polling). Parâmetros:
+    - ``?checks=sap,sql`` — roda só as checagens listadas (sap, sql/sql_server, supabase,
+      scheduler/agendador). Omitido = todas. ``system`` vem sempre.
+    - ``?strict=1`` — devolve **HTTP 503** se alguma conexão falhar **ou** houver alertas
+      (disco baixo, agendador possivelmente parado). Útil p/ monitores por código de status.
+    """
+    if not _autorizado():
+        return jsonify(ok=False, error='unauthorized'), 401
+
+    raw = request.args.get('checks')
+    only = None
+    if raw:
+        only = {_CHECK_ALIASES.get(c.strip().lower(), c.strip().lower())
+                for c in raw.split(',') if c.strip()}
+
+    try:
+        data = collect_status(only)
+    except Exception as exc:
+        logger.error("Erro ao coletar status: %s", exc)
+        return jsonify(ok=False, error='falha ao coletar status'), 500
+
+    strict = request.args.get('strict') in ('1', 'true', 'yes')
+    degraded = (not data['ok']) or bool(data.get('alerts'))
+    return jsonify(data), (503 if strict and degraded else 200)
 
 
 @app.get('/historico')

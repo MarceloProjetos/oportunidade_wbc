@@ -11,3 +11,6 @@ flask>=3.0,<4
 waitress>=3.0,<4
 # lock de arquivo (cross-process) p/ serializar a carga de oportunidades (scheduler + API)
 filelock>=3,<4
+# opcional: métricas de CPU/memória no endpoint /status (sem ele, o /status funciona,
+# mas CPU e memória ficam indisponíveis). Instale no servidor: pip install psutil
+psutil>=5,<8

@@ -3,6 +3,26 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-06-30] — Monitoramento via `/status` + botão limpar
+
+### Adicionado
+
+- **Endpoint `GET /status`** (sob demanda, requer `X-API-Key`) — diagnóstico do servidor e
+  dependências **sem polling** (roda só quando chamado). Lógica em `monitoring.py`. Checa
+  **SAP**, **SQL Server (WBC)** e **Supabase** com latência (`ms`) por item; traz **sistema**
+  (host/IP/SO/Python/uptime/disco e CPU+memória via `psutil`, se instalado). O `/health`
+  segue **leve** (liveness) de propósito — não faz checagem externa.
+  - **Sinal indireto do agendador** (`scheduler`): idade da última carga de oportunidades
+    (lida do log); `stale=true` se passar de **35 min dentro da janela comercial** (dia útil
+    07–18h) — indica possível queda do `OrcaView-Scheduler`.
+  - **Alerta de disco** da unidade do app (`disk_low`) + lista legível em `alerts`.
+  - **`?checks=sap,sql`** roda só as checagens escolhidas (`sap`, `sql`/`sql_server`,
+    `supabase`, `scheduler`/`agendador`); **`?strict=1`** devolve **HTTP 503** se houver
+    falha de conexão **ou** alerta (p/ monitores por código de status).
+  - `psutil` adicionado ao `requirements.txt` (opcional — sem ele, o `/status` funciona e
+    CPU/memória ficam indisponíveis).
+- **Botão "🗑 limpar"** ao lado do campo Nº do pedido (NPED), para esvaziar a lista.
+
 ## [2026-06-29] — Painel: "Buscar na Lista" + chave de acesso recolhível
 
 ### Adicionado
