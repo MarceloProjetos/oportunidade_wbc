@@ -134,6 +134,20 @@ arvore = (sb.table("wbc_arvore_produto")
             .eq("ORCNUM", orcnum).order("id").execute().data)
 ```
 
+## Views de relatório (adaptação da `VW_OS_EXPED_IMPRESSAO_V2`)
+
+Em [`sql/vw_os_exped_impressao.sql`](../sql/vw_os_exped_impressao.sql) há duas views prontas
+(rode no SQL Editor; depois `grant select ... to anon` se for ler as views direto):
+
+- **`vw_os_exped_impressao`** — adapta a `VW_OS_EXPED_IMPRESSAO_V2` (ramo EXP, nível 1). Vem só
+  de `ordens_servico_engenharia` (não junta a árvore → não multiplica linhas).
+- **`vw_os_exped_arvore`** — detalhe da árvore WBC: **1 linha por componente** (todos os
+  níveis) com o cabeçalho do pedido. Junta por `CodigoOrcam = ORCNUM`.
+
+> Campos de **Filial/endereço** (OBPL), **GrpMaterialEstrut/GrpItensEstrut** (OITM) e o ramo
+> **ALMX** vêm de fontes não espelhadas → saem **NULL**. `U_INO_NIVEL` na view fiel é `'1'`
+> (a V2 só traz nível 1).
+
 ## Regras (resumo)
 
 1. **Ler** → chave **`anon`**, direto no Supabase (read-only).

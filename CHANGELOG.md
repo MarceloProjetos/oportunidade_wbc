@@ -3,6 +3,22 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-06-30] — Views de relatório (adaptação da VW_OS_EXPED_IMPRESSAO_V2)
+
+### Adicionado
+
+- **`sql/vw_os_exped_impressao.sql`** — duas views PostgreSQL que adaptam a view SAP
+  `SBOALTAMIRAPROD.VW_OS_EXPED_IMPRESSAO_V2` para as tabelas-espelho do Supabase:
+  - `vw_os_exped_impressao` (V2 fiel, ramo EXP nível 1) — vem **só** de
+    `ordens_servico_engenharia` (o espelho já traz os campos do orçamento); **não junta** a
+    árvore → não multiplica linhas.
+  - `vw_os_exped_arvore` (BOM detalhado) — **1 linha por componente** da árvore WBC com o
+    cabeçalho do pedido; junta por `CodigoOrcam = ORCNUM` (cabeçalho colapsado por `NPED` p/
+    não inflar).
+  - Campos de Filial (OBPL), grupos de item (OITM) e ramo ALMX ficam **NULL** (fontes não
+    espelhadas). Mapeamento coluna-a-coluna + SQL verificados por revisão adversarial
+    (3/3, nenhuma coluna inexistente). Guia em `docs/CONSUMO_DADOS.md`.
+
 ## [2026-06-30] — Guia de consumo (read-only) no repositório
 
 ### Documentação
