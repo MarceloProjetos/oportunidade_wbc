@@ -23,7 +23,7 @@ create table if not exists public.wbc_arvore_produto (
   id                       bigint generated always as identity primary key,
 
   -- ===== Colunas da INTEGRACAO_ORCPRDARV (case idêntico ao SQL Server) =====
-  "ORCNUM"                 text,         -- nvarchar(8) — código WBC (= NºOrçament do pedido)
+  "ORCNUM"                 text,         -- nvarchar(8) — código WBC (= CodigoOrcam do pedido no SAP)
   "GRPCOD"                 integer,
   "SUBGRPCOD"              integer,
   "ORCITM"                 integer,
@@ -47,7 +47,7 @@ create table if not exists public.wbc_arvore_produto (
 comment on table public.wbc_arvore_produto is
   'Espelho por ORCNUM da WBCCAD.dbo.INTEGRACAO_ORCPRDARV (árvore de produto WBC). Carga sob demanda (replace por ORCNUM), disparada após a OS do pedido. Escrita só pelo service_role; leitura read-only via policy p/ anon.';
 comment on column public.wbc_arvore_produto."ORCNUM" is
-  'Código WBC do orçamento (= NºOrçament do pedido no SAP). Chave de substituição da carga.';
+  'Código WBC do orçamento (= CodigoOrcam do pedido na view de OS do SAP). Chave de substituição da carga.';
 comment on column public.wbc_arvore_produto.id_execucao is
   'UUID da carga; usado pela poda escopada ao ORCNUM (replace).';
 

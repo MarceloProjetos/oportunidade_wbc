@@ -35,7 +35,7 @@ def test_normaliza_orcnum(raw, esperado):
 
 
 class _FakeSAP:
-    """SAPExtractor falso: grava a query e devolve o NºOrçament dado."""
+    """SAPExtractor falso: grava a query e devolve o ORCNUM (alias do COALESCE)."""
     last_query = None
 
     def __init__(self, *a, **k):
@@ -46,21 +46,21 @@ class _FakeSAP:
 
     def execute_query(self, query):
         _FakeSAP.last_query = query
-        return pd.DataFrame({'NºOrçament': ['123822']})
+        return pd.DataFrame({'ORCNUM': ['124853']})
 
     def close(self):
         pass
 
 
-def test_resolver_orcnum_lê_numorcament_e_normaliza(monkeypatch):
+def test_resolver_orcnum_usa_codigoorcam_e_normaliza(monkeypatch):
     _set_sap_env(monkeypatch)
     monkeypatch.setattr(mod, 'SAPExtractor', _FakeSAP)
 
-    orcnum = mod.resolver_orcnum(83913)
+    orcnum = mod.resolver_orcnum(84112)
 
-    assert orcnum == '00123822'
-    assert '"NºOrçament"' in _FakeSAP.last_query
-    assert 'WHERE "NPED" = 83913' in _FakeSAP.last_query
+    assert orcnum == '00124853'
+    assert '"CodigoOrcam"' in _FakeSAP.last_query          # fonte principal
+    assert 'WHERE "NPED" = 84112' in _FakeSAP.last_query
 
 
 def test_main_sem_orcnum_não_carrega(monkeypatch):

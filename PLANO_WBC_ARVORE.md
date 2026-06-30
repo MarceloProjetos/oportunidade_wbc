@@ -13,8 +13,9 @@ programa.
 
 ## Vínculo de dados
 
-- O **código WBC** de um pedido é o `ORCNUM` (WBC), que no SAP aparece como **`NºOrçament`**
-  na view de OS `VW_EXPORT_ORDENS_SERVICO_1`. Ex.: pedido **83913** → `NºOrçament` **00123822**.
+- O **código WBC** de um pedido é o `ORCNUM` (WBC), que no SAP vem em **`CodigoOrcam`**
+  na view de OS `VW_EXPORT_ORDENS_SERVICO_1` (o `NºOrçament` dessa view costuma vir nulo;
+  usamos `COALESCE(CodigoOrcam, NºOrçament)`). Ex.: pedido **84112** → `CodigoOrcam` **00124853**.
 - A árvore está em `WBCCAD.dbo.INTEGRACAO_ORCPRDARV`, filtrada por `ORCNUM` (`nvarchar(8)`,
   com zero à esquerda).
 

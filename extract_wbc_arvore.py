@@ -72,7 +72,10 @@ def _normaliza_orcnum(raw: object) -> Optional[str]:
 
 
 def resolver_orcnum(nped: object) -> Optional[str]:
-    """Descobre o ORCNUM (= ``NºOrçament``) de um pedido na view de OS do SAP.
+    """Descobre o ORCNUM de um pedido na view de OS do SAP.
+
+    O ORCNUM vem de ``CodigoOrcam`` (preenchido), com fallback em ``NºOrçament`` — na
+    prática essa view traz o código em ``CodigoOrcam`` (o ``NºOrçament`` costuma vir nulo).
 
     Returns:
         ORCNUM normalizado (8 dígitos) ou ``None`` se o pedido não tiver orçamento
@@ -95,16 +98,16 @@ def resolver_orcnum(nped: object) -> Optional[str]:
     base = build_view_query(settings.os_sap_view_name, settings.sap_schema)
     # nped_int é inteiro validado → seguro interpolar.
     df = sap.execute_query(
-        f'SELECT DISTINCT "NºOrçament" FROM {base} '
-        f'WHERE "NPED" = {nped_int} AND "NºOrçament" IS NOT NULL'
+        f'SELECT DISTINCT COALESCE("CodigoOrcam", "NºOrçament") AS "ORCNUM" FROM {base} '
+        f'WHERE "NPED" = {nped_int} AND COALESCE("CodigoOrcam", "NºOrçament") IS NOT NULL'
     )
     sap.close()
 
     if df is None or len(df) == 0:
-        logger.warning("NPED %s sem NºOrçament na view de OS.", nped_int)
+        logger.warning("NPED %s sem ORCNUM (CodigoOrcam/NºOrçament) na view de OS.", nped_int)
         return None
     if len(df) > 1:
-        logger.warning("NPED %s tem %s NºOrçament distintos; usando o primeiro.", nped_int, len(df))
+        logger.warning("NPED %s tem %s ORCNUM distintos; usando o primeiro.", nped_int, len(df))
     return _normaliza_orcnum(df.iloc[0, 0])
 
 

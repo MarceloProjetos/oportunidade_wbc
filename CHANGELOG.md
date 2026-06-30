@@ -3,6 +3,15 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-06-30] — fix WBC: ORCNUM vem de `CodigoOrcam` (não `NºOrçament`)
+
+### Corrigido
+
+- `resolver_orcnum` lia o ORCNUM do pedido em `NºOrçament`, que na view de OS vem **nulo**
+  → a sync da árvore falhava (`orcnum=None`). Passa a usar
+  `COALESCE("CodigoOrcam", "NºOrçament")` — o código está em `CodigoOrcam`. Validado no SAP
+  real (84112 → `00124853`, 34 linhas carregadas). DDL/PLANO/teste ajustados.
+
 ## [2026-06-30] — Árvore de Produto WBC (sub-sync após a OS)
 
 ### Adicionado
