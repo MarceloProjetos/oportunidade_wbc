@@ -23,6 +23,7 @@ view do **SAP B1 (HANA)**, enriquece com a situação do orçamento vinda do **S
 - [Banco de Dados (Supabase)](#banco-de-dados-supabase)
 - [Como Rodar](#como-rodar)
 - [Agendamento (Automático)](#agendamento-automático)
+- [Monitoramento](#monitoramento)
 - [Versionamento (GitHub)](#versionamento-github)
 - [Estrutura de Diretórios](#estrutura-de-diretórios)
 - [Troubleshooting](#troubleshooting)
@@ -586,6 +587,38 @@ No servidor rodam **dois processos** 24/7:
 > Os logs são gravados em **UTF-8**. No **PowerShell**, leia com `-Encoding utf8`,
 > senão os acentos saem trocados (ex.: `execuÃ§Ã£o`):
 > `Get-Content .\logs\scheduled_execution.log -Tail 30 -Encoding utf8`
+
+---
+
+## Monitoramento
+
+Dois endpoints para checagem (exemplos no PowerShell):
+
+- **`GET /health`** — *liveness* leve (a API está de pé?). Sem chave, sem checagem externa —
+  rápido e sempre disponível.
+- **`GET /status`** — diagnóstico **sob demanda** (requer `X-API-Key`; roda só quando
+  chamado, sem polling): conexões com **SAP**, **SQL Server (WBC)** e **Supabase** (com
+  latência `ms`), **sinal indireto do agendador** (idade da última carga de oportunidades;
+  `stale` se > 35 min na janela comercial → `OrcaView-Scheduler` pode ter caído), **alerta de
+  disco** e métricas do sistema (CPU/memória via `psutil` se instalado; disco/IP/host/uptime
+  via stdlib).
+
+```powershell
+# diagnóstico completo
+curl.exe -s "http://192.168.7.11:8077/status" -H "X-API-Key: SUA_CHAVE" | ConvertFrom-Json
+
+# só algumas checagens (aliases: sql/wbc -> sql_server, hana -> sap, agendador -> scheduler)
+curl.exe -s "http://192.168.7.11:8077/status?checks=sap,sql" -H "X-API-Key: SUA_CHAVE"
+
+# alertar por código de status: 503 se houver falha de conexão OU alerta
+curl.exe -s -o NUL -w "%{http_code}" "http://192.168.7.11:8077/status?strict=1" -H "X-API-Key: SUA_CHAVE"
+```
+
+Campos úteis do JSON: `ok` (conexões verdes), `healthy` (`ok` e sem `alerts`),
+`checks.*.ms` (latência), `scheduler.stale`, `system.disk_low`, `alerts[]`.
+
+> CPU e memória exigem **`psutil`** (`python -m pip install psutil`). Sem ele o `/status`
+> funciona normalmente, apenas com CPU/memória indisponíveis.
 
 ---
 

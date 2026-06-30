@@ -23,6 +23,11 @@ Mudanças notáveis deste projeto. Formato inspirado em
     CPU/memória ficam indisponíveis).
 - **Botão "🗑 limpar"** ao lado do campo Nº do pedido (NPED), para esvaziar a lista.
 
+### Documentação
+
+- README: nova seção **Monitoramento** (`/health` e `/status` com as flags `?checks=` e
+  `?strict=1`) + entrada no índice.
+
 ## [2026-06-29] — Painel: "Buscar na Lista" + chave de acesso recolhível
 
 ### Adicionado
