@@ -24,9 +24,16 @@
       font-weight: 700; font-size: 18px; display: grid; place-items: center; box-shadow: var(--shadow); }
     header.top h1 { font-size: 19px; margin: 0; }
     header.top p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+    .lock { margin-left: auto; width: 40px; height: 40px; border-radius: 10px; flex: none;
+      border: 1px solid var(--line); background: var(--card); color: var(--muted);
+      font-size: 18px; display: grid; place-items: center; cursor: pointer;
+      box-shadow: var(--shadow); transition: color .15s, border-color .15s, background .15s; }
+    .lock:hover { color: var(--brand); border-color: var(--brand); }
+    .lock[aria-expanded="true"] { color: var(--brand); border-color: var(--brand); background: #f3f8ff; }
     .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px;
       box-shadow: var(--shadow); padding: 20px; }
     .keybar { margin-bottom: 18px; }
+    .keybar[hidden] { display: none; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
     @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
     .col { display: flex; flex-direction: column; gap: 14px; }
@@ -54,6 +61,10 @@
     button.go:hover:not(:disabled) { filter: brightness(1.07); }
     button.go:active:not(:disabled) { transform: translateY(1px); }
     button.go:disabled { opacity: .65; cursor: progress; }
+    button.go.ghost { background: #fff; color: var(--brand); border: 1px solid var(--line); box-shadow: none; }
+    button.go.ghost:hover:not(:disabled) { filter: none; background: var(--bg); border-color: var(--brand); }
+    .btn-row { display: flex; gap: 10px; }
+    .btn-row .go { flex: 1; }
     .spin { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.45);
       border-top-color: #fff; border-radius: 50%; animation: r .7s linear infinite; display: none; }
     @keyframes r { to { transform: rotate(360deg); } }
@@ -91,6 +102,32 @@
     .hrow .htime { margin-left: auto; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
     footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 18px; }
     footer code { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+    /* modal: selecionar pedidos com OS (Buscar na Lista) */
+    .modal { position: fixed; inset: 0; background: rgba(16,42,76,.45); display: grid;
+      place-items: center; padding: 16px; z-index: 50; }
+    .modal[hidden] { display: none; }
+    .modal-card { background: var(--card); border-radius: 16px; box-shadow: var(--shadow);
+      width: 100%; max-width: 520px; max-height: 85vh; display: flex; flex-direction: column; }
+    .modal-head { display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 18px; border-bottom: 1px solid var(--line); }
+    .modal-head h3 { margin: 0; font-size: 16px; }
+    .modal-x { border: 0; background: none; cursor: pointer; color: var(--muted);
+      font-size: 18px; padding: 4px 9px; border-radius: 7px; line-height: 1; }
+    .modal-x:hover { background: var(--line); color: var(--ink); }
+    .modal-tools { display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 18px; border-bottom: 1px solid var(--line); }
+    .pick-all { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); cursor: pointer; }
+    .pick-all input { width: auto; }
+    .modal-body { padding: 6px 10px; overflow: auto; }
+    .pick-row { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 9px; cursor: pointer; margin: 0; }
+    .pick-row:hover { background: #f5f8fc; }
+    .pick-row input { width: auto; flex: none; }
+    .pick-row .pk-np { font-weight: 700; flex: none; }
+    .pick-row .pk-cli { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pick-row .pk-meta { margin-left: auto; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+    .modal-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 14px 18px; border-top: 1px solid var(--line); }
+    .modal-foot .go { flex: none; width: auto; padding: 10px 16px; }
   </style>
 </head>
 <body>
@@ -101,10 +138,13 @@
         <h1>Painel de Sincronização</h1>
         <p>Ordens de Serviço (sob demanda) e Oportunidades (agendado) — a partir do SAP.</p>
       </div>
+      <button type="button" class="lock" id="keyToggle" aria-controls="keybar"
+              aria-expanded="false" aria-label="Mostrar ou ocultar a chave de acesso"
+              title="Mostrar/ocultar a chave de acesso">🔒</button>
     </header>
 
-    <!-- Chave compartilhada -->
-    <div class="card keybar">
+    <!-- Chave compartilhada (oculta por padrão; alterna pelo cadeado no cabeçalho) -->
+    <div class="card keybar" id="keybar" hidden>
       <label for="key">Chave de acesso (X-API-Key) <span class="hint">— vale para tudo nesta página</span></label>
       <div class="key-row">
         <input type="password" id="key" placeholder="cole a OS_API_KEY" autocomplete="off" />
@@ -127,9 +167,12 @@
             <textarea id="nped" placeholder="Ex.: 84080  ou  84080, 84095" inputmode="numeric"></textarea>
             <div class="inline-err" id="npedErr"></div>
           </div>
-          <button type="submit" class="go" id="osGo">
-            <span class="spin" id="osSpin"></span><span id="osGoTxt">Sincronizar</span>
-          </button>
+          <div class="btn-row">
+            <button type="button" class="go ghost" id="osPick">📋 Buscar na Lista</button>
+            <button type="submit" class="go" id="osGo">
+              <span class="spin" id="osSpin"></span><span id="osGoTxt">Sincronizar</span>
+            </button>
+          </div>
           <div class="results" id="osResults"></div>
         </form>
 
@@ -175,6 +218,25 @@
     <footer>API: <code id="origin"></code> · Atualizar OS = re-sincroniza o pedido · Forçar = carga total de oportunidades</footer>
   </div>
 
+  <!-- Modal: pedidos com OS criada (Buscar na Lista) -->
+  <div class="modal" id="pickModal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="pickTitle">
+      <div class="modal-head">
+        <h3 id="pickTitle">Pedidos com OS criada</h3>
+        <button type="button" class="modal-x" id="pickClose" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-tools">
+        <label class="pick-all"><input type="checkbox" id="pickAll" /> selecionar todos</label>
+        <button type="button" class="refresh" id="pickRefresh">↻ atualizar</button>
+      </div>
+      <div class="modal-body" id="pickBody"><p class="hmuted">Carregando…</p></div>
+      <div class="modal-foot">
+        <span class="hmuted" id="pickCount">0 selecionado(s)</span>
+        <button type="button" class="go" id="pickAdd" disabled>Adicionar selecionados</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const $ = (id) => document.getElementById(id);
     const keyEl = $('key'), remember = $('remember'), eye = $('eye');
@@ -189,6 +251,16 @@
       keyEl.type = show ? 'text' : 'password';
       eye.textContent = show ? 'ocultar' : 'mostrar';
     });
+
+    // mostra/oculta o card da chave pelo cadeado (oculto por padrão ao carregar)
+    const keyToggle = $('keyToggle'), keybar = $('keybar');
+    function setKeybar(open) {
+      keybar.hidden = !open;
+      keyToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      keyToggle.textContent = open ? '🔓' : '🔒';
+    }
+    keyToggle.addEventListener('click', () => setKeybar(keybar.hidden));
+    setKeybar(false);
 
     function getKey() {
       const k = keyEl.value.trim();
@@ -297,6 +369,76 @@
         setOsLoading(false);
         loadOsHist();
       }
+    });
+
+    // -------- Buscar na Lista (pedidos com OS criada no SAP) --------
+    const osPick = $('osPick'), pickModal = $('pickModal'), pickBody = $('pickBody'),
+          pickClose = $('pickClose'), pickRefresh = $('pickRefresh'), pickAll = $('pickAll'),
+          pickAdd = $('pickAdd'), pickCount = $('pickCount');
+
+    function fmtDia(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      return isNaN(d) ? '' : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    }
+    const pickSelecionados = () => [...pickBody.querySelectorAll('input.pk:checked')].map(c => c.value);
+    function atualizaPickFoot() {
+      const n = pickSelecionados().length, boxes = pickBody.querySelectorAll('input.pk').length;
+      pickCount.textContent = `${n} selecionado(s)`;
+      pickAdd.disabled = n === 0;
+      pickAll.checked = boxes > 0 && n === boxes;
+    }
+    const fecharPick = () => { pickModal.hidden = true; };
+
+    async function carregarPick() {
+      const key = keyEl.value.trim();
+      pickBody.innerHTML = '<p class="hmuted">Carregando…</p>';
+      pickAll.checked = false; atualizaPickFoot();
+      try {
+        const resp = await fetch('/ordens-servico/disponiveis?limit=30', { headers: { 'X-API-Key': key } });
+        if (resp.status === 401) { pickBody.innerHTML = '<p class="hmuted">Chave inválida.</p>'; return; }
+        const data = await resp.json().catch(() => null);
+        if (!data || !data.ok) { pickBody.innerHTML = '<p class="hmuted">Não foi possível carregar a lista (SAP no ar?).</p>'; return; }
+        if (!data.items.length) { pickBody.innerHTML = '<p class="hmuted">Nenhum pedido com OS encontrado.</p>'; return; }
+        pickBody.innerHTML = data.items.map((it) => {
+          const cli = it.cliente || '—';
+          const meta = [it.os != null ? `OS ${it.os}` : '', fmtDia(it.data)].filter(Boolean).join(' · ');
+          return `<label class="pick-row"><input type="checkbox" class="pk" value="${it.nped}" />`
+               + `<span class="pk-np">${it.nped}</span><span class="pk-cli">${cli}</span>`
+               + `<span class="pk-meta">${meta}</span></label>`;
+        }).join('');
+        pickBody.querySelectorAll('input.pk').forEach(c => c.addEventListener('change', atualizaPickFoot));
+        atualizaPickFoot();
+      } catch (e) {
+        pickBody.innerHTML = '<p class="hmuted">Não foi possível falar com a API.</p>';
+      }
+    }
+
+    osPick.addEventListener('click', () => {
+      npedErr.style.display = 'none';
+      const key = keyEl.value.trim();
+      if (!key) {
+        npedErr.textContent = 'Cole a chave de acesso (X-API-Key) para buscar a lista.';
+        npedErr.style.display = 'block'; setKeybar(true); return;
+      }
+      pickModal.hidden = false;
+      carregarPick();
+    });
+    pickRefresh.addEventListener('click', carregarPick);
+    pickClose.addEventListener('click', fecharPick);
+    pickModal.addEventListener('click', (e) => { if (e.target === pickModal) fecharPick(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !pickModal.hidden) fecharPick(); });
+    pickAll.addEventListener('change', () => {
+      pickBody.querySelectorAll('input.pk').forEach(c => { c.checked = pickAll.checked; });
+      atualizaPickFoot();
+    });
+    pickAdd.addEventListener('click', () => {
+      const escolhidos = pickSelecionados().map(Number);
+      if (!escolhidos.length) return;
+      const atuais = parseNpeds(npedEl.value).npeds;          // mantém o que já está no campo
+      npedEl.value = [...new Set([...atuais, ...escolhidos])].join(', ');  // soma sem duplicar
+      fecharPick();
+      npedEl.focus();
     });
 
     // ================= OPORTUNIDADES =================

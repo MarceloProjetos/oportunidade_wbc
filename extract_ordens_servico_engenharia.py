@@ -144,6 +144,74 @@ def diagnosticar_nped(nped: object) -> dict:
     return {'tem_os': tem_os, 'cancelada': cancelada, 'status': statuses}
 
 
+def listar_pedidos_com_os(limit: int = 30) -> Optional[List[dict]]:
+    """Lista até ``limit`` pedidos (NPED) com OS criada no SAP, mais recentes primeiro.
+
+    Regra (mesma do ``diagnosticar_nped``): a OS existe quando há linha em ``OWOR`` com
+    ``OriginNum`` = nº do pedido. Pedidos cuja OS está **totalmente cancelada**
+    (todas as linhas com ``Status = 'C'``) são excluídos — filtramos ``Status <> 'C'``
+    antes do agrupamento. Faz LEFT JOIN da ``OWOR`` com a ``ORDR`` (pedido) para trazer
+    o nome do cliente (``CardName``).
+
+    Args:
+        limit: máximo de pedidos a retornar.
+
+    Returns:
+        Lista de ``{'nped': int, 'cliente': str|None, 'os': int|None, 'data': str|None}``
+        ordenada do mais recente para o mais antigo, ou ``None`` em caso de falha.
+    """
+    settings = get_settings()
+    limit_int = coerce_positive_int(limit, what='limit')
+
+    if not settings.sap_ready():
+        logger.error("Faltam variáveis de ambiente obrigatórias do SAP")
+        return None
+
+    sap = SAPExtractor(
+        settings.sap_host, settings.sap_port, settings.sap_user,
+        settings.sap_password, settings.sap_database,
+    )
+    if not sap.connect():
+        return None
+
+    owor = build_view_query('OWOR', settings.sap_schema)  # "SCHEMA"."OWOR"
+    ordr = build_view_query('ORDR', settings.sap_schema)  # "SCHEMA"."ORDR"
+    # limit_int é inteiro validado → seguro interpolar. OriginNum > 0 descarta OPs
+    # manuais (sem pedido de origem). MAX(DocEntry) ordena pelas OS mais novas.
+    query = (
+        f'SELECT T0."OriginNum" AS "NPED", MAX(T1."CardName") AS "Cliente", '
+        f'MAX(T0."DocNum") AS "OS", MAX(T0."PostDate") AS "Data" '
+        f'FROM {owor} T0 LEFT JOIN {ordr} T1 ON T1."DocNum" = T0."OriginNum" '
+        f"WHERE T0.\"OriginNum\" > 0 AND T0.\"Status\" <> 'C' "
+        f'GROUP BY T0."OriginNum" '
+        f'ORDER BY MAX(T0."DocEntry") DESC '
+        f'LIMIT {limit_int}'
+    )
+    df = sap.execute_query(query)
+    sap.close()
+
+    if df is None:
+        logger.error("Falha ao listar pedidos com OS no SAP")
+        return None
+
+    pedidos: List[dict] = []
+    for _, row in df.iterrows():
+        if pd.isna(row.get('NPED')):
+            continue
+        data = row.get('Data')
+        cliente = row.get('Cliente')
+        os_num = row.get('OS')
+        pedidos.append({
+            'nped': int(row['NPED']),
+            'cliente': str(cliente).strip() if pd.notna(cliente) else None,
+            'os': int(os_num) if pd.notna(os_num) else None,
+            'data': data.isoformat() if hasattr(data, 'isoformat') else (
+                str(data) if pd.notna(data) else None),
+        })
+    logger.info("Pedidos com OS listados do SAP: %s", len(pedidos))
+    return pedidos
+
+
 def main(
     nped: object,
     execution_mode: str = OS_EXECUTION_MODE_DEFAULT,

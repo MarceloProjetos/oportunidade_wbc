@@ -3,6 +3,21 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-06-29] — Painel: "Buscar na Lista" + chave de acesso recolhível
+
+### Adicionado
+
+- **Botão "📋 Buscar na Lista"** na coluna de Ordens de Serviço: abre um modal com até
+  **30 pedidos com OS criada** no SAP (`NPED · cliente · nº OS · data`), com seleção
+  múltipla ("selecionar todos") e **↻ atualizar**. Os escolhidos entram no campo NPED
+  **separados por vírgula**, somando sem duplicar ao que já estiver lá.
+  - Backend: função `listar_pedidos_com_os(limit=30)` (query em `OWOR` LEFT JOIN `ORDR`
+    p/ o `CardName`; `OriginNum > 0 AND Status <> 'C'` exclui OS canceladas; mais recentes
+    primeiro por `MAX(DocEntry)`) + endpoint `GET /ordens-servico/disponiveis` (exige `X-API-Key`).
+- **Cartão da chave de acesso recolhível**: cadeado (🔒/🔓) no canto direito do cabeçalho
+  mostra/oculta o card. **Oculto por padrão** ao carregar; acessível
+  (`aria-expanded`/`aria-controls`). "Buscar na Lista" sem chave abre o card automaticamente.
+
 ## [2026-06-29] — Faxina: remoção de planos, docs e deploy não usado
 
 ### Removido

@@ -42,7 +42,11 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from config import get_settings
 from pipeline_core import coerce_positive_int, oportunidades_sync_lock, FileLockTimeout
-from extract_ordens_servico_engenharia import main as sync_os, diagnosticar_nped
+from extract_ordens_servico_engenharia import (
+    main as sync_os,
+    diagnosticar_nped,
+    listar_pedidos_com_os,
+)
 from extract_sap_to_supabase import main as sync_oportunidades
 
 # UTF-8 console on Windows
@@ -227,6 +231,26 @@ def historico_limpar():
         logger.error("Erro ao limpar histórico: %s", exc)
         return jsonify(ok=False, error='falha ao limpar o histórico'), 502
     return jsonify(ok=True, removed=removidos)
+
+
+@app.get('/ordens-servico/disponiveis')
+def os_disponiveis():
+    """Lista até 30 pedidos com OS criada no SAP (NPED + cliente + data). Requer X-API-Key.
+
+    Alimenta o botão "Buscar na Lista" do painel: o usuário escolhe os pedidos sem
+    precisar digitar os NPEDs.
+    """
+    if not _autorizado():
+        return jsonify(ok=False, error='unauthorized'), 401
+    limit = _limit_arg(default=30, maximo=50)
+    try:
+        pedidos = listar_pedidos_com_os(limit)
+    except Exception as exc:
+        logger.error("Erro ao listar pedidos com OS: %s", exc)
+        return jsonify(ok=False, error='falha ao listar a lista de pedidos'), 502
+    if pedidos is None:
+        return jsonify(ok=False, error='SAP indisponível'), 502
+    return jsonify(ok=True, items=pedidos)
 
 
 # ===================== Oportunidades (pipeline agendado) =====================
