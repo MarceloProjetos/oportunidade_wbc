@@ -3,6 +3,16 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-06-30] — Guia de consumo (read-only) no repositório
+
+### Documentação
+
+- **`docs/CONSUMO_DADOS.md`** — guia **sanitizado** (sem chaves) para a equipe consumidora:
+  tabelas e campos de `ordens_servico_engenharia`, `status_ordens_servico_eng` e
+  `wbc_arvore_produto`; como ligar `NPED` → `ORCNUM` (`CodigoOrcam`) → árvore; e exemplos
+  **read-only** em REST/JS/Python. As credenciais (URL + chave `anon`) seguem só no handoff
+  confidencial, fora do git (`HANDOFF_*.md`).
+
 ## [2026-06-30] — fix WBC: ORCNUM vem de `CodigoOrcam` (não `NºOrçament`)
 
 ### Corrigido
