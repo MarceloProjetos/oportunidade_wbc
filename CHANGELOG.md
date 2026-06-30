@@ -3,6 +3,17 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-06-30] — `/status` aberto + chave aceita via `?key=`
+
+### Alterado
+
+- **`/status` agora é aberto** (sem `X-API-Key`) — pensado p/ monitoramento e p/ abrir
+  direto no navegador (dados de rede interna; painel roda só na intranet).
+- **A autenticação aceita a chave por query string** `?key=` / `?api_key=`, além do header
+  `X-API-Key` e do `Authorization: Bearer`. Assim os endpoints autenticados funcionam no
+  navegador (que não envia header). Obs.: por query string a chave aparece na URL/histórico
+  do navegador — em terminal, prefira o header via `curl ... -H "X-API-Key: ..."`.
+
 ## [2026-06-30] — Monitoramento via `/status` + botão limpar
 
 ### Adicionado

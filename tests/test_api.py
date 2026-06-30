@@ -236,3 +236,33 @@ def test_auth_required_when_key_set(client, monkeypatch):
     # chave errada → 401
     assert client.post('/sync/ordens-servico/84080',
                        headers={'X-API-Key': 'errada'}).status_code == 401
+
+
+def test_key_via_query_param(client, monkeypatch):
+    """A chave pode vir por ?key= / ?api_key= (p/ usar no navegador, sem header)."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    monkeypatch.setattr(apimod, '_fetch_log', lambda table, n: [])
+    assert client.get('/historico').status_code == 401                 # sem chave
+    assert client.get('/historico?key=segredo').status_code == 200     # ?key=
+    assert client.get('/historico?api_key=segredo').status_code == 200  # ?api_key=
+    assert client.get('/historico?key=errada').status_code == 401      # chave errada
+
+
+# ----- /status (aberto, sem chave) -----
+
+def test_status_open_even_with_key_set(client, monkeypatch):
+    """/status responde sem chave, mesmo com OS_API_KEY definido."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    monkeypatch.setattr(apimod, 'collect_status',
+                        lambda only=None: {'ok': True, 'alerts': [], 'checks': {}})
+    r = client.get('/status')
+    assert r.status_code == 200 and r.get_json()['ok'] is True
+
+
+def test_status_strict_503_when_degraded(client, monkeypatch):
+    monkeypatch.setattr(apimod, 'collect_status',
+                        lambda only=None: {'ok': False, 'alerts': [], 'checks': {}})
+    assert client.get('/status?strict=1').status_code == 503  # degradado + strict → 503
+    assert client.get('/status').status_code == 200           # sem strict → 200 sempre

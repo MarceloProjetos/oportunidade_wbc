@@ -596,26 +596,31 @@ Dois endpoints para checagem (exemplos no PowerShell):
 
 - **`GET /health`** — *liveness* leve (a API está de pé?). Sem chave, sem checagem externa —
   rápido e sempre disponível.
-- **`GET /status`** — diagnóstico **sob demanda** (requer `X-API-Key`; roda só quando
-  chamado, sem polling): conexões com **SAP**, **SQL Server (WBC)** e **Supabase** (com
+- **`GET /status`** — diagnóstico **sob demanda** (**aberto, sem chave** — pode abrir no
+  navegador; roda só quando chamado, sem polling): conexões com **SAP**, **SQL Server (WBC)** e **Supabase** (com
   latência `ms`), **sinal indireto do agendador** (idade da última carga de oportunidades;
   `stale` se > 35 min na janela comercial → `OrcaView-Scheduler` pode ter caído), **alerta de
   disco** e métricas do sistema (CPU/memória via `psutil` se instalado; disco/IP/host/uptime
   via stdlib).
 
 ```powershell
-# diagnóstico completo
-curl.exe -s "http://192.168.7.11:8077/status" -H "X-API-Key: SUA_CHAVE" | ConvertFrom-Json
+# diagnóstico completo (aberto — funciona no navegador também)
+curl.exe -s "http://192.168.7.11:8077/status" | ConvertFrom-Json
 
 # só algumas checagens (aliases: sql/wbc -> sql_server, hana -> sap, agendador -> scheduler)
-curl.exe -s "http://192.168.7.11:8077/status?checks=sap,sql" -H "X-API-Key: SUA_CHAVE"
+curl.exe -s "http://192.168.7.11:8077/status?checks=sap,sql"
 
 # alertar por código de status: 503 se houver falha de conexão OU alerta
-curl.exe -s -o NUL -w "%{http_code}" "http://192.168.7.11:8077/status?strict=1" -H "X-API-Key: SUA_CHAVE"
+curl.exe -s -o NUL -w "%{http_code}" "http://192.168.7.11:8077/status?strict=1"
 ```
 
 Campos úteis do JSON: `ok` (conexões verdes), `healthy` (`ok` e sem `alerts`),
 `checks.*.ms` (latência), `scheduler.stale`, `system.disk_low`, `alerts[]`.
+
+> **No navegador:** `/status` abre direto (`http://192.168.7.11:8077/status`). Os **demais**
+> endpoints exigem a chave — no navegador, passe por query string `?key=SUA_CHAVE` (ex.:
+> `…/oportunidades/info?key=SUA_CHAVE`). O `-H "X-API-Key: ..."` é parâmetro do **curl**
+> (terminal) e **não** funciona colado na barra de endereço do navegador.
 
 > CPU e memória exigem **`psutil`** (`python -m pip install psutil`). Sem ele o `/status`
 > funciona normalmente, apenas com CPU/memória indisponíveis.

@@ -128,7 +128,12 @@ def _count_rows(table: str) -> Optional[int]:
 
 
 def _autorizado() -> bool:
-    """True se ``OS_API_KEY`` não está definido (aberto) ou se a chave bate."""
+    """True se ``OS_API_KEY`` não está definido (aberto) ou se a chave bate.
+
+    Aceita a chave por: header ``X-API-Key``, ``Authorization: Bearer <chave>`` ou query
+    string ``?key=`` / ``?api_key=`` (o query param permite testar no navegador, que não
+    envia headers; ciente de que a chave aparece na URL/histórico do navegador).
+    """
     chave = get_settings().os_api_key
     if not chave:
         return True
@@ -137,6 +142,8 @@ def _autorizado() -> bool:
         auth = request.headers.get('Authorization', '')
         if auth.startswith('Bearer '):
             enviado = auth[len('Bearer '):]
+    if not enviado:
+        enviado = request.args.get('key') or request.args.get('api_key')
     return enviado == chave
 
 
@@ -215,17 +222,15 @@ _CHECK_ALIASES = {
 @app.get('/status')
 def status_detalhado():
     """Diagnóstico **sob demanda**: SAP, SQL Server (WBC), Supabase (com latência), sinal
-    do agendador e sistema (CPU/memória/disco/IP/uptime). Requer ``X-API-Key``.
+    do agendador e sistema (CPU/memória/disco/IP/uptime).
 
+    **Aberto** (sem chave) — pensado p/ monitoramento e p/ abrir direto no navegador.
     Roda só quando chamado (sem polling). Parâmetros:
     - ``?checks=sap,sql`` — roda só as checagens listadas (sap, sql/sql_server, supabase,
       scheduler/agendador). Omitido = todas. ``system`` vem sempre.
     - ``?strict=1`` — devolve **HTTP 503** se alguma conexão falhar **ou** houver alertas
       (disco baixo, agendador possivelmente parado). Útil p/ monitores por código de status.
     """
-    if not _autorizado():
-        return jsonify(ok=False, error='unauthorized'), 401
-
     raw = request.args.get('checks')
     only = None
     if raw:
