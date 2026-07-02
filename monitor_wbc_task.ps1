@@ -79,7 +79,9 @@ try {
         $minutesSince = [int][math]::Round(((Get-Date) - $info.LastRunTime).TotalMinutes)
     }
 
-    $result    = [int]$info.LastTaskResult
+    # [int64]: LastTaskResult e um HRESULT/exit code que pode passar do maximo de Int32
+    # (ex.: 0x800710E0 = 2147946720). Int32 estouraria; Int64 comporta o valor.
+    $result    = [int64]$info.LastTaskResult
     $resultHex = ('0x{0:X}' -f $result)
     $resultOk  = ($result -eq $RESULT_SUCCESS) -or ($result -eq $RESULT_RUNNING) -or ($result -eq $RESULT_NEVER_RUN)
     $missed    = [int]$info.NumberOfMissedRuns
