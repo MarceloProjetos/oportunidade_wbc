@@ -37,8 +37,13 @@ if (-not (Test-Path -LiteralPath $scriptPath)) {
 Write-Host "Registrando tarefa '$MonitorTaskName' -> $scriptPath (a cada $IntervalMinutes min)..."
 
 # Acao: powershell escondido rodando o monitor.
+# IMPORTANTE: usa -Command "& '<script>'" e NAO -File. Sob SYSTEM + nao-interativo, o
+# PowerShell 5.1 com -File falhava com exit 1 SEM executar nada (nem log gravava); via
+# -Command o mesmo script roda corretamente (comprovado). As aspas simples sao dobradas
+# para o caso raro de o caminho conter aspa simples.
+$scriptPathEsc = $scriptPath -replace "'", "''"
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
-    -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`""
+    -Argument ("-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""& '{0}'""" -f $scriptPathEsc)
 
 # Gatilho: comeca agora e repete a cada N min, indefinidamente (janela de 10 anos ~ "para sempre").
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `

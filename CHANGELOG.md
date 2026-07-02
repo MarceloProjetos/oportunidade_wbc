@@ -7,6 +7,18 @@ Mudanças notáveis deste projeto. Formato inspirado em
 
 ### Ajustado (pós-deploy)
 
+- **`install_monitor_task.ps1`: a tarefa passou a usar `-Command "& '<script>'"` em vez de
+  `-File`.** Causa raiz do monitor "Desatualizado" em produção: a tarefa `OrcaView-Monitor-WBC-Task`
+  rodava `powershell.exe -File "…monitor_wbc_task.ps1"` e, **sob SYSTEM + não-interativo**
+  (PowerShell 5.1), falhava com `LastTaskResult=1` **sem executar o script** (não gravava
+  estado nem log) — enquanto na mão (administrador) e via `-Command "& '…ps1'"` o **mesmo**
+  script roda até o fim e grava o estado (comprovado capturando a saída da execução SYSTEM).
+  Trocado o `-File` por `-Command "& '<script>'"` (aspas simples dobradas p/ robustez). Tarefas
+  já registradas: re-rodar `install_monitor_task.ps1` (idempotente) ou `Set-ScheduledTask`.
+- **`monitor_wbc_task.ps1`: log de diagnóstico + escrita com fallback.** Novo
+  `state/monitor_wbc_task.log` (grava resultado de cada execução e a exceção real na falha),
+  `trap` global e fallback de escrita (se o `Move-Item` de replace falhar → `WriteAllText`
+  direto). Fim do `exit 1` silencioso.
 - `monitor_wbc_task.ps1`: `LastTaskResult` agora usa `[int64]` (HRESULT/exit code pode
   exceder Int32, ex. `0x800710E0`, que estourava e caía no catch). Além disso, o código
   `0x800710E0` (Win32 4320 = "operador/administrador recusou o pedido" — no Task Scheduler
