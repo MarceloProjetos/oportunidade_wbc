@@ -1,4 +1,4 @@
-# Extrator SAP B1 → Supabase
+# ServidorIntegracaoSAP — Integração SAP B1 → Supabase
 
 **Pipeline de integração da Altamira** que extrai a evolução de oportunidades de uma
 view do **SAP B1 (HANA)**, enriquece com a situação do orçamento vinda do **SQL Server
@@ -90,8 +90,9 @@ view do **SAP B1 (HANA)**, enriquece com a situação do orçamento vinda do **S
 ### 1. Clonar o repositório
 
 ```bash
-git clone https://github.com/MarceloProjetos/oportunidade_wbc.git
-cd oportunidade_wbc
+# O repositório no GitHub ainda se chama "oportunidade_wbc"; clonamos na pasta nova.
+git clone https://github.com/MarceloProjetos/oportunidade_wbc.git ServidorIntegracaoSAP
+cd ServidorIntegracaoSAP
 ```
 
 ### 2. Ambiente virtual + dependências
@@ -449,8 +450,8 @@ curl -X POST http://localhost:8077/sync/ordens-servico/84080 -H "X-API-Key: SUA_
 Opção recomendada — **NSSM** (serviço dedicado, reinicia sozinho, aparece em `services.msc`):
 
 ```bat
-nssm install OrcaView-OS-API "C:\caminho\oportunidade_wbc\run_api.bat"
-nssm set OrcaView-OS-API AppDirectory "C:\caminho\oportunidade_wbc"
+nssm install OrcaView-OS-API "C:\caminho\ServidorIntegracaoSAP\run_api.bat"
+nssm set OrcaView-OS-API AppDirectory "C:\caminho\ServidorIntegracaoSAP"
 nssm set OrcaView-OS-API Start SERVICE_AUTO_START
 nssm start OrcaView-OS-API
 ```
@@ -459,7 +460,7 @@ Alternativa — **Task Scheduler** (gatilho ONSTART; marque "Reiniciar se a tare
 
 ```bat
 schtasks /Create /TN "OrcaView-OS-API" /SC ONSTART /RL HIGHEST /RU SYSTEM /F ^
-  /TR "C:\caminho\oportunidade_wbc\run_api.bat"
+  /TR "C:\caminho\ServidorIntegracaoSAP\run_api.bat"
 ```
 
 Liberar a porta no firewall (acesso de outras máquinas):
@@ -520,7 +521,7 @@ Para o agendador subir sozinho quando o servidor liga, registre o wrapper
 
 ```powershell
 schtasks /Create /TN "OrcaView-ETL" /SC ONSTART /RL HIGHEST /RU SYSTEM /F ^
-  /TR "C:\caminho\oportunidade_wbc\run_scheduler.bat"
+  /TR "C:\caminho\ServidorIntegracaoSAP\run_scheduler.bat"
 ```
 
 Depois, em *Propriedades da tarefa → Configurações*, marque **"Reiniciar se a tarefa
@@ -530,7 +531,7 @@ OrcaView-ETL ...`), que aparece em `services.msc`.
 ### Opção C — Linux/Mac cron
 
 ```cron
-0 8 * * * cd /caminho/oportunidade_wbc && /caminho/venv/bin/python extract_sap_to_supabase.py >> logs/execution.log 2>&1
+0 8 * * * cd /caminho/ServidorIntegracaoSAP && /caminho/venv/bin/python extract_sap_to_supabase.py >> logs/execution.log 2>&1
 ```
 
 ---
@@ -629,7 +630,7 @@ Campos úteis do JSON: `ok` (conexões verdes), `healthy` (`ok` e sem `alerts`),
 
 ## Versionamento (GitHub)
 
-Repositório: **<https://github.com/MarceloProjetos/oportunidade_wbc>**
+Repositório: **<https://github.com/MarceloProjetos/oportunidade_wbc>** — o repo no GitHub mantém o nome `oportunidade_wbc`; a pasta local do projeto é `ServidorIntegracaoSAP`.
 
 Fluxo de trabalho do dia a dia:
 
@@ -654,7 +655,7 @@ git push
 ## Estrutura de Diretórios
 
 ```text
-oportunidade_wbc/
+ServidorIntegracaoSAP/
 ├── config.py                    # Configuração centralizada (.env)
 ├── sap_connection.py            # Conexão SAP HANA compartilhada
 ├── feriados_br.py               # Calendário de feriados nacionais (até 2030)

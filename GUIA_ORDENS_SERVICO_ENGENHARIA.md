@@ -287,17 +287,23 @@ DEV do Flask) e definir `OS_API_KEY` no `.env` (senão a API sobe **aberta** e l
 **Opção recomendada — NSSM (serviço dedicado, aparece em `services.msc`, reinicia sozinho):**
 
 ```bat
-nssm install OrcaView-OS-API "C:\Python\oportunidade_wbc\run_api.bat"
-nssm set OrcaView-OS-API AppDirectory "C:\Python\oportunidade_wbc"
+nssm install OrcaView-OS-API "C:\Python\ServidorIntegracaoSAP\run_api.bat"
+nssm set OrcaView-OS-API AppDirectory "C:\Python\ServidorIntegracaoSAP"
 nssm set OrcaView-OS-API Start SERVICE_AUTO_START
 nssm start OrcaView-OS-API
 ```
+
+> **Migração de nome (pendente em produção):** o servidor `192.168.7.11` ainda usa a
+> pasta antiga `C:\Python\oportunidade_wbc`. Para concluir a renomeação lá: pare os
+> serviços (`nssm stop OrcaView-OS-API` e `OrcaView-Scheduler`), renomeie a pasta para
+> `ServidorIntegracaoSAP`, re-aponte o NSSM (`nssm set OrcaView-OS-API Application ...`
+> e `AppDirectory ...`, idem para o Scheduler) e reinicie os serviços.
 
 **Alternativa — Task Scheduler (sem instalar nada), gatilho ONSTART:**
 
 ```bat
 schtasks /Create /TN "OrcaView-OS-API" /SC ONSTART /RL HIGHEST /RU SYSTEM /F ^
-  /TR "C:\Python\oportunidade_wbc\run_api.bat"
+  /TR "C:\Python\ServidorIntegracaoSAP\run_api.bat"
 ```
 
 Depois, em *Propriedades da tarefa → Configurações*, marque **"Reiniciar se a tarefa falhar"**.
@@ -517,7 +523,7 @@ delete from public.ordens_servico_engenharia where "NPED" = 84080;
 
 **"Faltam variáveis de ambiente obrigatórias do SAP/Supabase"**
 → O `.env` não foi carregado ou está incompleto. Rode os comandos **de dentro da pasta
-`oportunidade_wbc/`** e confira `SAP_*` / `SUPABASE_*`.
+`ServidorIntegracaoSAP/`** e confira `SAP_*` / `SUPABASE_*`.
 
 **"Could not find the table 'public.ordens_servico_engenharia'"**
 → As tabelas ainda não foram criadas. Rode o passo 1 (o `.sql` no SQL Editor).
