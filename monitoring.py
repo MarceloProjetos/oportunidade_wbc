@@ -10,6 +10,7 @@ Use com parcimônia: cada chamada abre (e fecha) 3 conexões de teste.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import platform
@@ -23,6 +24,9 @@ from config import get_settings
 
 logger = logging.getLogger(__name__)
 
+# Diretório do projeto (onde vive este módulo) — base para caminhos relativos.
+_PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Início (aprox.) do processo da API — usado para o uptime no /status.
 _PROC_START = time.time()
 
@@ -34,7 +38,12 @@ DISK_LOW_GB = 5.0      # menos que isto livre
 DISK_PCT_ALERT = 90.0  # ou mais que isto usado
 
 # Checagens que o ?checks= pode selecionar (system é sempre incluído, é local/barato).
-SELECTABLE_CHECKS = ('sap', 'sql_server', 'supabase', 'scheduler')
+SELECTABLE_CHECKS = ('sap', 'sql_server', 'supabase', 'scheduler', 'scheduled_task')
+
+# Códigos de LastTaskResult do Task Scheduler que NÃO representam falha da tarefa.
+TASK_RESULT_SUCCESS = 0            # 0x0        — última execução concluiu com sucesso
+TASK_RESULT_RUNNING = 267009      # 0x00041301 — instância em execução no momento
+TASK_RESULT_NEVER_RUN = 267011    # 0x00041303 — tarefa ainda não foi executada
 
 
 def _timed(fn: Callable[[], Optional[str]]) -> Dict[str, Any]:
@@ -163,6 +172,83 @@ def _scheduler_signal() -> Dict[str, Any]:
     }
 
 
+def _parse_local_dt(value: Any) -> Optional[datetime]:
+    """Converte um ISO-8601 (com ou sem timezone) em ``datetime`` local *naive*.
+
+    O monitor grava horários locais (``yyyy-MM-ddTHH:mm:ss``); ainda assim tratamos o
+    caso com timezone para robustez. Devolve ``None`` se não der para interpretar.
+    """
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+    except (ValueError, TypeError):
+        return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone().replace(tzinfo=None)
+    return dt
+
+
+def _age_minutes(value: Any) -> Optional[int]:
+    """Idade em minutos (inteiros) de um carimbo ISO até agora; ``None`` se ilegível."""
+    dt = _parse_local_dt(value)
+    if dt is None:
+        return None
+    return round((datetime.now() - dt).total_seconds() / 60)
+
+
+def _wbc_task_state_path() -> str:
+    """Caminho absoluto do JSON de estado gravado pelo ``monitor_wbc_task.ps1``."""
+    configured = get_settings().wbc_task_state_file
+    if os.path.isabs(configured):
+        return configured
+    return os.path.join(_PROJECT_DIR, configured)
+
+
+def _scheduled_task_signal() -> Dict[str, Any]:
+    """Estado da tarefa agendada "Integração WBC", lido do JSON do monitor.
+
+    Não abre conexões nem roda subprocesso: apenas lê o arquivo que o script PowerShell
+    (agendado a cada 10 min) mantém atualizado. Sinaliza problema em três frentes:
+
+    - **ausente/ilegível** → o monitor nunca rodou ou o arquivo corrompeu;
+    - **``stale``** → o carimbo ``checked_at`` está mais velho que ``WBC_TASK_STALE_MIN``
+      (o próprio script de monitoramento pode ter parado);
+    - **``problems``** → lista de problemas da tarefa detectados pelo script (desabilitada,
+      travada em execução, última execução com erro, gatilhos perdidos).
+    """
+    s = get_settings()
+    path = _wbc_task_state_path()
+
+    if not os.path.exists(path):
+        return {
+            'available': False,
+            'healthy': False,
+            'task_name': s.wbc_task_name,
+            'error': f'estado ausente ({os.path.basename(path)}) — monitor nunca rodou?',
+        }
+
+    try:
+        with open(path, 'r', encoding='utf-8-sig') as fh:  # utf-8-sig tolera BOM eventual
+            data = json.load(fh)
+        if not isinstance(data, dict):
+            raise ValueError('conteúdo não é um objeto JSON')
+    except (OSError, ValueError) as exc:
+        return {
+            'available': False,
+            'healthy': False,
+            'task_name': s.wbc_task_name,
+            'error': f'estado ilegível: {str(exc)[:200]}',
+        }
+
+    age = _age_minutes(data.get('checked_at'))
+    data['available'] = True
+    data['age_min'] = age
+    # Sem carimbo legível também conta como desatualizado (não dá para confiar no dado).
+    data['stale'] = age is None or age > s.wbc_task_stale_min
+    return data
+
+
 def _local_ip() -> Optional[str]:
     """IP local de saída (sem enviar pacote — só resolve a rota). Fallback p/ hostname."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -224,8 +310,9 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
 
     Returns:
         Dict com ``ok`` (todas as conexões que rodaram estão verdes), ``healthy`` (``ok`` e
-        sem alertas), ``checks`` (conectividade), ``scheduler`` (sinal indireto), ``system`` e
-        ``alerts`` (lista de avisos legíveis: disco baixo, agendador possivelmente parado).
+        sem alertas), ``checks`` (conectividade), ``scheduler`` (sinal indireto),
+        ``scheduled_task`` (estado da tarefa "Integração WBC", lido do monitor), ``system`` e
+        ``alerts`` (lista de avisos legíveis: disco baixo, agendador parado, tarefa travada…).
     """
     sel = set(SELECTABLE_CHECKS) if not only else only
 
@@ -238,6 +325,7 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
         checks['supabase'] = _timed(_check_supabase)
 
     scheduler = _scheduler_signal() if 'scheduler' in sel else None
+    scheduled_task = _scheduled_task_signal() if 'scheduled_task' in sel else None
     system = _system_info()
 
     alerts = []
@@ -246,6 +334,8 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
             f"agendador possivelmente parado: última carga de oportunidades há "
             f"{scheduler.get('minutes_ago')} min (limite {SCHEDULER_STALE_MIN} min na janela comercial)"
         )
+    if scheduled_task is not None:
+        alerts.extend(_scheduled_task_alerts(scheduled_task))
     if system.get('disk_low'):
         alerts.append(
             f"disco baixo: {system.get('disk_free_gb')} GB livres ({system.get('disk_percent')}% usado)"
@@ -264,4 +354,34 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
     }
     if scheduler is not None:
         out['scheduler'] = scheduler
+    if scheduled_task is not None:
+        out['scheduled_task'] = scheduled_task
     return out
+
+
+def _scheduled_task_alerts(task: Dict[str, Any]) -> list:
+    """Traduz o estado da tarefa agendada em alertas legíveis para o ``/status``.
+
+    Ausência/desatualização do arquivo apontam para o monitor parado; ``problems`` são os
+    problemas da própria tarefa detectados pelo script PowerShell.
+    """
+    name = task.get('task_name', 'Integração WBC')
+    if not task.get('available'):
+        return [f"monitor da tarefa '{name}': {task.get('error', 'estado indisponível')}"]
+
+    alerts = []
+    if task.get('stale'):
+        age = task.get('age_min')
+        idade = f"há {age} min" if age is not None else "com carimbo ilegível"
+        alerts.append(
+            f"monitor da tarefa '{name}' desatualizado (última verificação {idade}, "
+            f"limite {get_settings().wbc_task_stale_min} min) — script de monitoramento parado?"
+        )
+    # ConvertTo-Json do PowerShell 5.1 serializa array de 1 elemento como escalar; normaliza
+    # para lista antes de iterar (senão iteraríamos os caracteres da string).
+    problems = task.get('problems') or []
+    if isinstance(problems, str):
+        problems = [problems]
+    for problema in problems:
+        alerts.append(f"tarefa '{name}': {problema}")
+    return alerts

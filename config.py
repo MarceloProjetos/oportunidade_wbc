@@ -65,6 +65,16 @@ WBC_ARVORE_SYNC_LOG_MAX_REGISTROS = 100
 OS_API_HOST_DEFAULT = '0.0.0.0'
 OS_API_PORT_DEFAULT = 8077
 
+# Monitor da tarefa agendada "Integração WBC" (Task Scheduler do Windows).
+# O script PowerShell ``monitor_wbc_task.ps1`` (agendado a cada 10 min) consulta a
+# tarefa e grava o estado em ``WBC_TASK_STATE_FILE``. A API só *lê* esse arquivo e o
+# expõe em ``/status`` — não roda subprocesso nem consulta a tarefa a cada request.
+# Se o arquivo ficar mais velho que ``WBC_TASK_STALE_MIN``, o próprio monitor pode ter
+# parado, e o ``/status`` sinaliza isso como alerta (503 no ``?strict=1``).
+WBC_TASK_NAME_DEFAULT = 'Integração WBC'
+WBC_TASK_STATE_FILE_DEFAULT = 'state/wbc_task_state.json'
+WBC_TASK_STALE_MIN_DEFAULT = 25
+
 # Scheduler
 INTERVALO_MINUTOS_DEFAULT = 30
 INTERVALO_PISO_MIN = 5
@@ -138,6 +148,11 @@ class Settings:
     os_api_host: str
     os_api_port: int
 
+    # Monitor da tarefa agendada "Integração WBC"
+    wbc_task_name: str
+    wbc_task_state_file: str
+    wbc_task_stale_min: int
+
     # WBC — Árvore de Produto (INTEGRACAO_ORCPRDARV)
     wbc_arvore_view: str
     wbc_arvore_table: str
@@ -186,6 +201,11 @@ class Settings:
             os_api_key=os.getenv('OS_API_KEY') or None,
             os_api_host=os.getenv('OS_API_HOST', OS_API_HOST_DEFAULT),
             os_api_port=int(os.getenv('OS_API_PORT', OS_API_PORT_DEFAULT)),
+            wbc_task_name=os.getenv('WBC_TASK_NAME', WBC_TASK_NAME_DEFAULT),
+            wbc_task_state_file=os.getenv('WBC_TASK_STATE_FILE', WBC_TASK_STATE_FILE_DEFAULT),
+            wbc_task_stale_min=max(
+                1, int(os.getenv('WBC_TASK_STALE_MIN', WBC_TASK_STALE_MIN_DEFAULT))
+            ),
             wbc_arvore_view=os.getenv('WBC_ARVORE_VIEW', WBC_ARVORE_VIEW_DEFAULT),
             wbc_arvore_table=os.getenv('WBC_ARVORE_TABLE', WBC_ARVORE_TABLE_DEFAULT),
             wbc_arvore_sync_log=os.getenv('WBC_ARVORE_SYNC_LOG_TABLE', WBC_ARVORE_SYNC_LOG_DEFAULT),

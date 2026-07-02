@@ -228,6 +228,7 @@ def health():
 _CHECK_ALIASES = {
     'sql': 'sql_server', 'sqlserver': 'sql_server', 'wbc': 'sql_server',
     'hana': 'sap', 'agendador': 'scheduler', 'sched': 'scheduler',
+    'task': 'scheduled_task', 'tarefa': 'scheduled_task', 'wbc_task': 'scheduled_task',
 }
 
 
@@ -239,7 +240,7 @@ def status_detalhado():
     **Aberto** (sem chave) — pensado p/ monitoramento e p/ abrir direto no navegador.
     Roda só quando chamado (sem polling). Parâmetros:
     - ``?checks=sap,sql`` — roda só as checagens listadas (sap, sql/sql_server, supabase,
-      scheduler/agendador). Omitido = todas. ``system`` vem sempre.
+      scheduler/agendador, scheduled_task/tarefa). Omitido = todas. ``system`` vem sempre.
     - ``?strict=1`` — devolve **HTTP 503** se alguma conexão falhar **ou** houver alertas
       (disco baixo, agendador possivelmente parado). Útil p/ monitores por código de status.
     """

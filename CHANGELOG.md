@@ -3,6 +3,32 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-02] — Monitor da tarefa agendada "Integração WBC" no `/status`
+
+### Adicionado
+
+- **`monitor_wbc_task.ps1`** — script PowerShell que consulta a tarefa agendada do Windows
+  **"Integração WBC"** (`Get-ScheduledTask`/`Get-ScheduledTaskInfo`) e grava o estado em
+  `state/wbc_task_state.json` (escrita atômica, UTF-8 sem BOM). Detecta: tarefa desabilitada,
+  travada em execução (`Running` > 10 min), última execução com erro (`LastTaskResult`),
+  ausência de execução (> 15 min sem rodar) e gatilhos perdidos. Nunca lança exceção para
+  fora (falhas viram `problems` no JSON); mantido **100% ASCII** de propósito (PowerShell 5.1
+  lê `.ps1` sem BOM como ANSI e corromperia acentos — o nome da tarefa é montado via códigos
+  de caractere).
+- **Check `scheduled_task` no `/status`** (`monitoring.py`) — a API apenas **lê** o JSON do
+  monitor (sem subprocesso por request) e o expõe em `GET /status`, alimentando `alerts[]` e
+  o `?strict=1` (**HTTP 503** quando a tarefa está ruim). Se o JSON ficar mais velho que
+  `WBC_TASK_STALE_MIN` (default 25 min), sinaliza "monitor possivelmente parado". Novo alias
+  `?checks=tarefa` (também `task`, `wbc_task`).
+- **`install_monitor_task.ps1`** — registra (idempotente) a tarefa que roda o monitor a cada
+  10 min como **SYSTEM** (dispensa senha e enxerga a tarefa do `administrador`) + execução
+  inicial.
+- **`deploy_monitor.ps1`** / **`deploy_monitor.bat`** — deploy em um passo: copia os arquivos
+  (se necessário), roda o install e reinicia o serviço `OrcaView-OS-API`.
+- **Settings** (`config.py`): `WBC_TASK_NAME`, `WBC_TASK_STATE_FILE`, `WBC_TASK_STALE_MIN`
+  (documentados no `.env.example`). Testes cobrindo saudável/travada/stale/ausente + o quirk
+  do `ConvertTo-Json` do PowerShell 5.1 (array de 1 item vira escalar).
+
 ## [2026-06-30] — Views de relatório (adaptação da VW_OS_EXPED_IMPRESSAO_V2)
 
 ### Adicionado
