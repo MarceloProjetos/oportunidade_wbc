@@ -5,6 +5,15 @@ Mudanças notáveis deste projeto. Formato inspirado em
 
 ## [2026-07-02] — Monitor da tarefa agendada "Integração WBC" no `/status`
 
+### Ajustado (pós-deploy)
+
+- `monitor_wbc_task.ps1`: `LastTaskResult` agora usa `[int64]` (HRESULT/exit code pode
+  exceder Int32, ex. `0x800710E0`, que estourava e caía no catch). Além disso, o código
+  `0x800710E0` (Win32 4320 = "operador/administrador recusou o pedido" — no Task Scheduler
+  quase sempre um **disparo sobreposto pulado**, não falha do programa) passou a ser uma
+  **nota** informativa (novo campo `notes` no JSON), sem afetar `healthy` nem gerar alerta.
+  Falhas reais (qualquer outro código ≠ 0/running/never-run) continuam como `problems`.
+
 ### Adicionado
 
 - **`monitor_wbc_task.ps1`** — script PowerShell que consulta a tarefa agendada do Windows

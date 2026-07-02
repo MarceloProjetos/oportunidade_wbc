@@ -43,6 +43,12 @@ $RESULT_SUCCESS   = 0        # 0x0        concluiu com sucesso
 $RESULT_RUNNING   = 267009   # 0x00041301 em execucao no momento
 $RESULT_NEVER_RUN = 267011   # 0x00041303 ainda nao executou
 
+# 0x800710E0 (Win32 4320 = "operador/administrador recusou o pedido"). No Task Scheduler
+# quase sempre = disparo sobreposto pulado (instancia anterior ainda rodava, com a regra
+# "Do not start a new instance") ou End manual. Nao e falha do programa -> vira NOTA
+# informativa (nao afeta healthy nem gera alerta), nao "problema".
+$RESULT_REFUSED   = 2147946720
+
 function Format-IsoLocal {
     param([datetime]$Value)
     $Value.ToString('yyyy-MM-ddTHH:mm:ss')
@@ -55,6 +61,7 @@ function Test-ValidDate {
 }
 
 $problems = New-Object System.Collections.Generic.List[string]
+$notes = New-Object System.Collections.Generic.List[string]
 
 $state = [ordered]@{
     task_name  = $TaskName
@@ -62,6 +69,7 @@ $state = [ordered]@{
     checked_at = (Format-IsoLocal (Get-Date))
     healthy    = $false
     problems   = @()
+    notes      = @()
 }
 
 try {
@@ -109,7 +117,10 @@ try {
             $problems.Add("sem execucao ha $minutesSince min (limite $NotRunMaxMin)") | Out-Null
         }
     }
-    if (-not $resultOk) {
+    if ($result -eq $RESULT_REFUSED) {
+        $notes.Add("disparo agendado recusado ($resultHex) - instancia anterior ainda rodava (sobreposicao) ou tarefa encerrada manualmente; nao e falha do programa") | Out-Null
+    }
+    elseif (-not $resultOk) {
         $problems.Add("ultima execucao falhou (codigo $resultHex)") | Out-Null
     }
     if ($missed -gt 0) {
@@ -122,6 +133,7 @@ catch {
 
 # @(...) garante array JSON mesmo com 0 ou 1 elemento (o lado Python tambem se protege).
 $state.problems = @($problems)
+$state.notes    = @($notes)
 $state.healthy  = $state.found -and ($problems.Count -eq 0)
 
 # ---- Escrita atomica em UTF-8 sem BOM (temp + move) ----
@@ -142,10 +154,11 @@ catch {
 }
 
 # Sai 0 mesmo com alerta: o problema e um DADO consumido pela API, nao uma falha do monitor.
+$noteStr = if ($notes.Count -gt 0) { "  [notas: $([string]::Join('; ', @($notes)))]" } else { '' }
 if ($state.healthy) {
-    Write-Output "OK: tarefa '$TaskName' saudavel (State=$($state.state), last=$($state.minutes_since_last_run) min)."
+    Write-Output "OK: tarefa '$TaskName' saudavel (State=$($state.state), last=$($state.minutes_since_last_run) min).$noteStr"
 }
 else {
-    Write-Output "ALERTA: tarefa '$TaskName' -> $([string]::Join('; ', @($problems)))"
+    Write-Output "ALERTA: tarefa '$TaskName' -> $([string]::Join('; ', @($problems)))$noteStr"
 }
 exit 0
