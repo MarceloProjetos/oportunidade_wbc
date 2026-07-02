@@ -3,6 +3,24 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-02] — Fachada MCP (Fase 0, read-only)
+
+### Adicionado
+
+- **`mcp/` — servidor MCP (fachada fina)** que expõe os endpoints da API REST (8077)
+  como *tools* para clientes MCP (Claude Desktop/Code, assistente Mira), permitindo
+  operar/consultar o servidor de integração em linguagem natural. **Camada aditiva e
+  isolada:** não reimplementa lógica, não fala com SAP/SQL/Supabase direto, não roda
+  agendador — cada tool só chama um endpoint HTTP existente; quem toca o banco continua
+  sendo a API. **Fase 0 = 100% leitura:** `verificar_saude` (`/status`),
+  `listar_sincronizacoes_os` (`/historico`), `listar_sincronizacoes_oportunidades`
+  (`/oportunidades/historico`), `info_oportunidades` (`/oportunidades/info`),
+  `listar_pedidos_com_os` (`/ordens-servico/disponiveis`). Implementado com o MCP Python
+  SDK (FastMCP, transporte stdio) + httpx; a `SIS_API_KEY` fica no server MCP (injetada
+  server-side no `X-API-Key`, nunca vai ao LLM). Config em `mcp/.env` (`SIS_API_BASE`,
+  `SIS_API_KEY`); instruções de registro em `mcp/README.md`. Ações de escrita ficam para
+  a Fase 2 (com confirmação humana). Não requer mudança nos consumidores nem no Supabase.
+
 ## [2026-07-02] — Limpeza diária de logs do Azure (manutenção do servidor .11)
 
 ### Adicionado
