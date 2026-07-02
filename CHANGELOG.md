@@ -3,6 +3,19 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-02] — Limpeza diária de logs do Azure (manutenção do servidor .11)
+
+### Adicionado
+
+- **`maintenance/clean_azure_logs.ps1`** — script que apaga logs antigos de
+  `C:\WindowsAzure\Logs` (guest agent do Azure: `TransparentInstaller.log`, `WaAppAgent`,
+  `MonitoringAgent`, `*.etl`… que se acumulam em ~10 MB cada). Remove **apenas arquivos do dia
+  anterior para trás** (mantém os de hoje; `-KeepDays` configurável), **pula arquivos em uso**
+  pelo agente (sem erro) e **nunca apaga pastas**; recusa caminho vazio/raiz de disco. Tem
+  `-DryRun` (lista sem apagar) e `-Install` (registra a tarefa diária `OrcaView-Clean-Azure-Logs`
+  às 06:00 como SYSTEM, usando `-Command "& '<script>'"` — não `-File`, pelo mesmo motivo do
+  monitor). Grava resumo em `maintenance/clean_azure_logs.log`. 100% ASCII (PowerShell 5.1).
+
 ## [2026-07-02] — Monitor da tarefa agendada "Integração WBC" no `/status`
 
 ### Ajustado (pós-deploy)
