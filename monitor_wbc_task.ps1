@@ -38,6 +38,34 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Log proprio do monitor (mesma pasta do estado). Registra o resultado de cada execucao
+# e — crucial — a EXCECAO REAL quando a gravacao falha, para um exit 1 nunca ser silencioso.
+$LogFile = Join-Path (Split-Path -Parent $StateFile) 'monitor_wbc_task.log'
+
+function Write-MonitorLog {
+    param([string]$Message)
+    try {
+        $dir = Split-Path -Parent $LogFile
+        if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        }
+        $line = "[{0}] (user={1}) {2}" -f (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $env:USERNAME, $Message
+        Add-Content -LiteralPath $LogFile -Value $line -Encoding UTF8
+        $lines = @(Get-Content -LiteralPath $LogFile -ErrorAction SilentlyContinue)
+        if ($lines.Count -gt 200) {
+            Set-Content -LiteralPath $LogFile -Value ($lines[-120..-1]) -Encoding UTF8
+        }
+    }
+    catch { }  # o log NUNCA derruba o monitor
+}
+
+# Rede de seguranca: loga qualquer erro terminante NAO tratado antes de o script morrer,
+# para nunca mais termos um exit 1 sem pista (foi o caso do LastTaskResult=1 sem log).
+trap {
+    Write-MonitorLog ("ERRO NAO TRATADO: {0}: {1} | {2}" -f `
+        $_.Exception.GetType().FullName, $_.Exception.Message, ($_.ScriptStackTrace -replace '\s+', ' '))
+}
+
 # Codigos de LastTaskResult que NAO representam falha (espelham monitoring.py).
 $RESULT_SUCCESS   = 0        # 0x0        concluiu com sucesso
 $RESULT_RUNNING   = 267009   # 0x00041301 em execucao no momento
@@ -136,19 +164,33 @@ $state.problems = @($problems)
 $state.notes    = @($notes)
 $state.healthy  = $state.found -and ($problems.Count -eq 0)
 
-# ---- Escrita atomica em UTF-8 sem BOM (temp + move) ----
+# ---- Gravacao do estado (UTF-8 sem BOM) ----
+# Preferencia: escrita atomica (tmp + move). Se o REPLACE do arquivo final falhar
+# (ACL de arquivo, lock por leitor, etc.), cai para escrita direta — logando o motivo.
 try {
     $dir = Split-Path -Parent $StateFile
     if ($dir -and -not (Test-Path -LiteralPath $dir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
-    $json     = $state | ConvertTo-Json -Depth 4
-    $tmp      = "$StateFile.tmp"
+    $json      = $state | ConvertTo-Json -Depth 4
+    $tmp       = "$StateFile.tmp"
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($tmp, $json, $utf8NoBom)
-    Move-Item -LiteralPath $tmp -Destination $StateFile -Force
+    try {
+        Move-Item -LiteralPath $tmp -Destination $StateFile -Force
+    }
+    catch {
+        Write-MonitorLog ("Move-Item falhou ({0}: {1}); tentando escrita direta." -f `
+            $_.Exception.GetType().Name, $_.Exception.Message)
+        [System.IO.File]::WriteAllText($StateFile, $json, $utf8NoBom)
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    }
+    Write-MonitorLog ("OK gravado: healthy={0}, state={1}, result={2}" -f `
+        $state.healthy, $state.state, $state.last_task_result_hex)
 }
 catch {
+    Write-MonitorLog ("FALHA ao gravar '{0}': {1}: {2}" -f `
+        $StateFile, $_.Exception.GetType().FullName, $_.Exception.Message)
     Write-Error "Falha ao gravar o estado em '$StateFile': $($_.Exception.Message)"
     exit 1
 }
