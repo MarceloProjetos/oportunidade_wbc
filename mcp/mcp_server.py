@@ -173,11 +173,11 @@ def estado_tarefa_wbc() -> Dict[str, Any]:
     Endpoint aberto (não exige chave). Use para "a tarefa WBC rodou hoje?" / "deu erro?".
     """
     data = _get("/status", {"checks": "scheduled_task"})
-    if isinstance(data, dict) and isinstance(data.get("checks"), dict):
-        tarefa = data["checks"].get("scheduled_task")
-        if tarefa is not None:
-            return {"ok": data.get("ok", True), "scheduled_task": tarefa,
-                    "alerts": data.get("alerts", [])}
+    # No /status, scheduled_task é chave de TOPO (irmã de `checks`/`alerts`), não fica dentro
+    # de `checks` — isola o bloco da tarefa + os alertas relacionados.
+    if isinstance(data, dict) and "scheduled_task" in data:
+        return {"ok": data.get("ok", True), "scheduled_task": data["scheduled_task"],
+                "alerts": data.get("alerts", [])}
     return data
 
 
