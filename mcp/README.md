@@ -114,12 +114,17 @@ SIS_MCP_PORT=8078
 > loopback volta a funcionar.
 
 **Subir** (na `.11`): `run_mcp.bat` diretamente, ou como serviço via `install_mcp_service.bat`
-(NSSM `OrcaView-MCP`, boot automático). Libere a porta no firewall — **restringindo por IP**:
+(NSSM `OrcaView-MCP`, boot automático). Libere a porta no firewall — **restringindo por IP** às
+máquinas que rodam o **Claude** (NÃO o `.90`, que consome a REST 8077, não o MCP):
 
 ```bat
 netsh advfirewall firewall add rule name="OrcaView MCP 8078" dir=in action=allow ^
-  protocol=TCP localport=8078 remoteip=192.168.0.90,<ip-do-cliente>
+  protocol=TCP localport=8078 remoteip=<ip-do-micro-que-roda-o-Claude>
 ```
+
+> Vários clientes: `remoteip=192.168.0.203,192.168.0.XXX`. Loopback (`127.0.0.1`) não é filtrado
+> pelo firewall, então os testes locais na `.11` seguem funcionando. IP por DHCP que muda → atualizar
+> a regra (ou reservar o IP no roteador).
 
 **Registrar o cliente (transporte HTTP):**
 
