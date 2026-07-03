@@ -7,6 +7,7 @@ serviço só expõe um gatilho HTTP.
 Endpoints
 ---------
 - ``GET  /health``                         → ``{"status": "ok"}``
+- ``GET  /ordens-servico/<nped>``           → detalhe (resumo) da OS de um pedido
 - ``POST /sync/ordens-servico/<nped>``      → sincroniza **um** pedido
 - ``POST /sync/ordens-servico``             → corpo ``{"nped": N}`` ou ``{"npeds": [...]}``
 
@@ -126,6 +127,51 @@ def _count_rows(table: str) -> Optional[int]:
     """Total de linhas da tabela ``table`` (via count exato do PostgREST)."""
     res = _supabase().table(table).select('id', count='exact').limit(1).execute()
     return res.count
+
+
+# Tradução do Status da OS (espelha a tabela os_status_table; ver sql/ordens_servico_engenharia.sql).
+_OS_STATUS_DESC = {'P': 'Planejado', 'R': 'Liberado', 'L': 'Encerrado', 'C': 'Cancelado'}
+
+# Colunas do detalhe/resumo de OS — enxutas de propósito: NÃO puxa os textos NCLOB
+# (descrições técnicas repetidas por linha) que engordariam a resposta em MBs.
+_OS_DETALHE_COLS = (
+    'id,NPED,N_OP,DescItemPED,DescItemEstrut,DtPedido,'
+    'CodClien,NomeClien,Status,TotalOrcam,id_execucao,data_hora_extracao'
+)
+
+
+def _fetch_os_detalhe(nped: int) -> List[dict]:
+    """Linhas (colunas enxutas) da OS de um NPED, ordenadas por id. Vazio se não há OS."""
+    res = (
+        _supabase().table(get_settings().os_table_name)
+        .select(_OS_DETALHE_COLS).eq('NPED', nped).order('id').execute()
+    )
+    return res.data or []
+
+
+def _resumo_os(linhas: List[dict]) -> dict:
+    """Resumo do pedido a partir das linhas já lidas (sem query extra).
+
+    A view é desnormalizada por item: os campos de cabeçalho (cliente, status, total)
+    se repetem em cada linha — pegamos da primeira. As OPs (``N_OP``) são agregadas.
+    """
+    primeira = linhas[0]
+    status = primeira.get('Status')
+    ops = sorted({l['N_OP'] for l in linhas if l.get('N_OP') is not None})
+    return {
+        'cliente': primeira.get('NomeClien'),
+        'cod_cliente': primeira.get('CodClien'),
+        'descricao': primeira.get('DescItemPED'),
+        'data_pedido': primeira.get('DtPedido'),
+        'status': status,
+        'status_desc': _OS_STATUS_DESC.get(status, status),
+        'total_orcamento': primeira.get('TotalOrcam'),
+        'num_linhas': len(linhas),
+        'num_ops': len(ops),
+        'ops': ops,
+        'id_execucao': primeira.get('id_execucao'),
+        'ultima_sincronizacao': primeira.get('data_hora_extracao'),
+    }
 
 
 def _autorizado() -> bool:
@@ -310,6 +356,36 @@ def os_disponiveis():
     if pedidos is None:
         return jsonify(ok=False, error='SAP indisponível'), 502
     return jsonify(ok=True, items=pedidos)
+
+
+@app.get('/ordens-servico/<nped>')
+def os_detalhe(nped: str):
+    """Detalhe da OS de UM pedido (lê a tabela espelho no Supabase). Requer X-API-Key.
+
+    Devolve um ``resumo`` (cliente, status, total, nº de linhas e de OPs, última
+    sincronização). Com ``?linhas=1`` inclui também as ``linhas`` (colunas enxutas,
+    sem os textos NCLOB). Responde **404** se o pedido não tem OS sincronizada.
+
+    Obs.: a rota estática ``/ordens-servico/disponiveis`` tem prioridade no roteador
+    do Werkzeug, então não é capturada por este ``<nped>``.
+    """
+    if not _autorizado():
+        return jsonify(ok=False, error='unauthorized'), 401
+    try:
+        n = coerce_positive_int(nped, what='NPED')
+    except ValueError as exc:
+        return jsonify(ok=False, error=str(exc)), 400
+    try:
+        linhas = _fetch_os_detalhe(n)
+    except Exception as exc:
+        logger.error("Erro ao ler a OS do NPED %s: %s", n, exc)
+        return jsonify(ok=False, error='falha ao ler a OS'), 502
+    if not linhas:
+        return jsonify(ok=False, error='pedido sem OS sincronizada', nped=n), 404
+    payload = {'ok': True, 'nped': n, 'resumo': _resumo_os(linhas)}
+    if request.args.get('linhas') in ('1', 'true', 'yes'):
+        payload['linhas'] = linhas
+    return jsonify(payload)
 
 
 # ===================== Oportunidades (pipeline agendado) =====================

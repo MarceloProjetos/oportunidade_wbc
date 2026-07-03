@@ -92,6 +92,69 @@ def test_limpar_historico_requires_key_when_set(client, monkeypatch):
     assert client.delete('/historico', headers={'X-API-Key': 'segredo'}).status_code == 200
 
 
+# ----- /ordens-servico/<nped> (detalhe da OS) -----
+
+_FAKE_OS_ROWS = [
+    {'id': 1, 'NPED': 84080, 'N_OP': 138757, 'DescItemPED': 'Estantes',
+     'DescItemEstrut': 'Coluna', 'DtPedido': '2026-06-24T00:00:00', 'CodClien': 'C011627',
+     'NomeClien': 'ARAUCO CELULOSE', 'Status': 'R', 'TotalOrcam': 20640.0,
+     'id_execucao': 'exec-1', 'data_hora_extracao': '2026-06-25T16:38:20'},
+    {'id': 2, 'NPED': 84080, 'N_OP': 138758, 'DescItemPED': 'Estantes',
+     'DescItemEstrut': 'Longarina', 'DtPedido': '2026-06-24T00:00:00', 'CodClien': 'C011627',
+     'NomeClien': 'ARAUCO CELULOSE', 'Status': 'R', 'TotalOrcam': 20640.0,
+     'id_execucao': 'exec-1', 'data_hora_extracao': '2026-06-25T16:38:20'},
+]
+
+
+def test_os_detalhe_resumo(client, monkeypatch):
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    r = client.get('/ordens-servico/84080')
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['ok'] is True and body['nped'] == 84080
+    resumo = body['resumo']
+    assert resumo['cliente'] == 'ARAUCO CELULOSE'
+    assert resumo['status'] == 'R' and resumo['status_desc'] == 'Liberado'
+    assert resumo['num_linhas'] == 2
+    assert resumo['num_ops'] == 2 and resumo['ops'] == [138757, 138758]
+    assert 'linhas' not in body  # sem ?linhas=1, só o resumo
+
+
+def test_os_detalhe_incluir_linhas(client, monkeypatch):
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    body = client.get('/ordens-servico/84080?linhas=1').get_json()
+    assert 'linhas' in body and len(body['linhas']) == 2
+
+
+def test_os_detalhe_404_sem_os(client, monkeypatch):
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: [])
+    r = client.get('/ordens-servico/99999')
+    assert r.status_code == 404
+    assert r.get_json()['error'] == 'pedido sem OS sincronizada'
+
+
+@pytest.mark.parametrize('bad', ['-5', '0', 'abc', '84080.0'])
+def test_os_detalhe_nped_invalido_400(client, monkeypatch, bad):
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    assert client.get(f'/ordens-servico/{bad}').status_code == 400
+
+
+def test_os_detalhe_disponiveis_nao_e_capturado(client, monkeypatch):
+    """A rota estática /disponiveis tem prioridade sobre o <nped> dinâmico."""
+    monkeypatch.setattr(apimod, 'listar_pedidos_com_os', lambda limit: [])
+    # se '<nped>' capturasse 'disponiveis', viria 400 (NPED inválido); deve vir 200.
+    assert client.get('/ordens-servico/disponiveis').status_code == 200
+
+
+def test_os_detalhe_requires_key_when_set(client, monkeypatch):
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    assert client.get('/ordens-servico/84080').status_code == 401
+    assert client.get('/ordens-servico/84080',
+                      headers={'X-API-Key': 'segredo'}).status_code == 200
+
+
 # ----- Oportunidades (pipeline agendado) -----
 
 def test_oport_historico_returns_items(client, monkeypatch):
