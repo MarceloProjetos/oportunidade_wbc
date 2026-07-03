@@ -24,7 +24,7 @@ from pipeline_core import (  # núcleo compartilhado (genérico)
     validate_sql_identifier,
     with_retries,  # noqa: F401 — re-export p/ compatibilidade
 )
-from sap_connection import SAPExtractor, is_sap_tenant_error
+from sap_connection import SAPExtractor
 from db_utils import read_dbapi_query
 
 from config import SAP_PORT_DEFAULT  # noqa: F401 — backward compat

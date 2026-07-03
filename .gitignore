@@ -35,6 +35,7 @@ HANDOFF_*.md
 
 # ── Arquivos temporários do projeto ──
 _*.py
+!scripts/_bootstrap.py   # exceção: bootstrap versionado (não é temporário)
 *.tmp
 
 # ── IDE / SO ──

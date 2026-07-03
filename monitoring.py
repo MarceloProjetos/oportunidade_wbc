@@ -39,11 +39,8 @@ DISK_PCT_ALERT = 90.0  # ou mais que isto usado
 
 # Checagens que o ?checks= pode selecionar (system é sempre incluído, é local/barato).
 SELECTABLE_CHECKS = ('sap', 'sql_server', 'supabase', 'scheduler', 'scheduled_task')
-
-# Códigos de LastTaskResult do Task Scheduler que NÃO representam falha da tarefa.
-TASK_RESULT_SUCCESS = 0            # 0x0        — última execução concluiu com sucesso
-TASK_RESULT_RUNNING = 267009      # 0x00041301 — instância em execução no momento
-TASK_RESULT_NEVER_RUN = 267011    # 0x00041303 — tarefa ainda não foi executada
+# Nota: a classificação dos LastTaskResult (sucesso/running/never-run/recusado) vive em
+# monitor_wbc_task.ps1 — o Python só LÊ o JSON de estado que o script grava.
 
 
 def _timed(fn: Callable[[], Optional[str]]) -> Dict[str, Any]:

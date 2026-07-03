@@ -393,16 +393,7 @@ where o."NPED" = 84080;
 > Códigos de `Status` na view: `P` Planejado · `R` Liberado · `L` Encerrado
 > (`C` Cancelado é semeado no lookup mas não aparece na view hoje).
 
-**3. Exportar para JSON** (lê a tabela já sincronizada, via `service_role`):
-
-```bash
-python export_os_json.py 84080                        # 1 pedido → exports/<gerado>.json
-python export_os_json.py 84080 84095 --slim           # vários, sem os textos NCLOB
-python export_os_json.py --all -o exports/todas.json  # tabela inteira
-python export_os_json.py 84080 --stdout --array       # p/ pipe (só o array)
-```
-
-**4. Disparar pela API (do app)** — um endpoint HTTP que o app chama para sincronizar
+**3. Disparar pela API (do app)** — um endpoint HTTP que o app chama para sincronizar
 um pedido sob demanda (a escrita continua via `service_role`):
 
 ```bash
@@ -658,16 +649,23 @@ git push
 ServidorIntegracaoSAP/
 ├── config.py                    # Configuração centralizada (.env)
 ├── sap_connection.py            # Conexão SAP HANA compartilhada
+├── db_utils.py                  # Leitura DB-API (SAP/SQL) → DataFrame
 ├── feriados_br.py               # Calendário de feriados nacionais (até 2030)
-├── extract_sap_to_supabase.py   # Pipeline principal (SAP + SQL Server → Supabase)
 ├── pipeline_core.py             # Núcleo compartilhado (SupabaseLoader, prepare_data, …)
+├── extract_sap_to_supabase.py   # Pipeline de oportunidades (SAP + SQL Server → Supabase)
 ├── extract_ordens_servico_engenharia.py  # Sync de OS por NPED (replace_nped)
-├── export_os_json.py            # Exporta a tabela de OS para JSON
-├── api.py                       # API HTTP de disparo da sync de OS (Flask)
+├── extract_wbc_arvore.py        # Sub-sync da árvore de produto WBC (pós-OS)
+├── monitoring.py                # Diagnóstico do /status (conexões, agendador, tarefa)
+├── api.py                       # API HTTP de disparo + /status (Flask, porta 8077)
 ├── web/                         # Página servida pela API (sincronizar.html)
-├── sql/                         # DDL do Supabase (ordens_servico_engenharia.sql)
+├── sql/                         # DDL + policies do Supabase
 ├── scripts/
 │   └── scheduled_execution.py   # Agendamento via APScheduler (IntervalTrigger)
+├── mcp/                         # Fachada MCP read-only sobre a API (FastMCP/stdio)
+├── maintenance/                 # Manutenção do servidor (limpeza de logs do Azure)
+├── docs/                        # Guias de consumo (read-only)
+├── monitor_wbc_task.ps1         # Monitora a tarefa "Integração WBC" → state/*.json
+├── install_monitor_task.ps1     # Registra a tarefa do monitor (a cada 10 min, SYSTEM)
 ├── run_scheduler.bat            # Wrapper p/ Task Scheduler / NSSM (agendador, boot 24/7)
 ├── run_api.bat                  # Wrapper p/ Task Scheduler / NSSM (API, boot 24/7)
 ├── install_services.bat         # Registra agendador + API como serviços NSSM (boot + restart)
@@ -675,8 +673,7 @@ ServidorIntegracaoSAP/
 ├── requirements-dev.txt         # pytest (testes unitários)
 ├── tests/                       # Suíte pytest
 ├── .env.example                 # Template de variáveis de ambiente
-├── .env                         # Credenciais reais (NÃO versionar)
-├── .gitignore                   # Arquivos ignorados pelo git
+├── CHANGELOG.md                 # Histórico de mudanças
 └── README.md                    # Este arquivo
 ```
 
