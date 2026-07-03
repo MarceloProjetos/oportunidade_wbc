@@ -117,6 +117,27 @@ netsh advfirewall firewall add rule name="OrcaView MCP 8078" dir=in action=allow
 claude mcp add --transport http servidor-integracao-sap \
   http://192.168.7.11:8078/mcp \
   --header "Authorization: Bearer <SIS_MCP_TOKEN>" --scope user
+claude mcp list      # deve dar "✓ Connected"
+```
+
+**Validar (na `.11`, loopback):**
+
+```powershell
+nssm status OrcaView-MCP                                             # SERVICE_RUNNING
+netstat -ano | findstr :8078                                        # LISTENING
+curl.exe -s -o NUL -w "%{http_code}`n" http://127.0.0.1:8078/mcp    # 401 (sem token)
+curl.exe -s -o NUL -w "%{http_code}`n" -H "Authorization: Bearer <TOKEN>" http://127.0.0.1:8078/mcp   # 406/400 = passou o auth
+```
+
+> **Nota (DNS-rebinding):** o SDK do MCP valida o header `Host` e, por default no `mcp` 1.28.1,
+> só aceita loopback — um cliente pela LAN levaria **421 "Invalid Host header"**. O `serve_http.py`
+> desliga essa checagem (`transport_security`, seguro aqui: já barrado pelo Bearer + rede interna).
+
+**Rollback:**
+
+```powershell
+nssm stop OrcaView-MCP & nssm remove OrcaView-MCP confirm
+netsh advfirewall firewall delete rule name="OrcaView MCP 8078"
 ```
 
 > Vantagem: a `OS_API_KEY` passa a viver **só na `.11`** (o MCP chama a API por loopback),

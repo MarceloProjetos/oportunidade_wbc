@@ -33,6 +33,7 @@ import hmac
 import os
 
 import uvicorn
+from mcp.server.transport_security import TransportSecuritySettings
 
 # Importa o FastMCP ja montado (tools + resources) — isto tambem carrega o mcp/.env.
 from mcp_server import mcp
@@ -74,7 +75,18 @@ class StaticBearerMiddleware:
 
 
 def build_app():
-    """Monta o app ASGI (FastMCP Streamable HTTP) embrulhado no guard de token."""
+    """Monta o app ASGI (FastMCP Streamable HTTP) embrulhado no guard de token.
+
+    Libera o acesso pela LAN desligando a proteção DNS-rebinding (validação de `Host`)
+    do transporte StreamableHTTP. Sem isto, o SDK responde **421 "Invalid Host header"**
+    para qualquer `Host` != loopback (default do `mcp` 1.28.1) — o que barra os clientes
+    que chegam por `http://192.168.7.11:8078/mcp`. É seguro aqui porque:
+      - o acesso já é barrado ANTES pelo `StaticBearerMiddleware` (token Bearer);
+      - a rede é interna e os clientes são apps MCP (não navegadores), então o
+        DNS-rebinding (ataque via browser contra localhost) não se aplica.
+    `settings.transport_security` é lido DENTRO de `mcp.streamable_http_app()` (que cria
+    o session manager de forma lazy), por isso é setado ANTES da chamada.
+    """
     if not _TOKEN:
         raise SystemExit(
             "SIS_MCP_TOKEN ausente — defina no mcp/.env antes de subir o MCP HTTP."
@@ -82,6 +94,18 @@ def build_app():
     mcp.settings.host = _HOST
     mcp.settings.port = _PORT
     mcp.settings.streamable_http_path = _PATH
+    mcp.settings.transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=False,
+    )
+    # Alternativa mais restritiva — manter a proteção e só liberar a LAN (o "*" cobre
+    # qualquer porta): TransportSecuritySettings(
+    #     enable_dns_rebinding_protection=True,
+    #     allowed_hosts=["192.168.7.11:*", "127.0.0.1:*", "localhost:*", "0.0.0.0:*"],
+    #     allowed_origins=["http://192.168.7.11:*", "http://127.0.0.1:*",
+    #                      "http://localhost:*", "http://0.0.0.0:*"])
+    # Defensivo: garante que o session manager seja (re)criado com o setting acima.
+    if getattr(mcp, "_session_manager", None) is not None:
+        mcp._session_manager = None
     return StaticBearerMiddleware(mcp.streamable_http_app(), _TOKEN)
 
 

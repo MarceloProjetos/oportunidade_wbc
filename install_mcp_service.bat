@@ -14,7 +14,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo === MCP (fachada HTTP na porta 8078) — servico OrcaView-MCP ===
+echo === MCP (fachada HTTP na porta 8078) - servico OrcaView-MCP ===
 nssm install OrcaView-MCP "%PROJ%\run_mcp.bat"
 nssm set     OrcaView-MCP AppDirectory "%PROJ%"
 nssm set     OrcaView-MCP Start SERVICE_AUTO_START

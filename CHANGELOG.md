@@ -20,11 +20,23 @@ Mudanças notáveis deste projeto. Formato inspirado em
 - **`run_mcp.bat` + `install_mcp_service.bat`** — sobem o MCP HTTP como serviço Windows via NSSM
   (`OrcaView-MCP`, `SERVICE_AUTO_START`, `DependOnService OrcaView-OS-API`, logs rotativos),
   espelhando o padrão do `OrcaView-OS-API` (8077). `uvicorn` adicionado ao `mcp/requirements.txt`.
-- **`mcp/PLANO_FASE3.md` + seção "Modo remoto" no `mcp/README.md`** — passo-a-passo de deploy na
-  `.11` (git pull + deps + `mcp/.env` + `install_mcp_service.bat` + firewall por IP) e registro do
-  cliente (`claude mcp add --transport http … --header "Authorization: Bearer …"`).
+- **Seção "Modo remoto" no `mcp/README.md`** — passo-a-passo de deploy na `.11` (git pull + deps +
+  `mcp/.env` + `install_mcp_service.bat` + firewall por IP), registro do cliente
+  (`claude mcp add --transport http … --header "Authorization: Bearer …"`), validação e rollback.
   **`web_orcaview_V117` (.90): nenhuma mudança** — consome só a REST `/status`; a Mira não faz
-  tool-calling. **Deploy na `.11` é operação do Marcelo** (código pronto e testado).
+  tool-calling.
+
+### Corrigido
+
+- **`serve_http.py`: HTTP 421 "Invalid Host header" ao acessar pela LAN.** A proteção
+  DNS-rebinding do transporte StreamableHTTP (`TransportSecurityMiddleware`) vem **ativa por
+  default no `mcp` 1.28.1** da `.11` e só aceita `Host` loopback → um cliente chegando por
+  `http://192.168.7.11:8078/mcp` levava 421. O `build_app()` passou a setar
+  `mcp.settings.transport_security = TransportSecuritySettings(enable_dns_rebinding_protection=False)`
+  **antes** do `streamable_http_app()` (seguro: o acesso já é barrado pelo `StaticBearerMiddleware`,
+  a rede é interna e os clientes são apps MCP, não navegadores). Reproduzido o 421 e **verificado o
+  fix** (Host LAN → 406/400). **MCP remoto no ar na `.11`** (serviço `OrcaView-MCP`). O
+  `PLANO_FASE3.md` foi removido — o conteúdo operacional está consolidado no `mcp/README.md`.
 
 ## [2026-07-03] — Detalhe de OS (endpoint) + Fachada MCP (Fase 1, read-only)
 
