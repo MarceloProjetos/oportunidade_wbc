@@ -1,6 +1,5 @@
 """Centralized configuration tests."""
 
-import os
 
 import pytest
 

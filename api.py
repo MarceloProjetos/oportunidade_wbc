@@ -44,15 +44,17 @@ from typing import Any, List, Optional, Tuple
 from flask import Flask, jsonify, request, send_from_directory
 
 from config import get_settings
-from monitoring import collect_status
-from pipeline_core import coerce_positive_int, oportunidades_sync_lock, FileLockTimeout
 from extract_ordens_servico_engenharia import (
-    main as sync_os,
     diagnosticar_nped,
     listar_pedidos_com_os,
 )
-from extract_wbc_arvore import main as sync_wbc_arvore
+from extract_ordens_servico_engenharia import (
+    main as sync_os,
+)
 from extract_sap_to_supabase import main as sync_oportunidades
+from extract_wbc_arvore import main as sync_wbc_arvore
+from monitoring import collect_status
+from pipeline_core import FileLockTimeout, coerce_positive_int, oportunidades_sync_lock
 
 # UTF-8 console on Windows
 try:

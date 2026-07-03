@@ -17,13 +17,13 @@ import re
 import time
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-from supabase import create_client, Client
+from supabase import Client, create_client
 from supabase.client import ClientOptions
 
 from config import (
@@ -39,7 +39,8 @@ logger = logging.getLogger(__name__)
 # Lock de arquivo (cross-process) p/ serializar a carga de oportunidades entre o
 # agendador (run_scheduler.bat) e o "forçar sincronismo" da API (run_api.bat).
 try:
-    from filelock import FileLock, Timeout as FileLockTimeout
+    from filelock import FileLock
+    from filelock import Timeout as FileLockTimeout
 except ImportError:  # pragma: no cover - filelock é dependência de produção
     FileLock = None  # type: ignore[assignment]
 

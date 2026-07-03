@@ -15,7 +15,7 @@ Serviço de integração SAP B1 → Supabase. Roda em produção no `192.168.7.1
 ## Mapa do repositório (código-fonte = raiz, plano)
 
 | Arquivo | Responsabilidade |
-|---|---|
+| --- | --- |
 | `api.py` | Todas as rotas Flask + auth (X-API-Key) + rate-limit + entrypoint waitress |
 | `config.py` | TODA a configuração: env vars, defaults, `Settings` (dataclass), `*_ready()` |
 | `pipeline_core.py` | Núcleo compartilhado: `SupabaseLoader`, locks de arquivo, validação, retry |
@@ -37,7 +37,7 @@ importa os 3 pipelines · `mcp/` só chama HTTP (não importa nada da raiz).
 ## Tarefa → o que ler
 
 | Tarefa | Ler |
-|---|---|
+| --- | --- |
 | Endpoint HTTP (novo/alterar) | `api.py` + `tests/test_api.py` |
 | Variável de ambiente / default | `config.py` + `.env.example` + `tests/test_config.py` |
 | Lógica de extração/carga | o `extract_*.py` do pipeline + seu teste |
@@ -76,6 +76,10 @@ importa os 3 pipelines · `mcp/` só chama HTTP (não importa nada da raiz).
 
 ```bash
 python -m pytest              # suíte completa (rápida, sem rede)
+python -m ruff check .        # lint (config no pyproject.toml; deve ficar em 0)
 python api.py                 # sobe a API local (porta 8077)
 python -m scripts.scheduled_execution   # agendador (loop; Ctrl+C p/ sair)
 ```
+
+Tooling em `pyproject.toml` (pytest + ruff). Dependências de runtime seguem em
+`requirements.txt` — não migrar para `[project]` (mudaria o deploy).

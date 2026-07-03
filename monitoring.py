@@ -122,8 +122,9 @@ def _scheduler_signal() -> Dict[str, Any]:
     """
     from supabase import create_client
     from supabase.client import ClientOptions
-    from feriados_br import is_business_day
+
     from config import parse_janela_horas
+    from feriados_br import is_business_day
 
     s = get_settings()
     if not s.supabase_ready():

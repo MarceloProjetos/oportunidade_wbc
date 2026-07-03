@@ -1,0 +1,22 @@
+# Tooling do projeto (testes + lint). NÃO é fonte de instalação de dependências:
+# produção instala via requirements.txt (deploy = git pull na .11 + pip install -r),
+# e este arquivo não tem [project]/[build-system] DE PROPÓSITO — adicionar packaging
+# aqui mudaria o fluxo de deploy (decisão explícita, ver CLAUDE.md).
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"  # piso conservador (dev = 3.12; não usar sintaxe além de 3.11)
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle (erros)
+    "W",  # pycodestyle (avisos)
+    "F",  # pyflakes (import morto, nome indefinido, etc.)
+    "I",  # isort (ordenação de imports)
+]
+ignore = [
+    "E741",  # `l` em comprehensions existentes — renomear é refactor, não lint
+]

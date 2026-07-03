@@ -19,9 +19,9 @@ Uso (CLI)::
 
 from __future__ import annotations
 
+import logging
 import sys
 import time
-import logging
 from datetime import datetime
 from typing import Iterable, List, Optional
 

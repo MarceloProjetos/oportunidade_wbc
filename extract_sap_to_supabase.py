@@ -1,8 +1,8 @@
 """ETL: SAP HANA view → SQL Server enrichment → Supabase. See config.py and .env.example."""
 
+import logging
 import sys
 import time
-import logging
 from datetime import datetime
 from typing import Any, Optional
 
@@ -12,11 +12,13 @@ from config import (
     EXECUTION_MODES,
     FILTRO_COLUNA_DATA,
     MESES_RETROATIVOS,
+    SAP_PORT_DEFAULT,  # noqa: F401 — backward compat
     SQL_ENRICHMENT_VIEW_DEFAULT,  # noqa: F401 — backward compat
     SQL_LOGIN_TIMEOUT_S,
     SYNC_LOG_TABLE_NAME,  # noqa: F401 — backward compat
     get_settings,
 )
+from db_utils import read_dbapi_query
 from pipeline_core import (  # núcleo compartilhado (genérico)
     SupabaseLoader,
     build_view_query,
@@ -25,9 +27,6 @@ from pipeline_core import (  # núcleo compartilhado (genérico)
     with_retries,  # noqa: F401 — re-export p/ compatibilidade
 )
 from sap_connection import SAPExtractor
-from db_utils import read_dbapi_query
-
-from config import SAP_PORT_DEFAULT  # noqa: F401 — backward compat
 
 # UTF-8 console on Windows
 try:
@@ -305,11 +304,11 @@ def main(
         # 1. Extrair dados do SAP
         logger.info("Iniciando extração de dados do SAP...")
         df = extract_sap_to_dataframe(view_name)
-        
+
         if df is None or len(df) == 0:
             logger.warning(f"Nenhum dado retornado da view '{view_name}'")
             return False
-        
+
         logger.info(f"Total de registros extraídos: {len(df)}")
 
         # 1.1 SQL Server enrichment: join N_WBC = ORCNUM → SITCOD, ORCALTDTH
@@ -333,7 +332,7 @@ def main(
             df = df.drop(columns=['_key', 'ORCNUM'])
             matched = int(df['SITCOD'].notna().sum())
             logger.info("Enrichment matched %s / %s rows", matched, len(df))
-        
+
         # 2. Validate SITCOD FK, then prepare payload
         logger.info("Carregando dados no Supabase...")
         loader = SupabaseLoader(settings.supabase_url, settings.supabase_write_key)

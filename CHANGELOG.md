@@ -3,6 +3,32 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-03] — Tooling p/ agentes: CLAUDE.md + pyproject.toml (pytest/ruff)
+
+Fases 1 e 2 do plano "menos tokens por tarefa, respostas mais consistentes".
+**Sem mudança de comportamento** — suíte **158 passed** antes e depois.
+
+### Adicionado
+
+- **`CLAUDE.md` — guia do repositório para agentes** (carregado automaticamente por sessão):
+  mapa de módulos + grafo de dependências, tabela **"tarefa → o que ler"** (a maioria das
+  tarefas = 2 arquivos), lista do que **não** reler (CHANGELOG/README inteiro/`exports/`/
+  `logs/`/`state/`) e gotchas operacionais (scheduler via `-m scripts.scheduled_execution`,
+  entry `python api.py` vs `waitress-serve`, `get_settings()` cacheado, `.ps1` ASCII,
+  repo GitHub mantém nome antigo, deploy = `git pull` na `.11`).
+- **`pyproject.toml` — config central de tooling** (pytest `testpaths` + ruff: regras
+  `E, W, F, I`, linha 120, `E741` ignorado de propósito). **NÃO** tem `[project]`/
+  `[build-system]`: `requirements.txt` segue sendo a fonte de instalação do deploy
+  (decisão explícita, comentada no próprio arquivo). `ruff==0.15.20` pinado no
+  `requirements-dev.txt`.
+
+### Alterado
+
+- **Baseline de lint zerada** (`python -m ruff check .` → 0): 12 achados mecânicos
+  auto-corrigidos — ordenação de imports (7 módulos), whitespace em linha vazia (3) e
+  2 imports sem uso (`typing.List` em `extract_wbc_arvore.py`, `os` em `tests/test_config.py`).
+  Diff 22+/21− em 8 arquivos, nenhum caminho de execução alterado.
+
 ## [2026-07-03] — Fachada MCP (Fase 4, escrita com confirmação) + endpoint de sync
 
 ### Adicionado
