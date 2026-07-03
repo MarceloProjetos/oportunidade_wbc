@@ -43,7 +43,16 @@ Mudanças notáveis deste projeto. Formato inspirado em
   recusada"** mesmo com a API no ar (um `curl` interativo, sem proxy no perfil do usuário,
   funcionava — daí a assimetria). Como a fachada só fala com a API interna (loopback/LAN),
   `trust_env=False` ignora qualquer `HTTP_PROXY`/`ALL_PROXY` do ambiente. Validado: `verificar_saude`
-  → `ok` contra a `.11`.
+  → `ok` contra a `.11`. (Obs.: no incidente real desta `.11` não havia proxy — a causa foi o loopback
+  abaixo — mas `trust_env=False` fica como endurecimento correto: uma fachada interna nunca deve usar proxy.)
+- **`SIS_API_BASE` na `.11`: loopback → IP da própria máquina (LocalSystem não alcança a pseudo-interface
+  de loopback).** O serviço `OrcaView-MCP` roda como **LocalSystem (Sessão 0)** e, neste servidor, esse
+  contexto **não conecta em `127.0.0.1:8077`** (`WinError 10061`) — apesar da API no ar e do `curl` +
+  `verificar_saude` **interativos** (usuário admin) darem 200. Sem venv, sem proxy: a única diferença era
+  o contexto do serviço. Fix (config, no `mcp/.env` gitignored): `SIS_API_BASE=http://192.168.7.11:8077`
+  (a API escuta em `0.0.0.0`; o pacote segue local, a chave não sai da máquina). Documentado no README
+  (seção "Modo remoto" → Gotcha). **MCP remoto respondendo as tools no Claude** (ex.: `listar_pedidos_com_os`,
+  `detalhe_pedido_os`). Fase 3 concluída ponta a ponta.
 
 ## [2026-07-03] — Detalhe de OS (endpoint) + Fachada MCP (Fase 1, read-only)
 

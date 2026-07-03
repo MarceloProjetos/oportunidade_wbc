@@ -96,12 +96,22 @@ Em vez do stdio-por-cliente (acima), a fachada pode rodar como **serviço HTTP c
 **Config no `mcp/.env` da `.11`:**
 
 ```
-SIS_API_BASE=http://127.0.0.1:8077   # loopback: a OS_API_KEY nunca sai do servidor
+SIS_API_BASE=http://192.168.7.11:8077   # IP da própria .11 (ver Gotcha); a chave não sai da máquina
 SIS_API_KEY=<a OS_API_KEY>
 SIS_MCP_TOKEN=<token forte p/ os clientes>
 SIS_MCP_HOST=0.0.0.0
 SIS_MCP_PORT=8078
 ```
+
+> **Gotcha (LocalSystem + loopback):** o ideal seria `SIS_API_BASE=http://127.0.0.1:8077` (loopback,
+> a chave nem toca a rede). Mas o serviço `OrcaView-MCP` roda como **LocalSystem (Sessão 0)** e, nesta
+> `.11`, esse contexto **não alcança a pseudo-interface de loopback** — dá `WinError 10061 "conexão
+> recusada"` **mesmo com a API no ar** e o `curl`/`verificar_saude` **interativos funcionando** (a
+> diferença é só o contexto do serviço, não o código/proxy/venv). Solução: apontar para o **IP da
+> própria máquina** (`http://192.168.7.11:8077`) — a API escuta em `0.0.0.0:8077`, o pacote continua
+> **local** (não sai da `.11`) e o serviço passa a conectar. Alternativa: rodar o serviço como um
+> usuário normal em vez de LocalSystem (`nssm set OrcaView-MCP ObjectName .\<user> <senha>`) — aí o
+> loopback volta a funcionar.
 
 **Subir** (na `.11`): `run_mcp.bat` diretamente, ou como serviço via `install_mcp_service.bat`
 (NSSM `OrcaView-MCP`, boot automático). Libere a porta no firewall — **restringindo por IP**:
