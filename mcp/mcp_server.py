@@ -56,7 +56,12 @@ def _get(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     url = f"{API_BASE}{path}"
     headers = {"X-API-Key": API_KEY} if API_KEY else {}
     try:
-        resp = httpx.get(url, params=params, headers=headers, timeout=HTTP_TIMEOUT)
+        # trust_env=False: NÃO honra proxy do ambiente (HTTP_PROXY/ALL_PROXY/etc). A fachada
+        # só fala com a API interna (loopback/LAN); um proxy corporativo herdado pelo serviço
+        # (LocalSystem) rotearia até a chamada de 127.0.0.1 pelo proxy → WinError 10061
+        # (connection refused) mesmo com a API no ar. Um shell interativo sem proxy funciona.
+        resp = httpx.get(url, params=params, headers=headers, timeout=HTTP_TIMEOUT,
+                         trust_env=False)
     except httpx.RequestError as exc:
         return {"ok": False, "erro": f"servidor de integração inacessível ({API_BASE}): {exc}"}
 

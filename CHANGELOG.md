@@ -37,6 +37,13 @@ Mudanças notáveis deste projeto. Formato inspirado em
   a rede é interna e os clientes são apps MCP, não navegadores). Reproduzido o 421 e **verificado o
   fix** (Host LAN → 406/400). **MCP remoto no ar na `.11`** (serviço `OrcaView-MCP`). O
   `PLANO_FASE3.md` foi removido — o conteúdo operacional está consolidado no `mcp/README.md`.
+- **`mcp_server.py`: `httpx` com `trust_env=False` — não usa proxy do ambiente na chamada à API
+  interna.** O serviço `OrcaView-MCP` (LocalSystem) herdava um proxy HTTP do ambiente da máquina
+  e o `httpx` roteava **até a chamada de `127.0.0.1:8077`** pelo proxy → **WinError 10061 "conexão
+  recusada"** mesmo com a API no ar (um `curl` interativo, sem proxy no perfil do usuário,
+  funcionava — daí a assimetria). Como a fachada só fala com a API interna (loopback/LAN),
+  `trust_env=False` ignora qualquer `HTTP_PROXY`/`ALL_PROXY` do ambiente. Validado: `verificar_saude`
+  → `ok` contra a `.11`.
 
 ## [2026-07-03] — Detalhe de OS (endpoint) + Fachada MCP (Fase 1, read-only)
 
