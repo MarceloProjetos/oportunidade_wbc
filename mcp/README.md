@@ -84,8 +84,51 @@ Reinicie o Claude Desktop. Depois é só perguntar: *"o servidor de integração
 *"últimas sincronizações de OS?"*, *"quais pedidos têm OS disponível?"*, *"mostra a OS do pedido 84080"*,
 *"a tarefa WBC rodou hoje?"*, *"teve falha de sync hoje?"*.
 
+## Modo remoto (Fase 3 — serviço HTTP na `.11`)
+
+Em vez do stdio-por-cliente (acima), a fachada pode rodar como **serviço HTTP central na
+`.11`** (porta **8078**), e os clientes apontam para **uma URL só**, autenticando com um
+**token estático**. Plano completo em [PLANO_FASE3.md](PLANO_FASE3.md).
+
+**Entrypoint:** [serve_http.py](serve_http.py) — serve o mesmo FastMCP via *Streamable HTTP*
+(uvicorn) atrás de um middleware que exige `Authorization: Bearer <SIS_MCP_TOKEN>`.
+
+**Config no `mcp/.env` da `.11`:**
+
+```
+SIS_API_BASE=http://127.0.0.1:8077   # loopback: a OS_API_KEY nunca sai do servidor
+SIS_API_KEY=<a OS_API_KEY>
+SIS_MCP_TOKEN=<token forte p/ os clientes>
+SIS_MCP_HOST=0.0.0.0
+SIS_MCP_PORT=8078
+```
+
+**Subir** (na `.11`): `run_mcp.bat` diretamente, ou como serviço via `install_mcp_service.bat`
+(NSSM `OrcaView-MCP`, boot automático). Libere a porta no firewall — **restringindo por IP**:
+
+```bat
+netsh advfirewall firewall add rule name="OrcaView MCP 8078" dir=in action=allow ^
+  protocol=TCP localport=8078 remoteip=192.168.0.90,<ip-do-cliente>
+```
+
+**Registrar o cliente (transporte HTTP):**
+
+```bash
+claude mcp add --transport http servidor-integracao-sap \
+  http://192.168.7.11:8078/mcp \
+  --header "Authorization: Bearer <SIS_MCP_TOKEN>" --scope user
+```
+
+> Vantagem: a `OS_API_KEY` passa a viver **só na `.11`** (o MCP chama a API por loopback),
+> em vez de estar no `.env` de cada cliente.
+
 ## Segurança
 
-- A `SIS_API_KEY` fica **no servidor MCP**, injetada server-side no header `X-API-Key`
-  — **nunca** é enviada ao modelo.
-- Fase 0 é **100% leitura**. Nenhuma tool dispara ação no SAP.
+- **Saída (MCP → API):** a `SIS_API_KEY` fica **no servidor MCP**, injetada server-side no
+  header `X-API-Key` — **nunca** é enviada ao modelo. No modo remoto (Fase 3), roda na `.11`
+  e chama a API por `127.0.0.1`, então a chave **não trafega na LAN**.
+- **Entrada (cliente → MCP, só no modo remoto):** `Authorization: Bearer <SIS_MCP_TOKEN>`.
+  Sobre HTTP puro na LAN o token vai em cleartext — **restrinja a porta 8078 por IP** no
+  firewall (TLS via reverse-proxy fica como hardening futuro).
+- Fases 0–1 são **100% leitura**. Nenhuma tool dispara ação no SAP (escrita = Fase futura,
+  com confirmação humana).

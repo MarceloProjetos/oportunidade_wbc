@@ -3,6 +3,29 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-03] — Fachada MCP (Fase 3, modo remoto HTTP) — código
+
+### Adicionado
+
+- **`mcp/serve_http.py` — modo remoto da fachada MCP (Streamable HTTP + token estático).**
+  Serve o **mesmo** FastMCP (tools + resources da Fase 1) via uvicorn, atrás de um middleware
+  ASGI que exige `Authorization: Bearer <SIS_MCP_TOKEN>` (401 sem/errado; encaminha o escopo
+  `lifespan` p/ o session-manager iniciar; compara com `hmac.compare_digest`). **Não** usa
+  `mcp.run("streamable-http")` (que sobe o uvicorn interno sem hook de auth) — monta
+  `mcp.streamable_http_app()` + `uvicorn.run`. Config via `mcp/.env`: `SIS_MCP_TOKEN`,
+  `SIS_MCP_HOST` (default `0.0.0.0`), `SIS_MCP_PORT` (default `8078`), `SIS_API_BASE` (na `.11`
+  = `http://127.0.0.1:8077` → a `OS_API_KEY` **nunca sai do servidor**). A stdio (`mcp_server.py`)
+  fica intacta p/ uso local. **Testado localmente:** sem token → 401, token errado → 401, token
+  válido → 400 (passou pelo auth; 400 = handshake MCP). Sem TLS (rede interna, decisão do usuário).
+- **`run_mcp.bat` + `install_mcp_service.bat`** — sobem o MCP HTTP como serviço Windows via NSSM
+  (`OrcaView-MCP`, `SERVICE_AUTO_START`, `DependOnService OrcaView-OS-API`, logs rotativos),
+  espelhando o padrão do `OrcaView-OS-API` (8077). `uvicorn` adicionado ao `mcp/requirements.txt`.
+- **`mcp/PLANO_FASE3.md` + seção "Modo remoto" no `mcp/README.md`** — passo-a-passo de deploy na
+  `.11` (git pull + deps + `mcp/.env` + `install_mcp_service.bat` + firewall por IP) e registro do
+  cliente (`claude mcp add --transport http … --header "Authorization: Bearer …"`).
+  **`web_orcaview_V117` (.90): nenhuma mudança** — consome só a REST `/status`; a Mira não faz
+  tool-calling. **Deploy na `.11` é operação do Marcelo** (código pronto e testado).
+
 ## [2026-07-03] — Detalhe de OS (endpoint) + Fachada MCP (Fase 1, read-only)
 
 ### Adicionado
