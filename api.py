@@ -37,6 +37,7 @@ import logging
 import os
 import sys
 import threading
+import time
 from logging.handlers import TimedRotatingFileHandler
 from typing import Any, List, Optional, Tuple
 
@@ -90,6 +91,60 @@ _WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web')
 # Serializa as cargas: nunca duas sincronizações simultâneas (evita múltiplas
 # conexões SAP e corridas no replace_nped). O volume é baixo (gatilho sob demanda).
 _sync_lock = threading.Lock()
+
+# ── Rate-limit das ESCRITAS (trava anti-loop) ──────────────────────────────────────
+# Janela deslizante in-process por "bucket". GENEROSO de propósito: pega runaway/loop de
+# agente sem atrapalhar uso normal (uma pessoa/uso comum fica muito abaixo). Configurável
+# por env: RATE_SYNC_OS_MAX (syncs de OS/min) e RATE_FORCE_OPORT_MAX (cargas completas/min).
+_RATE_WINDOW_S = 60.0
+_RATE_SYNC_OS_MAX = int(os.getenv('RATE_SYNC_OS_MAX', '60'))
+_RATE_FORCE_OPORT_MAX = int(os.getenv('RATE_FORCE_OPORT_MAX', '6'))
+
+
+class _RateLimiter:
+    """Janela deslizante thread-safe: conta chamadas por 'bucket' e diz se passou do limite."""
+
+    def __init__(self) -> None:
+        self._hits: dict = {}
+        self._lock = threading.Lock()
+
+    def check(self, bucket: str, limite: int, janela_s: float) -> Tuple[bool, float]:
+        """Registra um hit; retorna ``(permitido, segundos_até_liberar)``."""
+        agora = time.monotonic()
+        corte = agora - janela_s
+        with self._lock:
+            hits = [t for t in self._hits.get(bucket, ()) if t > corte]
+            if len(hits) >= limite:
+                self._hits[bucket] = hits
+                return False, max(0.0, janela_s - (agora - hits[0]))
+            hits.append(agora)
+            self._hits[bucket] = hits
+            return True, 0.0
+
+    def reset(self) -> None:
+        """Zera o estado (usado nos testes)."""
+        with self._lock:
+            self._hits.clear()
+
+
+_rate_limiter = _RateLimiter()
+
+
+def _checar_rate(bucket: str, limite: int):
+    """Se estourou o rate-limit, devolve ``(resposta_429, 429)`` p/ retornar; senão ``None``."""
+    permitido, retry = _rate_limiter.check(bucket, limite, _RATE_WINDOW_S)
+    if permitido:
+        return None
+    espera = int(retry) + 1
+    resp = jsonify(
+        ok=False, error='rate_limited', retry_after_s=espera,
+        motivo=(f'Trava anti-loop: muitas escritas em menos de {int(_RATE_WINDOW_S)}s '
+                f'(limite {limite}). Aguarde ~{espera}s e tente de novo.'),
+    )
+    resp.headers['Retry-After'] = str(espera)
+    logger.warning("Rate-limit '%s' estourado (limite %s/%ss)", bucket, limite, int(_RATE_WINDOW_S))
+    return resp, 429
+
 
 # Cliente Supabase (service_role) p/ ler o log — criado sob demanda e reaproveitado.
 _supabase_client = None
@@ -410,6 +465,10 @@ def os_sincronizar(nped: str):
     except ValueError as exc:
         return jsonify(ok=False, error=str(exc)), 400
 
+    limitado = _checar_rate('sync_os', _RATE_SYNC_OS_MAX)
+    if limitado is not None:
+        return limitado
+
     with _sync_lock:
         resultado = _sync_one(n)
 
@@ -491,6 +550,10 @@ def oport_sincronizar():
     """
     if not _autorizado():
         return jsonify(ok=False, error='unauthorized'), 401
+    limitado = _checar_rate('force_oport', _RATE_FORCE_OPORT_MAX)
+    if limitado is not None:
+        return limitado
+
     try:
         with oportunidades_sync_lock(timeout=0):
             ok = bool(sync_oportunidades())

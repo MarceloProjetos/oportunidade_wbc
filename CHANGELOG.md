@@ -21,6 +21,13 @@ Mudanças notáveis deste projeto. Formato inspirado em
   preview do estado atual + instrução pro modelo mostrar ao usuário e só chamar com `confirmar=True`
   após o "sim". Novo helper `_post` (mesmo tratamento de erro do `_get`; repassa o 409). Validado:
   preview **read-only** contra a `.11` (não escreve). 10 tools no total (8 leitura + 2 escrita).
+- **Rate-limit nas ESCRITAS (trava anti-loop), no lado da API.** Janela deslizante in-process,
+  thread-safe, por bucket — **generosa** (não atrapalha uso normal, pega runaway/loop de agente):
+  default **60** syncs de OS/min (`sync_os`) e **6** cargas completas/min (`force_oport`),
+  configurável por env `RATE_SYNC_OS_MAX` / `RATE_FORCE_OPORT_MAX`. Aplicada em
+  `POST /ordens-servico/<nped>/sincronizar` e `POST /oportunidades/sincronizar`; se estourar,
+  responde **`429`** com `Retry-After` + motivo (o `_post` do MCP repassa à tool → o modelo para).
+  +3 testes (suíte **158 passed**).
 
 ## [2026-07-03] — Fachada MCP (Fase 3, modo remoto HTTP) — código
 

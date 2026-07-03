@@ -14,6 +14,7 @@ def client(monkeypatch):
     # (o .env local pode ter OS_API_KEY; aqui garantimos um estado determinístico.)
     monkeypatch.delenv('OS_API_KEY', raising=False)
     reset_settings()
+    apimod._rate_limiter.reset()   # rate-limit é singleton de processo — zera entre testes
     # sync_os mockado: registra os NPEDs chamados e devolve sucesso por padrão
     chamados = []
     monkeypatch.setattr(apimod, 'sync_os', lambda n: chamados.append(n) or True)
@@ -211,6 +212,32 @@ def test_os_sincronizar_requires_key_when_set(client, monkeypatch):
                        headers={'X-API-Key': 'segredo'}).status_code == 200
 
 
+def test_os_sincronizar_rate_limit_429(client, monkeypatch):
+    """Trava anti-loop: passou do limite → 429 com Retry-After."""
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, '_RATE_SYNC_OS_MAX', 2)   # limite baixo p/ o teste
+    assert client.post('/ordens-servico/84080/sincronizar').status_code == 200
+    assert client.post('/ordens-servico/84081/sincronizar').status_code == 200
+    r = client.post('/ordens-servico/84082/sincronizar')   # 3ª estoura
+    assert r.status_code == 429
+    body = r.get_json()
+    assert body['error'] == 'rate_limited' and body['retry_after_s'] >= 1
+    assert r.headers.get('Retry-After')
+
+
+# ----- Rate limiter (unidade) -----
+
+def test_rate_limiter_janela():
+    rl = apimod._RateLimiter()
+    assert rl.check('b', 2, 60.0)[0] is True
+    assert rl.check('b', 2, 60.0)[0] is True
+    permitido, retry = rl.check('b', 2, 60.0)          # 3ª estoura
+    assert permitido is False and retry > 0
+    assert rl.check('outro', 2, 60.0)[0] is True        # bucket diferente = independente
+    rl.reset()
+    assert rl.check('b', 2, 60.0)[0] is True            # reset libera
+
+
 # ----- Oportunidades (pipeline agendado) -----
 
 def test_oport_historico_returns_items(client, monkeypatch):
@@ -254,6 +281,20 @@ def test_oport_sincronizar_busy_409(client, monkeypatch):
     r = client.post('/oportunidades/sincronizar')
     assert r.status_code == 409
     assert r.get_json()['tipo'] == 'ocupado'
+
+
+def test_oport_sincronizar_rate_limit_429(client, monkeypatch):
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _fake_lock(timeout=0):
+        yield
+
+    monkeypatch.setattr(apimod, 'oportunidades_sync_lock', _fake_lock)
+    monkeypatch.setattr(apimod, 'sync_oportunidades', lambda: True)
+    monkeypatch.setattr(apimod, '_RATE_FORCE_OPORT_MAX', 1)
+    assert client.post('/oportunidades/sincronizar').status_code == 200
+    assert client.post('/oportunidades/sincronizar').status_code == 429   # 2ª estoura
 
 
 def test_oport_sincronizar_requires_key_when_set(client, monkeypatch):
