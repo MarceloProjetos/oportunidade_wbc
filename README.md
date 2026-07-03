@@ -464,10 +464,6 @@ Conferir: abra `http://127.0.0.1:8077/health` (ou de outra máquina `http://<ip-
 → `{"status":"ok"}`. **Não** deixe o `run_api.bat` aberto manualmente junto com o serviço
 (brigam pela porta 8077).
 
-> Passo a passo didático, com exemplos e saídas reais (incl. a API e um exemplo de
-> `fetch` no front), no
-> **[GUIA_ORDENS_SERVICO_ENGENHARIA.md](GUIA_ORDENS_SERVICO_ENGENHARIA.md)**.
-
 ---
 
 ## Agendamento (Automático)
