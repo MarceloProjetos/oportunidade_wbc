@@ -155,6 +155,62 @@ def test_os_detalhe_requires_key_when_set(client, monkeypatch):
                       headers={'X-API-Key': 'segredo'}).status_code == 200
 
 
+# ----- POST /ordens-servico/<nped>/sincronizar (escrita: sync + resumo) -----
+
+def test_os_sincronizar_ok_com_resumo(client, monkeypatch):
+    """Sync OK → 200, resultado.ok e o resumo fresco relido da tabela."""
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    r = client.post('/ordens-servico/84080/sincronizar')
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['ok'] is True and body['nped'] == 84080
+    assert body['resultado']['ok'] is True
+    assert body['resumo']['num_linhas'] == 2 and body['resumo']['status_desc'] == 'Liberado'
+    assert client._chamados == [84080]            # sincronizou
+
+
+def test_os_sincronizar_sem_os_200_sem_resumo(client, monkeypatch):
+    """Pedido sem OS gerada → aviso 'sem_os', 200, sem resumo e SEM sincronizar."""
+    monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {'tem_os': False, 'cancelada': False})
+    r = client.post('/ordens-servico/84106/sincronizar')
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['ok'] is False and body['resultado']['tipo'] == 'sem_os'
+    assert 'resumo' not in body
+    assert client._chamados == []                 # não tentou sincronizar
+
+
+def test_os_sincronizar_cancelada(client, monkeypatch):
+    monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {'tem_os': True, 'cancelada': True})
+    r = client.post('/ordens-servico/84080/sincronizar')
+    assert r.status_code == 200
+    assert r.get_json()['resultado']['tipo'] == 'cancelada'
+    assert client._chamados == []
+
+
+def test_os_sincronizar_falha_502(client, monkeypatch):
+    """Falha real de sync (tipo 'erro') → 502."""
+    monkeypatch.setattr(apimod, 'sync_os', lambda n: False)
+    r = client.post('/ordens-servico/84080/sincronizar')
+    assert r.status_code == 502
+    assert r.get_json()['resultado']['tipo'] == 'erro'
+
+
+@pytest.mark.parametrize('bad', ['-5', '0', 'abc', '84080.0'])
+def test_os_sincronizar_nped_invalido_400(client, bad):
+    assert client.post(f'/ordens-servico/{bad}/sincronizar').status_code == 400
+    assert client._chamados == []
+
+
+def test_os_sincronizar_requires_key_when_set(client, monkeypatch):
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    assert client.post('/ordens-servico/84080/sincronizar').status_code == 401
+    assert client.post('/ordens-servico/84080/sincronizar',
+                       headers={'X-API-Key': 'segredo'}).status_code == 200
+
+
 # ----- Oportunidades (pipeline agendado) -----
 
 def test_oport_historico_returns_items(client, monkeypatch):

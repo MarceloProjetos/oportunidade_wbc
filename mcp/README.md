@@ -1,4 +1,4 @@
-# Fachada MCP — ServidorIntegracaoSAP (Fases 0–1)
+# Fachada MCP — ServidorIntegracaoSAP
 
 Camada **fina e read-only** que expõe, como *tools* MCP, os endpoints que a API REST
 (porta 8077) já oferece. Um cliente MCP (Claude Desktop, Claude Code, o assistente Mira)
@@ -29,7 +29,21 @@ Recursos que o cliente MCP lê como "arquivos de contexto", **sem gastar uma too
 | `sap-integracao://status` | snapshot do `/status` (JSON) |
 | `sap-integracao://historico-os` | últimas 20 sincronizações de OS (JSON) |
 
-Ações de escrita (sincronizar pedido, forçar carga) ficam para a **Fase 2**, com confirmação humana.
+## Tools de escrita (Fase 4 — com confirmação humana)
+
+Escrita real (SAP → Supabase), com **confirmação em 2 camadas**: (1) `annotations`
+(`readOnlyHint=False`, `idempotentHint=True`, `openWorldHint=True`) fazem o cliente MCP sinalizar
+que é ação de escrita; (2) **preview-então-confirma** — com `confirmar=False` (default) a tool
+**NÃO escreve**: devolve um *preview* do estado atual e a instrução; o modelo mostra ao usuário e só
+chama com `confirmar=True` após o "sim" explícito.
+
+| Tool | Endpoint | Chave? |
+|---|---|---|
+| `sincronizar_pedido_os(nped, confirmar?)` | `POST /ordens-servico/<nped>/sincronizar` (sync + resumo) | sim |
+| `forcar_carga_oportunidades(confirmar?)` | `POST /oportunidades/sincronizar` (`409` se ocupado) | sim |
+
+> A sync de OS é **idempotente** (`replace_nped`) e só roda se o pedido tiver OS gerada e não
+> cancelada (avisos `sem_os`/`cancelada` no SAP). A carga de oportunidades usa **lock** (nunca 2 juntas).
 
 ## Onde roda (topologia recomendada — Opção A)
 
@@ -166,5 +180,7 @@ netsh advfirewall firewall delete rule name="OrcaView MCP 8078"
 - **Entrada (cliente → MCP, só no modo remoto):** `Authorization: Bearer <SIS_MCP_TOKEN>`.
   Sobre HTTP puro na LAN o token vai em cleartext — **restrinja a porta 8078 por IP** no
   firewall (TLS via reverse-proxy fica como hardening futuro).
-- Fases 0–1 são **100% leitura**. Nenhuma tool dispara ação no SAP (escrita = Fase futura,
-  com confirmação humana).
+- **Leitura vs escrita:** as tools de **leitura** (Fases 0–1) + resources não tocam o SAP. As de
+  **escrita** (Fase 4: `sincronizar_pedido_os`, `forcar_carga_oportunidades`) só executam com
+  `confirmar=True` **após** o preview + confirmação do usuário, e são marcadas com
+  `readOnlyHint=False` para o cliente MCP sinalizar a ação.

@@ -3,6 +3,25 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-03] — Fachada MCP (Fase 4, escrita com confirmação) + endpoint de sync
+
+### Adicionado
+
+- **`POST /ordens-servico/<nped>/sincronizar` (API 8077) — par de ESCRITA do `GET`.** Sincroniza
+  (SAP → Supabase) a OS de um pedido e devolve o `resumo` resultante **numa chamada**. Reúsa
+  `_sync_one` (serializado no `_sync_lock`): diagnostica a OWOR antes — se não há OS gerada ou está
+  cancelada, devolve o aviso **sem sincronizar**. Idempotente (`replace_nped`) + dispara a árvore WBC
+  (best-effort). Status `200` (sincronizado **ou** aviso sem_os/cancelada) · `502` (falha de sync) ·
+  `400`/`401`. +6 testes (suíte **155 passed**).
+- **`mcp/` — Fase 4: 2 tools de ESCRITA com confirmação humana.** `sincronizar_pedido_os(nped, confirmar?)`
+  (usa o endpoint acima) e `forcar_carga_oportunidades(confirmar?)` (`POST /oportunidades/sincronizar`;
+  `409` se já houver carga). **Confirmação em 2 camadas:** (1) `annotations` (`readOnlyHint=False`,
+  `idempotentHint=True`, `openWorldHint=True`) — o cliente MCP sinaliza que é escrita e pede aprovação;
+  (2) **preview-então-confirma** — com `confirmar=False` (default) a tool **não escreve**: devolve um
+  preview do estado atual + instrução pro modelo mostrar ao usuário e só chamar com `confirmar=True`
+  após o "sim". Novo helper `_post` (mesmo tratamento de erro do `_get`; repassa o 409). Validado:
+  preview **read-only** contra a `.11` (não escreve). 10 tools no total (8 leitura + 2 escrita).
+
 ## [2026-07-03] — Fachada MCP (Fase 3, modo remoto HTTP) — código
 
 ### Adicionado

@@ -8,6 +8,7 @@ Endpoints
 ---------
 - ``GET  /health``                         → ``{"status": "ok"}``
 - ``GET  /ordens-servico/<nped>``           → detalhe (resumo) da OS de um pedido
+- ``POST /ordens-servico/<nped>/sincronizar`` → sincroniza + devolve o resumo (par do GET)
 - ``POST /sync/ordens-servico/<nped>``      → sincroniza **um** pedido
 - ``POST /sync/ordens-servico``             → corpo ``{"nped": N}`` ou ``{"npeds": [...]}``
 
@@ -386,6 +387,44 @@ def os_detalhe(nped: str):
     if request.args.get('linhas') in ('1', 'true', 'yes'):
         payload['linhas'] = linhas
     return jsonify(payload)
+
+
+@app.post('/ordens-servico/<nped>/sincronizar')
+def os_sincronizar(nped: str):
+    """Sincroniza (SAP → Supabase) a OS de UM pedido e devolve o ``resumo`` resultante.
+    Requer X-API-Key. **Par de escrita** do ``GET /ordens-servico/<nped>``.
+
+    Reúsa ``_sync_one`` (serializado no ``_sync_lock``): diagnostica a OWOR antes — se o pedido
+    **não tem OS gerada** ou está **cancelada**, devolve o aviso **sem sincronizar**. É idempotente
+    (``replace_nped`` substitui, não duplica) e dispara também a árvore WBC (best-effort). Em
+    sucesso, relê a tabela e inclui o ``resumo`` fresco (cliente, status, nº de linhas/OPs, última
+    sincronização).
+
+    Status: ``200`` (sincronizado **ou** aviso de negócio sem_os/cancelada) · ``502`` (falha de
+    sincronização) · ``400`` NPED inválido · ``401`` sem/má X-API-Key.
+    """
+    if not _autorizado():
+        return jsonify(ok=False, error='unauthorized'), 401
+    try:
+        n = coerce_positive_int(nped, what='NPED')
+    except ValueError as exc:
+        return jsonify(ok=False, error=str(exc)), 400
+
+    with _sync_lock:
+        resultado = _sync_one(n)
+
+    payload = {'ok': bool(resultado.get('ok')), 'nped': n, 'resultado': resultado}
+    if resultado.get('ok'):
+        try:
+            linhas = _fetch_os_detalhe(n)
+            if linhas:
+                payload['resumo'] = _resumo_os(linhas)
+        except Exception as exc:  # sync já foi; só não conseguimos reler o resumo
+            logger.error("Sync OK mas falha ao reler o resumo do NPED %s: %s", n, exc)
+
+    # sem_os / cancelada = outcome de negócio (200); 'erro' = falha real de sync (502)
+    http = 502 if resultado.get('tipo') == 'erro' else 200
+    return jsonify(payload), http
 
 
 # ===================== Oportunidades (pipeline agendado) =====================

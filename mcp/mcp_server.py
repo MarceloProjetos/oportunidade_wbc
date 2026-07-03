@@ -30,6 +30,7 @@ from typing import Any, Dict, Optional
 
 import httpx
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 
 try:
     # Carrega um .env ao lado deste arquivo, se python-dotenv estiver instalado.
@@ -72,6 +73,36 @@ def _get(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         # sincronizada"}), repassa-o — o modelo recebe a mensagem real em vez de um "HTTP 404"
         # genérico. Fallback: erro genérico (ex.: 404 HTML do Flask = rota inexistente = servidor
         # de integração ainda não atualizado com o endpoint).
+        try:
+            body = resp.json()
+            if isinstance(body, dict):
+                return body
+        except ValueError:
+            pass
+        return {"ok": False, "erro": f"HTTP {resp.status_code} em {path}", "corpo": resp.text[:300]}
+
+    try:
+        return resp.json()
+    except ValueError:
+        return {"ok": False, "erro": f"resposta não-JSON de {path}", "corpo": resp.text[:300]}
+
+
+def _post(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """POST num endpoint da API (ESCRITA), injetando a X-API-Key server-side.
+
+    Mesmo tratamento de erro do ``_get`` (nunca estoura exceção; repassa corpo JSON de erro,
+    ex.: 409 ``{"ok": false, "tipo": "ocupado"}`` da carga de oportunidades).
+    """
+    url = f"{API_BASE}{path}"
+    headers = {"X-API-Key": API_KEY} if API_KEY else {}
+    try:
+        resp = httpx.post(url, params=params, headers=headers, timeout=HTTP_TIMEOUT, trust_env=False)
+    except httpx.RequestError as exc:
+        return {"ok": False, "erro": f"servidor de integração inacessível ({API_BASE}): {exc}"}
+
+    if resp.status_code == 401:
+        return {"ok": False, "erro": "não autorizado (401) — SIS_API_KEY ausente ou incorreta"}
+    if resp.status_code >= 400:
         try:
             body = resp.json()
             if isinstance(body, dict):
@@ -215,6 +246,71 @@ def recurso_status() -> str:
 def recurso_historico_os() -> str:
     """Snapshot das últimas 20 sincronizações de OS (/historico). Requer a SIS_API_KEY."""
     return json.dumps(_get("/historico", {"limit": 20}), ensure_ascii=False, indent=2)
+
+
+# ─────────────────── Fase 4 — ESCRITA (com confirmação humana) ───────────────────
+# Padrão: confirmar=False (default) devolve um PREVIEW e NÃO escreve; o modelo mostra ao
+# usuário e só chama de novo com confirmar=True após o "sim". As annotations
+# (readOnlyHint=False, …) fazem o cliente MCP também sinalizar que é ação de escrita.
+
+_ANOTACAO_ESCRITA = ToolAnnotations(readOnlyHint=False, idempotentHint=True, openWorldHint=True)
+
+_INSTRUCAO_CONFIRMAR = ("Mostre este preview ao usuário e só chame esta tool de novo com "
+                        "confirmar=True depois que ele confirmar explicitamente.")
+
+
+@mcp.tool(annotations=_ANOTACAO_ESCRITA)
+def sincronizar_pedido_os(nped: int, confirmar: bool = False) -> Dict[str, Any]:
+    """ESCRITA: sincroniza (SAP → Supabase) a OS de um pedido. Idempotente (replace_nped).
+
+    **Requer confirmação humana.** Com ``confirmar=False`` (default) NÃO sincroniza — devolve um
+    preview do estado atual; mostre ao usuário e obtenha um "sim". Só então chame com
+    ``confirmar=True`` para executar. Requer a SIS_API_KEY.
+
+    Args:
+        nped: número do pedido (ex.: 84080).
+        confirmar: False = preview (não escreve); True = executa a sincronização.
+    """
+    n = int(nped)
+    if not confirmar:
+        atual = _get(f"/ordens-servico/{n}")
+        if isinstance(atual, dict) and atual.get("ok"):
+            r = atual.get("resumo") or {}
+            estado = {"sincronizado": True, "cliente": r.get("cliente"),
+                      "status_desc": r.get("status_desc"), "num_linhas": r.get("num_linhas"),
+                      "ultima_sincronizacao": r.get("ultima_sincronizacao")}
+            efeito = "Re-sincroniza (atualiza) a OS deste pedido no Supabase — idempotente."
+        else:
+            motivo = atual.get("error") or atual.get("erro") if isinstance(atual, dict) else None
+            estado = {"sincronizado": False, "detalhe": motivo}
+            efeito = "Sincroniza a OS deste pedido pela 1ª vez (se houver OS gerada no SAP)."
+        return {"preview": True, "acao": "sincronizar_pedido_os", "nped": n,
+                "estado_atual": estado, "efeito": efeito, "instrucao": _INSTRUCAO_CONFIRMAR}
+    return _post(f"/ordens-servico/{n}/sincronizar")
+
+
+@mcp.tool(annotations=_ANOTACAO_ESCRITA)
+def forcar_carga_oportunidades(confirmar: bool = False) -> Dict[str, Any]:
+    """ESCRITA: força a carga COMPLETA de oportunidades (a mesma do agendador). Operação pesada.
+
+    **Requer confirmação humana.** Com ``confirmar=False`` (default) devolve um preview (total atual
+    + intervalo agendado) e NÃO dispara; mostre ao usuário e obtenha um "sim". Só então
+    ``confirmar=True`` executa. Responde ``tipo: "ocupado"`` (HTTP 409) se já houver carga em
+    andamento. Requer a SIS_API_KEY.
+
+    Args:
+        confirmar: False = preview (não escreve); True = dispara a carga completa.
+    """
+    if not confirmar:
+        info = _get("/oportunidades/info")
+        total = info.get("total") if isinstance(info, dict) else None
+        intervalo = info.get("intervalo_minutos") if isinstance(info, dict) else None
+        return {"preview": True, "acao": "forcar_carga_oportunidades",
+                "estado_atual": {"total_linhas": total, "intervalo_agendado_min": intervalo},
+                "efeito": ("Recarrega a base INTEIRA de oportunidades (snapshot completo). O agendador "
+                           "já roda periodicamente — force só se precisar AGORA."),
+                "instrucao": _INSTRUCAO_CONFIRMAR}
+    return _post("/oportunidades/sincronizar")
 
 
 if __name__ == "__main__":
