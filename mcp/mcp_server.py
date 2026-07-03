@@ -24,6 +24,7 @@ Registrar no cliente MCP: ver README.md.
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any, Dict, Optional
 
@@ -62,6 +63,16 @@ def _get(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if resp.status_code == 401:
         return {"ok": False, "erro": "não autorizado (401) — SIS_API_KEY ausente ou incorreta"}
     if resp.status_code >= 400:
+        # Se a API devolveu um JSON estruturado (ex.: 404 {"ok": false, "error": "pedido sem OS
+        # sincronizada"}), repassa-o — o modelo recebe a mensagem real em vez de um "HTTP 404"
+        # genérico. Fallback: erro genérico (ex.: 404 HTML do Flask = rota inexistente = servidor
+        # de integração ainda não atualizado com o endpoint).
+        try:
+            body = resp.json()
+            if isinstance(body, dict):
+                return body
+        except ValueError:
+            pass
         return {"ok": False, "erro": f"HTTP {resp.status_code} em {path}", "corpo": resp.text[:300]}
 
     try:
@@ -134,6 +145,71 @@ def listar_pedidos_com_os(limit: int = 30) -> Dict[str, Any]:
         limit: quantos pedidos trazer (1–50). Default 30.
     """
     return _get("/ordens-servico/disponiveis", {"limit": max(1, min(int(limit), 50))})
+
+
+# ─────────────────────────── Fase 1 — mais leituras ───────────────────────────
+
+@mcp.tool()
+def detalhe_pedido_os(nped: int, incluir_linhas: bool = False) -> Dict[str, Any]:
+    """Detalhe da OS de UM pedido: resumo com cliente, status (+ descrição), total, nº de
+    linhas e de OPs, e quando foi sincronizado pela última vez. Requer a SIS_API_KEY.
+
+    Devolve ``{"ok": false, "error": "pedido sem OS sincronizada"}`` se o pedido ainda não
+    foi sincronizado (use `listar_pedidos_com_os` p/ ver os disponíveis, ou peça a sincronização).
+
+    Args:
+        nped: número do pedido (ex.: 84080).
+        incluir_linhas: se True, traz também as linhas da OS (colunas enxutas, sem os textos NCLOB).
+    """
+    params = {"linhas": 1} if incluir_linhas else None
+    return _get(f"/ordens-servico/{int(nped)}", params)
+
+
+@mcp.tool()
+def estado_tarefa_wbc() -> Dict[str, Any]:
+    """Estado só da tarefa agendada "Integração WBC" (bloco scheduled_task do /status).
+
+    Foca no monitor da tarefa do Windows: última execução, resultado e se rodou no prazo.
+    Endpoint aberto (não exige chave). Use para "a tarefa WBC rodou hoje?" / "deu erro?".
+    """
+    data = _get("/status", {"checks": "scheduled_task"})
+    if isinstance(data, dict) and isinstance(data.get("checks"), dict):
+        tarefa = data["checks"].get("scheduled_task")
+        if tarefa is not None:
+            return {"ok": data.get("ok", True), "scheduled_task": tarefa,
+                    "alerts": data.get("alerts", [])}
+    return data
+
+
+@mcp.tool()
+def ultimos_erros(limit: int = 10) -> Dict[str, Any]:
+    """Só as sincronizações de OS que FALHARAM, dentre as últimas execuções (filtra o /historico).
+    Requer a SIS_API_KEY. Use para "teve falha de sync hoje?" sem ler o histórico inteiro.
+
+    Args:
+        limit: quantos registros recentes do histórico examinar (1–100). Default 10.
+    """
+    data = _get("/historico", {"limit": max(1, min(int(limit), 100))})
+    if not isinstance(data, dict) or "items" not in data:
+        return data  # repassa o erro do _get (rede, 401, etc.)
+    itens = data.get("items") or []
+    falhas = [i for i in itens
+              if str(i.get("status", "")).strip().lower() not in ("sucesso", "ok", "success")]
+    return {"ok": True, "examinados": len(itens), "qtd_falhas": len(falhas), "falhas": falhas}
+
+
+# ── Resources: contexto de LEITURA que o cliente anexa sem gastar uma tool-call por vez ──
+
+@mcp.resource("sap-integracao://status", mime_type="application/json")
+def recurso_status() -> str:
+    """Snapshot atual do /status (saúde de SAP/SQL/Supabase, agendador, tarefa WBC, sistema)."""
+    return json.dumps(_get("/status"), ensure_ascii=False, indent=2)
+
+
+@mcp.resource("sap-integracao://historico-os", mime_type="application/json")
+def recurso_historico_os() -> str:
+    """Snapshot das últimas 20 sincronizações de OS (/historico). Requer a SIS_API_KEY."""
+    return json.dumps(_get("/historico", {"limit": 20}), ensure_ascii=False, indent=2)
 
 
 if __name__ == "__main__":

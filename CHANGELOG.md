@@ -3,6 +3,24 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-03] — Detalhe de OS (endpoint) + Fachada MCP (Fase 1, read-only)
+
+### Adicionado
+
+- **`GET /ordens-servico/<nped>` (API 8077)** — detalhe da OS de **um** pedido, lendo o espelho
+  `ordens_servico_engenharia` no Supabase (service_role). Devolve um `resumo` (cliente, status +
+  `status_desc`, total, nº de linhas e de OPs, última sincronização) e, com `?linhas=1`, também as
+  `linhas` (colunas **enxutas**, sem os textos NCLOB — evita puxar MBs por chamada). **404** se o
+  pedido não tem OS sincronizada; requer `X-API-Key`. A rota estática `/ordens-servico/disponiveis`
+  mantém prioridade sobre o `<nped>` dinâmico no roteador do Werkzeug. +9 testes (suíte **146 passed**).
+- **`mcp/` — Fase 1 da fachada MCP: +3 tools + 2 resources (segue 100% leitura).** Tools:
+  `detalhe_pedido_os(nped, incluir_linhas?)` (usa o endpoint acima), `estado_tarefa_wbc()` (só o
+  bloco `scheduled_task` do `/status`), `ultimos_erros(limit?)` (filtra as falhas do `/historico`).
+  **Resources** (contexto anexável sem gastar tool-call): `sap-integracao://status` e
+  `sap-integracao://historico-os`. O helper `_get` passou a repassar corpo JSON de erro estruturado
+  — um 404 vira a mensagem real (ex.: "pedido sem OS sincronizada") em vez de "HTTP 404"; um 404 **HTML**
+  do Flask sinaliza rota não deployada. Isolado: só mexe em `mcp/` (nada no app/web/Supabase).
+
 ## [2026-07-02] — Fachada MCP (Fase 0, read-only)
 
 ### Adicionado
