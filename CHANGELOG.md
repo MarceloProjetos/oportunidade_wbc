@@ -3,6 +3,29 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-03] — Diagnóstico distingue pedido cancelado × sem OS + respostas sem acento
+
+### Adicionado
+
+- **`diagnosticar_nped` agora consulta também a `ORDR` (status do PEDIDO)**, na mesma conexão,
+  best-effort (falha na ORDR não invalida o diagnóstico da OS; chaves `pedido_*` ficam `null`).
+  Novas chaves: `pedido_existe`, `pedido_cancelado`, `pedido_status` (`Aberto`/`Cancelado`/
+  `Fechado` — `CANCELED` `'Y'`/`'C'` = cancelado; `DocStatus` `'C'` sem cancelamento = fechado).
+- **Novos `tipo` na resposta de sync** (antes tudo caía em `sem_os`): `pedido_cancelado`
+  ("Pedido cancelado no SAP - nao ha OS a sincronizar.") e `pedido_nao_encontrado`
+  ("Pedido nao encontrado no SAP."). O `sem_os` ganhou o status no texto
+  ("OS ainda nao gerada para este pedido (pedido aberto)."). Todas as respostas de sync
+  incluem `status_pedido`. Painel web: badges `PEDIDO CANCELADO` / `NAO ENCONTRADO` /
+  `OS CANCELADA`. Retrocompatível: diag sem as chaves novas cai no `sem_os` genérico.
+  +7 testes (suíte **165 passed**).
+
+### Alterado
+
+- **Mensagens das respostas JSON sem acento, de propósito** (`nao`, `esta`, `historico`,
+  `indisponivel`, `invalido`…) — legíveis em qualquer terminal sem depender do escape
+  `\uXXXX` do JSON (curl/PowerShell mostravam `não`). Vale p/ `motivo`/`error` da API
+  e p/ `coerce_positive_int` (400). Logs e docstrings seguem acentuados.
+
 ## [2026-07-03] — Tooling p/ agentes: CLAUDE.md + pyproject.toml (pytest/ruff)
 
 Fases 1 e 2 do plano "menos tokens por tarefa, respostas mais consistentes".

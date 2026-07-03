@@ -365,7 +365,9 @@
           let cls = 'b-err', txt = 'FALHA', msg = r.motivo || 'não sincronizou';
           if (r.ok) { cls = 'b-ok'; txt = 'OK'; msg = 'atualizado no Supabase'; }
           else if (r.tipo === 'sem_os') { cls = 'b-warn'; txt = 'SEM OS'; }
-          else if (r.tipo === 'cancelada') { cls = 'b-warn'; txt = 'CANCELADA'; }
+          else if (r.tipo === 'pedido_cancelado') { cls = 'b-warn'; txt = 'PEDIDO CANCELADO'; }
+          else if (r.tipo === 'pedido_nao_encontrado') { cls = 'b-warn'; txt = 'NAO ENCONTRADO'; }
+          else if (r.tipo === 'cancelada') { cls = 'b-warn'; txt = 'OS CANCELADA'; }
           html += `<div class="row"><span class="badge ${cls}">${txt}</span>`
                 + `<span class="np">Pedido ${r.nped}</span><span class="msg">${msg}</span></div>`;
         }

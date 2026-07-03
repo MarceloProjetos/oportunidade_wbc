@@ -253,8 +253,12 @@ def _autorizado() -> bool:
 
 
 def _sync_one(nped: int) -> dict:
-    """Sincroniza um NPED. Antes, diagnostica via OWOR: se não há OS ainda, ou se a
-    OS está cancelada, devolve um aviso **sem** tentar sincronizar (não gera log de falha).
+    """Sincroniza um NPED. Antes, diagnostica via OWOR + ORDR: se não há OS ainda
+    (distinguindo pedido aberto, cancelado ou inexistente), ou se a OS está cancelada,
+    devolve um aviso **sem** tentar sincronizar (não gera log de falha).
+
+    Os ``motivo`` das respostas são propositalmente SEM acento — legíveis em qualquer
+    terminal/console sem depender do escape ``\\uXXXX`` do JSON.
     """
     try:
         diag = diagnosticar_nped(nped)
@@ -262,12 +266,22 @@ def _sync_one(nped: int) -> dict:
         logger.error("Erro ao diagnosticar NPED %s: %s", nped, exc)
         diag = {'erro': str(exc)}
 
+    status_pedido = diag.get('pedido_status')
     if diag.get('tem_os') is False:
-        return {'nped': nped, 'ok': False, 'tipo': 'sem_os',
-                'motivo': 'OS ainda não gerada para este pedido.'}
+        base = {'nped': nped, 'ok': False, 'status_pedido': status_pedido}
+        if diag.get('pedido_existe') is False:
+            return {**base, 'tipo': 'pedido_nao_encontrado',
+                    'motivo': 'Pedido nao encontrado no SAP.'}
+        if diag.get('pedido_cancelado'):
+            return {**base, 'tipo': 'pedido_cancelado',
+                    'motivo': 'Pedido cancelado no SAP - nao ha OS a sincronizar.'}
+        sufixo = f' (pedido {status_pedido.lower()})' if status_pedido else ''
+        return {**base, 'tipo': 'sem_os',
+                'motivo': f'OS ainda nao gerada para este pedido{sufixo}.'}
     if diag.get('cancelada'):
         return {'nped': nped, 'ok': False, 'tipo': 'cancelada',
-                'motivo': 'A OS deste pedido está cancelada.'}
+                'status_pedido': status_pedido,
+                'motivo': 'A OS deste pedido esta cancelada.'}
 
     # OS existe (ou não deu para diagnosticar) → tenta sincronizar
     try:
@@ -279,8 +293,10 @@ def _sync_one(nped: int) -> dict:
     if ok:
         # OS OK → dispara também a sync da árvore WBC (best-effort: nunca quebra a OS).
         wbc_ok = _sync_wbc_safe(nped)
-        return {'nped': nped, 'ok': True, 'tipo': None, 'motivo': None, 'wbc': wbc_ok}
-    return {'nped': nped, 'ok': False, 'tipo': 'erro', 'motivo': 'Não foi possível sincronizar.'}
+        return {'nped': nped, 'ok': True, 'tipo': None, 'motivo': None,
+                'status_pedido': status_pedido, 'wbc': wbc_ok}
+    return {'nped': nped, 'ok': False, 'tipo': 'erro', 'status_pedido': status_pedido,
+            'motivo': 'Nao foi possivel sincronizar.'}
 
 
 def _sync_wbc_safe(nped: int) -> bool:
@@ -379,7 +395,7 @@ def historico():
         itens = _fetch_log(get_settings().os_sync_log_table, limit)
     except Exception as exc:
         logger.error("Erro ao ler histórico: %s", exc)
-        return jsonify(ok=False, error='falha ao ler o histórico'), 502
+        return jsonify(ok=False, error='falha ao ler o historico'), 502
     return jsonify(ok=True, items=itens)
 
 
@@ -392,7 +408,7 @@ def historico_limpar():
         removidos = _clear_log(get_settings().os_sync_log_table)
     except Exception as exc:
         logger.error("Erro ao limpar histórico: %s", exc)
-        return jsonify(ok=False, error='falha ao limpar o histórico'), 502
+        return jsonify(ok=False, error='falha ao limpar o historico'), 502
     return jsonify(ok=True, removed=removidos)
 
 
@@ -412,7 +428,7 @@ def os_disponiveis():
         logger.error("Erro ao listar pedidos com OS: %s", exc)
         return jsonify(ok=False, error='falha ao listar a lista de pedidos'), 502
     if pedidos is None:
-        return jsonify(ok=False, error='SAP indisponível'), 502
+        return jsonify(ok=False, error='SAP indisponivel'), 502
     return jsonify(ok=True, items=pedidos)
 
 
@@ -451,8 +467,10 @@ def os_sincronizar(nped: str):
     """Sincroniza (SAP → Supabase) a OS de UM pedido e devolve o ``resumo`` resultante.
     Requer X-API-Key. **Par de escrita** do ``GET /ordens-servico/<nped>``.
 
-    Reúsa ``_sync_one`` (serializado no ``_sync_lock``): diagnostica a OWOR antes — se o pedido
-    **não tem OS gerada** ou está **cancelada**, devolve o aviso **sem sincronizar**. É idempotente
+    Reúsa ``_sync_one`` (serializado no ``_sync_lock``): diagnostica OWOR + ORDR antes — se o
+    pedido **não tem OS gerada** (tipos ``sem_os``, ``pedido_cancelado``, ``pedido_nao_encontrado``,
+    conforme o status do pedido na ORDR) ou a OS está **cancelada**, devolve o aviso **sem
+    sincronizar**. As respostas incluem ``status_pedido`` (Aberto/Cancelado/Fechado). É idempotente
     (``replace_nped`` substitui, não duplica) e dispara também a árvore WBC (best-effort). Em
     sucesso, relê a tabela e inclui o ``resumo`` fresco (cliente, status, nº de linhas/OPs, última
     sincronização).
@@ -483,7 +501,8 @@ def os_sincronizar(nped: str):
         except Exception as exc:  # sync já foi; só não conseguimos reler o resumo
             logger.error("Sync OK mas falha ao reler o resumo do NPED %s: %s", n, exc)
 
-    # sem_os / cancelada = outcome de negócio (200); 'erro' = falha real de sync (502)
+    # avisos de negócio (sem_os / cancelada / pedido_cancelado / pedido_nao_encontrado)
+    # respondem 200; 'erro' = falha real de sync (502)
     http = 502 if resultado.get('tipo') == 'erro' else 200
     return jsonify(payload), http
 
@@ -507,7 +526,7 @@ def oport_historico():
         itens = _fetch_log(get_settings().sync_log_table_name, _limit_arg())
     except Exception as exc:
         logger.error("Erro ao ler histórico de oportunidades: %s", exc)
-        return jsonify(ok=False, error='falha ao ler o histórico'), 502
+        return jsonify(ok=False, error='falha ao ler o historico'), 502
     return jsonify(ok=True, items=itens)
 
 
@@ -520,7 +539,7 @@ def oport_historico_limpar():
         removidos = _clear_log(get_settings().sync_log_table_name)
     except Exception as exc:
         logger.error("Erro ao limpar histórico de oportunidades: %s", exc)
-        return jsonify(ok=False, error='falha ao limpar o histórico'), 502
+        return jsonify(ok=False, error='falha ao limpar o historico'), 502
     return jsonify(ok=True, removed=removidos)
 
 
@@ -561,13 +580,13 @@ def oport_sincronizar():
             ok = bool(sync_oportunidades())
     except FileLockTimeout:
         return jsonify(ok=False, tipo='ocupado',
-                       motivo='Já há uma sincronização de oportunidades em andamento.'), 409
+                       motivo='Ja ha uma sincronizacao de oportunidades em andamento.'), 409
     except Exception as exc:
         logger.error("Erro ao sincronizar oportunidades: %s", exc)
-        return jsonify(ok=False, tipo='erro', motivo='Não foi possível sincronizar.'), 502
+        return jsonify(ok=False, tipo='erro', motivo='Nao foi possivel sincronizar.'), 502
     if ok:
         return jsonify(ok=True)
-    return jsonify(ok=False, tipo='erro', motivo='Não foi possível sincronizar (0 registros?).')
+    return jsonify(ok=False, tipo='erro', motivo='Nao foi possivel sincronizar (0 registros?).')
 
 
 @app.post('/sync/ordens-servico/<nped>')

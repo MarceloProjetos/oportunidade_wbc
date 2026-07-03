@@ -147,10 +147,10 @@ def coerce_positive_int(value: Any, *, what: str = "valor") -> int:
     """
     s = str(value).strip()
     if not _POSITIVE_INT_RE.match(s):
-        raise ValueError(f"{what} inválido (esperado inteiro positivo): {value!r}")
+        raise ValueError(f"{what} invalido (esperado inteiro positivo): {value!r}")
     n = int(s)
     if n <= 0:
-        raise ValueError(f"{what} inválido (deve ser > 0): {value!r}")
+        raise ValueError(f"{what} invalido (deve ser > 0): {value!r}")
     return n
 
 

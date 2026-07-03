@@ -102,15 +102,20 @@ def extract_os_to_dataframe(nped: object) -> Optional[pd.DataFrame]:
 
 
 def diagnosticar_nped(nped: object) -> dict:
-    """Classifica um NPED consultando a OWOR (ordem de produção), no SAP.
+    """Classifica um NPED consultando a OWOR (ordem de produção) e a ORDR (pedido), no SAP.
 
     Regra (SAP B1): a OS existe quando há linha em ``OWOR`` com ``OriginNum`` = nº do
     pedido. Sem linha → OS ainda não gerada. Se **todas** as linhas estão com
-    ``Status`` = ``'C'`` → OS cancelada.
+    ``Status`` = ``'C'`` → OS cancelada. A ``ORDR`` complementa com o status do
+    **pedido** (best-effort): distingue "pedido cancelado" e "pedido não encontrado"
+    de "pedido aberto que ainda não gerou OS".
 
     Returns:
-        ``{'tem_os': bool, 'cancelada': bool, 'status': [...]}`` ou
-        ``{'erro': '<motivo>'}`` se não for possível consultar.
+        ``{'tem_os': bool, 'cancelada': bool, 'status': [...],
+        'pedido_existe': bool|None, 'pedido_cancelado': bool|None,
+        'pedido_status': 'Aberto'|'Cancelado'|'Fechado'|None}``
+        (chaves ``pedido_*`` ficam ``None`` se a consulta à ORDR falhar) ou
+        ``{'erro': '<motivo>'}`` se não for possível consultar a OWOR.
 
     Raises:
         ValueError: se ``nped`` não for um inteiro positivo.
@@ -133,15 +138,40 @@ def diagnosticar_nped(nped: object) -> dict:
     df = sap.execute_query(
         f'SELECT "Status" FROM {base} WHERE "OriginNum" = {nped_int} GROUP BY "Status"'
     )
-    sap.close()
-
     if df is None:
+        sap.close()
         return {'erro': 'consulta'}
+
+    # Pedido (ORDR), na MESMA conexão — best-effort: falha aqui não invalida o diag da OS.
+    ordr = build_view_query('ORDR', settings.sap_schema)  # "SCHEMA"."ORDR"
+    df_ped = sap.execute_query(
+        f'SELECT "CANCELED", "DocStatus" FROM {ordr} WHERE "DocNum" = {nped_int}'
+    )
+    sap.close()
 
     statuses = [str(s).strip() for s in df['Status'].tolist()] if len(df) else []
     tem_os = len(statuses) > 0
     cancelada = tem_os and all(s == 'C' for s in statuses)
-    return {'tem_os': tem_os, 'cancelada': cancelada, 'status': statuses}
+
+    pedido_existe = pedido_cancelado = pedido_status = None
+    if df_ped is not None:
+        pedido_existe = len(df_ped) > 0
+        pedido_cancelado = False
+        if pedido_existe:
+            row = df_ped.iloc[0]
+            # CANCELED: 'Y' = cancelado, 'C' = documento de estorno (cancelamento);
+            # DocStatus 'C' sem cancelamento = pedido fechado (encerrado).
+            pedido_cancelado = str(row.get('CANCELED', '')).strip() in ('Y', 'C')
+            if pedido_cancelado:
+                pedido_status = 'Cancelado'
+            elif str(row.get('DocStatus', '')).strip() == 'C':
+                pedido_status = 'Fechado'
+            else:
+                pedido_status = 'Aberto'
+
+    return {'tem_os': tem_os, 'cancelada': cancelada, 'status': statuses,
+            'pedido_existe': pedido_existe, 'pedido_cancelado': pedido_cancelado,
+            'pedido_status': pedido_status}
 
 
 def listar_pedidos_com_os(limit: int = 30) -> Optional[List[dict]]:

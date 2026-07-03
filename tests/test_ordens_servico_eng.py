@@ -117,8 +117,10 @@ def test_replace_nped_prunes_scoped_to_nped(monkeypatch):
     assert call.kwargs['where_eq'] == {'NPED': 84080}
 
 
-def _fake_sap_statuses(statuses):
-    """Fábrica de um SAPExtractor falso cujo SELECT devolve os Status dados."""
+def _fake_sap_diag(os_statuses, pedido_rows):
+    """Fábrica de um SAPExtractor falso p/ o diagnóstico: responde a query da OWOR
+    (lista de Status) e a da ORDR (linhas do pedido) — ``pedido_rows=None`` simula
+    falha na consulta ao pedido."""
     class _FS:
         def __init__(self, *a, **k):
             pass
@@ -127,32 +129,75 @@ def _fake_sap_statuses(statuses):
             return True
 
         def execute_query(self, query):
-            return pd.DataFrame({'Status': statuses})
+            if 'OWOR' in query:
+                return pd.DataFrame({'Status': os_statuses})
+            return None if pedido_rows is None else pd.DataFrame(pedido_rows)
 
         def close(self):
             pass
     return _FS
 
 
-def test_diagnosticar_sem_os(monkeypatch):
+_PEDIDO_ABERTO = [{'CANCELED': 'N', 'DocStatus': 'O'}]
+
+
+def test_diagnosticar_sem_os_pedido_aberto(monkeypatch):
     _set_sap_env(monkeypatch)
-    monkeypatch.setattr(mod, 'SAPExtractor', _fake_sap_statuses([]))
+    monkeypatch.setattr(mod, 'SAPExtractor', _fake_sap_diag([], _PEDIDO_ABERTO))
     d = mod.diagnosticar_nped(84106)
-    assert d == {'tem_os': False, 'cancelada': False, 'status': []}
+    assert d == {'tem_os': False, 'cancelada': False, 'status': [],
+                 'pedido_existe': True, 'pedido_cancelado': False,
+                 'pedido_status': 'Aberto'}
 
 
 def test_diagnosticar_tem_os(monkeypatch):
     _set_sap_env(monkeypatch)
-    monkeypatch.setattr(mod, 'SAPExtractor', _fake_sap_statuses(['R']))
+    monkeypatch.setattr(mod, 'SAPExtractor', _fake_sap_diag(['R'], _PEDIDO_ABERTO))
     d = mod.diagnosticar_nped(84080)
     assert d['tem_os'] is True and d['cancelada'] is False
+    assert d['pedido_status'] == 'Aberto'
 
 
 def test_diagnosticar_cancelada(monkeypatch):
     _set_sap_env(monkeypatch)
-    monkeypatch.setattr(mod, 'SAPExtractor', _fake_sap_statuses(['C']))
+    monkeypatch.setattr(mod, 'SAPExtractor', _fake_sap_diag(['C'], _PEDIDO_ABERTO))
     d = mod.diagnosticar_nped(84080)
     assert d['tem_os'] is True and d['cancelada'] is True
+
+
+def test_diagnosticar_pedido_cancelado(monkeypatch):
+    _set_sap_env(monkeypatch)
+    monkeypatch.setattr(mod, 'SAPExtractor',
+                        _fake_sap_diag([], [{'CANCELED': 'Y', 'DocStatus': 'C'}]))
+    d = mod.diagnosticar_nped(84109)
+    assert d['tem_os'] is False
+    assert d['pedido_cancelado'] is True and d['pedido_status'] == 'Cancelado'
+
+
+def test_diagnosticar_pedido_fechado(monkeypatch):
+    _set_sap_env(monkeypatch)
+    monkeypatch.setattr(mod, 'SAPExtractor',
+                        _fake_sap_diag(['L'], [{'CANCELED': 'N', 'DocStatus': 'C'}]))
+    d = mod.diagnosticar_nped(84080)
+    assert d['pedido_cancelado'] is False and d['pedido_status'] == 'Fechado'
+
+
+def test_diagnosticar_pedido_nao_encontrado(monkeypatch):
+    _set_sap_env(monkeypatch)
+    monkeypatch.setattr(mod, 'SAPExtractor', _fake_sap_diag([], []))
+    d = mod.diagnosticar_nped(99999)
+    assert d['tem_os'] is False
+    assert d['pedido_existe'] is False and d['pedido_status'] is None
+
+
+def test_diagnosticar_ordr_falha_nao_invalida_os(monkeypatch):
+    """Consulta à ORDR falhou (None) → chaves pedido_* ficam None; diag da OS intacto."""
+    _set_sap_env(monkeypatch)
+    monkeypatch.setattr(mod, 'SAPExtractor', _fake_sap_diag(['R'], None))
+    d = mod.diagnosticar_nped(84080)
+    assert d['tem_os'] is True and d['cancelada'] is False
+    assert d['pedido_existe'] is None and d['pedido_cancelado'] is None
+    assert d['pedido_status'] is None
 
 
 def test_insert_mode_does_not_prune(monkeypatch):

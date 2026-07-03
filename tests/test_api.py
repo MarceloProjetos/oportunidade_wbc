@@ -20,8 +20,10 @@ def client(monkeypatch):
     monkeypatch.setattr(apimod, 'sync_os', lambda n: chamados.append(n) or True)
     # sync da árvore WBC (disparada após a OS) mockada: não abre SAP/SQL nos testes
     monkeypatch.setattr(apimod, 'sync_wbc_arvore', lambda n: True)
-    # diagnóstico mockado: por padrão "tem OS, não cancelada" → segue p/ sincronizar
-    monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {'tem_os': True, 'cancelada': False})
+    # diagnóstico mockado: por padrão "tem OS, não cancelada, pedido aberto" → sincroniza
+    monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {
+        'tem_os': True, 'cancelada': False,
+        'pedido_existe': True, 'pedido_cancelado': False, 'pedido_status': 'Aberto'})
     apimod.app.config.update(TESTING=True)
     c = apimod.app.test_client()
     c._chamados = chamados
@@ -171,14 +173,55 @@ def test_os_sincronizar_ok_com_resumo(client, monkeypatch):
 
 
 def test_os_sincronizar_sem_os_200_sem_resumo(client, monkeypatch):
-    """Pedido sem OS gerada → aviso 'sem_os', 200, sem resumo e SEM sincronizar."""
-    monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {'tem_os': False, 'cancelada': False})
+    """Pedido ABERTO sem OS gerada → aviso 'sem_os' (com status do pedido), 200,
+    sem resumo e SEM sincronizar. Motivo sem acento (legível em qualquer console)."""
+    monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {
+        'tem_os': False, 'cancelada': False,
+        'pedido_existe': True, 'pedido_cancelado': False, 'pedido_status': 'Aberto'})
     r = client.post('/ordens-servico/84106/sincronizar')
     assert r.status_code == 200
     body = r.get_json()
     assert body['ok'] is False and body['resultado']['tipo'] == 'sem_os'
+    assert body['resultado']['status_pedido'] == 'Aberto'
+    assert body['resultado']['motivo'] == 'OS ainda nao gerada para este pedido (pedido aberto).'
     assert 'resumo' not in body
     assert client._chamados == []                 # não tentou sincronizar
+
+
+def test_os_sincronizar_pedido_cancelado(client, monkeypatch):
+    """Pedido CANCELADO na ORDR (sem OS) → tipo 'pedido_cancelado', não 'sem_os'."""
+    monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {
+        'tem_os': False, 'cancelada': False,
+        'pedido_existe': True, 'pedido_cancelado': True, 'pedido_status': 'Cancelado'})
+    r = client.post('/ordens-servico/84109/sincronizar')
+    assert r.status_code == 200
+    res = r.get_json()['resultado']
+    assert res['tipo'] == 'pedido_cancelado' and res['status_pedido'] == 'Cancelado'
+    assert res['motivo'] == 'Pedido cancelado no SAP - nao ha OS a sincronizar.'
+    assert client._chamados == []
+
+
+def test_os_sincronizar_pedido_nao_encontrado(client, monkeypatch):
+    """NPED sem linha na ORDR → tipo 'pedido_nao_encontrado'."""
+    monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {
+        'tem_os': False, 'cancelada': False,
+        'pedido_existe': False, 'pedido_cancelado': False, 'pedido_status': None})
+    r = client.post('/ordens-servico/99999/sincronizar')
+    assert r.status_code == 200
+    res = r.get_json()['resultado']
+    assert res['tipo'] == 'pedido_nao_encontrado'
+    assert client._chamados == []
+
+
+def test_os_sincronizar_diag_legado_sem_pedido(client, monkeypatch):
+    """Diag SEM as chaves pedido_* (ORDR falhou / shape antigo) → cai no 'sem_os'
+    genérico, sem sufixo de status (retrocompatível)."""
+    monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {'tem_os': False, 'cancelada': False})
+    r = client.post('/ordens-servico/84106/sincronizar')
+    res = r.get_json()['resultado']
+    assert res['tipo'] == 'sem_os'
+    assert res['motivo'] == 'OS ainda nao gerada para este pedido.'
+    assert client._chamados == []
 
 
 def test_os_sincronizar_cancelada(client, monkeypatch):

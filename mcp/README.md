@@ -43,7 +43,8 @@ chama com `confirmar=True` após o "sim" explícito.
 | `forcar_carga_oportunidades(confirmar?)` | `POST /oportunidades/sincronizar` (`409` se ocupado) | sim |
 
 > A sync de OS é **idempotente** (`replace_nped`) e só roda se o pedido tiver OS gerada e não
-> cancelada (avisos `sem_os`/`cancelada` no SAP). A carga de oportunidades usa **lock** (nunca 2 juntas).
+> cancelada (avisos `sem_os`/`pedido_cancelado`/`pedido_nao_encontrado`/`cancelada`, com
+> `status_pedido` da ORDR). A carga de oportunidades usa **lock** (nunca 2 juntas).
 >
 > **Trava anti-loop:** as escritas têm rate-limit **generoso** no lado da API (default **60** syncs
 > de OS/min e **6** cargas completas/min; env `RATE_SYNC_OS_MAX` / `RATE_FORCE_OPORT_MAX`). Se
