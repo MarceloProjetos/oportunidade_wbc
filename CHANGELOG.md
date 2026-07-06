@@ -3,6 +3,20 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-06] — `total_orcamento` do resumo de OS = SOMA das linhas (era valor de UMA linha)
+
+### Corrigido
+
+- **`GET /ordens-servico/<nped>`: `resumo.total_orcamento` devolvia o `TotalOrcam` da
+  PRIMEIRA linha — mas o campo é POR LINHA na view** (350 valores distintos num pedido
+  real), não um cabeçalho repetido, e a ordem entre cargas não é estável: o "total" do
+  84080 variava (205,92 → 96,78) num orçamento de ~R$ 3,05 mi. Agora `_soma_total_orcamento`
+  SOMA as linhas (tolerante a nulos/valores não numéricos; `null` se nenhuma linha tem valor) —
+  o resultado é o valor de mercadorias (sem impostos). Consumidores que precisam do total
+  a pagar (com impostos) devem ler o `DocTotal` do pedido no SAP (é o que o Assistente Mira
+  do web passou a fazer). Detectado nos testes do branch SAP/OS da Mira (web V117.152).
+  +2 asserts/teste (suíte **166 passed**).
+
 ## [2026-07-03] — Diagnóstico distingue pedido cancelado × sem OS + respostas sem acento
 
 ### Adicionado

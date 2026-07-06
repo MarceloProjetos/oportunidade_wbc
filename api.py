@@ -207,11 +207,35 @@ def _fetch_os_detalhe(nped: int) -> List[dict]:
     return res.data or []
 
 
+def _soma_total_orcamento(linhas: List[dict]) -> Optional[float]:
+    """Soma o ``TotalOrcam`` das linhas (valor de mercadorias, sem impostos).
+
+    ``TotalOrcam`` é POR LINHA na view (350 valores distintos num pedido real),
+    não um cabeçalho repetido — pegar ``linhas[0]`` devolvia um valor de item
+    aleatório (a ordem entre cargas não é estável). Incidente 2026-07-06:
+    pedido 84080 mostrava "96,78" p/ um orçamento de ~R$ 3,05 mi.
+    """
+    total = 0.0
+    achou = False
+    for linha in linhas:
+        valor = linha.get('TotalOrcam')
+        if valor is None:
+            continue
+        try:
+            total += float(valor)
+        except (TypeError, ValueError):
+            continue
+        achou = True
+    return round(total, 2) if achou else None
+
+
 def _resumo_os(linhas: List[dict]) -> dict:
     """Resumo do pedido a partir das linhas já lidas (sem query extra).
 
-    A view é desnormalizada por item: os campos de cabeçalho (cliente, status, total)
-    se repetem em cada linha — pegamos da primeira. As OPs (``N_OP``) são agregadas.
+    A view é desnormalizada por item: os campos de CABEÇALHO (cliente, status,
+    datas) se repetem em cada linha — pegamos da primeira. As OPs (``N_OP``)
+    são agregadas e o ``total_orcamento`` é a SOMA das linhas (ver
+    ``_soma_total_orcamento``).
     """
     primeira = linhas[0]
     status = primeira.get('Status')
@@ -223,7 +247,7 @@ def _resumo_os(linhas: List[dict]) -> dict:
         'data_pedido': primeira.get('DtPedido'),
         'status': status,
         'status_desc': _OS_STATUS_DESC.get(status, status),
-        'total_orcamento': primeira.get('TotalOrcam'),
+        'total_orcamento': _soma_total_orcamento(linhas),
         'num_linhas': len(linhas),
         'num_ops': len(ops),
         'ops': ops,

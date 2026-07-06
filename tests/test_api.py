@@ -120,7 +120,18 @@ def test_os_detalhe_resumo(client, monkeypatch):
     assert resumo['status'] == 'R' and resumo['status_desc'] == 'Liberado'
     assert resumo['num_linhas'] == 2
     assert resumo['num_ops'] == 2 and resumo['ops'] == [138757, 138758]
+    # TotalOrcam é POR LINHA (não cabeçalho): o resumo SOMA as linhas.
+    assert resumo['total_orcamento'] == 41280.0
     assert 'linhas' not in body  # sem ?linhas=1, só o resumo
+
+
+def test_resumo_total_orcamento_soma_e_tolera_lixo():
+    rows = [
+        {'TotalOrcam': 96.78}, {'TotalOrcam': None},
+        {'TotalOrcam': '100.22'}, {'TotalOrcam': 'abc'},
+    ]
+    assert apimod._soma_total_orcamento(rows) == 197.0
+    assert apimod._soma_total_orcamento([{'TotalOrcam': None}]) is None
 
 
 def test_os_detalhe_incluir_linhas(client, monkeypatch):
