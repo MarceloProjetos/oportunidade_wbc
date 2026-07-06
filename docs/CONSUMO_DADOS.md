@@ -31,7 +31,8 @@ Sem eles, a `anon` recebe **0 linhas** (as tabelas nascem trancadas a backend).
 | `ordens_servico_engenharia` | Linhas da OS por pedido (`NPED`) | ✅ |
 | `status_ordens_servico_eng` | Tradução do `Status` (P/R/L/C) | ✅ |
 | `wbc_arvore_produto` | Árvore de produto WBC (lista de materiais) por `ORCNUM` | ✅ |
-| `sincronizacao_log_os_eng` · `sincronizacao_log_wbc_arvore` | Logs das sincronizações | ❌ (uso interno) |
+| `vw_os_exped_impressao_v2` · `vw_os_pintura_v0` · `vw_os_almox_impressao` | Views de impressão de OS (EXPED/PINTURA/ALMOX) por `NPED` — ver [`CONSUMO_VIEWS_IMPRESSAO.md`](CONSUMO_VIEWS_IMPRESSAO.md) | ✅ |
+| `sincronizacao_log_os_eng` · `sincronizacao_log_wbc_arvore` · `sincronizacao_log_os_impressao` | Logs das sincronizações | ❌ (uso interno) |
 
 > ⚠️ **Nomes de coluna são *case-sensitive*** (vieram do SAP / SQL Server WBC). Use
 > exatamente como na DDL. Lista completa de colunas e tipos:
@@ -134,19 +135,21 @@ arvore = (sb.table("wbc_arvore_produto")
             .eq("ORCNUM", orcnum).order("id").execute().data)
 ```
 
-## Views de relatório (adaptação da `VW_OS_EXPED_IMPRESSAO_V2`)
+## Views de impressão de OS (EXPED · PINTURA · ALMOX)
 
-Em [`sql/vw_os_exped_impressao.sql`](../sql/vw_os_exped_impressao.sql) há duas views prontas
-(rode no SQL Editor; depois `grant select ... to anon` se for ler as views direto):
+As views de impressão do SAP HANA agora são espelhadas **direto** em tabelas próprias
+(atualizadas quando o pedido é sincronizado), **sem perder colunas** — incluindo o bloco
+Filial/endereço, os grupos de material e o ramo ALMOX. Guia dedicado, com nomes de tabela
+e exemplos: [`CONSUMO_VIEWS_IMPRESSAO.md`](CONSUMO_VIEWS_IMPRESSAO.md).
 
-- **`vw_os_exped_impressao`** — adapta a `VW_OS_EXPED_IMPRESSAO_V2` (ramo EXP, nível 1). Vem só
-  de `ordens_servico_engenharia` (não junta a árvore → não multiplica linhas).
-- **`vw_os_exped_arvore`** — detalhe da árvore WBC: **1 linha por componente** (todos os
-  níveis) com o cabeçalho do pedido. Junta por `CodigoOrcam = ORCNUM`.
+- `vw_os_exped_impressao_v2` ← `VW_OS_EXPED_IMPRESSAO_V2` (expedição, 55 col)
+- `vw_os_pintura_v0` ← `VW_OS_PINTURA_V0` (pintura, 55 col)
+- `vw_os_almox_impressao` ← `VW_OS_ALMOX_IMPRESSAO` (almoxarifado, 34 col)
 
-> Campos de **Filial/endereço** (OBPL), **GrpMaterialEstrut/GrpItensEstrut** (OITM) e o ramo
-> **ALMX** vêm de fontes não espelhadas → saem **NULL**. `U_INO_NIVEL` na view fiel é `'1'`
-> (a V2 só traz nível 1).
+> A antiga view derivada `vw_os_exped_impressao` (que perdia Filial/OITM/ALMOX como `NULL`)
+> foi **descontinuada** em favor da tabela direta acima. O detalhe da árvore WBC (explosão do
+> BOM, 1 linha por componente) segue disponível como view em
+> [`sql/vw_os_exped_arvore.sql`](../sql/vw_os_exped_arvore.sql) (junta por `CodigoOrcam = ORCNUM`).
 
 ## Regras (resumo)
 
