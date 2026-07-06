@@ -51,6 +51,7 @@ from extract_ordens_servico_engenharia import (
 from extract_ordens_servico_engenharia import (
     main as sync_os,
 )
+from extract_os_impressao_views import sync_impressao_views
 from extract_sap_to_supabase import main as sync_oportunidades
 from extract_wbc_arvore import main as sync_wbc_arvore
 from monitoring import collect_status
@@ -315,10 +316,11 @@ def _sync_one(nped: int) -> dict:
         ok = False
 
     if ok:
-        # OS OK → dispara também a sync da árvore WBC (best-effort: nunca quebra a OS).
-        wbc_ok = _sync_wbc_safe(nped)
+        # OS OK → dispara também as sub-syncs (best-effort: nunca quebram a OS).
+        wbc_ok = _sync_wbc_safe(nped)          # árvore de produto WBC (SQL Server)
+        impressao = _sync_impressao_safe(nped)  # 3 views de impressão de OS (HANA)
         return {'nped': nped, 'ok': True, 'tipo': None, 'motivo': None,
-                'status_pedido': status_pedido, 'wbc': wbc_ok}
+                'status_pedido': status_pedido, 'wbc': wbc_ok, 'impressao': impressao}
     return {'nped': nped, 'ok': False, 'tipo': 'erro', 'status_pedido': status_pedido,
             'motivo': 'Nao foi possivel sincronizar.'}
 
@@ -330,6 +332,16 @@ def _sync_wbc_safe(nped: int) -> bool:
     except Exception as exc:
         logger.error("Árvore WBC: falha no NPED %s (ignorada p/ a OS): %s", nped, exc)
         return False
+
+
+def _sync_impressao_safe(nped: int) -> dict:
+    """Sincroniza as 3 views de impressão de OS (HANA) após a OS. Best-effort: falha aqui
+    é logada e NÃO afeta a OS. Retorna ``{nome_tabela: bool}`` por view."""
+    try:
+        return sync_impressao_views(nped)
+    except Exception as exc:
+        logger.error("Views de impressão: falha no NPED %s (ignorada p/ a OS): %s", nped, exc)
+        return {}
 
 
 def _sincronizar(npeds: List[int]) -> Tuple[Any, int]:

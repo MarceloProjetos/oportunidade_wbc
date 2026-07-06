@@ -3,6 +3,37 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-06] — Sincronizar um pedido também espelha 3 views de impressão de OS do HANA
+
+### Adicionado
+
+- **Sincronizar um pedido agora atualiza 5 tabelas** (antes 2): além de
+  `ordens_servico_engenharia` + `wbc_arvore_produto`, dispara (best-effort, após a OS OK,
+  igual à árvore WBC) o espelho DIRETO de 3 views do SAP HANA (`SBOALTAMIRAPROD`),
+  filtradas por `NPED`, com estratégia `replace_nped` (poda escopada ao NPED):
+  `VW_OS_EXPED_IMPRESSAO_V2` → `vw_os_exped_impressao_v2` (55 col),
+  `VW_OS_PINTURA_V0` → `vw_os_pintura_v0` (55 col),
+  `VW_OS_ALMOX_IMPRESSAO` → `vw_os_almox_impressao` (34 col; usa `CodCli`, não `CodClien`).
+  As tabelas têm o MESMO nome das views (minúsculo). Colunas com espaço
+  (`"CEP Filial"`, `"CNPJ Filial"`, etc.) preservadas com aspas.
+- **Novo módulo `extract_os_impressao_views.py`** — extrator genérico das 3 views numa
+  única conexão HANA (registry em `config.OS_IMPRESSAO_VIEWS`), reusando `pipeline_core`.
+  Chaveia no `api._sync_one` via `_sync_impressao_safe` (nunca quebra a OS); a resposta
+  do sync ganha o bloco `impressao: {tabela: bool}`.
+- **DDL `sql/os_impressao_views.sql`** — 3 tabelas + log compartilhado
+  `sincronizacao_log_os_impressao` + índices (NPED/CodigoOrcam/id_execucao) + RLS
+  enable+force + policy de SELECT p/ `anon` nas 3 tabelas de dados (log trancado).
+- Config: `OS_IMPRESSAO_SYNC_LOG_TABLE` / `OS_IMPRESSAO_INSERT_BATCH_SIZE` (opcionais).
+  +7 testes (`tests/test_os_impressao_views.py`). Validado ponta a ponta com o NPED 84080
+  (374/328/14 linhas; leitura confirmada pela chave `anon` — a mesma da equipe consumidora).
+
+### Removido
+
+- **`sql/vw_os_exped_impressao.sql`** (view derivada dos espelhos, que perdia colunas —
+  Filial/OITM/ALMX saíam `NULL`) — substituída pela tabela-espelho DIRETA do HANA
+  `vw_os_exped_impressao_v2`, completa. O detalhe da árvore WBC (explosão do BOM) foi
+  mantido, isolado, em `sql/vw_os_exped_arvore.sql` (com `drop view if exists` da antiga).
+
 ## [2026-07-06] — `total_orcamento` do resumo de OS = SOMA das linhas (era valor de UMA linha)
 
 ### Corrigido

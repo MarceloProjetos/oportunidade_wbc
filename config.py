@@ -61,6 +61,20 @@ WBC_ARVORE_SYNC_LOG_DEFAULT = 'sincronizacao_log_wbc_arvore'
 WBC_ARVORE_INSERT_BATCH_SIZE_DEFAULT = 500
 WBC_ARVORE_SYNC_LOG_MAX_REGISTROS = 100
 
+# Views de impressão de OS (SAP HANA) — sub-syncs por NPED, disparadas após a OS.
+# Cada view HANA espelha 1:1 para uma tabela Supabase de MESMO nome (minúsculo).
+# Todas filtram por "NPED" (inteiro) e usam a estratégia replace_nped (carrega-depois-
+# poda ESCOPADO ao NPED), idêntica à de ordens_servico_engenharia. O par é
+# (nome_view_HANA, nome_tabela_supabase) — a ordem é a de carga.
+OS_IMPRESSAO_VIEWS = (
+    ('VW_OS_EXPED_IMPRESSAO_V2', 'vw_os_exped_impressao_v2'),
+    ('VW_OS_PINTURA_V0', 'vw_os_pintura_v0'),
+    ('VW_OS_ALMOX_IMPRESSAO', 'vw_os_almox_impressao'),
+)
+OS_IMPRESSAO_SYNC_LOG_TABLE_DEFAULT = 'sincronizacao_log_os_impressao'
+OS_IMPRESSAO_INSERT_BATCH_SIZE_DEFAULT = 500
+OS_IMPRESSAO_SYNC_LOG_MAX_REGISTROS = 100
+
 # API HTTP de disparo da sync de OS (api.py)
 OS_API_HOST_DEFAULT = '0.0.0.0'
 OS_API_PORT_DEFAULT = 8077
@@ -159,6 +173,10 @@ class Settings:
     wbc_arvore_sync_log: str
     wbc_arvore_insert_batch_size: int
 
+    # Views de impressão de OS (HANA → tabelas de mesmo nome)
+    os_impressao_sync_log_table: str
+    os_impressao_insert_batch_size: int
+
     intervalo_minutos: int
     janela_horas: str
     execution_mode: str
@@ -211,6 +229,12 @@ class Settings:
             wbc_arvore_sync_log=os.getenv('WBC_ARVORE_SYNC_LOG_TABLE', WBC_ARVORE_SYNC_LOG_DEFAULT),
             wbc_arvore_insert_batch_size=int(
                 os.getenv('WBC_ARVORE_INSERT_BATCH_SIZE', WBC_ARVORE_INSERT_BATCH_SIZE_DEFAULT)
+            ),
+            os_impressao_sync_log_table=os.getenv(
+                'OS_IMPRESSAO_SYNC_LOG_TABLE', OS_IMPRESSAO_SYNC_LOG_TABLE_DEFAULT
+            ),
+            os_impressao_insert_batch_size=int(
+                os.getenv('OS_IMPRESSAO_INSERT_BATCH_SIZE', OS_IMPRESSAO_INSERT_BATCH_SIZE_DEFAULT)
             ),
             intervalo_minutos=max(
                 INTERVALO_PISO_MIN,

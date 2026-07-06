@@ -22,6 +22,7 @@ Serviço de integração SAP B1 → Supabase. Roda em produção no `192.168.7.1
 | `extract_sap_to_supabase.py` | Pipeline OPORTUNIDADES (carga completa, agendada) |
 | `extract_ordens_servico_engenharia.py` | Pipeline OS por NPED (sob demanda) + `diagnosticar_nped` |
 | `extract_wbc_arvore.py` | Sub-sync árvore de produto WBC (dispara após a OS) |
+| `extract_os_impressao_views.py` | Sub-sync das 3 views de impressão de OS do HANA (dispara após a OS): EXPED/PINTURA/ALMOX → tabelas de mesmo nome |
 | `monitoring.py` | `collect_status()` — checks SAP/SQL/Supabase/scheduler/disco do `/status` |
 | `sap_connection.py` | `SAPExtractor` (HANA via hdbcli) |
 | `db_utils.py` | `read_dbapi_query` (28 linhas) |

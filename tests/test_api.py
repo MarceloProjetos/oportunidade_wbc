@@ -20,6 +20,10 @@ def client(monkeypatch):
     monkeypatch.setattr(apimod, 'sync_os', lambda n: chamados.append(n) or True)
     # sync da árvore WBC (disparada após a OS) mockada: não abre SAP/SQL nos testes
     monkeypatch.setattr(apimod, 'sync_wbc_arvore', lambda n: True)
+    # sub-sync das 3 views de impressão de OS (HANA) mockada: não abre SAP nos testes
+    monkeypatch.setattr(apimod, 'sync_impressao_views', lambda n: {
+        'vw_os_exped_impressao_v2': True, 'vw_os_pintura_v0': True,
+        'vw_os_almox_impressao': True})
     # diagnóstico mockado: por padrão "tem OS, não cancelada, pedido aberto" → sincroniza
     monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {
         'tem_os': True, 'cancelada': False,
