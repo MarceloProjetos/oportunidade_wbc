@@ -3,6 +3,23 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-07] — Sincronizar um pedido também espelha a view de solda (`vw_os_solda`)
+
+### Adicionado
+
+- **Sincronizar um pedido agora atualiza 6 tabelas** (antes 5): entrou o espelho DIRETO
+  da view SAP HANA `VW_OS_SOLDA_DETALHE` → `vw_os_solda` (30 colunas, detalhe de solda),
+  filtrada por `NPED` com `replace_nped`, idêntica às views de impressão. Basta **1 par**
+  novo no registry `config.OS_IMPRESSAO_VIEWS` — a carga passa a ser **automática** tanto
+  no gatilho via **API** (`POST /ordens-servico/<nped>/sincronizar`) quanto via **MCP**
+  (`sincronizar_pedido_os`), sem tocar em `api.py`/MCP. A tabela aparece no bloco
+  `impressao` da resposta do sync e no log compartilhado `sincronizacao_log_os_impressao`.
+- **DDL `sql/vw_os_solda.sql`** — tabela + índices (`NPED`/`CodigoOrcam`/`id_execucao`) +
+  RLS enable+force + policy de SELECT p/ `anon` (leitura read-only pelo projeto consumidor,
+  mesmo padrão das views de impressão). +1 teste em `tests/test_os_impressao_views.py`.
+  Nota: apesar do nome do registry (`OS_IMPRESSAO_VIEWS`), solda ≠ impressão — só
+  reaproveita o mesmo mecanismo (comentário atualizado no `config.py`).
+
 ## [2026-07-07] — Logs: retenção de 6 dias (era 12) e MCP com log próprio e enxuto
 
 ### Alterado

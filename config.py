@@ -61,15 +61,19 @@ WBC_ARVORE_SYNC_LOG_DEFAULT = 'sincronizacao_log_wbc_arvore'
 WBC_ARVORE_INSERT_BATCH_SIZE_DEFAULT = 500
 WBC_ARVORE_SYNC_LOG_MAX_REGISTROS = 100
 
-# Views de impressão de OS (SAP HANA) — sub-syncs por NPED, disparadas após a OS.
-# Cada view HANA espelha 1:1 para uma tabela Supabase de MESMO nome (minúsculo).
-# Todas filtram por "NPED" (inteiro) e usam a estratégia replace_nped (carrega-depois-
-# poda ESCOPADO ao NPED), idêntica à de ordens_servico_engenharia. O par é
-# (nome_view_HANA, nome_tabela_supabase) — a ordem é a de carga.
+# Views de OS por NPED (SAP HANA) — sub-syncs disparadas após a OS. Historicamente as
+# "views de impressão" (EXPED/PINTURA/ALMOX); vw_os_solda (detalhe de solda) entrou no
+# mesmo mecanismo por ser idêntico em forma (filtra "NPED", replace_nped) — apesar do
+# nome do registry, NÃO é só impressão. Cada view HANA espelha 1:1 para uma tabela
+# Supabase de MESMO nome (minúsculo). Todas filtram por "NPED" (inteiro) e usam a
+# estratégia replace_nped (carrega-depois-poda ESCOPADO ao NPED), idêntica à de
+# ordens_servico_engenharia. O par é (nome_view_HANA, nome_tabela_supabase) — a ordem
+# é a de carga.
 OS_IMPRESSAO_VIEWS = (
     ('VW_OS_EXPED_IMPRESSAO_V2', 'vw_os_exped_impressao_v2'),
     ('VW_OS_PINTURA_V0', 'vw_os_pintura_v0'),
     ('VW_OS_ALMOX_IMPRESSAO', 'vw_os_almox_impressao'),
+    ('VW_OS_SOLDA_DETALHE', 'vw_os_solda'),
 )
 OS_IMPRESSAO_SYNC_LOG_TABLE_DEFAULT = 'sincronizacao_log_os_impressao'
 OS_IMPRESSAO_INSERT_BATCH_SIZE_DEFAULT = 500

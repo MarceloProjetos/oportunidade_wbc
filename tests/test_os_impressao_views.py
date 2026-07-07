@@ -36,7 +36,12 @@ class _FakeSAP:
         pass
 
 
-def test_extract_queries_cover_all_three_views(monkeypatch):
+def test_registry_includes_solda():
+    """vw_os_solda entra no mesmo mecanismo (registry) — sync automático via API/MCP."""
+    assert ('VW_OS_SOLDA_DETALHE', 'vw_os_solda') in OS_IMPRESSAO_VIEWS
+
+
+def test_extract_queries_cover_all_views(monkeypatch):
     _set_env(monkeypatch)
     _FakeSAP.queries = []
     monkeypatch.setattr(mod, 'SAPExtractor', _FakeSAP)
