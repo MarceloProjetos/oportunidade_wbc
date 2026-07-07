@@ -19,10 +19,11 @@ nssm install OrcaView-MCP "%PROJ%\run_mcp.bat"
 nssm set     OrcaView-MCP AppDirectory "%PROJ%"
 nssm set     OrcaView-MCP Start SERVICE_AUTO_START
 nssm set     OrcaView-MCP DependOnService OrcaView-OS-API
-nssm set     OrcaView-MCP AppStdout "%PROJ%\logs\mcp_service.log"
-nssm set     OrcaView-MCP AppStderr "%PROJ%\logs\mcp_service.log"
-nssm set     OrcaView-MCP AppRotateFiles 1
-nssm set     OrcaView-MCP AppRotateBytes 5000000
+REM O proprio serve_http.py escreve logs\mcp_service.log (TimedRotatingFileHandler,
+REM 6 dias, apaga sozinho). O NSSM NAO deve redirecionar/rotacionar o arquivo: o handle
+REM aberto do NSSM travaria o rename da rotacao a meia-noite. Por isso, sem AppStdout/
+REM AppStderr/AppRotate*. (Em servico ja instalado, rodar: nssm reset OrcaView-MCP
+REM AppStdout ^& nssm reset OrcaView-MCP AppStderr ^& nssm reset OrcaView-MCP AppRotateFiles)
 nssm start   OrcaView-MCP
 
 echo.

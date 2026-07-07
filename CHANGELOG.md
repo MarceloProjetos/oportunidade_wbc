@@ -3,6 +3,24 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-07] — Logs: retenção de 6 dias (era 12) e MCP com log próprio e enxuto
+
+### Alterado
+
+- **Retenção de log caiu de 12 → 6 dias** nos dois serviços que usam
+  `TimedRotatingFileHandler` (apagam sozinhos o excedente): `api.py` (`api.log`,
+  `backupCount=6`) e `scripts/scheduled_execution.py` (`scheduled_execution.log`,
+  `LOG_RETENTION_DAYS=6`). Continuam **separados** (são 2 serviços Windows distintos;
+  um único arquivo compartilhado disputaria o rename da rotação à meia-noite).
+- **`mcp_service.log` agora é escrito pelo próprio processo Python** (`mcp/serve_http.py`),
+  via `TimedRotatingFileHandler` de 6 dias com auto-delete — mesmo padrão dos outros dois.
+  Antes o arquivo era gerido pelo NSSM (rotação por 5 MB, que **nunca apagava** os antigos).
+  O log de acesso por-requisição do uvicorn foi desligado (`access_log=False`) p/ enxugar.
+- **`install_mcp_service.bat`**: removidas as linhas `AppStdout`/`AppStderr`/`AppRotate*`
+  que apontavam p/ `mcp_service.log` — o NSSM não pode mais segurar o handle do arquivo
+  (travaria o rename da rotação do Python). Em serviço já instalado é preciso rodar uma vez:
+  `nssm reset OrcaView-MCP AppStdout` (idem `AppStderr` e `AppRotateFiles`) + restart.
+
 ## [2026-07-06] — Sincronizar um pedido também espelha 3 views de impressão de OS do HANA
 
 ### Adicionado

@@ -78,7 +78,7 @@ def _configure_logging() -> None:
     os.makedirs(log_dir, exist_ok=True)
     file_handler = TimedRotatingFileHandler(
         os.path.join(log_dir, 'api.log'),
-        when='midnight', interval=1, backupCount=12, encoding='utf-8',
+        when='midnight', interval=1, backupCount=6, encoding='utf-8',
     )
     logging.basicConfig(
         level=logging.INFO,

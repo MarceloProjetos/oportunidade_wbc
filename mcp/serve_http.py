@@ -30,6 +30,8 @@ Rodar:  python serve_http.py     (ou via run_mcp.bat / servico NSSM OrcaView-MCP
 from __future__ import annotations
 
 import hmac
+import logging
+import logging.config
 import os
 
 import uvicorn
@@ -42,6 +44,49 @@ _TOKEN = os.environ.get("SIS_MCP_TOKEN", "").strip()
 _HOST = os.environ.get("SIS_MCP_HOST", "0.0.0.0")
 _PORT = int(os.environ.get("SIS_MCP_PORT", "8078"))
 _PATH = "/mcp"
+
+
+def _build_log_config() -> dict:
+    """Log em arquivo rotativo próprio (``logs/mcp_service.log``), 6 dias.
+
+    O processo Python passa a ser o **único** dono do arquivo — mesmo padrão de
+    ``api.py`` / ``scheduled_execution.py`` (``TimedRotatingFileHandler``,
+    ``backupCount=6``, deleta sozinho o que passa de 6 dias). Por isso o serviço
+    NSSM ``OrcaView-MCP`` NÃO deve mais redirecionar/rotacionar esse arquivo
+    (senão o handle aberto do NSSM trava o rename da rotação à meia-noite).
+    O log de acesso por-requisição fica desligado (``access_log=False``) para
+    manter o arquivo enxuto.
+    """
+    log_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs"
+    )
+    os.makedirs(log_dir, exist_ok=True)
+    return {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {
+                "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            },
+        },
+        "handlers": {
+            "file": {
+                "class": "logging.handlers.TimedRotatingFileHandler",
+                "formatter": "default",
+                "filename": os.path.join(log_dir, "mcp_service.log"),
+                "when": "midnight",
+                "interval": 1,
+                "backupCount": 6,
+                "encoding": "utf-8",
+            },
+        },
+        "loggers": {
+            "uvicorn": {"handlers": ["file"], "level": "INFO", "propagate": False},
+            "uvicorn.error": {"handlers": ["file"], "level": "INFO", "propagate": False},
+            "uvicorn.access": {"handlers": ["file"], "level": "WARNING", "propagate": False},
+        },
+        "root": {"handlers": ["file"], "level": "INFO"},
+    }
 
 
 class StaticBearerMiddleware:
@@ -110,5 +155,12 @@ def build_app():
 
 
 if __name__ == "__main__":
-    app = build_app()
-    uvicorn.run(app, host=_HOST, port=_PORT, log_level="info")
+    log_config = _build_log_config()
+    # Ativa o arquivo já aqui: erros de subida (ex.: SIS_MCP_TOKEN ausente) caem no log.
+    logging.config.dictConfig(log_config)
+    try:
+        app = build_app()
+    except SystemExit as exc:
+        logging.getLogger("mcp.serve_http").error("Falha ao subir MCP: %s", exc)
+        raise
+    uvicorn.run(app, host=_HOST, port=_PORT, log_config=log_config, access_log=False)

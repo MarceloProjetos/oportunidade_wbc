@@ -20,7 +20,7 @@ from extract_sap_to_supabase import main
 from feriados_br import is_business_day, is_national_holiday
 from pipeline_core import FileLockTimeout, oportunidades_sync_lock
 
-LOG_RETENTION_DAYS = 12
+LOG_RETENTION_DAYS = 6
 HEARTBEAT_INTERVAL_S = 3600
 
 logger = logging.getLogger(__name__)
