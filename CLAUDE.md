@@ -51,7 +51,6 @@ importa os 3 pipelines · `mcp/` só chama HTTP (não importa nada da raiz).
 
 - `CHANGELOG.md` (455 linhas de histórico) e `README.md` inteiro — no README, vá direto à seção pela busca do heading.
 - `exports/` (dados de cliente), `logs/`, `state/`, `.locks/` — runtime/gerados.
-- `examples/`, `docs/CONSUMO_DADOS.md` — só se a tarefa for sobre consumo externo dos dados.
 - `install_*.bat/.ps1`, `run_*.bat`, `maintenance/` — só para tarefas de deploy/operação.
 
 ## Gotchas (custam caro se ignorados)

@@ -659,7 +659,6 @@ ServidorIntegracaoSAP/
 │   └── scheduled_execution.py   # Agendamento via APScheduler (IntervalTrigger)
 ├── mcp/                         # Fachada MCP read-only sobre a API (FastMCP/stdio)
 ├── maintenance/                 # Manutenção do servidor (limpeza de logs do Azure)
-├── docs/                        # Guias de consumo (read-only)
 ├── monitor_wbc_task.ps1         # Monitora a tarefa "Integração WBC" → state/*.json
 ├── install_monitor_task.ps1     # Registra a tarefa do monitor (a cada 10 min, SYSTEM)
 ├── run_scheduler.bat            # Wrapper p/ Task Scheduler / NSSM (agendador, boot 24/7)
