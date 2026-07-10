@@ -257,6 +257,52 @@ def _resumo_os(linhas: List[dict]) -> dict:
     }
 
 
+# Campos de cabeçalho lidos do espelho de EXPEDIÇÃO p/ o resumo. A
+# VW_OS_EXPED_IMPRESSAO_V2 é a fonte oficial das datas do pedido — o
+# "DtPedido" dela DIVERGE do da VW_EXPORT_ORDENS_SERVICO_1 (ex.: NPED 84080 =
+# 15/06 na exped vs 24/06 na engenharia; constatado 2026-07-10).
+_EXPED_TABLE = 'vw_os_exped_impressao_v2'
+_EXPED_COLS = '"DtPedido","Obs","DtLiber","DtEntregaPED"'
+
+
+def _fetch_exped_campos(nped: int) -> Optional[dict]:
+    """1 linha (campos de cabeçalho) do espelho de expedição, ou ``None``.
+
+    ``order('id')`` porque a view tem N linhas por NPED e o PostgREST sem
+    ORDER BY devolve linha arbitrária — a resposta mudaria entre requests.
+    """
+    res = (
+        _supabase().table(_EXPED_TABLE)
+        .select(_EXPED_COLS).eq('NPED', nped).order('id').limit(1).execute()
+    )
+    data = res.data or []
+    return data[0] if data else None
+
+
+def _merge_exped_no_resumo(resumo: dict, nped: int) -> None:
+    """Anexa ao ``resumo`` os campos de expedição — best-effort, nunca derruba o GET.
+
+    ``data_pedido`` passa a vir da exped quando há linha (data de colocação
+    oficial); o valor da engenharia fica em ``data_pedido_engenharia``.
+    ``exped_disponivel=False`` = pedido ainda sem sync das views de impressão
+    (espelho preenchido no sync desde 2026-07-06) — re-sincronizar resolve.
+    """
+    try:
+        exped = _fetch_exped_campos(nped)
+    except Exception as exc:
+        logger.warning("Campos de expedicao indisponiveis p/ NPED %s: %s", nped, exc)
+        exped = None
+    resumo['exped_disponivel'] = exped is not None
+    if exped is None:
+        return
+    resumo['data_entrega'] = exped.get('DtEntregaPED')
+    resumo['data_liberacao'] = exped.get('DtLiber')
+    resumo['obs'] = exped.get('Obs')
+    if exped.get('DtPedido'):
+        resumo['data_pedido_engenharia'] = resumo.get('data_pedido')
+        resumo['data_pedido'] = exped.get('DtPedido')
+
+
 def _autorizado() -> bool:
     """True se ``OS_API_KEY`` não está definido (aberto) ou se a chave bate.
 
@@ -473,8 +519,11 @@ def os_detalhe(nped: str):
     """Detalhe da OS de UM pedido (lê a tabela espelho no Supabase). Requer X-API-Key.
 
     Devolve um ``resumo`` (cliente, status, total, nº de linhas e de OPs, última
-    sincronização). Com ``?linhas=1`` inclui também as ``linhas`` (colunas enxutas,
-    sem os textos NCLOB). Responde **404** se o pedido não tem OS sincronizada.
+    sincronização) + os campos de EXPEDIÇÃO quando o espelho os tem
+    (``data_entrega``, ``data_liberacao``, ``obs``, ``data_pedido`` oficial;
+    ``exped_disponivel`` diz se vieram). Com ``?linhas=1`` inclui também as
+    ``linhas`` (colunas enxutas, sem os textos NCLOB). Responde **404** se o
+    pedido não tem OS sincronizada.
 
     Obs.: a rota estática ``/ordens-servico/disponiveis`` tem prioridade no roteador
     do Werkzeug, então não é capturada por este ``<nped>``.
@@ -493,6 +542,7 @@ def os_detalhe(nped: str):
     if not linhas:
         return jsonify(ok=False, error='pedido sem OS sincronizada', nped=n), 404
     payload = {'ok': True, 'nped': n, 'resumo': _resumo_os(linhas)}
+    _merge_exped_no_resumo(payload['resumo'], n)
     if request.args.get('linhas') in ('1', 'true', 'yes'):
         payload['linhas'] = linhas
     return jsonify(payload)
@@ -534,6 +584,9 @@ def os_sincronizar(nped: str):
             linhas = _fetch_os_detalhe(n)
             if linhas:
                 payload['resumo'] = _resumo_os(linhas)
+                # O sync acabou de repovoar o espelho de expedição — o resumo
+                # fresco já sai com as datas/obs oficiais.
+                _merge_exped_no_resumo(payload['resumo'], n)
         except Exception as exc:  # sync já foi; só não conseguimos reler o resumo
             logger.error("Sync OK mas falha ao reler o resumo do NPED %s: %s", n, exc)
 

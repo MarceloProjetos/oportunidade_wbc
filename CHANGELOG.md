@@ -3,6 +3,25 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-10] — Detalhe de pedido inclui os campos de EXPEDIÇÃO (entrega/liberação/obs)
+
+### Adicionado
+
+- **`GET /ordens-servico/<nped>` agora enriquece o `resumo` com a view de expedição.**
+  Além das colunas da `ordens_servico_engenharia`, lê **1 linha** do espelho
+  `vw_os_exped_impressao_v2` (`_fetch_exped_campos`, `.order('id').limit(1)` p/ ser
+  determinístico) e injeta no resumo: `data_entrega` (`DtEntregaPED`), `data_liberacao`
+  (`DtLiber`), `obs` (`Obs`) e a **`data_pedido` OFICIAL** (`DtPedido` da expedição, que
+  DIVERGE da engenharia — ex. NPED 84080: 15/06 na expedição vs 24/06; a antiga fica em
+  `data_pedido_engenharia`). O flag **`exped_disponivel`** distingue os três estados:
+  campo ausente (8077 antiga) / `false` (pedido sem sync das views) / `true` (dado oficial).
+  Best-effort: falha na leitura da expedição **nunca** derruba o GET (segue com o resumo
+  base). O `POST /ordens-servico/<nped>/sincronizar` também devolve o resumo fresco com
+  esses campos. Alimenta as novas perguntas por pedido do Assistente Mira (data de entrega/
+  colocação/liberação/observações). Testes: +4 em `tests/test_api.py`.
+  **Deploy .11:** `git pull` + `nssm restart OrcaView-OS-API` — fazer **ANTES** do web (.90),
+  senão a Mira responde "servidor de integração precisa ser atualizado" nesses campos.
+
 ## [2026-07-07] — Sincronizar um pedido também espelha a view de solda (`vw_os_solda`)
 
 ### Adicionado

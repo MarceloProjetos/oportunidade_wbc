@@ -28,6 +28,8 @@ def client(monkeypatch):
     monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {
         'tem_os': True, 'cancelada': False,
         'pedido_existe': True, 'pedido_cancelado': False, 'pedido_status': 'Aberto'})
+    # campos de expedição (espelho exped) mockados: sem rede; testes específicos sobrescrevem
+    monkeypatch.setattr(apimod, '_fetch_exped_campos', lambda n: None)
     apimod.app.config.update(TESTING=True)
     c = apimod.app.test_client()
     c._chamados = chamados
@@ -171,6 +173,60 @@ def test_os_detalhe_requires_key_when_set(client, monkeypatch):
     assert client.get('/ordens-servico/84080').status_code == 401
     assert client.get('/ordens-servico/84080',
                       headers={'X-API-Key': 'segredo'}).status_code == 200
+
+
+# ----- campos de expedição no resumo (PLANO_MIRA_HARNESS F3a do web) -----
+
+_FAKE_EXPED_ROW = {
+    'DtPedido': '2026-06-15T00:00:00', 'Obs': 'Entregar no galpao 2.',
+    'DtLiber': '2026-06-24T00:00:00', 'DtEntregaPED': '2026-07-20T00:00:00',
+}
+
+
+def test_os_detalhe_com_campos_exped(client, monkeypatch):
+    """Espelho de expedição tem o pedido → resumo ganha datas/obs oficiais."""
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, '_fetch_exped_campos', lambda n: dict(_FAKE_EXPED_ROW))
+    resumo = client.get('/ordens-servico/84080').get_json()['resumo']
+    assert resumo['exped_disponivel'] is True
+    assert resumo['data_entrega'] == '2026-07-20T00:00:00'
+    assert resumo['data_liberacao'] == '2026-06-24T00:00:00'
+    assert resumo['obs'] == 'Entregar no galpao 2.'
+    # DtPedido da EXPED é a data de colocação oficial (DIVERGE da engenharia:
+    # constatado 2026-07-10 no 84080 = 15/06 vs 24/06).
+    assert resumo['data_pedido'] == '2026-06-15T00:00:00'
+    assert resumo['data_pedido_engenharia'] == '2026-06-24T00:00:00'
+
+
+def test_os_detalhe_sem_exped_sinaliza(client, monkeypatch):
+    """Pedido ainda sem sync das views de impressão → flag False, sem campos."""
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    resumo = client.get('/ordens-servico/84080').get_json()['resumo']
+    assert resumo['exped_disponivel'] is False
+    assert 'data_entrega' not in resumo
+    assert resumo['data_pedido'] == '2026-06-24T00:00:00'  # mantém a da engenharia
+
+
+def test_os_detalhe_exped_falha_nao_derruba(client, monkeypatch):
+    """Falha na leitura da exped é best-effort: o detalhe continua 200."""
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+
+    def _boom(n):
+        raise RuntimeError('supabase fora')
+
+    monkeypatch.setattr(apimod, '_fetch_exped_campos', _boom)
+    r = client.get('/ordens-servico/84080')
+    assert r.status_code == 200
+    assert r.get_json()['resumo']['exped_disponivel'] is False
+
+
+def test_os_sincronizar_resumo_ganha_exped(client, monkeypatch):
+    """O resumo fresco pós-sync também sai com os campos de expedição."""
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, '_fetch_exped_campos', lambda n: dict(_FAKE_EXPED_ROW))
+    body = client.post('/ordens-servico/84080/sincronizar').get_json()
+    assert body['resumo']['data_entrega'] == '2026-07-20T00:00:00'
+    assert body['resumo']['exped_disponivel'] is True
 
 
 # ----- POST /ordens-servico/<nped>/sincronizar (escrita: sync + resumo) -----
