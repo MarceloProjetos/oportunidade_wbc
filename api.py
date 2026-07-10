@@ -261,8 +261,11 @@ def _resumo_os(linhas: List[dict]) -> dict:
 # VW_OS_EXPED_IMPRESSAO_V2 é a fonte oficial das datas do pedido — o
 # "DtPedido" dela DIVERGE do da VW_EXPORT_ORDENS_SERVICO_1 (ex.: NPED 84080 =
 # 15/06 na exped vs 24/06 na engenharia; constatado 2026-07-10).
+# "ObsPedido" = observação do PEDIDO (cabeçalho, o que o usuário pergunta em
+# "observações do pedido"); a view tem TAMBÉM "Obs", que é da OP e NÃO serve aqui
+# (constatado 2026-07-10: 84080 tem "Obs" vazia mas "ObsPedido" preenchida).
 _EXPED_TABLE = 'vw_os_exped_impressao_v2'
-_EXPED_COLS = '"DtPedido","Obs","DtLiber","DtEntregaPED"'
+_EXPED_COLS = '"DtPedido","ObsPedido","DtLiber","DtEntregaPED"'
 
 
 def _fetch_exped_campos(nped: int) -> Optional[dict]:
@@ -297,7 +300,7 @@ def _merge_exped_no_resumo(resumo: dict, nped: int) -> None:
         return
     resumo['data_entrega'] = exped.get('DtEntregaPED')
     resumo['data_liberacao'] = exped.get('DtLiber')
-    resumo['obs'] = exped.get('Obs')
+    resumo['obs'] = exped.get('ObsPedido')
     if exped.get('DtPedido'):
         resumo['data_pedido_engenharia'] = resumo.get('data_pedido')
         resumo['data_pedido'] = exped.get('DtPedido')

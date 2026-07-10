@@ -178,7 +178,8 @@ def test_os_detalhe_requires_key_when_set(client, monkeypatch):
 # ----- campos de expedição no resumo (PLANO_MIRA_HARNESS F3a do web) -----
 
 _FAKE_EXPED_ROW = {
-    'DtPedido': '2026-06-15T00:00:00', 'Obs': 'Entregar no galpao 2.',
+    # ObsPedido = observação do PEDIDO (cabeçalho); "Obs" da view é da OP e não é lida.
+    'DtPedido': '2026-06-15T00:00:00', 'ObsPedido': 'Entregar no galpao 2.',
     'DtLiber': '2026-06-24T00:00:00', 'DtEntregaPED': '2026-07-20T00:00:00',
 }
 
