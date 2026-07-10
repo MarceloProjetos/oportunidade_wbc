@@ -12,7 +12,7 @@ REM ============================================================================
 setlocal enabledelayedexpansion
 
 set "REPO=https://github.com/MarceloProjetos/oportunidade_wbc.git"
-set "BRANCH=main"
+set "BRANCH=master"
 
 REM --- ir para a raiz do repo (a pasta deste .bat) ---
 cd /d "%~dp0"
