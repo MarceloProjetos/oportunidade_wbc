@@ -2,7 +2,7 @@
 -- Views de IMPRESSÃO de OS — DDL para o Supabase (PostgreSQL)
 -- Espelho DIRETO 1:1 de três views do SAP HANA (schema SBOALTAMIRAPROD):
 --
---   SBOALTAMIRAPROD.VW_OS_EXPED_IMPRESSAO_V2  → public.vw_os_exped_impressao_v2  (55 col)
+--   SBOALTAMIRAPROD.VW_OS_EXPED_IMPRESSAO_V2  → public.vw_os_exped_impressao_v2  (57 col)
 --   SBOALTAMIRAPROD.VW_OS_PINTURA_V0          → public.vw_os_pintura_v0          (55 col)
 --   SBOALTAMIRAPROD.VW_OS_ALMOX_IMPRESSAO     → public.vw_os_almox_impressao     (34 col)
 --
@@ -90,6 +90,8 @@ create table if not exists public.vw_os_exped_impressao_v2 (
   "U_INO_NIVEL"          text,
   "U_INO_VERSAOWBC"      text,
   "U_INO_PROJETO"        text,
+  "DocEntry_OP"          bigint,   -- adicionada à view depois (chave interna da OP)
+  "DocEntry_PED"         bigint,   -- adicionada à view depois (chave interna do pedido)
 
   -- ===== Controle / auditoria (adicionados pelo pipeline) =====
   id_execucao            uuid,

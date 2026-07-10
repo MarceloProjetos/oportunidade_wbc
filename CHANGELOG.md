@@ -3,6 +3,33 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-10] — Espelhos de OS alinhados às views HANA (bloco de filial na solda + DocEntry na expedição)
+
+### Corrigido
+
+- **Schema das tabelas-espelho realinhado às views HANA** que ganharam colunas novas
+  durante o desenvolvimento. O INSERT do pipeline (`SELECT *`, casa por NOME via PostgREST)
+  falhava com `PGRST204` ("Could not find the '<col>' column ... in the schema cache") ao
+  encontrar colunas que a tabela Supabase (criada antes) ainda não tinha:
+  - `VW_OS_SOLDA_DETALHE` ganhou o **bloco de endereço da FILIAL** (12 col) → 12 colunas
+    novas em `vw_os_solda` (`Filial`, `Tipo Logradouro`, `Rua Filial`, `Nº Filial`, …,
+    `Matriz`). Contagem de referência 30 → **42 col**.
+  - `VW_OS_EXPED_IMPRESSAO_V2` ganhou `DocEntry_OP`/`DocEntry_PED` → 2 colunas novas em
+    `vw_os_exped_impressao_v2`. Contagem 55 → **57 col**.
+  - Aplicado em produção via **`sql/alter_espelhos_alinhar_views_2026-07-10.sql`**
+    (`add column if not exists` + `NOTIFY pgrst, 'reload schema'`; idempotente). Os DDLs de
+    referência (`sql/vw_os_solda.sql`, `sql/os_impressao_views.sql`) foram atualizados p/ a
+    (re)criação do ZERO já nascer com as colunas.
+- **GOTCHA documentado (nome de coluna herdado do HANA):** o número da filial diverge por
+  view — solda usa **`"Nº Filial"`** (espaço + `º` = U+00BA); as views de impressão usam
+  **`"NFilial"`** (ASCII). Como o espelho casa por NOME, o nome NÃO pode ser trocado só no
+  Supabase (senão `PGRST204`) — só mudando o alias na view HANA. O `N�` que às vezes aparece
+  em terminal/print é só render; o byte gravado é UTF-8 íntegro.
+- **Round-trip validado em produção** (leitura `anon` de `vw_os_solda`, 672 linhas): o NPED
+  84170 gravou `"Nº Filial":"528"` legível (e `São Paulo`/`Indústria` OK), sem `PGRST204`.
+  Consumidor futuro deve normalizar num adapter: `row["Nº Filial"] ?? row["NFilial"]` — hoje
+  nenhum consumidor lê essas colunas por nome.
+
 ## [2026-07-10] — Detalhe de pedido inclui os campos de EXPEDIÇÃO (entrega/liberação/obs)
 
 ### Adicionado

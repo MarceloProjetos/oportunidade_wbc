@@ -2,7 +2,7 @@
 -- vw_os_solda — DDL para o Supabase (PostgreSQL)
 -- Espelho DIRETO 1:1 da view SAP HANA (schema SBOALTAMIRAPROD):
 --
---   SBOALTAMIRAPROD.VW_OS_SOLDA_DETALHE  → public.vw_os_solda  (30 col)
+--   SBOALTAMIRAPROD.VW_OS_SOLDA_DETALHE  → public.vw_os_solda  (42 col)
 --
 -- Pipeline: extract_os_impressao_views.py (registry config.OS_IMPRESSAO_VIEWS).
 --   Carga sob demanda, por NPED, disparada após a OS. Estratégia replace_nped
@@ -14,12 +14,12 @@
 -- ----------------------------------------------------------------------------
 -- OBS. sobre nomes/tipos:
 --   * Nomes entre aspas preservam o case EXATO da view HANA (o pipeline insere via
---     PostgREST com o nome idêntico). Esta view NÃO tem colunas com espaço.
+--     PostgREST com o nome idêntico). Desde 2026-07-10 a view TAMBÉM tem o bloco de
+--     endereço da filial, com colunas COM espaço ("Rua Filial", "Nº Filial", etc.).
 --   * DECIMAL do HANA → numeric (sem precisão fixa); INTEGER/SMALLINT → integer;
 --     NVARCHAR/VARCHAR → text; TIMESTAMP → timestamp.
---   * Diferente das views de impressão: sem bloco de endereço da filial; tem
---     campos de solda/orçamento (LinhaOrcam, U_INO_ORCAMENTO, U_INO_ORCITM,
---     U_INO_EXPL_SOLDA, ItmsGrpCod_OITM). TIPO = 'SOLD'.
+--   * Além do bloco de filial, tem campos de solda/orçamento (LinhaOrcam,
+--     U_INO_ORCAMENTO, U_INO_ORCITM, U_INO_EXPL_SOLDA, ItmsGrpCod_OITM). TIPO = 'SOLD'.
 --
 -- SEGURANÇA / RLS: RLS ENABLE + FORCE. Escrita só pelo service_role (o pipeline).
 --   Leitura liberada p/ `anon` (policy de SELECT). Idempotente.
@@ -58,6 +58,26 @@ create table if not exists public.vw_os_solda (
   "U_INO_EXPL_SOLDA"    text,
   "U_INO_VERSAOWBC"     text,
   "U_INO_PROJETO"       text,
+
+  -- ===== Bloco de endereço da FILIAL (adicionado à view depois; nomes COM espaço) =====
+  -- GOTCHA: o número aqui é "Nº Filial" (espaço + 'º' ordinal, U+00BA), byte-exato da
+  --   view HANA. As views de impressão (exped/pintura/almox) usam "NFilial" (ASCII) —
+  --   nomes DIFERENTES p/ o mesmo conceito. O pipeline faz SELECT * e casa por NOME:
+  --   NÃO troque o nome só no Supabase (quebra a carga com PGRST204); só mudando o alias
+  --   na view HANA. Round-trip UTF-8 validado em prod (2026-07-10). Consumidor deve
+  --   normalizar num adapter: row["Nº Filial"] ?? row["NFilial"].
+  "Filial"              text,
+  "Tipo Logradouro"     text,
+  "Rua Filial"          text,
+  "Nº Filial"           text,
+  "Complemento Filial"  text,
+  "CEP Filial"          text,
+  "Bairro Filial"       text,
+  "Cidade Filial"       text,
+  "Estado Filial"       text,
+  "CNPJ Filial"         text,
+  "IE Filial"           text,
+  "Matriz"              text,
 
   -- ===== Controle / auditoria (adicionados pelo pipeline) =====
   id_execucao           uuid,
