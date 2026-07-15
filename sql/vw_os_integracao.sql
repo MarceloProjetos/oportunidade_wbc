@@ -1,6 +1,6 @@
 -- ============================================================================
 -- VW_OS_INTEGRACAO — tabela ÚNICA consolidada de OS no Supabase (PostgreSQL)
--- Origem: SAP HANA view SBOALTAMIRAPROD.VW_OS_INTEGRACAO (49 colunas)
+-- Origem: SAP HANA view SBOALTAMIRAPROD.VW_OS_INTEGRACAO (50 colunas)
 -- Pipeline: extract_ordens_servico_engenharia.py (carga sob demanda, por N_PED)
 --
 -- Consolidação 2026-07-14: esta tabela SUBSTITUI os 6 espelhos separados que
@@ -45,12 +45,12 @@ drop table if exists public.sincronizacao_log_wbc_arvore    cascade;
 
 
 -- ----------------------------------------------------------------------------
--- 1) Tabela única (49 colunas da view + metadados de auditoria do pipeline)
+-- 1) Tabela única (50 colunas da view + metadados de auditoria do pipeline)
 -- ----------------------------------------------------------------------------
 create table if not exists public.vw_os_integracao (
   id                   bigint generated always as identity primary key,
 
-  -- ===== Colunas da view VW_OS_INTEGRACAO (49) =====
+  -- ===== Colunas da view VW_OS_INTEGRACAO (50) =====
   "N_OP"               integer,
   "N_PED"              integer,
   "Quantity"           numeric(21,6),
@@ -100,6 +100,7 @@ create table if not exists public.vw_os_integracao (
   "CodigoOrcam"        text,
   "U_INO_VERSAOWBC"    text,
   "U_INO_LINHA"        integer,
+  "Solda"              integer,   -- flag por item: 1 = vai p/ solda, 0 = não (add. 2026-07-15)
 
   -- ===== Controle / auditoria (adicionados pelo pipeline; NÃO estão na view) =====
   id_execucao          uuid,        -- UUID da carga (agrupa as linhas do sync de um N_PED)

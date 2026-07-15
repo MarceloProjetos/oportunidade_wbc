@@ -97,19 +97,20 @@ def test_limpar_historico_requires_key_when_set(client, monkeypatch):
 
 # ----- /ordens-servico/<nped> (detalhe da OS) -----
 
-# Shape da tabela única VW_OS_INTEGRACAO (usa "N_PED"; datas de entrega/obs na mesma linha).
+# Shape da tabela única VW_OS_INTEGRACAO (usa "N_PED"; datas de entrega/obs na mesma
+# linha). "Solda" é flag POR ITEM: aqui a 1ª linha vai p/ solda e a 2ª não.
 _FAKE_OS_ROWS = [
     {'id': 1, 'N_PED': 84080, 'N_OP': 138757, 'DescItemPED': 'Estantes',
      'DescItemEstrut': 'Coluna', 'DtPedido': '2026-06-24T00:00:00', 'CodClien': 'C011627',
      'NomeClien': 'ARAUCO CELULOSE', 'Status': 'R', 'TotalOrcam': 20640.0,
      'ObsPedido': 'Entregar no galpao 2.', 'DtLiber': '2026-06-24T00:00:00',
-     'DtEntregaPED': '2026-07-20T00:00:00',
+     'DtEntregaPED': '2026-07-20T00:00:00', 'Solda': 1,
      'id_execucao': 'exec-1', 'data_hora_extracao': '2026-06-25T16:38:20'},
     {'id': 2, 'N_PED': 84080, 'N_OP': 138758, 'DescItemPED': 'Estantes',
      'DescItemEstrut': 'Longarina', 'DtPedido': '2026-06-24T00:00:00', 'CodClien': 'C011627',
      'NomeClien': 'ARAUCO CELULOSE', 'Status': 'R', 'TotalOrcam': 20640.0,
      'ObsPedido': 'Entregar no galpao 2.', 'DtLiber': '2026-06-24T00:00:00',
-     'DtEntregaPED': '2026-07-20T00:00:00',
+     'DtEntregaPED': '2026-07-20T00:00:00', 'Solda': 0,
      'id_execucao': 'exec-1', 'data_hora_extracao': '2026-06-25T16:38:20'},
 ]
 
@@ -188,6 +189,32 @@ def test_os_detalhe_campos_entrega_no_resumo(client, monkeypatch):
     assert resumo['data_pedido'] == '2026-06-24T00:00:00'
     # não há mais divergência exped x engenharia → sem 'data_pedido_engenharia'
     assert 'data_pedido_engenharia' not in resumo
+
+
+def test_resumo_agrega_solda_por_item(client, monkeypatch):
+    """'Solda' é flag POR ITEM: o resumo agrega (algum item vai? quantos?),
+    em vez de um booleano de cabeçalho — o pedido pode ter itens mistos."""
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    resumo = client.get('/ordens-servico/84080').get_json()['resumo']
+    assert resumo['tem_solda'] is True      # a 1ª linha tem Solda=1
+    assert resumo['num_linhas_solda'] == 1  # só ela (a 2ª é 0)
+
+
+def test_resumo_sem_nenhum_item_de_solda(client, monkeypatch):
+    """Nenhum item com Solda=1 → tem_solda False e contagem zero."""
+    rows = [{**r, 'Solda': 0} for r in _FAKE_OS_ROWS]
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: rows)
+    resumo = client.get('/ordens-servico/84080').get_json()['resumo']
+    assert resumo['tem_solda'] is False and resumo['num_linhas_solda'] == 0
+
+
+@pytest.mark.parametrize('valor,esperado', [
+    (1, True), ('1', True), (1.0, True),           # int/texto/decimal contam
+    (0, False), ('0', False), (None, False),
+    ('', False), ('abc', False), ('sim', False),   # lixo não derruba: só não conta
+])
+def test_e_solda_tolera_valor_inesperado(valor, esperado):
+    assert apimod._e_solda(valor) is esperado
 
 
 def test_os_sincronizar_resumo_traz_entrega(client, monkeypatch):

@@ -191,13 +191,25 @@ def _count_rows(table: str) -> Optional[int]:
 _OS_STATUS_DESC = {'P': 'Planejado', 'R': 'Liberado', 'L': 'Encerrado', 'C': 'Cancelado'}
 
 # Colunas do detalhe/resumo de OS — enxutas de propósito (a view VW_OS_INTEGRACAO tem
-# 49 colunas; puxamos só o que o resumo usa). Inclui os campos de EXPEDIÇÃO
+# 50 colunas; puxamos só o que o resumo usa). Inclui os campos de EXPEDIÇÃO
 # (ObsPedido/DtLiber/DtEntregaPED) que antes exigiam uma 2ª query no espelho separado.
 _OS_DETALHE_COLS = (
     'id,N_PED,N_OP,DescItemPED,DescItemEstrut,DtPedido,'
     'CodClien,NomeClien,Status,TotalOrcam,ObsPedido,DtLiber,DtEntregaPED,'
-    'id_execucao,data_hora_extracao'
+    'Solda,id_execucao,data_hora_extracao'
 )
+
+
+def _e_solda(valor: object) -> bool:
+    """True se a flag ``Solda`` da linha indica que o item vai para solda (1).
+
+    A view devolve inteiro (1/0), mas toleramos texto/decimal/None — um valor
+    inesperado nunca deve derrubar o resumo, só não conta como solda.
+    """
+    try:
+        return int(valor) == 1
+    except (TypeError, ValueError):
+        return False
 
 
 def _fetch_os_detalhe(nped: int) -> List[dict]:
@@ -244,10 +256,15 @@ def _resumo_os(linhas: List[dict]) -> dict:
     (observação do PEDIDO; a view tem também ``Obs``, da OP, que NÃO serve aqui).
     ``exped_disponivel`` fica ``True`` por compatibilidade com o app web — não há mais
     espelho separado que possa faltar.
+
+    ``Solda`` é uma flag POR ITEM (1/0), não do pedido — por isso vira ``tem_solda``
+    (algum item vai para solda?) + ``num_linhas_solda`` (quantos), em vez de um
+    booleano de cabeçalho, que seria enganoso num pedido com itens mistos.
     """
     primeira = linhas[0]
     status = primeira.get('Status')
     ops = sorted({l['N_OP'] for l in linhas if l.get('N_OP') is not None})
+    linhas_solda = sum(1 for l in linhas if _e_solda(l.get('Solda')))
     return {
         'cliente': primeira.get('NomeClien'),
         'cod_cliente': primeira.get('CodClien'),
@@ -263,6 +280,8 @@ def _resumo_os(linhas: List[dict]) -> dict:
         'data_liberacao': primeira.get('DtLiber'),
         'obs': primeira.get('ObsPedido'),
         'exped_disponivel': True,
+        'tem_solda': linhas_solda > 0,
+        'num_linhas_solda': linhas_solda,
         'id_execucao': primeira.get('id_execucao'),
         'ultima_sincronizacao': primeira.get('data_hora_extracao'),
     }
