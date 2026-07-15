@@ -120,6 +120,23 @@ _PGRST_SCHEMA_CODES = ('PGRST204', 'PGRST205')
 _ISO_DT_RE = re.compile(r'^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}')
 
 
+def agora_iso() -> str:
+    """Instante atual em ISO-8601 **com offset** (ex.: ``2026-07-15T16:43:30-03:00``).
+
+    Use SEMPRE isto no lugar de ``datetime.now().isoformat()`` para gravar horário no
+    Supabase. Motivo (medido em 2026-07-15): o naive ``'16:43:30'`` numa coluna
+    ``timestamptz`` é interpretado como **UTC** pelo Postgres e vira ``16:43:30+00`` —
+    3h no passado, silenciosamente. Era o caso do ``data_hora_sincronizacao``, e todo o
+    painel "Últimas sincronizações" mostrava a hora errada.
+
+    Com o offset, o instante grava certo no ``timestamptz`` e **nada muda** nas colunas
+    ``timestamp without time zone`` (ex.: ``data_hora_extracao``): o Postgres descarta o
+    offset e guarda a hora de parede, exatamente como antes. Por isso dá para usar a
+    mesma função nos dois casos.
+    """
+    return datetime.now().astimezone().isoformat()
+
+
 def e_erro_de_schema(exc: object) -> bool:
     """True se o erro é de SCHEMA do PostgREST (coluna/tabela fora do cache).
 
@@ -485,7 +502,7 @@ def prepare_data(
     if execution_id is None:
         execution_id = str(uuid.uuid4())
 
-    extraction_datetime = datetime.now().isoformat()
+    extraction_datetime = agora_iso()   # com offset — ver agora_iso()
 
     # Converter DataFrame para lista de dicionários
     data_list = df.to_dict(orient='records')

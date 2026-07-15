@@ -3,7 +3,6 @@
 import logging
 import sys
 import time
-from datetime import datetime
 from typing import Any, Optional
 
 import pandas as pd
@@ -21,6 +20,7 @@ from config import (
 from db_utils import read_dbapi_query
 from pipeline_core import (  # núcleo compartilhado (genérico)
     SupabaseLoader,
+    agora_iso,
     build_view_query,
     prepare_data,
     validate_sql_identifier,
@@ -370,7 +370,7 @@ def main(
         # próprio para nunca afetar o resultado da sincronização principal.
         try:
             duracao = time.monotonic() - inicio
-            data_hora_pc = datetime.now().isoformat()
+            data_hora_pc = agora_iso()   # com offset: a coluna e timestamptz (ver agora_iso)
             status = 'sucesso' if resultado else 'falha'
             # Reaproveita o cliente já criado no fluxo principal; só instancia um novo se
             # a falha ocorreu antes de ele existir (ex.: extração SAP falhou antes de

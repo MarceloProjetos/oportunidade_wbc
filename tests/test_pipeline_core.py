@@ -1,8 +1,10 @@
 """Testes do núcleo compartilhado (pipeline_core)."""
 
+import inspect
 import logging
 from types import SimpleNamespace
 
+import pandas as pd
 import pytest
 
 import pipeline_core
@@ -126,3 +128,42 @@ def test_erro_de_schema_nao_e_retentado():
 ])
 def test_tipo_pg_sugerido(valor, esperado):
     assert pipeline_core._tipo_pg_sugerido([{'c': valor}], 'c') == esperado
+
+
+# ===================== Timezone (regressão 2026-07-15) =====================
+# Medido em produção: o log gravava `16:43:30+00` para um evento das 16:43 BRT — 3h no
+# passado. `datetime.now().isoformat()` é NAIVE, e o Postgres assume UTC ao gravar em
+# timestamptz. Confirmado no banco:
+#   '16:43:30'::timestamptz       -> 16:43:30+00   (errado, o bug)
+#   '16:43:30-03:00'::timestamptz -> 19:43:30+00   (certo)
+#   '16:43:30-03:00'::timestamp   -> 16:43:30      (offset ignorado: coluna sem tz não muda)
+
+def test_agora_iso_tem_offset():
+    """O ponto todo: sem offset, o Postgres assume UTC e a hora vai 3h p/ trás."""
+    from datetime import datetime as _dt
+    valor = pipeline_core.agora_iso()
+    d = _dt.fromisoformat(valor)          # não levanta = ISO válido
+    assert d.tzinfo is not None, f'sem offset: {valor!r} — o bug de 3h volta'
+    assert d.utcoffset() is not None
+
+
+def test_prepare_data_grava_extracao_com_offset():
+    """data_hora_extracao passa a sair com offset (a coluna é `timestamp` e ignora o
+    offset, então nada muda lá — mas a função é a mesma do log, que é timestamptz)."""
+    from datetime import datetime as _dt
+    df = pd.DataFrame({'N_PED': [84080]})
+    registros, _ = pipeline_core.prepare_data(df)
+    d = _dt.fromisoformat(registros[0]['data_hora_extracao'])
+    assert d.tzinfo is not None
+
+
+def test_registrar_sincronizacao_recebe_hora_com_offset():
+    """Guarda o call-site real: o valor que chega ao log tem de ser aware."""
+    from datetime import datetime as _dt
+
+    import extract_ordens_servico_engenharia as os_mod
+    fonte = inspect.getsource(os_mod.main)
+    assert 'agora_iso()' in fonte, 'o log de sync voltou a usar datetime.now() naive?'
+    assert 'datetime.now().isoformat()' not in fonte
+    # e a função de fato entrega offset
+    assert _dt.fromisoformat(pipeline_core.agora_iso()).tzinfo is not None

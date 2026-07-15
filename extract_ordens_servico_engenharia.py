@@ -27,7 +27,6 @@ from __future__ import annotations
 import logging
 import sys
 import time
-from datetime import datetime
 from typing import Iterable, List, Optional
 
 import pandas as pd
@@ -38,7 +37,13 @@ from config import (
     OS_SYNC_LOG_MAX_REGISTROS,
     get_settings,
 )
-from pipeline_core import SupabaseLoader, build_view_query, coerce_positive_int, prepare_data
+from pipeline_core import (
+    SupabaseLoader,
+    agora_iso,
+    build_view_query,
+    coerce_positive_int,
+    prepare_data,
+)
 from sap_connection import SAPExtractor
 
 # UTF-8 console on Windows
@@ -341,7 +346,7 @@ def main(
         # Log auxiliar (nunca afeta o resultado principal).
         try:
             duracao = time.monotonic() - inicio
-            data_hora_pc = datetime.now().isoformat()
+            data_hora_pc = agora_iso()   # com offset: a coluna e timestamptz (ver agora_iso)
             status = 'sucesso' if resultado else 'falha'
             log_loader = loader or SupabaseLoader(
                 settings.supabase_url, settings.supabase_write_key
