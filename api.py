@@ -52,7 +52,7 @@ from extract_ordens_servico_engenharia import (
     main as sync_os,
 )
 from extract_sap_to_supabase import main as sync_oportunidades
-from monitoring import collect_status
+from monitoring import SELECTABLE_CHECKS, collect_status
 from pipeline_core import FileLockTimeout, coerce_positive_int, oportunidades_sync_lock
 
 # UTF-8 console on Windows
@@ -425,6 +425,8 @@ def status_detalhado():
     Roda só quando chamado (sem polling). Parâmetros:
     - ``?checks=sap,sql`` — roda só as checagens listadas (sap, sql/sql_server, supabase,
       scheduler/agendador, scheduled_task/tarefa). Omitido = todas. ``system`` vem sempre.
+      Nome inválido → **400** com a lista do que é aceito (ver ``collect_status``: um
+      typo devolvia ``healthy: true`` sem checar nada).
     - ``?strict=1`` — devolve **HTTP 503** se alguma conexão falhar **ou** houver alertas
       (disco baixo, agendador possivelmente parado). Útil p/ monitores por código de status.
     """
@@ -436,6 +438,11 @@ def status_detalhado():
 
     try:
         data = collect_status(only)
+    except ValueError as exc:
+        # Nome de check inválido. 400 ANTES do 500 genérico: é erro do cliente, e
+        # responder o que é aceito poupa a próxima tentativa às cegas.
+        aceitos = sorted(set(SELECTABLE_CHECKS) | set(_CHECK_ALIASES))
+        return jsonify(ok=False, error=str(exc), aceitos=aceitos), 400
     except Exception as exc:
         logger.error("Erro ao coletar status: %s", exc)
         return jsonify(ok=False, error='falha ao coletar status'), 500

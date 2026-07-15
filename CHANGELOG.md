@@ -3,6 +3,38 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-16] — `/status` não mente mais: check inválido devolve 400, não "tudo verde"
+
+### Corrigido
+
+- **`/status?checks=<nome inválido>` respondia `200 {"healthy": true}` sem ter checado NADA.**
+  Um nome fora de `SELECTABLE_CHECKS` não casava com nenhum `if`, `checks` saía vazio e
+  **`all([])` é `True`** → `ok: true`, `healthy: true`, `alerts: []`, e **`?strict=1`
+  devolvia 200**. Reproduzido em produção antes do fix:
+
+  ```text
+  GET /status?checks=sqlserver2,agendador_typo&strict=1
+  → 200 {"checks": {}, "healthy": true, "ok": true, "alerts": []}
+  ```
+
+  **Impacto:** um monitor com typo na URL reportava saúde perfeita **para sempre**, sem
+  nunca checar coisa alguma — falha silenciosa no componente cujo único trabalho é detectar
+  falhas. Pior no MCP: `verificar_saude(checks=...)` repassava o verde falso em linguagem
+  natural, e a docstring da tool não listava os valores válidos (convite ao chute do LLM).
+
+  **Agora:** `collect_status` **levanta `ValueError`** para nome desconhecido e o `/status`
+  traduz para **400**, respondendo `aceitos` (canônicos **e** aliases). Falhar alto é
+  deliberado — 400 barulhento é melhor que verde falso. O caminho normal segue igual:
+  sem `?checks=` roda tudo; subconjunto válido e aliases (`wbc`→`sql_server`,
+  `tarefa`→`scheduled_task`) inalterados.
+
+  Documentado também que `ok`/`healthy` refletem **só o que rodou** — pedir subconjunto é
+  escolha de quem chama e não afirma nada sobre o resto.
+
+  7 testes novos (184 no total), incl. a regressão exata (`?checks=` inválido ⇒ nunca
+  200/healthy, nem com `strict=1`) e a mistura válido+inválido (um nome bom não legitima o
+  ruim).
+
 ## [2026-07-15] — Flags de processo, a coluna que faltava, e uma guarda para o PGRST204 nunca mais custar 40 min
 
 ### Adicionado

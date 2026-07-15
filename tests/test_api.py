@@ -561,3 +561,50 @@ def test_status_strict_503_when_degraded(client, monkeypatch):
                         lambda only=None: {'ok': False, 'alerts': [], 'checks': {}})
     assert client.get('/status?strict=1').status_code == 503  # degradado + strict → 503
     assert client.get('/status').status_code == 200           # sem strict → 200 sempre
+
+
+# ----- /status: nome de check inválido (regressão 2026-07-15) -----
+# Medido em PRODUÇÃO antes do fix: `?checks=sqlserver2,agendador_typo&strict=1`
+# → 200 {"checks": {}, "healthy": true}. Nada rodou e a API disse "saudável".
+
+def test_status_check_invalido_400_e_nao_verde(client):
+    """O sintoma que importa: NUNCA responder 200/healthy sem ter checado nada."""
+    r = client.get('/status?checks=sqlserver2,agendador_typo')
+    assert r.status_code == 400
+    body = r.get_json()
+    assert body['ok'] is False
+    assert 'sqlserver2' in body['error']
+    assert 'sap' in body['aceitos']          # diz o que aceita
+    assert 'wbc' in body['aceitos']          # inclusive os aliases
+
+
+def test_status_check_invalido_com_strict_nao_devolve_200(client):
+    """Com strict=1 o monitor decide pelo status code — 200 aqui seria o pior caso."""
+    r = client.get('/status?checks=lixo&strict=1')
+    assert r.status_code == 400
+
+
+def test_status_alias_valido_continua_funcionando(client, monkeypatch):
+    """O fix não pode ter quebrado os aliases (wbc → sql_server)."""
+    capturado = {}
+
+    def _fake(only=None):
+        capturado['only'] = only
+        return {'ok': True, 'alerts': [], 'checks': {}}
+
+    monkeypatch.setattr(apimod, 'collect_status', _fake)
+    assert client.get('/status?checks=wbc,tarefa').status_code == 200
+    assert capturado['only'] == {'sql_server', 'scheduled_task'}
+
+
+def test_status_sem_checks_roda_tudo(client, monkeypatch):
+    """Caminho normal intacto: sem ?checks= → only=None → todas."""
+    capturado = {}
+
+    def _fake(only=None):
+        capturado['only'] = only
+        return {'ok': True, 'alerts': [], 'checks': {}}
+
+    monkeypatch.setattr(apimod, 'collect_status', _fake)
+    assert client.get('/status').status_code == 200
+    assert capturado['only'] is None

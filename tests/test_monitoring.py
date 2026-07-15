@@ -3,6 +3,8 @@
 import json
 from datetime import datetime, timedelta
 
+import pytest
+
 import monitoring
 
 
@@ -139,3 +141,30 @@ def test_scheduled_task_signal_missing_file(monkeypatch, tmp_path):
     sig = monitoring._scheduled_task_signal()
     assert sig['available'] is False
     assert sig['healthy'] is False
+
+
+# ===================== Nome de check inválido (regressão 2026-07-15) =====================
+# Medido em produção: `?checks=sqlserver2,agendador_typo&strict=1` respondia
+# 200 {"checks": {}, "healthy": true} — nenhum `if` casava, `checks` saía vazio e
+# `all([])` é True. Monitor com typo na URL ficava cego reportando saúde perfeita.
+
+def test_collect_status_rejeita_check_desconhecido():
+    with pytest.raises(ValueError) as exc:
+        monitoring.collect_status(only={'sqlserver2'})
+    assert 'sqlserver2' in str(exc.value)
+    assert 'sap' in str(exc.value)          # diz o que é válido
+
+
+def test_collect_status_rejeita_mistura_valido_e_invalido(monkeypatch):
+    """Um nome bom não legitima o ruim: se algo foi digitado errado, o chamador
+    tem de saber — senão acha que checou SAP e o typo."""
+    _stub_all_ok(monkeypatch)
+    with pytest.raises(ValueError):
+        monitoring.collect_status(only={'sap', 'lixo'})
+
+
+def test_collect_status_aceita_subconjunto_valido(monkeypatch):
+    """O caminho feliz do ?checks= não pode ter regredido."""
+    _stub_all_ok(monkeypatch)
+    data = monitoring.collect_status(only={'sap'})
+    assert set(data['checks']) == {'sap'}

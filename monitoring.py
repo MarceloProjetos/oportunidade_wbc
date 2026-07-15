@@ -311,7 +311,28 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
         sem alertas), ``checks`` (conectividade), ``scheduler`` (sinal indireto),
         ``scheduled_task`` (estado da tarefa "Integração WBC", lido do monitor), ``system`` e
         ``alerts`` (lista de avisos legíveis: disco baixo, agendador parado, tarefa travada…).
+
+        ``ok``/``healthy`` refletem SÓ as checagens que rodaram — pedir um subconjunto é
+        escolha explícita de quem chama, e não afirma nada sobre o resto.
+
+    Raises:
+        ValueError: se ``only`` trouxer nome fora de ``SELECTABLE_CHECKS``.
+
+    Note:
+        Falhar alto no nome inválido é DELIBERADO. Antes, um nome errado não casava com
+        nenhum ``if``, ``checks`` saía vazio e ``all([])`` → ``True``: a resposta era
+        ``healthy: true`` **sem nada ter sido checado**. Um monitor com typo na URL (ou um
+        LLM chutando o nome do check) ficava cego para sempre, reportando saúde perfeita.
+        Um 400 barulhento é melhor que um verde falso.
     """
+    if only:
+        desconhecidos = sorted(set(only) - set(SELECTABLE_CHECKS))
+        if desconhecidos:
+            raise ValueError(
+                f"check(s) desconhecido(s): {', '.join(desconhecidos)}. "
+                f"Validos: {', '.join(sorted(SELECTABLE_CHECKS))}"
+            )
+
     sel = set(SELECTABLE_CHECKS) if not only else only
 
     checks: Dict[str, Any] = {}
