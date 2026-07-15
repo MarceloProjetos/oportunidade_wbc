@@ -191,25 +191,45 @@ def _count_rows(table: str) -> Optional[int]:
 _OS_STATUS_DESC = {'P': 'Planejado', 'R': 'Liberado', 'L': 'Encerrado', 'C': 'Cancelado'}
 
 # Colunas do detalhe/resumo de OS — enxutas de propósito (a view VW_OS_INTEGRACAO tem
-# 50 colunas; puxamos só o que o resumo usa). Inclui os campos de EXPEDIÇÃO
+# 53 colunas; puxamos só o que o resumo usa). Inclui os campos de EXPEDIÇÃO
 # (ObsPedido/DtLiber/DtEntregaPED) que antes exigiam uma 2ª query no espelho separado.
 _OS_DETALHE_COLS = (
     'id,N_PED,N_OP,DescItemPED,DescItemEstrut,DtPedido,'
     'CodClien,NomeClien,Status,TotalOrcam,ObsPedido,DtLiber,DtEntregaPED,'
-    'Solda,id_execucao,data_hora_extracao'
+    'Solda,Pintura,Almox,Exped,id_execucao,data_hora_extracao'
 )
 
+# Flags de PROCESSO (colunas 50-53 da view): 1 = o item passa pelo processo, 0 = não.
+# Substituem, por 4 colunas, as 4 TABELAS dropadas na consolidação de 14/07
+# (vw_os_solda/vw_os_pintura_v0/vw_os_almox_impressao/vw_os_exped_impressao_v2) —
+# antes o processo era identificado pela TABELA em que a linha aparecia.
+_OS_PROCESSOS = ('Solda', 'Pintura', 'Almox', 'Exped')
 
-def _e_solda(valor: object) -> bool:
-    """True se a flag ``Solda`` da linha indica que o item vai para solda (1).
+
+def _flag_ligada(valor: object) -> bool:
+    """True se a flag de processo da linha está ligada (1).
 
     A view devolve inteiro (1/0), mas toleramos texto/decimal/None — um valor
-    inesperado nunca deve derrubar o resumo, só não conta como solda.
+    inesperado nunca deve derrubar o resumo, só não conta.
     """
     try:
         return int(valor) == 1
     except (TypeError, ValueError):
         return False
+
+
+def _resumo_processos(linhas: List[dict]) -> dict:
+    """Agrega as flags de processo: ``{processo: {'tem': bool, 'linhas': int}}``.
+
+    As flags são POR ITEM — um pedido normalmente tem itens mistos (parte vai p/
+    solda, parte não), então um booleano de cabeçalho seria enganoso. Damos as
+    duas respostas: *passa pelo processo?* e *quantos itens*.
+    """
+    processos = {}
+    for proc in _OS_PROCESSOS:
+        n = sum(1 for linha in linhas if _flag_ligada(linha.get(proc)))
+        processos[proc.lower()] = {'tem': n > 0, 'linhas': n}
+    return processos
 
 
 def _fetch_os_detalhe(nped: int) -> List[dict]:
@@ -257,14 +277,13 @@ def _resumo_os(linhas: List[dict]) -> dict:
     ``exped_disponivel`` fica ``True`` por compatibilidade com o app web — não há mais
     espelho separado que possa faltar.
 
-    ``Solda`` é uma flag POR ITEM (1/0), não do pedido — por isso vira ``tem_solda``
-    (algum item vai para solda?) + ``num_linhas_solda`` (quantos), em vez de um
-    booleano de cabeçalho, que seria enganoso num pedido com itens mistos.
+    As flags de processo (Solda/Pintura/Almox/Exped) são POR ITEM, não do pedido —
+    vão agregadas em ``processos`` (ver ``_resumo_processos``), não como booleanos
+    de cabeçalho, que seriam enganosos num pedido com itens mistos.
     """
     primeira = linhas[0]
     status = primeira.get('Status')
     ops = sorted({l['N_OP'] for l in linhas if l.get('N_OP') is not None})
-    linhas_solda = sum(1 for l in linhas if _e_solda(l.get('Solda')))
     return {
         'cliente': primeira.get('NomeClien'),
         'cod_cliente': primeira.get('CodClien'),
@@ -280,8 +299,7 @@ def _resumo_os(linhas: List[dict]) -> dict:
         'data_liberacao': primeira.get('DtLiber'),
         'obs': primeira.get('ObsPedido'),
         'exped_disponivel': True,
-        'tem_solda': linhas_solda > 0,
-        'num_linhas_solda': linhas_solda,
+        'processos': _resumo_processos(linhas),
         'id_execucao': primeira.get('id_execucao'),
         'ultima_sincronizacao': primeira.get('data_hora_extracao'),
     }

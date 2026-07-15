@@ -188,7 +188,14 @@ def listar_pedidos_com_os(limit: int = 30) -> Dict[str, Any]:
 @mcp.tool()
 def detalhe_pedido_os(nped: int, incluir_linhas: bool = False) -> Dict[str, Any]:
     """Detalhe da OS de UM pedido: resumo com cliente, status (+ descrição), total, nº de
-    linhas e de OPs, e quando foi sincronizado pela última vez. Requer a SIS_API_KEY.
+    linhas e de OPs, datas de entrega/liberação, observação do pedido, e quando foi
+    sincronizado pela última vez. Requer a SIS_API_KEY.
+
+    Responde também **por quais processos o pedido passa**: o bloco ``resumo.processos``
+    traz ``{"solda"|"pintura"|"almox"|"exped": {"tem": bool, "linhas": int}}``. Use para
+    "o pedido 84080 vai para solda?" → ``processos.solda.tem`` (e ``.linhas`` diz quantos
+    itens). As flags são **por item**: um pedido costuma ter itens mistos (parte vai para
+    solda, parte não), então ``tem`` = "algum item passa", não "o pedido inteiro".
 
     Devolve ``{"ok": false, "error": "pedido sem OS sincronizada"}`` se o pedido ainda não
     foi sincronizado (use `listar_pedidos_com_os` p/ ver os disponíveis, ou peça a sincronização).

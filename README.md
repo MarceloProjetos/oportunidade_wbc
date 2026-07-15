@@ -349,7 +349,7 @@ do agendador. Não exige credenciais reais (sem integração com SAP/Supabase em
 
 Pipeline **independente** do de oportunidades, que sincroniza a view SAP HANA
 **consolidada** `VW_OS_INTEGRACAO` (OS + estrutura/árvore de produto + orçamento,
-50 colunas) para uma **única** tabela Supabase `vw_os_integracao`, **sob demanda,
+53 colunas) para uma **única** tabela Supabase `vw_os_integracao`, **sob demanda,
 por `N_PED`**. Usa a **mesma conexão SAP** e reaproveita o núcleo compartilhado
 [pipeline_core.py](pipeline_core.py) (`SupabaseLoader`, `prepare_data`, etc.).
 **Não** faz enriquecimento com SQL Server nem usa `SITCOD`.
