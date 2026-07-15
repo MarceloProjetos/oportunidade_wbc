@@ -19,7 +19,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import pandas as pd
@@ -102,6 +102,72 @@ def with_retries(
             else:
                 logger.error(f"{what}: todas as {attempts} tentativas falharam.")
     raise last_exc  # type: ignore[misc]
+
+
+# ── Guarda de schema: origem (view) × destino (tabela) ────────────────────────────
+# O espelho é ``SELECT *`` e o PostgREST casa a coluna por NOME. Coluna que existe na
+# view e NÃO existe na tabela derruba o INSERT INTEIRO com PGRST204 ("Could not find
+# the 'X' column of 'Y' in the schema cache").
+#
+# Aconteceu 3x em 2 dias (bloco de filial da solda 10/07; flags de processo e
+# U_INO_ORCITM 15/07) e cada vez custou dezenas de minutos, porque o erro:
+#   * nomeia só a PRIMEIRA coluna faltante (some uma, aparece a próxima);
+#   * vinha afogado em 3 retries com backoff — e retentar erro de SCHEMA é inútil,
+#     ele é determinístico;
+#   * não dizia o que fazer.
+# A guarda abaixo checa ANTES de inserir e loga o ALTER pronto para colar.
+_PGRST_SCHEMA_CODES = ('PGRST204', 'PGRST205')
+_ISO_DT_RE = re.compile(r'^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}')
+
+
+def e_erro_de_schema(exc: object) -> bool:
+    """True se o erro é de SCHEMA do PostgREST (coluna/tabela fora do cache).
+
+    Determinístico: retentar não resolve, só atrasa e esconde a mensagem.
+    """
+    texto = str(exc)
+    return any(codigo in texto for codigo in _PGRST_SCHEMA_CODES)
+
+
+def _retry_se_transitorio(exc: Exception) -> bool:
+    """``retry_on`` do ``with_retries``: repete tudo, menos erro de schema."""
+    return not e_erro_de_schema(exc)
+
+
+def _tipo_pg_sugerido(data: List[Dict[str, Any]], coluna: str) -> str:
+    """Tipo Postgres sugerido p/ o ALTER, inferido do 1º valor não-nulo da coluna.
+
+    É uma SUGESTÃO para o humano colar/conferir — não uma verdade sobre o HANA.
+    ``prepare_data`` já normalizou os tipos (numpy→int/float, datas→isoformat).
+    Só nulos ⇒ ``text``, que aceita qualquer coisa.
+    """
+    for registro in data:
+        valor = registro.get(coluna)
+        if valor is None:
+            continue
+        if isinstance(valor, bool):      # antes de int: bool é subclasse de int
+            return 'boolean'
+        if isinstance(valor, int):
+            return 'integer'
+        if isinstance(valor, float):
+            return 'numeric'
+        if isinstance(valor, str) and _ISO_DT_RE.match(valor):
+            return 'timestamp'
+        return 'text'
+    return 'text'
+
+
+def alter_sugerido(table_name: str, faltando: List[str], data: List[Dict[str, Any]]) -> str:
+    """Monta o ``ALTER TABLE`` que alinha a tabela à origem, pronto para colar.
+
+    Nomes entre aspas preservam o case byte-exato exigido pelo PostgREST, e o
+    ``notify pgrst`` no fim evita que o insert seguinte falhe com o cache velho.
+    """
+    adds = ',\n'.join(
+        f'  add column if not exists "{col}" {_tipo_pg_sugerido(data, col)}'
+        for col in faltando
+    )
+    return f"alter table public.{table_name}\n{adds};\n\nnotify pgrst, 'reload schema';"
 
 
 # Allow-list for qualified SQL identifiers (schema.view, db.dbo.table)
@@ -197,6 +263,37 @@ class SupabaseLoader:
             )
             return None
 
+    def colunas_da_tabela(self, table_name: str) -> Optional[Set[str]]:
+        """Colunas da tabela no Supabase, ou ``None`` se não der para determinar.
+
+        O PostgREST não expõe o schema numa chamada simples, então inferimos das
+        CHAVES de 1 linha real. Limitação assumida: **tabela vazia devolve ``None``**
+        (sem linha, sem chaves) — nesse caso a guarda de schema é pulada e o
+        PGRST204 do próprio insert volta a ser o diagnóstico. Preferimos o ponto
+        cego explícito a uma falsa sensação de checagem.
+        """
+        try:
+            res = self.client.table(table_name).select('*').limit(1).execute()
+        except Exception as exc:
+            logger.debug("[SCHEMA] não foi possível ler as colunas de '%s': %s", table_name, exc)
+            return None
+        linhas = res.data or []
+        return set(linhas[0].keys()) if linhas else None
+
+    def colunas_faltantes(self, table_name: str, data: List[Dict[str, Any]]) -> List[str]:
+        """Colunas dos registros que a tabela NÃO tem — a causa do PGRST204.
+
+        Returns:
+            Lista (na ordem da origem) das colunas ausentes; ``[]`` se está tudo
+            certo **ou** se não deu para determinar (ver ``colunas_da_tabela``).
+        """
+        if not data:
+            return []
+        colunas = self.colunas_da_tabela(table_name)
+        if colunas is None:
+            return []
+        return [col for col in data[0] if col not in colunas]
+
     def insert_data(
         self, table_name: str, data: List[Dict[str, Any]], batch_size: int = INSERT_BATCH_SIZE
     ) -> bool:
@@ -217,6 +314,20 @@ class SupabaseLoader:
         if total == 0:
             logger.warning("Nenhum registro para inserir.")
             return True
+
+        # Guarda de schema: falha ANTES de inserir, dizendo o que fazer (ver
+        # `colunas_faltantes`). Sem ela, o PGRST204 custa 3 retries e um erro genérico.
+        faltando = self.colunas_faltantes(table_name, data)
+        if faltando:
+            logger.error(
+                "[SCHEMA] A origem tem %s coluna(s) que a tabela '%s' NAO tem: %s.\n"
+                "O insert falharia com PGRST204. Rode no Supabase e sincronize de novo:\n\n"
+                "%s\n",
+                len(faltando), table_name, ', '.join(faltando),
+                alter_sugerido(table_name, faltando, data),
+            )
+            return False
+
         try:
             for inicio in range(0, total, batch_size):
                 lote = data[inicio:inicio + batch_size]
@@ -224,6 +335,7 @@ class SupabaseLoader:
                 with_retries(
                     lambda l=lote: self.client.table(table_name).insert(l).execute(),
                     what=f"insert lote {num_lote} ('{table_name}')",
+                    retry_on=_retry_se_transitorio,  # erro de schema falha de primeira
                 )
                 logger.info(
                     f"Lote {num_lote}: {len(lote)} registro(s) inseridos "

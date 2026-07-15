@@ -3,6 +3,65 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-15] — Flags de processo, a coluna que faltava, e uma guarda para o PGRST204 nunca mais custar 40 min
+
+### Adicionado
+
+- **Guarda de schema no `insert_data` (origem × destino).** Antes de inserir, compara as
+  colunas dos registros com as da tabela e, se faltar alguma, **falha na hora** com um log
+  que já traz o `ALTER TABLE` pronto para colar:
+
+  ```text
+  [SCHEMA] A origem tem 2 coluna(s) que a tabela 'vw_os_integracao' NAO tem: U_INO_ORCITM, Pintura.
+  O insert falharia com PGRST204. Rode no Supabase e sincronize de novo:
+
+  alter table public.vw_os_integracao
+    add column if not exists "U_INO_ORCITM" text,
+    add column if not exists "Pintura" integer;
+
+  notify pgrst, 'reload schema';
+  ```
+
+  Vale para **todos** os pipelines (está no núcleo, não no de OS). Ganhos sobre o
+  comportamento anterior: nomeia **todas** as colunas faltantes (o PGRST204 só revela a
+  **primeira** — some uma, aparece a próxima), **não escreve nada**, e sugere o tipo a
+  partir do 1º valor não-nulo (`integer`/`numeric`/`boolean`/`timestamp`/`text`; só nulos
+  ⇒ `text`, que aceita tudo). O tipo é **sugestão para conferir**, não verdade sobre o HANA.
+- **Erro de schema deixou de ser retentado.** `PGRST204`/`PGRST205` são determinísticos —
+  as 3 tentativas com backoff só atrasavam ~6s e afogavam a mensagem. Agora falham de
+  primeira (`retry_on=_retry_se_transitorio`); o resto continua com retry normal.
+
+  > **Ponto cego assumido:** o PostgREST não expõe o schema numa chamada simples, então as
+  > colunas da tabela saem das **chaves de 1 linha real**. Tabela **vazia** ⇒ não dá para
+  > saber ⇒ a guarda é **pulada** e o `PGRST204` do insert volta a ser o diagnóstico.
+  > Preferimos o ponto cego explícito a bloquear a carga por dúvida.
+
+### Adicionado (view)
+
+- **4 flags de processo por item** (colunas 51-54 da view, `INTEGER`): **`Solda`**,
+  **`Pintura`**, **`Almox`** e **`Exped`** — `1` = o item passa pelo processo, `0` = não.
+  Elas **fecham a consolidação de 14/07**: substituem, por **4 colunas**, as **4 tabelas**
+  dropadas (`vw_os_solda`, `vw_os_pintura_v0`, `vw_os_almox_impressao`,
+  `vw_os_exped_impressao_v2`) — antes o processo era identificado pela *tabela* em que a
+  linha aparecia (+ a coluna `TIPO`). A API expõe `resumo.processos = {solda|pintura|almox|
+  exped: {tem, linhas}}`; são flags **por item**, então agrega (um pedido tem itens mistos)
+  em vez de um booleano de cabeçalho, que seria enganoso. Validado em produção: pedido
+  84172 → 344 linhas com solda 40 / pintura 72 / almox 55 / exped 127.
+
+### Corrigido
+
+- **`U_INO_ORCITM` faltava no espelho — a view tem 54 colunas, não 53.** A mesma revisão da
+  view que trouxe as flags trouxe também essa coluna (posição 50), e ela derrubou **toda**
+  sync de OS com `PGRST204`. Somada ao ALTER (`sql/alter_vw_os_integracao_flags_processo_2026-07-15.sql`)
+  e ao DDL base. Tipo `text` — o mesmo que tinha na antiga `vw_os_solda`.
+
+  > **Lição (o motivo da guarda acima):** o diagnóstico demorou porque a tabela foi
+  > conferida contra uma lista de colunas **transcrita de um screenshot** do catálogo SAP —
+  > que estava incompleta. O diff deu "nenhuma faltando" e o `PGRST204` foi descartado como
+  > causa. A fonte de verdade é a view: `SELECT * FROM <view> WHERE "N_PED" = -1` (0 linhas,
+  > só o schema). **Nunca transcrever à mão.** O log da API (`logs/api.log`) já nomeava a
+  > coluna desde o primeiro segundo.
+
 ## [2026-07-14] — Consolidação: 6 espelhos de OS → 1 tabela `vw_os_integracao` (view HANA VW_OS_INTEGRACAO)
 
 ### Alterado
