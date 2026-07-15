@@ -7,6 +7,14 @@ Mudanças notáveis deste projeto. Formato inspirado em
 
 ### Adicionado
 
+- **`API_OS_INTEGRACAO.md` — documento de handoff para as equipes consumidoras.** Cobre as
+  duas superfícies separadamente: **API 8077** (nada removido/renomeado — o `resumo` só
+  *ganhou* o bloco `processos`, então quem consome a API não muda código) e **leitura direta
+  do Supabase pela `anon`** (aí é breaking: tabela nova, `NPED` → `N_PED`, e as 4 tabelas
+  viraram filtros por flag). Enfatiza a regra que mais gera bug — **as flags são por ITEM,
+  não por pedido** — e as armadilhas já vividas aqui (`TotalOrcam` por linha ⇒ somar;
+  `order by "id"` obrigatório p/ cabeçalho). Lista o que deixou de existir, marcando como
+  *aproximadas* as equivalências não confirmadas.
 - **Guarda de schema no `insert_data` (origem × destino).** Antes de inserir, compara as
   colunas dos registros com as da tabela e, se faltar alguma, **falha na hora** com um log
   que já traz o `ALTER TABLE` pronto para colar:
