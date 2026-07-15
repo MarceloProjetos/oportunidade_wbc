@@ -43,41 +43,18 @@ SYNC_LOG_MAX_REGISTROS = 6
 
 EXECUTION_MODES = ('snapshot', 'insert')
 
-# Ordens de Serviço (Engenharia) — pipeline sob demanda, por NPED
-OS_SAP_VIEW_NAME_DEFAULT = 'VW_EXPORT_ORDENS_SERVICO_1'
-OS_TABLE_NAME_DEFAULT = 'ordens_servico_engenharia'
-OS_STATUS_TABLE_DEFAULT = 'status_ordens_servico_eng'
-OS_SYNC_LOG_TABLE_DEFAULT = 'sincronizacao_log_os_eng'
+# Ordens de Serviço — pipeline sob demanda, por N_PED. Espelha a view HANA
+# CONSOLIDADA VW_OS_INTEGRACAO (49 colunas: OS + estrutura/árvore + orçamento) numa
+# ÚNICA tabela Supabase. Substituiu os espelhos separados de OS engenharia, árvore
+# WBC e views de impressão (consolidação 2026-07-14). A view usa "N_PED" (com
+# underscore) como chave — diferente do antigo "NPED".
+OS_SAP_VIEW_NAME_DEFAULT = 'VW_OS_INTEGRACAO'
+OS_TABLE_NAME_DEFAULT = 'vw_os_integracao'
+OS_SYNC_LOG_TABLE_DEFAULT = 'sincronizacao_log_os_integracao'
 OS_EXECUTION_MODE_DEFAULT = 'replace_nped'
 OS_EXECUTION_MODES = ('replace_nped', 'insert')
-OS_INSERT_BATCH_SIZE_DEFAULT = 200
+OS_INSERT_BATCH_SIZE_DEFAULT = 500
 OS_SYNC_LOG_MAX_REGISTROS = 100
-
-# WBC — Árvore de Produto (INTEGRACAO_ORCPRDARV). Sub-sync disparada após a OS por
-# NPED: resolve o ORCNUM (= NºOrçament no SAP) e espelha a árvore no Supabase.
-WBC_ARVORE_VIEW_DEFAULT = 'WBCCAD.dbo.INTEGRACAO_ORCPRDARV'
-WBC_ARVORE_TABLE_DEFAULT = 'wbc_arvore_produto'
-WBC_ARVORE_SYNC_LOG_DEFAULT = 'sincronizacao_log_wbc_arvore'
-WBC_ARVORE_INSERT_BATCH_SIZE_DEFAULT = 500
-WBC_ARVORE_SYNC_LOG_MAX_REGISTROS = 100
-
-# Views de OS por NPED (SAP HANA) — sub-syncs disparadas após a OS. Historicamente as
-# "views de impressão" (EXPED/PINTURA/ALMOX); vw_os_solda (detalhe de solda) entrou no
-# mesmo mecanismo por ser idêntico em forma (filtra "NPED", replace_nped) — apesar do
-# nome do registry, NÃO é só impressão. Cada view HANA espelha 1:1 para uma tabela
-# Supabase de MESMO nome (minúsculo). Todas filtram por "NPED" (inteiro) e usam a
-# estratégia replace_nped (carrega-depois-poda ESCOPADO ao NPED), idêntica à de
-# ordens_servico_engenharia. O par é (nome_view_HANA, nome_tabela_supabase) — a ordem
-# é a de carga.
-OS_IMPRESSAO_VIEWS = (
-    ('VW_OS_EXPED_IMPRESSAO_V2', 'vw_os_exped_impressao_v2'),
-    ('VW_OS_PINTURA_V0', 'vw_os_pintura_v0'),
-    ('VW_OS_ALMOX_IMPRESSAO', 'vw_os_almox_impressao'),
-    ('VW_OS_SOLDA_DETALHE', 'vw_os_solda'),
-)
-OS_IMPRESSAO_SYNC_LOG_TABLE_DEFAULT = 'sincronizacao_log_os_impressao'
-OS_IMPRESSAO_INSERT_BATCH_SIZE_DEFAULT = 500
-OS_IMPRESSAO_SYNC_LOG_MAX_REGISTROS = 100
 
 # API HTTP de disparo da sync de OS (api.py)
 OS_API_HOST_DEFAULT = '0.0.0.0'
@@ -155,10 +132,9 @@ class Settings:
     sql_driver: Optional[str]
     sql_enrichment_view: str
 
-    # Ordens de Serviço (Engenharia)
+    # Ordens de Serviço (view consolidada VW_OS_INTEGRACAO)
     os_sap_view_name: str
     os_table_name: str
-    os_status_table: str
     os_sync_log_table: str
     os_execution_mode: str
     os_insert_batch_size: int
@@ -166,20 +142,11 @@ class Settings:
     os_api_host: str
     os_api_port: int
 
-    # Monitor da tarefa agendada "Integração WBC"
+    # Monitor da tarefa agendada "Integração WBC" (Task Scheduler do Windows;
+    # NÃO confundir com a árvore WBC, que agora vem dentro de VW_OS_INTEGRACAO)
     wbc_task_name: str
     wbc_task_state_file: str
     wbc_task_stale_min: int
-
-    # WBC — Árvore de Produto (INTEGRACAO_ORCPRDARV)
-    wbc_arvore_view: str
-    wbc_arvore_table: str
-    wbc_arvore_sync_log: str
-    wbc_arvore_insert_batch_size: int
-
-    # Views de impressão de OS (HANA → tabelas de mesmo nome)
-    os_impressao_sync_log_table: str
-    os_impressao_insert_batch_size: int
 
     intervalo_minutos: int
     janela_horas: str
@@ -214,7 +181,6 @@ class Settings:
             sql_enrichment_view=os.getenv('SQL_ENRICHMENT_VIEW', SQL_ENRICHMENT_VIEW_DEFAULT),
             os_sap_view_name=os.getenv('OS_SAP_VIEW_NAME', OS_SAP_VIEW_NAME_DEFAULT),
             os_table_name=os.getenv('OS_TABLE_NAME', OS_TABLE_NAME_DEFAULT),
-            os_status_table=os.getenv('OS_STATUS_TABLE_NAME', OS_STATUS_TABLE_DEFAULT),
             os_sync_log_table=os.getenv('OS_SYNC_LOG_TABLE_NAME', OS_SYNC_LOG_TABLE_DEFAULT),
             os_execution_mode=os.getenv('OS_EXECUTION_MODE', OS_EXECUTION_MODE_DEFAULT),
             os_insert_batch_size=int(
@@ -227,18 +193,6 @@ class Settings:
             wbc_task_state_file=os.getenv('WBC_TASK_STATE_FILE', WBC_TASK_STATE_FILE_DEFAULT),
             wbc_task_stale_min=max(
                 1, int(os.getenv('WBC_TASK_STALE_MIN', WBC_TASK_STALE_MIN_DEFAULT))
-            ),
-            wbc_arvore_view=os.getenv('WBC_ARVORE_VIEW', WBC_ARVORE_VIEW_DEFAULT),
-            wbc_arvore_table=os.getenv('WBC_ARVORE_TABLE', WBC_ARVORE_TABLE_DEFAULT),
-            wbc_arvore_sync_log=os.getenv('WBC_ARVORE_SYNC_LOG_TABLE', WBC_ARVORE_SYNC_LOG_DEFAULT),
-            wbc_arvore_insert_batch_size=int(
-                os.getenv('WBC_ARVORE_INSERT_BATCH_SIZE', WBC_ARVORE_INSERT_BATCH_SIZE_DEFAULT)
-            ),
-            os_impressao_sync_log_table=os.getenv(
-                'OS_IMPRESSAO_SYNC_LOG_TABLE', OS_IMPRESSAO_SYNC_LOG_TABLE_DEFAULT
-            ),
-            os_impressao_insert_batch_size=int(
-                os.getenv('OS_IMPRESSAO_INSERT_BATCH_SIZE', OS_IMPRESSAO_INSERT_BATCH_SIZE_DEFAULT)
             ),
             intervalo_minutos=max(
                 INTERVALO_PISO_MIN,

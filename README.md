@@ -345,17 +345,22 @@ do agendador. Não exige credenciais reais (sem integração com SAP/Supabase em
 
 ---
 
-## Pipeline de Ordens de Serviço (Engenharia)
+## Pipeline de Ordens de Serviço
 
-Pipeline **independente** do de oportunidades, que sincroniza a view SAP
-`VW_EXPORT_ORDENS_SERVICO_1` (Ordens de Serviço de Engenharia) para o Supabase
-**sob demanda, por `NPED`**. Usa a **mesma conexão SAP** e reaproveita o núcleo
-compartilhado [pipeline_core.py](pipeline_core.py) (`SupabaseLoader`, `prepare_data`, etc.).
+Pipeline **independente** do de oportunidades, que sincroniza a view SAP HANA
+**consolidada** `VW_OS_INTEGRACAO` (OS + estrutura/árvore de produto + orçamento,
+49 colunas) para uma **única** tabela Supabase `vw_os_integracao`, **sob demanda,
+por `N_PED`**. Usa a **mesma conexão SAP** e reaproveita o núcleo compartilhado
+[pipeline_core.py](pipeline_core.py) (`SupabaseLoader`, `prepare_data`, etc.).
 **Não** faz enriquecimento com SQL Server nem usa `SITCOD`.
 
-**1. Criar as tabelas** — execute [sql/ordens_servico_engenharia.sql](sql/ordens_servico_engenharia.sql)
-no SQL Editor do Supabase (cria `ordens_servico_engenharia`, o lookup
-`status_ordens_servico_eng` e o log `sincronizacao_log_os_eng`).
+> Consolidação 2026-07-14: substituiu os 6 espelhos separados (OS engenharia, lookup
+> de status, 3 views de impressão, solda e árvore WBC) e seus 3 logs por esta tabela
+> única. A view usa `"N_PED"` (com underscore) como chave.
+
+**1. Criar a tabela** — execute [sql/vw_os_integracao.sql](sql/vw_os_integracao.sql)
+no SQL Editor do Supabase (dropa as tabelas antigas, cria `vw_os_integracao` com
+RLS + policy de leitura `anon`, e o log `sincronizacao_log_os_integracao`).
 
 **2. Sincronizar um ou mais pedidos:**
 
@@ -374,24 +379,21 @@ run_npeds([84080, 84095])   # vários
 
 | Modo (`OS_EXECUTION_MODE`) | Comportamento |
 | --- | --- |
-| `replace_nped` (default) | Carrega-depois-poda **escopado ao NPED**: insere as linhas do pedido e remove só as linhas antigas **daquele** pedido. A tabela acumula vários pedidos, cada um atualizável de forma independente; um NPED nunca fica vazio se a carga falhar. |
+| `replace_nped` (default) | Carrega-depois-poda **escopado ao `N_PED`**: insere as linhas do pedido e remove só as linhas antigas **daquele** pedido. A tabela acumula vários pedidos, cada um atualizável de forma independente; um pedido nunca fica vazio se a carga falhar. |
 | `insert` | Apenas insere (acumula histórico por `id_execucao`; pode duplicar). |
 
-> Se a view retornar **0 linhas** para o `NPED` (pedido inexistente), a tabela é
+> Se a view retornar **0 linhas** para o `N_PED` (pedido inexistente), a tabela é
 > **mantida inalterada** — não apaga um pedido válido já carregado.
 
 A tabela tem os campos de controle `id_execucao`, `data_hora_extracao`, `origem_view`
-e `inserted_at`. Consulta com a descrição do status:
+e `inserted_at`. Consulta simples:
 
 ```sql
-select o.*, s.descricao as status_desc
-from public.ordens_servico_engenharia o
-left join public.status_ordens_servico_eng s on s.codigo = o."Status"
-where o."NPED" = 84080;
+select * from public.vw_os_integracao where "N_PED" = 84080;
 ```
 
-> Códigos de `Status` na view: `P` Planejado · `R` Liberado · `L` Encerrado
-> (`C` Cancelado é semeado no lookup mas não aparece na view hoje).
+> Códigos de `Status` na view: `P` Planejado · `R` Liberado · `L` Encerrado ·
+> `C` Cancelado (a API traduz via dicionário estático, sem tabela de lookup).
 
 **3. Disparar pela API (do app)** — um endpoint HTTP que o app chama para sincronizar
 um pedido sob demanda (a escrita continua via `service_role`):
@@ -649,8 +651,7 @@ ServidorIntegracaoSAP/
 ├── feriados_br.py               # Calendário de feriados nacionais (até 2030)
 ├── pipeline_core.py             # Núcleo compartilhado (SupabaseLoader, prepare_data, …)
 ├── extract_sap_to_supabase.py   # Pipeline de oportunidades (SAP + SQL Server → Supabase)
-├── extract_ordens_servico_engenharia.py  # Sync de OS por NPED (replace_nped)
-├── extract_wbc_arvore.py        # Sub-sync da árvore de produto WBC (pós-OS)
+├── extract_ordens_servico_engenharia.py  # Sync de OS por N_PED (VW_OS_INTEGRACAO, replace_nped)
 ├── monitoring.py                # Diagnóstico do /status (conexões, agendador, tarefa)
 ├── api.py                       # API HTTP de disparo + /status (Flask, porta 8077)
 ├── web/                         # Página servida pela API (sincronizar.html)

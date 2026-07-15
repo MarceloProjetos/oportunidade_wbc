@@ -20,9 +20,7 @@ Serviço de integração SAP B1 → Supabase. Roda em produção no `192.168.7.1
 | `config.py` | TODA a configuração: env vars, defaults, `Settings` (dataclass), `*_ready()` |
 | `pipeline_core.py` | Núcleo compartilhado: `SupabaseLoader`, locks de arquivo, validação, retry |
 | `extract_sap_to_supabase.py` | Pipeline OPORTUNIDADES (carga completa, agendada) |
-| `extract_ordens_servico_engenharia.py` | Pipeline OS por NPED (sob demanda) + `diagnosticar_nped` |
-| `extract_wbc_arvore.py` | Sub-sync árvore de produto WBC (dispara após a OS) |
-| `extract_os_impressao_views.py` | Sub-sync das 3 views de impressão de OS do HANA (dispara após a OS): EXPED/PINTURA/ALMOX → tabelas de mesmo nome |
+| `extract_ordens_servico_engenharia.py` | Pipeline OS por N_PED (sob demanda) da view HANA consolidada `VW_OS_INTEGRACAO` → tabela única `vw_os_integracao` + `diagnosticar_nped` |
 | `monitoring.py` | `collect_status()` — checks SAP/SQL/Supabase/scheduler/disco do `/status` |
 | `sap_connection.py` | `SAPExtractor` (HANA via hdbcli) |
 | `db_utils.py` | `read_dbapi_query` (28 linhas) |
@@ -33,7 +31,7 @@ Serviço de integração SAP B1 → Supabase. Roda em produção no `192.168.7.1
 | `tests/` | pytest, 158 testes; `test_<modulo>.py` espelha o módulo |
 
 Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api.py` orquestra e
-importa os 3 pipelines · `mcp/` só chama HTTP (não importa nada da raiz).
+importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não importa nada da raiz).
 
 ## Tarefa → o que ler
 

@@ -51,9 +51,7 @@ from extract_ordens_servico_engenharia import (
 from extract_ordens_servico_engenharia import (
     main as sync_os,
 )
-from extract_os_impressao_views import sync_impressao_views
 from extract_sap_to_supabase import main as sync_oportunidades
-from extract_wbc_arvore import main as sync_wbc_arvore
 from monitoring import collect_status
 from pipeline_core import FileLockTimeout, coerce_positive_int, oportunidades_sync_lock
 
@@ -188,22 +186,25 @@ def _count_rows(table: str) -> Optional[int]:
     return res.count
 
 
-# Tradução do Status da OS (espelha a tabela os_status_table; ver sql/ordens_servico_engenharia.sql).
+# Tradução do Status da OS. A view VW_OS_INTEGRACAO traz o código cru (P/R/L/C); a
+# antiga tabela de lookup status_ordens_servico_eng foi descontinuada na consolidação.
 _OS_STATUS_DESC = {'P': 'Planejado', 'R': 'Liberado', 'L': 'Encerrado', 'C': 'Cancelado'}
 
-# Colunas do detalhe/resumo de OS — enxutas de propósito: NÃO puxa os textos NCLOB
-# (descrições técnicas repetidas por linha) que engordariam a resposta em MBs.
+# Colunas do detalhe/resumo de OS — enxutas de propósito (a view VW_OS_INTEGRACAO tem
+# 49 colunas; puxamos só o que o resumo usa). Inclui os campos de EXPEDIÇÃO
+# (ObsPedido/DtLiber/DtEntregaPED) que antes exigiam uma 2ª query no espelho separado.
 _OS_DETALHE_COLS = (
-    'id,NPED,N_OP,DescItemPED,DescItemEstrut,DtPedido,'
-    'CodClien,NomeClien,Status,TotalOrcam,id_execucao,data_hora_extracao'
+    'id,N_PED,N_OP,DescItemPED,DescItemEstrut,DtPedido,'
+    'CodClien,NomeClien,Status,TotalOrcam,ObsPedido,DtLiber,DtEntregaPED,'
+    'id_execucao,data_hora_extracao'
 )
 
 
 def _fetch_os_detalhe(nped: int) -> List[dict]:
-    """Linhas (colunas enxutas) da OS de um NPED, ordenadas por id. Vazio se não há OS."""
+    """Linhas (colunas enxutas) da OS de um N_PED, ordenadas por id. Vazio se não há OS."""
     res = (
         _supabase().table(get_settings().os_table_name)
-        .select(_OS_DETALHE_COLS).eq('NPED', nped).order('id').execute()
+        .select(_OS_DETALHE_COLS).eq('N_PED', nped).order('id').execute()
     )
     return res.data or []
 
@@ -233,10 +234,16 @@ def _soma_total_orcamento(linhas: List[dict]) -> Optional[float]:
 def _resumo_os(linhas: List[dict]) -> dict:
     """Resumo do pedido a partir das linhas já lidas (sem query extra).
 
-    A view é desnormalizada por item: os campos de CABEÇALHO (cliente, status,
-    datas) se repetem em cada linha — pegamos da primeira. As OPs (``N_OP``)
-    são agregadas e o ``total_orcamento`` é a SOMA das linhas (ver
+    A view VW_OS_INTEGRACAO é desnormalizada por item: os campos de CABEÇALHO
+    (cliente, status, datas) se repetem em cada linha — pegamos da primeira. As OPs
+    (``N_OP``) são agregadas e o ``total_orcamento`` é a SOMA das linhas (ver
     ``_soma_total_orcamento``).
+
+    Os campos de EXPEDIÇÃO (``data_entrega``, ``data_liberacao``, ``obs``) agora saem
+    da MESMA linha (antes vinham de um espelho separado). ``obs`` = ``ObsPedido``
+    (observação do PEDIDO; a view tem também ``Obs``, da OP, que NÃO serve aqui).
+    ``exped_disponivel`` fica ``True`` por compatibilidade com o app web — não há mais
+    espelho separado que possa faltar.
     """
     primeira = linhas[0]
     status = primeira.get('Status')
@@ -252,58 +259,13 @@ def _resumo_os(linhas: List[dict]) -> dict:
         'num_linhas': len(linhas),
         'num_ops': len(ops),
         'ops': ops,
+        'data_entrega': primeira.get('DtEntregaPED'),
+        'data_liberacao': primeira.get('DtLiber'),
+        'obs': primeira.get('ObsPedido'),
+        'exped_disponivel': True,
         'id_execucao': primeira.get('id_execucao'),
         'ultima_sincronizacao': primeira.get('data_hora_extracao'),
     }
-
-
-# Campos de cabeçalho lidos do espelho de EXPEDIÇÃO p/ o resumo. A
-# VW_OS_EXPED_IMPRESSAO_V2 é a fonte oficial das datas do pedido — o
-# "DtPedido" dela DIVERGE do da VW_EXPORT_ORDENS_SERVICO_1 (ex.: NPED 84080 =
-# 15/06 na exped vs 24/06 na engenharia; constatado 2026-07-10).
-# "ObsPedido" = observação do PEDIDO (cabeçalho, o que o usuário pergunta em
-# "observações do pedido"); a view tem TAMBÉM "Obs", que é da OP e NÃO serve aqui
-# (constatado 2026-07-10: 84080 tem "Obs" vazia mas "ObsPedido" preenchida).
-_EXPED_TABLE = 'vw_os_exped_impressao_v2'
-_EXPED_COLS = '"DtPedido","ObsPedido","DtLiber","DtEntregaPED"'
-
-
-def _fetch_exped_campos(nped: int) -> Optional[dict]:
-    """1 linha (campos de cabeçalho) do espelho de expedição, ou ``None``.
-
-    ``order('id')`` porque a view tem N linhas por NPED e o PostgREST sem
-    ORDER BY devolve linha arbitrária — a resposta mudaria entre requests.
-    """
-    res = (
-        _supabase().table(_EXPED_TABLE)
-        .select(_EXPED_COLS).eq('NPED', nped).order('id').limit(1).execute()
-    )
-    data = res.data or []
-    return data[0] if data else None
-
-
-def _merge_exped_no_resumo(resumo: dict, nped: int) -> None:
-    """Anexa ao ``resumo`` os campos de expedição — best-effort, nunca derruba o GET.
-
-    ``data_pedido`` passa a vir da exped quando há linha (data de colocação
-    oficial); o valor da engenharia fica em ``data_pedido_engenharia``.
-    ``exped_disponivel=False`` = pedido ainda sem sync das views de impressão
-    (espelho preenchido no sync desde 2026-07-06) — re-sincronizar resolve.
-    """
-    try:
-        exped = _fetch_exped_campos(nped)
-    except Exception as exc:
-        logger.warning("Campos de expedicao indisponiveis p/ NPED %s: %s", nped, exc)
-        exped = None
-    resumo['exped_disponivel'] = exped is not None
-    if exped is None:
-        return
-    resumo['data_entrega'] = exped.get('DtEntregaPED')
-    resumo['data_liberacao'] = exped.get('DtLiber')
-    resumo['obs'] = exped.get('ObsPedido')
-    if exped.get('DtPedido'):
-        resumo['data_pedido_engenharia'] = resumo.get('data_pedido')
-        resumo['data_pedido'] = exped.get('DtPedido')
 
 
 def _autorizado() -> bool:
@@ -365,32 +327,12 @@ def _sync_one(nped: int) -> dict:
         ok = False
 
     if ok:
-        # OS OK → dispara também as sub-syncs (best-effort: nunca quebram a OS).
-        wbc_ok = _sync_wbc_safe(nped)          # árvore de produto WBC (SQL Server)
-        impressao = _sync_impressao_safe(nped)  # 3 views de impressão de OS (HANA)
+        # Carga única: a view VW_OS_INTEGRACAO já traz OS + estrutura/árvore + orçamento
+        # numa só tabela — não há mais sub-syncs de árvore WBC nem de views de impressão.
         return {'nped': nped, 'ok': True, 'tipo': None, 'motivo': None,
-                'status_pedido': status_pedido, 'wbc': wbc_ok, 'impressao': impressao}
+                'status_pedido': status_pedido}
     return {'nped': nped, 'ok': False, 'tipo': 'erro', 'status_pedido': status_pedido,
             'motivo': 'Nao foi possivel sincronizar.'}
-
-
-def _sync_wbc_safe(nped: int) -> bool:
-    """Sincroniza a árvore WBC do pedido após a OS. Falha aqui é logada e NÃO afeta a OS."""
-    try:
-        return bool(sync_wbc_arvore(nped))
-    except Exception as exc:
-        logger.error("Árvore WBC: falha no NPED %s (ignorada p/ a OS): %s", nped, exc)
-        return False
-
-
-def _sync_impressao_safe(nped: int) -> dict:
-    """Sincroniza as 3 views de impressão de OS (HANA) após a OS. Best-effort: falha aqui
-    é logada e NÃO afeta a OS. Retorna ``{nome_tabela: bool}`` por view."""
-    try:
-        return sync_impressao_views(nped)
-    except Exception as exc:
-        logger.error("Views de impressão: falha no NPED %s (ignorada p/ a OS): %s", nped, exc)
-        return {}
 
 
 def _sincronizar(npeds: List[int]) -> Tuple[Any, int]:
@@ -519,14 +461,12 @@ def os_disponiveis():
 
 @app.get('/ordens-servico/<nped>')
 def os_detalhe(nped: str):
-    """Detalhe da OS de UM pedido (lê a tabela espelho no Supabase). Requer X-API-Key.
+    """Detalhe da OS de UM pedido (lê a tabela única no Supabase). Requer X-API-Key.
 
     Devolve um ``resumo`` (cliente, status, total, nº de linhas e de OPs, última
-    sincronização) + os campos de EXPEDIÇÃO quando o espelho os tem
-    (``data_entrega``, ``data_liberacao``, ``obs``, ``data_pedido`` oficial;
-    ``exped_disponivel`` diz se vieram). Com ``?linhas=1`` inclui também as
-    ``linhas`` (colunas enxutas, sem os textos NCLOB). Responde **404** se o
-    pedido não tem OS sincronizada.
+    sincronização, datas de entrega/liberação e observação do pedido — todos vindos
+    da mesma tabela ``vw_os_integracao``). Com ``?linhas=1`` inclui também as
+    ``linhas`` (colunas enxutas). Responde **404** se o pedido não tem OS sincronizada.
 
     Obs.: a rota estática ``/ordens-servico/disponiveis`` tem prioridade no roteador
     do Werkzeug, então não é capturada por este ``<nped>``.
@@ -545,7 +485,6 @@ def os_detalhe(nped: str):
     if not linhas:
         return jsonify(ok=False, error='pedido sem OS sincronizada', nped=n), 404
     payload = {'ok': True, 'nped': n, 'resumo': _resumo_os(linhas)}
-    _merge_exped_no_resumo(payload['resumo'], n)
     if request.args.get('linhas') in ('1', 'true', 'yes'):
         payload['linhas'] = linhas
     return jsonify(payload)
@@ -560,7 +499,7 @@ def os_sincronizar(nped: str):
     pedido **não tem OS gerada** (tipos ``sem_os``, ``pedido_cancelado``, ``pedido_nao_encontrado``,
     conforme o status do pedido na ORDR) ou a OS está **cancelada**, devolve o aviso **sem
     sincronizar**. As respostas incluem ``status_pedido`` (Aberto/Cancelado/Fechado). É idempotente
-    (``replace_nped`` substitui, não duplica) e dispara também a árvore WBC (best-effort). Em
+    (``replace_nped`` substitui, não duplica) — a carga única já traz OS + árvore + orçamento. Em
     sucesso, relê a tabela e inclui o ``resumo`` fresco (cliente, status, nº de linhas/OPs, última
     sincronização).
 
@@ -586,10 +525,8 @@ def os_sincronizar(nped: str):
         try:
             linhas = _fetch_os_detalhe(n)
             if linhas:
+                # Resumo fresco já sai com datas/obs — tudo vem da tabela única.
                 payload['resumo'] = _resumo_os(linhas)
-                # O sync acabou de repovoar o espelho de expedição — o resumo
-                # fresco já sai com as datas/obs oficiais.
-                _merge_exped_no_resumo(payload['resumo'], n)
         except Exception as exc:  # sync já foi; só não conseguimos reler o resumo
             logger.error("Sync OK mas falha ao reler o resumo do NPED %s: %s", n, exc)
 

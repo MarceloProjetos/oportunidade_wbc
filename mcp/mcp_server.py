@@ -195,7 +195,7 @@ def detalhe_pedido_os(nped: int, incluir_linhas: bool = False) -> Dict[str, Any]
 
     Args:
         nped: número do pedido (ex.: 84080).
-        incluir_linhas: se True, traz também as linhas da OS (colunas enxutas, sem os textos NCLOB).
+        incluir_linhas: se True, traz também as linhas da OS (colunas enxutas da tabela única).
     """
     params = {"linhas": 1} if incluir_linhas else None
     return _get(f"/ordens-servico/{int(nped)}", params)

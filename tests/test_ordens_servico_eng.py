@@ -33,7 +33,7 @@ class _FakeSAP:
 
     def execute_query(self, query):
         _FakeSAP.last_query = query
-        return pd.DataFrame({'NPED': [84080], 'N_OP': [1]})
+        return pd.DataFrame({'N_PED': [84080], 'N_OP': [1]})
 
     def close(self):
         pass
@@ -47,8 +47,8 @@ def test_extract_query_uses_quoted_schema_and_int_nped(monkeypatch):
 
     assert df is not None and len(df) == 1
     assert _FakeSAP.last_query == (
-        'SELECT * FROM "SBOALTAMIRAPROD"."VW_EXPORT_ORDENS_SERVICO_1" '
-        'WHERE "NPED" = 84080'
+        'SELECT * FROM "SBOALTAMIRAPROD"."VW_OS_INTEGRACAO" '
+        'WHERE "N_PED" = 84080'
     )
 
 
@@ -57,7 +57,7 @@ def test_extract_accepts_numeric_string(monkeypatch):
     monkeypatch.setattr(mod, 'SAPExtractor', _FakeSAP)
 
     mod.extract_os_to_dataframe('84080')
-    assert _FakeSAP.last_query.endswith('WHERE "NPED" = 84080')
+    assert _FakeSAP.last_query.endswith('WHERE "N_PED" = 84080')
 
 
 @pytest.mark.parametrize('bad', [
@@ -99,7 +99,7 @@ def test_main_empty_extraction_does_not_delete(monkeypatch):
 
 def test_replace_nped_prunes_scoped_to_nped(monkeypatch):
     _set_supabase_env(monkeypatch)
-    df = pd.DataFrame({'NPED': [84080, 84080], 'N_OP': [1, 1], 'TotalOrcam': [10.5, 2.0]})
+    df = pd.DataFrame({'N_PED': [84080, 84080], 'N_OP': [1, 1], 'TotalOrcam': [10.5, 2.0]})
     monkeypatch.setattr(mod, 'extract_os_to_dataframe', lambda nped: df)
 
     fake_cls = MagicMock()
@@ -114,7 +114,7 @@ def test_replace_nped_prunes_scoped_to_nped(monkeypatch):
     inst.delete_other_executions.assert_called_once()
     call = inst.delete_other_executions.call_args
     assert call.args[0] == get_settings().os_table_name
-    assert call.kwargs['where_eq'] == {'NPED': 84080}
+    assert call.kwargs['where_eq'] == {'N_PED': 84080}
 
 
 def _fake_sap_diag(os_statuses, pedido_rows):
@@ -202,7 +202,7 @@ def test_diagnosticar_ordr_falha_nao_invalida_os(monkeypatch):
 
 def test_insert_mode_does_not_prune(monkeypatch):
     _set_supabase_env(monkeypatch)
-    df = pd.DataFrame({'NPED': [84080], 'N_OP': [1]})
+    df = pd.DataFrame({'N_PED': [84080], 'N_OP': [1]})
     monkeypatch.setattr(mod, 'extract_os_to_dataframe', lambda nped: df)
 
     fake_cls = MagicMock()

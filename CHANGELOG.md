@@ -3,6 +3,30 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-14] — Consolidação: 6 espelhos de OS → 1 tabela `vw_os_integracao` (view HANA VW_OS_INTEGRACAO)
+
+### Alterado
+
+- **Uma única tabela `vw_os_integracao`** espelhando a view HANA consolidada
+  `SBOALTAMIRAPROD.VW_OS_INTEGRACAO` (49 col: OS + estrutura/árvore + orçamento)
+  substitui os 6 espelhos separados (`ordens_servico_engenharia`,
+  `status_ordens_servico_eng`, `vw_os_exped_impressao_v2`, `vw_os_pintura_v0`,
+  `vw_os_almox_impressao`, `vw_os_solda`, `wbc_arvore_produto`) e seus 3 logs. Um
+  único log `sincronizacao_log_os_integracao`. RLS mantido: RLS enable+force,
+  1 policy `select to anon`, escrita só service_role.
+- **Chave do pedido: `NPED` → `N_PED`** (a view usa underscore). Ajustados o filtro
+  do extractor, o `where_eq` da poda `replace_nped` e as queries da API.
+- **Pipeline único.** `_sync_one` (api.py) deixou de fazer o fan-out de 3 sub-syncs:
+  os módulos `extract_wbc_arvore.py` e `extract_os_impressao_views.py` foram removidos,
+  bem como a 2ª query de expedição — as datas de entrega/liberação e `ObsPedido` agora
+  saem da mesma linha (`exped_disponivel` fica `True` p/ compat. com o web).
+- **Contrato JSON preservado** (`resumo`/`historico`/`status`): o app web não precisa de
+  mudança de código. Status P/R/L/C traduzido pelo dicionário estático de `api.py`
+  (a tabela de lookup `status_ordens_servico_eng` foi descontinuada).
+- **SQL:** os 8 arquivos antigos em `sql/` foram substituídos por um único
+  `sql/vw_os_integracao.sql` (drop das tabelas antigas + create + RLS/policy + log +
+  `notify pgrst`). Aplicado em produção (Supabase) em 2026-07-14.
+
 ## [2026-07-10] — Espelhos de OS alinhados às views HANA (bloco de filial na solda + DocEntry na expedição)
 
 ### Corrigido

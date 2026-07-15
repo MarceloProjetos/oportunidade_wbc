@@ -15,21 +15,15 @@ def client(monkeypatch):
     monkeypatch.delenv('OS_API_KEY', raising=False)
     reset_settings()
     apimod._rate_limiter.reset()   # rate-limit é singleton de processo — zera entre testes
-    # sync_os mockado: registra os NPEDs chamados e devolve sucesso por padrão
+    # sync_os mockado: registra os NPEDs chamados e devolve sucesso por padrão.
+    # Carga única (VW_OS_INTEGRACAO): não há mais sub-syncs de árvore WBC nem de
+    # views de impressão para mockar.
     chamados = []
     monkeypatch.setattr(apimod, 'sync_os', lambda n: chamados.append(n) or True)
-    # sync da árvore WBC (disparada após a OS) mockada: não abre SAP/SQL nos testes
-    monkeypatch.setattr(apimod, 'sync_wbc_arvore', lambda n: True)
-    # sub-sync das 3 views de impressão de OS (HANA) mockada: não abre SAP nos testes
-    monkeypatch.setattr(apimod, 'sync_impressao_views', lambda n: {
-        'vw_os_exped_impressao_v2': True, 'vw_os_pintura_v0': True,
-        'vw_os_almox_impressao': True})
     # diagnóstico mockado: por padrão "tem OS, não cancelada, pedido aberto" → sincroniza
     monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {
         'tem_os': True, 'cancelada': False,
         'pedido_existe': True, 'pedido_cancelado': False, 'pedido_status': 'Aberto'})
-    # campos de expedição (espelho exped) mockados: sem rede; testes específicos sobrescrevem
-    monkeypatch.setattr(apimod, '_fetch_exped_campos', lambda n: None)
     apimod.app.config.update(TESTING=True)
     c = apimod.app.test_client()
     c._chamados = chamados
@@ -103,14 +97,19 @@ def test_limpar_historico_requires_key_when_set(client, monkeypatch):
 
 # ----- /ordens-servico/<nped> (detalhe da OS) -----
 
+# Shape da tabela única VW_OS_INTEGRACAO (usa "N_PED"; datas de entrega/obs na mesma linha).
 _FAKE_OS_ROWS = [
-    {'id': 1, 'NPED': 84080, 'N_OP': 138757, 'DescItemPED': 'Estantes',
+    {'id': 1, 'N_PED': 84080, 'N_OP': 138757, 'DescItemPED': 'Estantes',
      'DescItemEstrut': 'Coluna', 'DtPedido': '2026-06-24T00:00:00', 'CodClien': 'C011627',
      'NomeClien': 'ARAUCO CELULOSE', 'Status': 'R', 'TotalOrcam': 20640.0,
+     'ObsPedido': 'Entregar no galpao 2.', 'DtLiber': '2026-06-24T00:00:00',
+     'DtEntregaPED': '2026-07-20T00:00:00',
      'id_execucao': 'exec-1', 'data_hora_extracao': '2026-06-25T16:38:20'},
-    {'id': 2, 'NPED': 84080, 'N_OP': 138758, 'DescItemPED': 'Estantes',
+    {'id': 2, 'N_PED': 84080, 'N_OP': 138758, 'DescItemPED': 'Estantes',
      'DescItemEstrut': 'Longarina', 'DtPedido': '2026-06-24T00:00:00', 'CodClien': 'C011627',
      'NomeClien': 'ARAUCO CELULOSE', 'Status': 'R', 'TotalOrcam': 20640.0,
+     'ObsPedido': 'Entregar no galpao 2.', 'DtLiber': '2026-06-24T00:00:00',
+     'DtEntregaPED': '2026-07-20T00:00:00',
      'id_execucao': 'exec-1', 'data_hora_extracao': '2026-06-25T16:38:20'},
 ]
 
@@ -175,56 +174,25 @@ def test_os_detalhe_requires_key_when_set(client, monkeypatch):
                       headers={'X-API-Key': 'segredo'}).status_code == 200
 
 
-# ----- campos de expedição no resumo (PLANO_MIRA_HARNESS F3a do web) -----
+# ----- campos de entrega/obs no resumo (agora da MESMA tabela única) -----
 
-_FAKE_EXPED_ROW = {
-    # ObsPedido = observação do PEDIDO (cabeçalho); "Obs" da view é da OP e não é lida.
-    'DtPedido': '2026-06-15T00:00:00', 'ObsPedido': 'Entregar no galpao 2.',
-    'DtLiber': '2026-06-24T00:00:00', 'DtEntregaPED': '2026-07-20T00:00:00',
-}
-
-
-def test_os_detalhe_com_campos_exped(client, monkeypatch):
-    """Espelho de expedição tem o pedido → resumo ganha datas/obs oficiais."""
+def test_os_detalhe_campos_entrega_no_resumo(client, monkeypatch):
+    """Datas de entrega/liberação e observação saem da própria linha (tabela única),
+    sem 2ª query a um espelho separado."""
     monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
-    monkeypatch.setattr(apimod, '_fetch_exped_campos', lambda n: dict(_FAKE_EXPED_ROW))
     resumo = client.get('/ordens-servico/84080').get_json()['resumo']
-    assert resumo['exped_disponivel'] is True
+    assert resumo['exped_disponivel'] is True   # compat. web: sempre True na tabela única
     assert resumo['data_entrega'] == '2026-07-20T00:00:00'
     assert resumo['data_liberacao'] == '2026-06-24T00:00:00'
     assert resumo['obs'] == 'Entregar no galpao 2.'
-    # DtPedido da EXPED é a data de colocação oficial (DIVERGE da engenharia:
-    # constatado 2026-07-10 no 84080 = 15/06 vs 24/06).
-    assert resumo['data_pedido'] == '2026-06-15T00:00:00'
-    assert resumo['data_pedido_engenharia'] == '2026-06-24T00:00:00'
+    assert resumo['data_pedido'] == '2026-06-24T00:00:00'
+    # não há mais divergência exped x engenharia → sem 'data_pedido_engenharia'
+    assert 'data_pedido_engenharia' not in resumo
 
 
-def test_os_detalhe_sem_exped_sinaliza(client, monkeypatch):
-    """Pedido ainda sem sync das views de impressão → flag False, sem campos."""
+def test_os_sincronizar_resumo_traz_entrega(client, monkeypatch):
+    """O resumo fresco pós-sync também sai com os campos de entrega (mesma tabela)."""
     monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
-    resumo = client.get('/ordens-servico/84080').get_json()['resumo']
-    assert resumo['exped_disponivel'] is False
-    assert 'data_entrega' not in resumo
-    assert resumo['data_pedido'] == '2026-06-24T00:00:00'  # mantém a da engenharia
-
-
-def test_os_detalhe_exped_falha_nao_derruba(client, monkeypatch):
-    """Falha na leitura da exped é best-effort: o detalhe continua 200."""
-    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
-
-    def _boom(n):
-        raise RuntimeError('supabase fora')
-
-    monkeypatch.setattr(apimod, '_fetch_exped_campos', _boom)
-    r = client.get('/ordens-servico/84080')
-    assert r.status_code == 200
-    assert r.get_json()['resumo']['exped_disponivel'] is False
-
-
-def test_os_sincronizar_resumo_ganha_exped(client, monkeypatch):
-    """O resumo fresco pós-sync também sai com os campos de expedição."""
-    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
-    monkeypatch.setattr(apimod, '_fetch_exped_campos', lambda n: dict(_FAKE_EXPED_ROW))
     body = client.post('/ordens-servico/84080/sincronizar').get_json()
     assert body['resumo']['data_entrega'] == '2026-07-20T00:00:00'
     assert body['resumo']['exped_disponivel'] is True
@@ -498,33 +466,14 @@ def test_cancelada_aviso(client, monkeypatch):
     assert client._chamados == []
 
 
-# ----- Hook da árvore WBC (dispara após a OS OK) -----
+# ----- carga única: sem sub-syncs de árvore WBC nem views de impressão -----
 
-def test_wbc_dispara_apos_os_ok(client, monkeypatch):
-    chamados_wbc = []
-    monkeypatch.setattr(apimod, 'sync_wbc_arvore', lambda n: chamados_wbc.append(n) or True)
-    r = client.post('/sync/ordens-servico/84080')
-    assert r.status_code == 200
-    assert r.get_json()['results'][0]['wbc'] is True
-    assert chamados_wbc == [84080]            # OS OK → WBC disparou
-
-
-def test_wbc_nao_dispara_sem_os(client, monkeypatch):
-    chamados_wbc = []
-    monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {'tem_os': False, 'cancelada': False})
-    monkeypatch.setattr(apimod, 'sync_wbc_arvore', lambda n: chamados_wbc.append(n) or True)
-    client.post('/sync/ordens-servico/84106')
-    assert chamados_wbc == []                 # sem OS → não dispara WBC
-
-
-def test_wbc_falha_nao_quebra_os(client, monkeypatch):
-    """Se a sync WBC falhar, a OS ainda responde OK (best-effort)."""
-    monkeypatch.setattr(apimod, 'sync_wbc_arvore',
-                        lambda n: (_ for _ in ()).throw(RuntimeError('SQL fora')))
-    r = client.post('/sync/ordens-servico/84080')
-    assert r.status_code == 200
-    res = r.get_json()['results'][0]
-    assert res['ok'] is True and res['wbc'] is False
+def test_sync_result_sem_wbc_impressao(client):
+    """Consolidação em VW_OS_INTEGRACAO: o resultado do sync não traz mais as
+    chaves 'wbc'/'impressao' (que vinham dos sub-syncs, agora removidos)."""
+    res = client.post('/sync/ordens-servico/84080').get_json()['results'][0]
+    assert res['ok'] is True
+    assert 'wbc' not in res and 'impressao' not in res
 
 
 def test_auth_required_when_key_set(client, monkeypatch):

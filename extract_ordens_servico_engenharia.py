@@ -1,11 +1,16 @@
-"""ETL sob demanda: view SAP ``VW_EXPORT_ORDENS_SERVICO_1`` (por NPED) → Supabase.
+"""ETL sob demanda: view SAP CONSOLIDADA ``VW_OS_INTEGRACAO`` (por N_PED) → Supabase.
+
+Espelha a view HANA única ``VW_OS_INTEGRACAO`` (OS + estrutura/árvore + orçamento,
+49 colunas) numa única tabela Supabase — substituiu os antigos espelhos separados
+de OS engenharia, árvore WBC e views de impressão (consolidação 2026-07-14). A view
+usa ``"N_PED"`` (com underscore) como chave do pedido.
 
 Diferente de ``extract_sap_to_supabase.py`` (oportunidades), este pipeline:
 
-* é acionado **sob demanda** para um ou mais ``NPED`` (não é agendado);
+* é acionado **sob demanda** para um ou mais ``N_PED`` (não é agendado);
 * **não** faz enriquecimento com SQL Server nem validação de ``SITCOD``;
 * usa a estratégia **``replace_nped``** (substituição por pedido): carrega-depois-poda
-  **escopado ao NPED**, de modo que a tabela acumula vários pedidos e cada um é
+  **escopado ao N_PED**, de modo que a tabela acumula vários pedidos e cada um é
   atualizado de forma independente, sem afetar os demais.
 
 Reaproveita o núcleo genérico em ``pipeline_core`` (``SupabaseLoader``, ``prepare_data``,
@@ -88,8 +93,8 @@ def extract_os_to_dataframe(nped: object) -> Optional[pd.DataFrame]:
         return None
 
     base = build_view_query(settings.os_sap_view_name, settings.sap_schema)
-    # nped_int é inteiro validado → seguro interpolar
-    query = f'SELECT * FROM {base} WHERE "NPED" = {nped_int}'
+    # nped_int é inteiro validado → seguro interpolar. VW_OS_INTEGRACAO usa "N_PED".
+    query = f'SELECT * FROM {base} WHERE "N_PED" = {nped_int}'
     df = sap.execute_query(query)
     sap.close()
 
@@ -313,7 +318,7 @@ def main(
         # antigas DESTE pedido após a inserção dar certo (a tabela nunca fica sem o pedido).
         if success and execution_mode == 'replace_nped':
             if not loader.delete_other_executions(
-                settings.os_table_name, exec_id, where_eq={'NPED': nped_int}
+                settings.os_table_name, exec_id, where_eq={'N_PED': nped_int}
             ):
                 logger.warning(
                     "Inserção OK, mas a poda das linhas antigas do NPED %s falhou. "
