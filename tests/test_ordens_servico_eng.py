@@ -213,3 +213,58 @@ def test_insert_mode_does_not_prune(monkeypatch):
     assert mod.main(84080, execution_mode='insert') is True
     inst.insert_data.assert_called_once()
     inst.delete_other_executions.assert_not_called()
+
+
+# ============ Poda falha => NÃO é sucesso (regressão 2026-07-15) ============
+
+def test_poda_falha_nao_reporta_sucesso(monkeypatch, caplog):
+    """Insert OK + poda FALHA = tabela com DUAS execuções do pedido → a leitura soma em
+    dobro. Antes isto era um WARNING e `main` devolvia True: o log de sync gravava
+    'sucesso' com a tabela corrompida, e ninguém ficava sabendo."""
+    import logging
+    _set_supabase_env(monkeypatch)
+    df = pd.DataFrame({'N_PED': [84080], 'N_OP': [1], 'TotalOrcam': [10.0]})
+    monkeypatch.setattr(mod, 'extract_os_to_dataframe', lambda nped: df)
+
+    fake_cls = MagicMock()
+    inst = fake_cls.return_value
+    inst.insert_data.return_value = True
+    inst.delete_other_executions.return_value = False      # a poda falha
+    monkeypatch.setattr(mod, 'SupabaseLoader', fake_cls)
+
+    with caplog.at_level(logging.ERROR):
+        assert mod.main(84080, execution_mode='replace_nped') is False   # era True
+
+    assert 'somar em dobro' in caplog.text                 # e diz o que fazer
+    # o log de sync tem de registrar 'falha', não 'sucesso'
+    status = inst.registrar_sincronizacao.call_args.args[3]
+    assert status == 'falha'
+
+
+def test_sync_pega_lock_do_pedido(monkeypatch):
+    """A escrita tem de acontecer DENTRO do lock cross-process do N_PED."""
+    _set_supabase_env(monkeypatch)
+    df = pd.DataFrame({'N_PED': [84080], 'N_OP': [1]})
+    monkeypatch.setattr(mod, 'extract_os_to_dataframe', lambda nped: df)
+
+    eventos = []
+
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _lock_espiao(nped, timeout=0):
+        eventos.append(('lock', nped))
+        yield
+        eventos.append(('unlock', nped))
+
+    monkeypatch.setattr(mod, 'os_sync_lock', _lock_espiao)
+    fake_cls = MagicMock()
+    inst = fake_cls.return_value
+    inst.insert_data.side_effect = lambda *a, **k: eventos.append(('insert', None)) or True
+    inst.delete_other_executions.side_effect = lambda *a, **k: eventos.append(('poda', None)) or True
+    monkeypatch.setattr(mod, 'SupabaseLoader', fake_cls)
+
+    assert mod.main(84080) is True
+    nomes = [e[0] for e in eventos]
+    assert nomes == ['lock', 'insert', 'poda', 'unlock']   # insert+poda DENTRO do lock
+    assert eventos[0][1] == 84080                          # travou o pedido certo

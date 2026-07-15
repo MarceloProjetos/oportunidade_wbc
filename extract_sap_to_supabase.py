@@ -19,9 +19,11 @@ from config import (
 )
 from db_utils import read_dbapi_query
 from pipeline_core import (  # núcleo compartilhado (genérico)
+    FileLockTimeout,
     SupabaseLoader,
     agora_iso,
     build_view_query,
+    oportunidades_sync_lock,
     prepare_data,
     validate_sql_identifier,
     with_retries,  # noqa: F401 — re-export p/ compatibilidade
@@ -349,10 +351,16 @@ def main(
         # APÓS a inserção dar certo, garantindo que a tabela nunca fique vazia.
         if success and execution_mode == 'snapshot':
             if not loader.delete_other_executions(settings.table_name, exec_id):
-                logger.warning(
-                    "Inserção OK, mas a remoção das execuções anteriores falhou. "
-                    "A tabela pode conter registros duplicados de execuções passadas."
+                # NÃO é sucesso: o contrato do snapshot ("substitui a tabela") não foi
+                # cumprido — ficaram DUAS execuções e quem lê recebe tudo duplicado.
+                # Antes era WARNING + return True: o log dizia 'sucesso' com a tabela
+                # corrompida. A próxima carga OK consolida.
+                logger.error(
+                    "Inserção OK mas a PODA das execuções anteriores falhou: a tabela está "
+                    "com registros DUPLICADOS (a atual + a anterior). A próxima carga "
+                    "bem-sucedida consolida."
                 )
+                return False
 
         if success:
             logger.info(f"✓ Processo concluído com sucesso (ID de execução: {exec_id})")
@@ -391,4 +399,19 @@ if __name__ == "__main__":
     #   view_name      — view SAP; se omitido, usa SAP_VIEW_NAME do .env
     #   execution_mode — 'snapshot' (default) ou 'insert'
     #   execution_id   — None gera um UUID automaticamente
-    main(execution_mode='snapshot')
+    #
+    # O LOCK é obrigatório também aqui: a API (api.py) e o agendador
+    # (scripts/scheduled_execution.py) já pegavam o lock, mas este entrypoint passava por
+    # FORA dele. Rodar isto à mão durante uma carga do agendador podia ESVAZIAR a tabela —
+    # cada processo insere e depois poda "tudo que não é a minha execução", apagando as
+    # linhas do outro. `timeout=0`: se já há carga rodando, avisa e sai sem tocar em nada.
+    try:
+        with oportunidades_sync_lock(timeout=0):
+            ok = main(execution_mode='snapshot')
+    except FileLockTimeout:
+        logger.error(
+            "Já há uma carga de oportunidades em andamento (agendador ou API). "
+            "Nada foi alterado — aguarde ela terminar."
+        )
+        raise SystemExit(1)
+    raise SystemExit(0 if ok else 1)

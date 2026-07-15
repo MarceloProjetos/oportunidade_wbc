@@ -3,6 +3,70 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-16] — Integridade: o par insert+poda deixa de perder e de duplicar dado
+
+Os 4 achados da revisão que podiam **perder ou corromper dado** — os únicos com esse
+poder; o resto era ruído ou tinha dano limitado. Raiz comum: **o par insert+poda não é
+atômico e não tinha lock cross-process**, então uma falha no meio (ou um 2º processo)
+deixava a tabela num estado que a leitura interpretava errado, **em silêncio**.
+
+### Corrigido
+
+- **Dois processos no mesmo pedido APAGAVAM o pedido.** O `_sync_lock` da `api.py` é
+  `threading.Lock` — serializa as threads do waitress e mais nada. Mas o pipeline também
+  tem CLI (`python extract_ordens_servico_engenharia.py 84080`), então dois **processos**
+  podiam gravar o mesmo `N_PED`:
+
+  ```text
+  A insere (exec_A)          B insere (exec_B)
+  A poda tudo != exec_A  ->  apaga as linhas de B
+  B poda tudo != exec_B  ->  apaga as linhas de A
+  => o pedido SOME — e os dois logam 'sucesso'
+  ```
+
+  Novo **`pipeline_core.os_sync_lock(nped)`** (FileLock cross-process) em volta de
+  insert+poda, dentro do `main()` — no pipeline, não no chamador, então **API e CLI ficam
+  protegidos igual**. **Por pedido, não global**: o invariante é *um escritor por `N_PED`*;
+  um lock único bloquearia pedidos diferentes sem motivo. Na API, colisão vira **`409`
+  `ocupado`** (não `502 erro`) — distinguir "outro processo está sincronizando" de "falhou"
+  evita caçar problema que não existe.
+
+- **O CLI de oportunidades podia ESVAZIAR a tabela.** `api.py` e o agendador já pegavam o
+  `oportunidades_sync_lock`, mas o `if __name__ == "__main__"` passava **por fora**. Rodar
+  o script à mão durante a carga do agendador reproduzia o cenário acima em escala global
+  (snapshot poda a tabela inteira). Agora o entrypoint pega o lock; se já houver carga,
+  avisa e sai com exit 1 **sem tocar em nada**.
+
+- **Insert parcial deixava a tabela com o total inflado.** O insert é em lotes e **não há
+  transação entre eles**: lote 3 de 5 estoura → os lotes 1-2 ficam gravados. Como a poda só
+  roda no sucesso, sobravam a execução anterior **+** o pedaço da nova, e
+  `_soma_total_orcamento` somava **as duas** (é a classe do incidente de 06/07: R$ 96,78 num
+  orçamento de R$ 3 mi). Agora `insert_data` **reverte o parcial** apagando por
+  `id_execucao` — preciso e seguro, o UUID é só daquela carga. Se a limpeza também falhar,
+  loga o `delete` exato para rodar à mão.
+
+- **Poda falha → o log dizia `sucesso`.** Insert OK + poda falha = duas execuções do pedido
+  na tabela e leitura somando em dobro; era um `WARNING` e a função devolvia `True`, então o
+  histórico afirmava sucesso com a tabela corrompida. Agora devolve **`False`** (o contrato
+  "substitui, não duplica" não foi cumprido), o log grava `falha` e a mensagem diz o que
+  fazer. Vale para os dois pipelines (`replace_nped` e `snapshot`). Re-sincronizar consolida.
+
+- **Linha com `id_execucao` NULL sobrevivia a TODA poda.** `.neq('id_execucao', id)` vira
+  `id_execucao <> 'x'`, que em SQL avalia **NULL** (não TRUE) para linha nula — o `DELETE` a
+  ignorava, **para sempre**. Órfã de carga manual/import ficaria duplicando o dado servido
+  eternamente. Agora usa `or_(id_execucao.is.null,id_execucao.neq.<id>)`; o `where_eq`
+  continua em AND. Hoje há **0 linhas** nesse estado (medido) — era latente.
+
+  > Verificado antes de escrever: o filtro gerado é
+  > `or=(id_execucao.is.null,id_execucao.neq.<uuid>)&N_PED=eq.84080`, com o UUID passando
+  > sem aspas. Um `.or_()` errado quebraria a poda — pior que o bug latente que corrige.
+
+6 testes novos (193 no total), cada um guardando um invariante que não existia: reversão do
+parcial apaga **exatamente** a execução da carga; o lock é exclusivo **por pedido** e não
+bloqueia pedidos diferentes; a poda usa `or_` (o teste falha se voltar ao `neq` puro);
+insert+poda acontecem **dentro** do lock; poda falha ⇒ `main` retorna False **e** o log
+grava `falha`.
+
 ## [2026-07-16] — Horários 3h errados, XSS que vazava a API key, e `/status` que mentia
 
 ### Corrigido

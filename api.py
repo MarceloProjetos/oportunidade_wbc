@@ -359,6 +359,13 @@ def _sync_one(nped: int) -> dict:
     # OS existe (ou não deu para diagnosticar) → tenta sincronizar
     try:
         ok = bool(sync_os(nped))
+    except FileLockTimeout:
+        # Outro PROCESSO (ex.: o CLI) está sincronizando este mesmo pedido. Não é erro:
+        # nada foi alterado e o outro conclui a carga. 'ocupado' → 409, como o irmão de
+        # oportunidades — distinguir isso de 'erro' evita caçar um problema que não existe.
+        logger.warning("NPED %s já está sendo sincronizado por outro processo.", nped)
+        return {'nped': nped, 'ok': False, 'tipo': 'ocupado', 'status_pedido': status_pedido,
+                'motivo': 'Este pedido ja esta sendo sincronizado por outro processo.'}
     except Exception as exc:  # nunca deixa a request estourar 500 silenciosamente
         logger.error("Erro ao sincronizar NPED %s: %s", nped, exc)
         ok = False
@@ -575,8 +582,9 @@ def os_sincronizar(nped: str):
             logger.error("Sync OK mas falha ao reler o resumo do NPED %s: %s", n, exc)
 
     # avisos de negócio (sem_os / cancelada / pedido_cancelado / pedido_nao_encontrado)
-    # respondem 200; 'erro' = falha real de sync (502)
-    http = 502 if resultado.get('tipo') == 'erro' else 200
+    # respondem 200; 'ocupado' = outro processo já sincronizando este pedido (409, mesma
+    # semântica do irmão de oportunidades); 'erro' = falha real de sync (502).
+    http = {'erro': 502, 'ocupado': 409}.get(resultado.get('tipo'), 200)
     return jsonify(payload), http
 
 

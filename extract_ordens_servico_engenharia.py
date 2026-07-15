@@ -42,6 +42,7 @@ from pipeline_core import (
     agora_iso,
     build_view_query,
     coerce_positive_int,
+    os_sync_lock,
     prepare_data,
 )
 from sap_connection import SAPExtractor
@@ -315,21 +316,33 @@ def main(
         data_to_insert, exec_id = prepare_data(df, execution_id)
         qtd_registros = len(data_to_insert)
 
-        success = loader.insert_data(
-            settings.os_table_name, data_to_insert, batch_size=settings.os_insert_batch_size
-        )
+        # Lock cross-process POR PEDIDO em volta de insert+poda: os dois juntos são o
+        # que precisa ser exclusivo. Sem ele, a API e o CLI podiam gravar o mesmo N_PED
+        # e cada um podar as linhas do outro, APAGANDO o pedido (o `_sync_lock` da api.py
+        # é threading.Lock e não enxerga outro processo). Ver `os_sync_lock`.
+        with os_sync_lock(nped_int):
+            success = loader.insert_data(
+                settings.os_table_name, data_to_insert,
+                batch_size=settings.os_insert_batch_size,
+            )
 
-        # replace_nped: carrega-depois-poda ESCOPADO ao NPED — só removemos as linhas
-        # antigas DESTE pedido após a inserção dar certo (a tabela nunca fica sem o pedido).
-        if success and execution_mode == 'replace_nped':
-            if not loader.delete_other_executions(
-                settings.os_table_name, exec_id, where_eq={'N_PED': nped_int}
-            ):
-                logger.warning(
-                    "Inserção OK, mas a poda das linhas antigas do NPED %s falhou. "
-                    "Pode haver linhas duplicadas de cargas anteriores deste pedido.",
-                    nped_int,
-                )
+            # replace_nped: carrega-depois-poda ESCOPADO ao NPED — só removemos as linhas
+            # antigas DESTE pedido após a inserção dar certo (o pedido nunca fica vazio).
+            if success and execution_mode == 'replace_nped':
+                if not loader.delete_other_executions(
+                    settings.os_table_name, exec_id, where_eq={'N_PED': nped_int}
+                ):
+                    # NÃO é sucesso: o contrato do replace_nped ("substitui, não duplica")
+                    # não foi cumprido. A tabela está com DUAS execuções do pedido e a
+                    # leitura soma as duas (total_orcamento inflado). Antes isto era um
+                    # WARNING e a função retornava True — o log dizia 'sucesso' com a
+                    # tabela corrompida. Re-sincronizar consolida.
+                    logger.error(
+                        "Inserção OK mas a PODA do NPED %s falhou: a tabela está com DUAS "
+                        "execuções deste pedido e a leitura vai somar em dobro. "
+                        "Re-sincronize para consolidar.", nped_int,
+                    )
+                    return False
 
         if success:
             logger.info("✓ NPED %s sincronizado (id_execucao: %s)", nped_int, exec_id)

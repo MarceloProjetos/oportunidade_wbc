@@ -75,6 +75,45 @@ def oportunidades_sync_lock(timeout: float = 0):
         yield
 
 
+@contextmanager
+def os_sync_lock(nped: object, timeout: float = 0):
+    """Lock de arquivo (cross-process) para a sync de OS de **um pedido**.
+
+    O ``_sync_lock`` da ``api.py`` é ``threading.Lock`` — serializa as threads do waitress
+    e mais nada. Mas o pipeline também tem CLI
+    (``python extract_ordens_servico_engenharia.py 84080``), então dois PROCESSOS podiam
+    gravar o mesmo pedido ao mesmo tempo, com resultado destrutivo::
+
+        A insere (exec_A)          B insere (exec_B)
+        A poda tudo != exec_A  ->  apaga as linhas de B
+        B poda tudo != exec_B  ->  apaga as linhas de A
+        => o pedido SOME da tabela — e ambos logam 'sucesso'
+
+    Isso viola o invariante que o carrega-depois-poda promete ("o pedido nunca fica
+    vazio"): o par insert+poda não é atômico. O lock fecha a janela entre processos.
+
+    **Por pedido, não global**, de propósito: o invariante é *um escritor por N_PED*. Um
+    lock único bloquearia pedidos diferentes sem motivo e mentiria sobre o que protege.
+    Os arquivos ficam em ``.locks/`` (gitignorado) e são vazios.
+
+    Args:
+        nped: pedido a travar (compõe o nome do arquivo; validado como inteiro).
+        timeout: segundos a esperar. ``0`` = não espera — levanta ``FileLockTimeout``
+            se outro processo já estiver sincronizando **este** pedido.
+
+    Note:
+        Sem ``filelock`` instalado vira **no-op** (mesmo contrato do lock de oportunidades).
+    """
+    nped_int = coerce_positive_int(nped, what='NPED')
+    if FileLock is None:
+        logger.warning("filelock não instalado — sync de OS SEM lock cross-process")
+        yield
+        return
+    os.makedirs(_LOCK_DIR, exist_ok=True)
+    with FileLock(os.path.join(_LOCK_DIR, f'os_sync_{nped_int}.lock'), timeout=timeout):
+        yield
+
+
 def with_retries(
     operation: Callable[[], Any],
     *,
@@ -362,7 +401,42 @@ class SupabaseLoader:
             return True
         except Exception as e:
             logger.error(f"Erro ao inserir dados no Supabase: {e}")
+            self._reverter_parcial(table_name, data)
             return False
+
+    def _reverter_parcial(self, table_name: str, data: List[Dict[str, Any]]) -> None:
+        """Remove as linhas JÁ inseridas desta execução quando o insert falha no meio.
+
+        O insert é em lotes e **não há transação entre eles**: se o lote 3 de 5 estoura,
+        os lotes 1-2 ficam gravados. Como a poda só roda no sucesso, a tabela ficava com a
+        execução ANTERIOR **+** o pedaço da nova — e a leitura soma as duas, inflando
+        ``total_orcamento`` e ``num_linhas``. É a classe do incidente de 2026-07-06 (R$ 96,78
+        num orçamento de R$ 3 mi), por outra causa.
+
+        Apagar por ``id_execucao`` é preciso e seguro: o UUID é só desta carga, então não há
+        risco de levar dado bom junto. Best-effort — se a limpeza também falhar, loga o SQL
+        exato para remoção manual (melhor um comando pronto que um mistério).
+        """
+        exec_id = (data[0] or {}).get('id_execucao') if data else None
+        if not exec_id:
+            return
+        try:
+            res = self.client.table(table_name).delete().eq('id_execucao', exec_id).execute()
+            removidas = len(res.data or [])
+            if removidas:
+                logger.warning(
+                    "Insert falhou no meio: %s linha(s) parciais desta execução removidas de "
+                    "'%s' — a tabela volta ao estado anterior (sem duplicata).",
+                    removidas, table_name,
+                )
+        except Exception as exc:
+            logger.error(
+                "Insert falhou E a limpeza do parcial falhou em '%s': %s\n"
+                "A tabela pode estar com linhas DUPLICADAS desta execução (a leitura vai "
+                "somar em dobro). Remova com:\n"
+                "    delete from public.%s where id_execucao = '%s';",
+                table_name, exc, table_name, exec_id,
+            )
 
     def delete_other_executions(
         self,
@@ -390,10 +464,15 @@ class SupabaseLoader:
         """
         try:
             def _op():
+                # `neq` SOZINHO não pega linha com `id_execucao` NULL: em SQL,
+                # `NULL <> 'x'` avalia NULL (não TRUE) e o DELETE a ignora — medido.
+                # Uma linha órfã (carga manual, import, coluna criada depois) sobreviveria
+                # a TODA poda, para sempre, duplicando o dado servido. O `or_` inclui as
+                # nulas; os `eq` do where_eq continuam em AND com ele.
                 query = (
                     self.client.table(table_name)
                     .delete()
-                    .neq('id_execucao', keep_execution_id)
+                    .or_(f'id_execucao.is.null,id_execucao.neq.{keep_execution_id}')
                 )
                 for col, val in (where_eq or {}).items():
                     query = query.eq(col, val)

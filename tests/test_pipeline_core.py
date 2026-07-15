@@ -167,3 +167,115 @@ def test_registrar_sincronizacao_recebe_hora_com_offset():
     assert 'datetime.now().isoformat()' not in fonte
     # e a função de fato entrega offset
     assert _dt.fromisoformat(pipeline_core.agora_iso()).tzinfo is not None
+
+
+# ============ Integridade: insert parcial, poda e NULL (regressão 2026-07-15) ============
+# O único grupo de bugs que PERDIA ou CORROMPIA dado. Cada teste abaixo guarda um
+# invariante que não existia.
+
+class _TabelaFalha:
+    """Insere o 1º lote e estoura no 2º — simula o lote N de M falhando."""
+
+    def __init__(self, estado):
+        self.e = estado
+
+    def select(self, *_a, **_k):
+        return self
+
+    def limit(self, _n):
+        return self
+
+    def execute(self):
+        return SimpleNamespace(data=[self.e['linha_tabela']])
+
+    def insert(self, lote):
+        self.e['lotes'].append(lote)
+
+        def _go():
+            if len(self.e['lotes']) > 1:
+                raise Exception('timeout no lote 2')
+            return SimpleNamespace(data=lote)
+        return SimpleNamespace(execute=_go)
+
+    def delete(self):
+        self.e['delete_chamado'] = True
+        return self
+
+    def eq(self, col, val):
+        self.e['delete_filtro'] = (col, val)
+        return SimpleNamespace(execute=lambda: SimpleNamespace(data=[{'id': 1}]))
+
+
+def test_insert_parcial_reverte_o_que_ja_entrou(caplog):
+    """Lote 2 falha → os registros do lote 1 (já gravados) são REMOVIDOS.
+
+    Sem isto, o pedaço novo convivia com a execução anterior (a poda só roda no
+    sucesso) e a leitura somava as duas: total_orcamento inflado.
+    """
+    estado = {'linha_tabela': {'id': 1, 'N_PED': 1, 'id_execucao': 'x'}, 'lotes': []}
+    loader = pipeline_core.SupabaseLoader.__new__(pipeline_core.SupabaseLoader)
+    loader.client = SimpleNamespace(table=lambda _t: _TabelaFalha(estado))
+    data = [{'N_PED': 84080, 'id_execucao': 'exec-NOVA'} for _ in range(4)]
+
+    with caplog.at_level(logging.WARNING):
+        assert loader.insert_data('vw_os_integracao', data, batch_size=2) is False
+
+    assert estado.get('delete_chamado') is True
+    # apaga EXATAMENTE a execução desta carga — nunca dado bom de outra
+    assert estado['delete_filtro'] == ('id_execucao', 'exec-NOVA')
+    assert 'parciais desta execução removidas' in caplog.text
+
+
+def test_poda_com_id_execucao_null_usa_or(monkeypatch):
+    """`neq` sozinho NÃO apaga linha com id_execucao NULL (NULL <> 'x' é NULL em SQL,
+    não TRUE): a órfã sobreviveria a TODA poda, para sempre. Tem de usar `or_`."""
+    capturado = {}
+
+    class _T:
+        def delete(self):
+            return self
+
+        def or_(self, expr):
+            capturado['or'] = expr
+            return self
+
+        def neq(self, *_a):
+            capturado['neq_sozinho'] = True     # se cair aqui, o bug voltou
+            return self
+
+        def eq(self, col, val):
+            capturado.setdefault('eq', []).append((col, val))
+            return self
+
+        def execute(self):
+            return SimpleNamespace(data=[])
+
+    loader = pipeline_core.SupabaseLoader.__new__(pipeline_core.SupabaseLoader)
+    loader.client = SimpleNamespace(table=lambda _t: _T())
+    assert loader.delete_other_executions('t', 'exec-A', where_eq={'N_PED': 84080}) is True
+
+    assert 'neq_sozinho' not in capturado, 'voltou ao neq puro: linha NULL nunca seria podada'
+    assert capturado['or'] == 'id_execucao.is.null,id_execucao.neq.exec-A'
+    assert capturado['eq'] == [('N_PED', 84080)]   # o where_eq continua em AND
+
+
+def test_os_sync_lock_e_por_pedido_e_exclusivo(tmp_path, monkeypatch):
+    """Dois "processos" no MESMO pedido: o 2º não entra (senão cada um podava o outro
+    e o pedido sumia). Pedidos DIFERENTES não se bloqueiam."""
+    monkeypatch.setattr(pipeline_core, '_LOCK_DIR', str(tmp_path))
+
+    with pipeline_core.os_sync_lock(84080):
+        # mesmo pedido, outro "processo" → recusa na hora (timeout=0)
+        with pytest.raises(pipeline_core.FileLockTimeout):
+            with pipeline_core.os_sync_lock(84080):
+                pass
+        # pedido diferente → passa (o invariante é 1 escritor por N_PED, não global)
+        with pipeline_core.os_sync_lock(84095):
+            pass
+
+
+def test_os_sync_lock_valida_nped():
+    """O nped compõe o nome do arquivo — lixo não vira caminho."""
+    with pytest.raises(ValueError):
+        with pipeline_core.os_sync_lock('../../etc/passwd'):
+            pass
