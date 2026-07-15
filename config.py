@@ -44,7 +44,7 @@ SYNC_LOG_MAX_REGISTROS = 6
 EXECUTION_MODES = ('snapshot', 'insert')
 
 # Ordens de Serviço — pipeline sob demanda, por N_PED. Espelha a view HANA
-# CONSOLIDADA VW_OS_INTEGRACAO (53 colunas: OS + estrutura/árvore + orçamento +
+# CONSOLIDADA VW_OS_INTEGRACAO (54 colunas: OS + estrutura/árvore + orçamento +
 # flags de processo) numa
 # ÚNICA tabela Supabase. Substituiu os espelhos separados de OS engenharia, árvore
 # WBC e views de impressão (consolidação 2026-07-14). A view usa "N_PED" (com

@@ -1,7 +1,7 @@
 """ETL sob demanda: view SAP CONSOLIDADA ``VW_OS_INTEGRACAO`` (por N_PED) → Supabase.
 
 Espelha a view HANA única ``VW_OS_INTEGRACAO`` (OS + estrutura/árvore + orçamento,
-53 colunas) numa única tabela Supabase — substituiu os antigos espelhos separados
+54 colunas) numa única tabela Supabase — substituiu os antigos espelhos separados
 de OS engenharia, árvore WBC e views de impressão (consolidação 2026-07-14). A view
 usa ``"N_PED"`` (com underscore) como chave do pedido.
 

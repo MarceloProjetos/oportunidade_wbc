@@ -29,7 +29,12 @@
 -- mesmo dia — re-rodar o bloco inteiro é no-op para ela).
 -- ============================================================================
 
+-- U_INO_ORCITM veio junto na mesma revisão da view (posição 50) e foi o que
+-- derrubou o insert com PGRST204 até ser adicionada aqui — a view tem 54
+-- colunas, não 53. Lição: gerar o ALTER a partir das colunas REAIS da view
+-- (SELECT * ... WHERE "N_PED" = -1), nunca de uma lista transcrita à mão.
 alter table public.vw_os_integracao
+  add column if not exists "U_INO_ORCITM" text,
   add column if not exists "Solda"   integer,
   add column if not exists "Pintura" integer,
   add column if not exists "Almox"   integer,

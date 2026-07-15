@@ -191,7 +191,7 @@ def _count_rows(table: str) -> Optional[int]:
 _OS_STATUS_DESC = {'P': 'Planejado', 'R': 'Liberado', 'L': 'Encerrado', 'C': 'Cancelado'}
 
 # Colunas do detalhe/resumo de OS — enxutas de propósito (a view VW_OS_INTEGRACAO tem
-# 53 colunas; puxamos só o que o resumo usa). Inclui os campos de EXPEDIÇÃO
+# 54 colunas; puxamos só o que o resumo usa). Inclui os campos de EXPEDIÇÃO
 # (ObsPedido/DtLiber/DtEntregaPED) que antes exigiam uma 2ª query no espelho separado.
 _OS_DETALHE_COLS = (
     'id,N_PED,N_OP,DescItemPED,DescItemEstrut,DtPedido,'
