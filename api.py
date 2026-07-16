@@ -33,6 +33,7 @@ Exemplo de chamada::
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import sys
@@ -100,6 +101,12 @@ _sync_lock = threading.Lock()
 _RATE_WINDOW_S = 60.0
 _RATE_SYNC_OS_MAX = int(os.getenv('RATE_SYNC_OS_MAX', '60'))
 _RATE_FORCE_OPORT_MAX = int(os.getenv('RATE_FORCE_OPORT_MAX', '6'))
+
+# Teto de pedidos por request no POST /sync/ordens-servico. O lote roda SERIALIZADO
+# dentro do _sync_lock (2 conexões HANA por pedido), então uma lista enorme viraria uma
+# request de horas segurando a fila inteira. 50 é folgado p/ o uso real (a tela oferece
+# até 30 em "Buscar na Lista") e ainda assim limita a ~poucos minutos por request.
+_SYNC_LOTE_MAX = int(os.getenv('SYNC_LOTE_MAX', '50'))
 
 
 class _RateLimiter:
@@ -311,6 +318,12 @@ def _autorizado() -> bool:
     Aceita a chave por: header ``X-API-Key``, ``Authorization: Bearer <chave>`` ou query
     string ``?key=`` / ``?api_key=`` (o query param permite testar no navegador, que não
     envia headers; ciente de que a chave aparece na URL/histórico do navegador).
+
+    A comparação usa ``compare_digest`` (tempo constante): ``==`` curto-circuita no 1º byte
+    diferente, e o tempo de resposta vaza quantos bytes o palpite acertou — dá para
+    descobrir a chave byte a byte. Agravante: aceitamos a chave por query string, então o
+    ataque é um GET simples em loop, sem rate-limit nas leituras. O ``mcp/serve_http.py``
+    já fazia certo; a API não.
     """
     chave = get_settings().os_api_key
     if not chave:
@@ -322,7 +335,11 @@ def _autorizado() -> bool:
             enviado = auth[len('Bearer '):]
     if not enviado:
         enviado = request.args.get('key') or request.args.get('api_key')
-    return enviado == chave
+    if not enviado:
+        return False   # compare_digest não aceita None
+    # encode: compare_digest exige bytes ou str ASCII-only — uma chave com acento
+    # levantaria TypeError e viraria 500 em vez de 401.
+    return hmac.compare_digest(enviado.encode('utf-8'), chave.encode('utf-8'))
 
 
 def _sync_one(nped: int) -> dict:
@@ -667,22 +684,37 @@ def oport_sincronizar():
         return jsonify(ok=False, tipo='erro', motivo='Nao foi possivel sincronizar.'), 502
     if ok:
         return jsonify(ok=True)
-    return jsonify(ok=False, tipo='erro', motivo='Nao foi possivel sincronizar (0 registros?).')
+    # 502 igual ao except acima: é a MESMA classe de problema (a carga não aconteceu).
+    # Sem o status code, o Flask devolvia 200 e qualquer monitor que decida por código
+    # — o padrão — lia a falha como sucesso.
+    return jsonify(ok=False, tipo='erro',
+                   motivo='Nao foi possivel sincronizar (0 registros?).'), 502
 
 
 @app.post('/sync/ordens-servico/<nped>')
 def sync_um(nped: str):
+    """Sincroniza **um** pedido. Requer X-API-Key. Mesma trava anti-loop do par
+    ``/ordens-servico/<nped>/sincronizar`` (bucket ``sync_os``)."""
     if not _autorizado():
         return jsonify(ok=False, error='unauthorized'), 401
     try:
         n = coerce_positive_int(nped, what='NPED')
     except ValueError as exc:
         return jsonify(ok=False, error=str(exc)), 400
+
+    limitado = _checar_rate('sync_os', _RATE_SYNC_OS_MAX)
+    if limitado is not None:
+        return limitado
     return _sincronizar([n])
 
 
 @app.post('/sync/ordens-servico')
 def sync_varios():
+    """Sincroniza vários pedidos: ``{"nped": N}`` ou ``{"npeds": [...]}``. Requer X-API-Key.
+
+    Limites: no máximo ``SYNC_LOTE_MAX`` pedidos por request e a trava anti-loop
+    (bucket ``sync_os``) — ver ``_SYNC_LOTE_MAX``.
+    """
     if not _autorizado():
         return jsonify(ok=False, error='unauthorized'), 401
     body = request.get_json(silent=True) or {}
@@ -693,10 +725,23 @@ def sync_varios():
         return jsonify(ok=False, error="informe 'nped' (int) ou 'npeds' (lista)"), 400
     if not isinstance(bruto, list):
         bruto = [bruto]
+    if len(bruto) > _SYNC_LOTE_MAX:
+        # Sem cap, `{"npeds": [1..5000]}` era 1 request segurando o _sync_lock por HORAS
+        # (2 conexões HANA por pedido, tudo dentro do lock): nenhuma outra sync entrava e
+        # cada tentativa consumia um thread do waitress esperando → o pool esgota e a API
+        # inteira para de responder, /health incluído.
+        return jsonify(
+            ok=False, error=f'lote grande demais: {len(bruto)} pedidos (max {_SYNC_LOTE_MAX})',
+            motivo='Divida em requests menores — o lote roda serializado e segura a fila.',
+        ), 413
     try:
         npeds = [coerce_positive_int(n, what='NPED') for n in bruto]
     except ValueError as exc:
         return jsonify(ok=False, error=str(exc)), 400
+
+    limitado = _checar_rate('sync_os', _RATE_SYNC_OS_MAX)
+    if limitado is not None:
+        return limitado
     return _sincronizar(npeds)
 
 

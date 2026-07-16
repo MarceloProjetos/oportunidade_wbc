@@ -3,6 +3,43 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-16] — Contrato: trava anti-loop nas rotas que faltavam, 502 no lugar de 200, e auth em tempo constante
+
+### Corrigido
+
+- **`/sync/ordens-servico` e `/sync/ordens-servico/<nped>` não tinham a trava anti-loop.**
+  São rotas de **escrita**, mas só o par `/ordens-servico/<nped>/sincronizar` chamava
+  `_checar_rate` — um agente em loop batendo nelas disparava syncs SAP→Supabase ilimitados,
+  furando a proteção que o `CLAUDE.md` descreve como cobrindo "as escritas". Agora as duas
+  usam o **mesmo bucket** (`sync_os`) do par: o limite é do **recurso**, não da rota — senão
+  bastava alternar entre elas para dobrar o teto.
+
+- **`POST /sync/ordens-servico` aceitava lista de qualquer tamanho.** O lote roda
+  **serializado dentro do `_sync_lock`**, com 2 conexões HANA por pedido: `{"npeds":
+  [1..5000]}` era **uma** request segurando a fila por horas, com cada tentativa
+  concorrente consumindo um thread do waitress à espera → pool esgotado → a API inteira
+  parava de responder, `/health` incluído. Novo teto **`SYNC_LOTE_MAX`** (default **50**,
+  configurável) → **413** acima disso. 50 é folgado para o uso real (a tela oferece 30 em
+  "Buscar na Lista").
+
+- **Falha de sincronização de oportunidades respondia HTTP 200.** O `return` final não tinha
+  status code, e o Flask assume 200 — enquanto o `except` logo acima já devolvia **502**
+  para a **mesma** classe de problema (a carga não aconteceu). Qualquer monitor que decida
+  por status code — o padrão — lia a falha como sucesso. Agora **502**, coerente com o irmão.
+
+- **`_autorizado()` comparava a chave com `==`.** Comparação curto-circuitada: para no 1º
+  byte diferente, e o tempo de resposta vaza quantos bytes o palpite acertou — dá para
+  descobrir a chave byte a byte. Agravante: a API aceita a chave por **query string**, então
+  o ataque é um `GET` em loop, sem rate-limit nas leituras. Agora `hmac.compare_digest`
+  (tempo constante), como o `mcp/serve_http.py` já fazia. Dois detalhes que evitam trocar um
+  bug por outro: chave ausente vira **401** (não `TypeError` → 500, porque `compare_digest`
+  não aceita `None`) e os operandos são **encodados** (chave com acento levantaria
+  `TypeError` — `compare_digest` exige bytes ou ASCII puro).
+
+9 testes novos (205 no total), incl. os dois buracos exatos (lote de 5000 ⇒ 413 e nada
+sincronizado; as duas rotas compartilhando o bucket) e a matriz de auth (prefixo, sufixo,
+vazio, não-ASCII).
+
 ## [2026-07-16] — Integridade: o par insert+poda deixa de perder e de duplicar dado
 
 Os 4 achados da revisão que podiam **perder ou corromper dado** — os únicos com esse

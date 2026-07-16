@@ -608,3 +608,92 @@ def test_status_sem_checks_roda_tudo(client, monkeypatch):
     monkeypatch.setattr(apimod, 'collect_status', _fake)
     assert client.get('/status').status_code == 200
     assert capturado['only'] is None
+
+
+# ===================== One-liners de contrato (2026-07-16) =====================
+
+def test_sync_lote_respeita_rate_limit(client, monkeypatch):
+    """/sync/ordens-servico* são rotas de ESCRITA e não tinham trava anti-loop —
+    só o par /ordens-servico/<n>/sincronizar tinha. Um agente em loop batendo aqui
+    disparava syncs SAP→Supabase ilimitados."""
+    monkeypatch.setattr(apimod, '_RATE_SYNC_OS_MAX', 2)
+    assert client.post('/sync/ordens-servico/84080').status_code == 200
+    assert client.post('/sync/ordens-servico/84081').status_code == 200
+    r = client.post('/sync/ordens-servico/84082')          # 3ª estoura
+    assert r.status_code == 429
+    assert r.headers.get('Retry-After')
+
+
+def test_sync_lote_e_unitario_compartilham_o_bucket(client, monkeypatch):
+    """O limite é do recurso (sync de OS), não da rota: senão bastava alternar
+    entre as duas rotas para dobrar o teto."""
+    monkeypatch.setattr(apimod, '_RATE_SYNC_OS_MAX', 2)
+    assert client.post('/sync/ordens-servico/84080').status_code == 200
+    assert client.post('/ordens-servico/84081/sincronizar').status_code in (200, 502)
+    assert client.post('/sync/ordens-servico', json={'nped': 84082}).status_code == 429
+
+
+def test_sync_lote_gigante_413(client):
+    """{"npeds": [1..5000]} segurava o _sync_lock por HORAS (2 conexões HANA por
+    pedido, tudo serializado) → fila travada e pool do waitress esgotado."""
+    r = client.post('/sync/ordens-servico', json={'npeds': list(range(1, 5001))})
+    assert r.status_code == 413
+    assert '5000' in r.get_json()['error']
+    assert client._chamados == []          # não sincronizou nada
+
+
+def test_sync_lote_no_limite_passa(client):
+    """O cap não pode atrapalhar o uso real (a tela oferece até 30)."""
+    r = client.post('/sync/ordens-servico', json={'npeds': list(range(84001, 84051))})
+    assert r.status_code == 200
+    assert len(client._chamados) == 50
+
+
+def test_oport_sincronizar_falha_logica_502(client, monkeypatch):
+    """sync_oportunidades() falsy (0 registros/falha) devolvia **200** — sem status
+    code, o Flask assume 200 e o monitor lê falha como sucesso. O except acima já
+    devolvia 502 para a mesma classe de problema."""
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _fake_lock(timeout=0):
+        yield
+
+    monkeypatch.setattr(apimod, 'oportunidades_sync_lock', _fake_lock)
+    monkeypatch.setattr(apimod, 'sync_oportunidades', lambda: False)
+    r = client.post('/oportunidades/sincronizar')
+    assert r.status_code == 502
+    assert r.get_json()['ok'] is False
+
+
+def test_autorizado_usa_compare_digest(client, monkeypatch):
+    """A chave é comparada em tempo constante: `==` curto-circuita no 1º byte
+    diferente e o tempo vaza quantos bytes o palpite acertou (e aceitamos a chave
+    por query string, então o ataque é um GET em loop)."""
+    import inspect
+    fonte = inspect.getsource(apimod._autorizado)
+    assert 'compare_digest' in fonte
+    assert 'enviado == chave' not in fonte
+
+
+@pytest.mark.parametrize('chave,enviado,esperado', [
+    ('segredo', 'segredo', 200),
+    ('segredo', 'segred', 401),      # prefixo não passa
+    ('segredo', 'segredoX', 401),    # sufixo extra não passa
+    ('segredo', '', 401),
+    ('chave-com-acentuação', 'chave-com-acentuação', 200),   # não-ASCII não vira 500
+])
+def test_autorizado_casos(client, monkeypatch, chave, enviado, esperado):
+    monkeypatch.setenv('OS_API_KEY', chave)
+    reset_settings()
+    monkeypatch.setattr(apimod, '_fetch_log', lambda table, n: [])
+    r = client.get('/historico', headers={'X-API-Key': enviado} if enviado else {})
+    assert r.status_code == esperado
+
+
+def test_autorizado_sem_chave_enviada_401(client, monkeypatch):
+    """compare_digest(None, ...) levantaria TypeError → 500 em vez de 401."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    monkeypatch.setattr(apimod, '_fetch_log', lambda table, n: [])
+    assert client.get('/historico').status_code == 401
