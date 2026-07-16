@@ -39,6 +39,7 @@ import os
 import sys
 import threading
 import time
+from functools import wraps
 from logging.handlers import TimedRotatingFileHandler
 from typing import Any, List, Optional, Tuple
 
@@ -342,6 +343,28 @@ def _autorizado() -> bool:
     return hmac.compare_digest(enviado.encode('utf-8'), chave.encode('utf-8'))
 
 
+def requer_chave(fn):
+    """Exige ``X-API-Key`` na rota (ver ``_autorizado``); sem/errada → **401**.
+
+    Substitui o ``if not _autorizado(): return 401`` que estava colado em 11 rotas. O ganho
+    não é linha: é matar a classe de bug **"rota nova sem guarda"** — o padrão anterior
+    dependia de lembrar, e o repo cresce. Agora esquecer o decorator deixa a rota
+    visivelmente sem ele, em vez de parecer igual às outras.
+
+    Ficam SEM ele, de propósito (ver CLAUDE.md): ``/``, ``/favicon.ico``, ``/health`` e
+    ``/status`` — monitoramento e uso no navegador.
+
+    Ordem importa: ``@app.get(...)`` **em cima**, ``@requer_chave`` logo abaixo — senão o
+    Flask registra o wrapper como endpoint e a guarda não roda no request.
+    """
+    @wraps(fn)   # sem isto, o Flask usa o nome do wrapper como endpoint e colide
+    def _wrapper(*args, **kwargs):
+        if not _autorizado():
+            return jsonify(ok=False, error='unauthorized'), 401
+        return fn(*args, **kwargs)
+    return _wrapper
+
+
 def _sync_one(nped: int) -> dict:
     """Sincroniza um NPED. Antes, diagnostica via OWOR + ORDR: se não há OS ainda
     (distinguindo pedido aberto, cancelado ou inexistente), ou se a OS está cancelada,
@@ -477,10 +500,9 @@ def status_detalhado():
 
 
 @app.get('/historico')
+@requer_chave
 def historico():
     """Últimas sincronizações (lê a tabela de log). Requer X-API-Key."""
-    if not _autorizado():
-        return jsonify(ok=False, error='unauthorized'), 401
     try:
         limit = int(request.args.get('limit', 20))
     except (TypeError, ValueError):
@@ -495,10 +517,9 @@ def historico():
 
 
 @app.delete('/historico')
+@requer_chave
 def historico_limpar():
     """Limpa o histórico de OS (apaga a tabela de log). Requer X-API-Key."""
-    if not _autorizado():
-        return jsonify(ok=False, error='unauthorized'), 401
     try:
         removidos = _clear_log(get_settings().os_sync_log_table)
     except Exception as exc:
@@ -508,14 +529,13 @@ def historico_limpar():
 
 
 @app.get('/ordens-servico/disponiveis')
+@requer_chave
 def os_disponiveis():
     """Lista até 30 pedidos com OS criada no SAP (NPED + cliente + data). Requer X-API-Key.
 
     Alimenta o botão "Buscar na Lista" do painel: o usuário escolhe os pedidos sem
     precisar digitar os NPEDs.
     """
-    if not _autorizado():
-        return jsonify(ok=False, error='unauthorized'), 401
     limit = _limit_arg(default=30, maximo=50)
     try:
         pedidos = listar_pedidos_com_os(limit)
@@ -528,6 +548,7 @@ def os_disponiveis():
 
 
 @app.get('/ordens-servico/<nped>')
+@requer_chave
 def os_detalhe(nped: str):
     """Detalhe da OS de UM pedido (lê a tabela única no Supabase). Requer X-API-Key.
 
@@ -539,8 +560,6 @@ def os_detalhe(nped: str):
     Obs.: a rota estática ``/ordens-servico/disponiveis`` tem prioridade no roteador
     do Werkzeug, então não é capturada por este ``<nped>``.
     """
-    if not _autorizado():
-        return jsonify(ok=False, error='unauthorized'), 401
     try:
         n = coerce_positive_int(nped, what='NPED')
     except ValueError as exc:
@@ -559,6 +578,7 @@ def os_detalhe(nped: str):
 
 
 @app.post('/ordens-servico/<nped>/sincronizar')
+@requer_chave
 def os_sincronizar(nped: str):
     """Sincroniza (SAP → Supabase) a OS de UM pedido e devolve o ``resumo`` resultante.
     Requer X-API-Key. **Par de escrita** do ``GET /ordens-servico/<nped>``.
@@ -574,8 +594,6 @@ def os_sincronizar(nped: str):
     Status: ``200`` (sincronizado **ou** aviso de negócio sem_os/cancelada) · ``502`` (falha de
     sincronização) · ``400`` NPED inválido · ``401`` sem/má X-API-Key.
     """
-    if not _autorizado():
-        return jsonify(ok=False, error='unauthorized'), 401
     try:
         n = coerce_positive_int(nped, what='NPED')
     except ValueError as exc:
@@ -616,10 +634,9 @@ def _limit_arg(default: int = 20, maximo: int = 100) -> int:
 
 
 @app.get('/oportunidades/historico')
+@requer_chave
 def oport_historico():
     """Últimos sincronismos de oportunidades (lê sincronizacao_log). Requer X-API-Key."""
-    if not _autorizado():
-        return jsonify(ok=False, error='unauthorized'), 401
     try:
         itens = _fetch_log(get_settings().sync_log_table_name, _limit_arg())
     except Exception as exc:
@@ -629,10 +646,9 @@ def oport_historico():
 
 
 @app.delete('/oportunidades/historico')
+@requer_chave
 def oport_historico_limpar():
     """Limpa o log de oportunidades. Requer X-API-Key."""
-    if not _autorizado():
-        return jsonify(ok=False, error='unauthorized'), 401
     try:
         removidos = _clear_log(get_settings().sync_log_table_name)
     except Exception as exc:
@@ -642,10 +658,9 @@ def oport_historico_limpar():
 
 
 @app.get('/oportunidades/info')
+@requer_chave
 def oport_info():
     """Contexto do pipeline de oportunidades: total de linhas + agenda. Requer X-API-Key."""
-    if not _autorizado():
-        return jsonify(ok=False, error='unauthorized'), 401
     s = get_settings()
     total = None
     try:
@@ -661,14 +676,13 @@ def oport_info():
 
 
 @app.post('/oportunidades/sincronizar')
+@requer_chave
 def oport_sincronizar():
     """Força a carga COMPLETA de oportunidades (a mesma do agendador). Requer X-API-Key.
 
     Usa um lock de arquivo cross-process: se o agendador (ou outro disparo) já estiver
     rodando, responde 409 em vez de rodar duas cargas snapshot ao mesmo tempo.
     """
-    if not _autorizado():
-        return jsonify(ok=False, error='unauthorized'), 401
     limitado = _checar_rate('force_oport', _RATE_FORCE_OPORT_MAX)
     if limitado is not None:
         return limitado
@@ -692,11 +706,10 @@ def oport_sincronizar():
 
 
 @app.post('/sync/ordens-servico/<nped>')
+@requer_chave
 def sync_um(nped: str):
     """Sincroniza **um** pedido. Requer X-API-Key. Mesma trava anti-loop do par
     ``/ordens-servico/<nped>/sincronizar`` (bucket ``sync_os``)."""
-    if not _autorizado():
-        return jsonify(ok=False, error='unauthorized'), 401
     try:
         n = coerce_positive_int(nped, what='NPED')
     except ValueError as exc:
@@ -709,14 +722,13 @@ def sync_um(nped: str):
 
 
 @app.post('/sync/ordens-servico')
+@requer_chave
 def sync_varios():
     """Sincroniza vários pedidos: ``{"nped": N}`` ou ``{"npeds": [...]}``. Requer X-API-Key.
 
     Limites: no máximo ``SYNC_LOTE_MAX`` pedidos por request e a trava anti-loop
     (bucket ``sync_os``) — ver ``_SYNC_LOTE_MAX``.
     """
-    if not _autorizado():
-        return jsonify(ok=False, error='unauthorized'), 401
     body = request.get_json(silent=True) or {}
     bruto = body.get('npeds')
     if bruto is None and body.get('nped') is not None:

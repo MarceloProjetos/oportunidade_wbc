@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 import os
 import re
-import time
 import uuid
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -33,6 +32,7 @@ from config import (
     SYNC_LOG_MAX_REGISTROS,
     get_settings,
 )
+from retry import with_retries as _with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -122,25 +122,15 @@ def with_retries(
     what: str = "operation",
     retry_on: Optional[Callable[[Exception], bool]] = None,
 ) -> Any:
-    """Run operation with exponential backoff retries."""
-    last_exc: Optional[Exception] = None
-    for attempt in range(1, attempts + 1):
-        try:
-            return operation()
-        except Exception as exc:
-            if retry_on is not None and not retry_on(exc):
-                raise
-            last_exc = exc
-            if attempt < attempts:
-                delay = base_delay * (2 ** (attempt - 1))
-                logger.warning(
-                    f"{what}: tentativa {attempt}/{attempts} falhou ({exc}). "
-                    f"Retentando em {delay:.0f}s..."
-                )
-                time.sleep(delay)
-            else:
-                logger.error(f"{what}: todas as {attempts} tentativas falharam.")
-    raise last_exc  # type: ignore[misc]
+    """Retry com backoff — ver ``retry.with_retries``.
+
+    Wrapper fino que só aplica os defaults do projeto (``RETRY_ATTEMPTS`` /
+    ``RETRY_BASE_DELAY_S``). A implementação mora em ``retry.py``, sem dependências, para
+    ``sap_connection`` reusá-la sem arrastar o ``supabase``.
+    """
+    return _with_retries(
+        operation, attempts=attempts, base_delay=base_delay, what=what, retry_on=retry_on,
+    )
 
 
 # ── Guarda de schema: origem (view) × destino (tabela) ────────────────────────────

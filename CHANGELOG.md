@@ -3,6 +3,41 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-16] — Duas duplicações que pagavam: retry único e guarda de auth por decorator
+
+As duas simplificações que a revisão aprovou. As grandes (unificar os 2 conjuntos de
+settings, fatorar os `main()`) foram **recusadas** por serem *coincidência de forma*, não
+duplicação — o que era genérico de verdade já está no `pipeline_core`.
+
+### Alterado
+
+- **`retry.py` (novo): uma implementação de retry, não duas.** `sap_connection._with_retries`
+  era cópia **byte-a-byte** de `pipeline_core.with_retries` (mesma assinatura, mesmo backoff,
+  só as mensagens em inglês vs. português). Mexer na política de retry exigia lembrar dos
+  **dois** lugares — e o do SAP era o esquecido.
+
+  **Por que módulo novo e não `sap_connection` importando `pipeline_core`:** medido, o
+  `pipeline_core` custa **~1,2 s** de import porque arrasta `supabase`/`numpy`; hoje
+  `sap_connection` só puxa `pandas`+`hdbcli`. Fazê-lo importar o núcleo cobraria esse preço
+  do **agendador**, que não usa Supabase. `retry.py` não tem dependência nenhuma. Verificado
+  depois: `import sap_connection` **não** puxa `supabase`. Os dois módulos mantêm wrappers
+  finos só para aplicar os defaults (`RETRY_ATTEMPTS`/`RETRY_BASE_DELAY_S`), então **nenhum
+  call-site mudou**.
+
+- **`@requer_chave`: a guarda de auth virou decorator.** O bloco
+  `if not _autorizado(): return 401` estava colado em **11 rotas**. O ganho não é linha (o
+  saldo é ~zero) — é matar a classe de bug **"rota nova sem guarda"**: o padrão anterior
+  dependia de alguém lembrar, e o repo cresce. Continuam abertas de propósito `/`,
+  `/favicon.ico`, `/health` e `/status`.
+
+  `@wraps` é obrigatório: sem ele o Flask usaria o nome do wrapper como endpoint e a 2ª rota
+  colidiria no registro.
+
+6 testes novos (221 no total). O que blinda a mudança é um que **varre o `url_map`**: toda
+rota fora da lista de abertas *tem* de devolver 401 sem chave — quem adicionar uma rota e
+esquecer o decorator quebra no teste, não em produção. Mais: as 4 abertas continuam abertas,
+e os endpoints do Flask não colidem (guarda o `@wraps`).
+
 ## [2026-07-16] — Feriados: a tabela acaba em 2030 e agora avisa (antes falhava calada)
 
 ### Corrigido

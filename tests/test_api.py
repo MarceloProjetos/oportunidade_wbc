@@ -697,3 +697,57 @@ def test_autorizado_sem_chave_enviada_401(client, monkeypatch):
     reset_settings()
     monkeypatch.setattr(apimod, '_fetch_log', lambda table, n: [])
     assert client.get('/historico').status_code == 401
+
+
+# ============ @requer_chave: guarda por decorator (2026-07-16) ============
+
+_ROTAS_ABERTAS = {'/', '/favicon.ico', '/health', '/status'}
+
+
+def test_toda_rota_nova_exige_chave_ou_e_abertura_declarada(client, monkeypatch):
+    """Varre o url_map: QUALQUER rota que não esteja na lista de abertas TEM de
+    devolver 401 sem chave. É este teste que mata a classe "rota nova sem guarda" —
+    quem adicionar uma rota e esquecer o @requer_chave quebra aqui, não em produção.
+    """
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    monkeypatch.setattr(apimod, 'collect_status',
+                        lambda only=None: {'ok': True, 'alerts': [], 'checks': {}})
+    monkeypatch.setattr(apimod, '_fetch_log', lambda t, n: [])
+    monkeypatch.setattr(apimod, '_clear_log', lambda t: 0)
+    monkeypatch.setattr(apimod, '_count_rows', lambda t: 0)
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: [])
+    monkeypatch.setattr(apimod, 'listar_pedidos_com_os', lambda limit: [])
+
+    desprotegidas = []
+    for regra in apimod.app.url_map.iter_rules():
+        if regra.rule.startswith('/static') or regra.rule in _ROTAS_ABERTAS:
+            continue
+        metodo = next(m for m in ('GET', 'POST', 'DELETE') if m in regra.methods)
+        url = regra.rule.replace('<nped>', '84080')
+        if client.open(url, method=metodo).status_code != 401:
+            desprotegidas.append(f'{metodo} {regra.rule}')
+
+    assert not desprotegidas, f'rota(s) sem @requer_chave: {desprotegidas}'
+
+
+@pytest.mark.parametrize('metodo,url', [
+    ('GET', '/'), ('GET', '/favicon.ico'), ('GET', '/health'), ('GET', '/status'),
+])
+def test_rotas_abertas_continuam_abertas(client, monkeypatch, metodo, url):
+    """O decorator não pode ter fechado o que é aberto de propósito (monitoramento
+    e uso no navegador — ver CLAUDE.md)."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    monkeypatch.setattr(apimod, 'collect_status',
+                        lambda only=None: {'ok': True, 'alerts': [], 'checks': {}})
+    assert client.open(url, method=metodo).status_code != 401
+
+
+def test_requer_chave_preserva_o_endpoint(client):
+    """Sem @wraps, o Flask registraria todas as rotas como o mesmo endpoint
+    ('_wrapper') e a 2ª colidiria no registro."""
+    rotas = list(apimod.app.url_map.iter_rules())
+    endpoints = [r.endpoint for r in rotas]
+    assert len(set(endpoints)) == len(endpoints), 'endpoints colidiram: faltou @wraps?'
+    assert '_wrapper' not in endpoints

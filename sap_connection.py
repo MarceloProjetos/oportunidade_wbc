@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import re
-import time
 from typing import Any, Callable, Optional
 
 import pandas as pd
@@ -17,6 +16,7 @@ from config import (
     SAP_CONNECT_TIMEOUT_MS,
 )
 from db_utils import read_dbapi_query
+from retry import with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -36,21 +36,17 @@ def _with_retries(
     what: str = 'operation',
     retry_on: Optional[Callable[[Exception], bool]] = None,
 ) -> Any:
-    last_exc: Optional[Exception] = None
-    for attempt in range(1, attempts + 1):
-        try:
-            return operation()
-        except Exception as exc:
-            if retry_on is not None and not retry_on(exc):
-                raise
-            last_exc = exc
-            if attempt < attempts:
-                delay = base_delay * (2 ** (attempt - 1))
-                logger.warning('%s: attempt %s/%s failed (%s). Retry in %ss...', what, attempt, attempts, exc, delay)
-                time.sleep(delay)
-            else:
-                logger.error('%s: all %s attempts failed.', what, attempts)
-    raise last_exc  # type: ignore[misc]
+    """Retry com backoff — ver ``retry.with_retries``.
+
+    Wrapper fino com os defaults do projeto. Era uma cópia byte-a-byte da função de
+    ``pipeline_core``: mexer na política de retry exigia lembrar dos dois lugares, e este
+    era o esquecido. A implementação foi para ``retry.py`` (sem dependências) em vez de
+    importar ``pipeline_core``, que arrastaria ``supabase``/``numpy`` (~1,2 s) para o
+    agendador, que não usa nada disso.
+    """
+    return with_retries(
+        operation, attempts=attempts, base_delay=base_delay, what=what, retry_on=retry_on,
+    )
 
 
 def _build_connect_args(
