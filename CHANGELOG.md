@@ -49,6 +49,22 @@ o FastMCP os envia ao LLM como descrição da tool, e os nomes das tools são po
 - `config.py`, `db_utils.py`, `retry.py`, `feriados_br.py`, `sap_connection.py`:
   comentários e docstrings traduzidos para inglês técnico, com simplificação onde coube.
 
+## [2026-07-16] — O motivo do "não sei" agora diz QUANTOS dias
+
+Ajuste fino, depois de ver o painel real da Mira em produção. O `pendentes_motivo` mostrava
+o texto genérico e ASCII do PowerShell — *"o agente nao varre ha tempo demais"* — quando o
+Python já montava um melhor, **com o número**: *"o agente não varre há 610 dias"*. Um
+`motivo or ...` deixava o do PS ganhar.
+
+É o texto que o usuário lê no chat, e "há tempo demais" faz perguntar *quanto*. No ramo de
+varredura velha a mensagem daqui passa a ser a autoritativa — é a camada que sabe a contagem
+de dias, tem acento e tem testes. **Não se perde motivo específico:** com a varredura velha o
+PS nem tenta a busca, então o motivo dele é sempre o genérico; o `"busca falhou: 0x..."` vive
+no ramo `pendentes is None`, que segue repassando o do PS intacto (há teste cravando os dois).
+
+Mesmo ajuste no `windows_update.py` do repo SAP_RDP — os dois módulos seguem diffáveis.
+**273 testes, lint 0.**
+
 ## [2026-07-16] — Windows Update não alerta mais: é informação, não saúde do sistema
 
 Ajuste logo após o deploy da F2 (abaixo). **O bloco `windows_update` não gera mais alerta

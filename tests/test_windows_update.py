@@ -419,3 +419,39 @@ def test_json_que_nao_e_objeto_nao_explode_a_thread(saida, monkeypatch):
     r = wu.coletar_updates()
     assert r["pendentes"] is None
     assert r["erro"]
+
+
+def test_motivo_da_varredura_velha_diz_QUANTOS_dias(monkeypatch):
+    """A mensagem daqui vence a do PS: ela sabe o número de dias e tem acento.
+
+    A do PS é genérica e ASCII ("o agente nao varre ha tempo demais") — é o texto que o
+    usuário lê no chat, e "há tempo demais" faz perguntar quanto. Antes, um `motivo or ...`
+    deixava a do PS ganhar e o número só aparecia por acaso, na linha do último patch.
+    """
+    _fake_ps(monkeypatch, {
+        "ok": True, "erro": None,
+        "ultima_varredura": (_agora() - timedelta(days=610)).isoformat(),
+        "pendentes": None,
+        "pendentes_motivo": "o agente nao varre ha tempo demais - a contagem seria mentira",
+        "ultimo_patch": None, "ultimo_patch_kb": None,
+    })
+    r = wu.coletar_updates()
+    assert r["pendentes"] is None
+    assert "610 dias" in r["pendentes_motivo"], "o motivo tem de dizer QUANTOS dias"
+    assert "há" in r["pendentes_motivo"]        # com acento, não o ASCII do PS
+    assert "tempo demais" not in r["pendentes_motivo"]
+
+
+def test_busca_falhou_ainda_repassa_o_motivo_do_ps(monkeypatch):
+    """O ramo específico do PS não pode ser engolido pelo ajuste acima: com varredura
+    RECENTE e busca com erro, o motivo detalhado do PS continua chegando."""
+    _fake_ps(monkeypatch, {
+        "ok": True, "erro": None,
+        "ultima_varredura": _agora().isoformat(),
+        "pendentes": None,
+        "pendentes_motivo": "busca falhou: 0x80240438",
+        "ultimo_patch": None, "ultimo_patch_kb": None,
+    })
+    r = wu.coletar_updates()
+    assert r["pendentes"] is None
+    assert "0x80240438" in r["pendentes_motivo"]

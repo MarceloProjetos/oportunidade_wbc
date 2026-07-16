@@ -308,12 +308,17 @@ def _filtrar_contagem(pendentes, motivo, dias_varredura, s: Settings):
     de um subprocess. Se alguém mexer no `_PS_COLETA` e quebrar a checagem de frescor lá,
     a contagem morre aqui do mesmo jeito — e esta camada é a que tem testes.
     """
+    # A mensagem DAQUI vence a do PowerShell nestes dois ramos, de propósito: a do PS é
+    # genérica e ASCII ("o agente nao varre ha tempo demais"), enquanto aqui sabemos o
+    # NÚMERO de dias e escrevemos com acento. É o texto que o usuário lê no chat — "não
+    # varre há 610 dias" explica; "há tempo demais" faz perguntar quanto.
+    # Não perdemos motivo específico: quando a varredura está velha o PS nem tenta a busca,
+    # então o motivo dele é sempre o genérico. O "busca falhou: ..." dele vive no ramo
+    # `pendentes is None` abaixo, que segue repassando o motivo do PS intacto.
     if dias_varredura is None:
-        return None, motivo or "o agente nunca varreu — a contagem seria mentira"
+        return None, "o agente nunca varreu — a contagem seria mentira"
     if dias_varredura > s.wu_varredura_max_d:
-        return None, motivo or (
-            f"o agente não varre há {dias_varredura:.0f} dias — a contagem seria mentira"
-        )
+        return None, f"o agente não varre há {dias_varredura:.0f} dias — a contagem seria mentira"
     if pendentes is None:
         return None, motivo
     try:
