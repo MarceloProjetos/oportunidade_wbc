@@ -3,6 +3,31 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-16] — Comentários do núcleo traduzidos para inglês técnico (onda 1/5)
+
+Primeira onda da tradução dos comentários do repositório para inglês técnico:
+`config.py`, `db_utils.py`, `retry.py`, `feriados_br.py`, `sap_connection.py`.
+
+**Só comentário e docstring mudaram** — nenhuma linha executável. A garantia é mecânica:
+um checador compara o AST de cada arquivo antes/depois **com os docstrings removidos**, e
+os cinco saíram idênticos. (Comparar o AST cru não serve: docstring é nó do AST, então
+toda tradução apareceria como diff.) `ruff check` limpo e os 271 testes passando.
+
+Fora de escopo por decisão: mensagens de log e de erro seguem em PT (são lidas em
+produção), assim como `README`/`CHANGELOG`/`CLAUDE.md`. Termos de domínio (`N_PED`,
+`SITCOD`, `oportunidades`, `Ordens de Serviço`, `Integração WBC`, `VW_OS_INTEGRACAO`) e
+identificadores Python (`MESES_RETROATIVOS`, `_BOOL_VERDADEIRO`, `wu_varredura_max_d`)
+ficam como estão — renomear seria mudança de código, não de comentário.
+
+Pendente: ondas 2-5 (pipelines, serviço, testes, MCP+HTML). Na onda 5 há uma decisão
+aberta — os docstrings dos `@mcp.tool()` em `mcp/mcp_server.py` **não são comentários**:
+o FastMCP os envia ao LLM como descrição da tool, e os nomes das tools são portugueses.
+
+### Alterado
+
+- `config.py`, `db_utils.py`, `retry.py`, `feriados_br.py`, `sap_connection.py`:
+  comentários e docstrings traduzidos para inglês técnico, com simplificação onde coube.
+
 ## [2026-07-16] — Windows Update não alerta mais: é informação, não saúde do sistema
 
 Ajuste logo após o deploy da F2 (abaixo). **O bloco `windows_update` não gera mais alerta

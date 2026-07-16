@@ -43,12 +43,11 @@ SYNC_LOG_MAX_REGISTROS = 6
 
 EXECUTION_MODES = ('snapshot', 'insert')
 
-# Ordens de Serviço — pipeline sob demanda, por N_PED. Espelha a view HANA
-# CONSOLIDADA VW_OS_INTEGRACAO (54 colunas: OS + estrutura/árvore + orçamento +
-# flags de processo) numa
-# ÚNICA tabela Supabase. Substituiu os espelhos separados de OS engenharia, árvore
-# WBC e views de impressão (consolidação 2026-07-14). A view usa "N_PED" (com
-# underscore) como chave — diferente do antigo "NPED".
+# Ordens de Serviço — on-demand pipeline, keyed by N_PED. Mirrors the CONSOLIDATED
+# HANA view VW_OS_INTEGRACAO (54 columns: OS + tree/structure + quote + process flags)
+# into a SINGLE Supabase table. It replaced the separate mirrors for engineering OS,
+# WBC tree and print views (2026-07-14 consolidation). The view keys on "N_PED" (with
+# underscore) — unlike the older "NPED".
 OS_SAP_VIEW_NAME_DEFAULT = 'VW_OS_INTEGRACAO'
 OS_TABLE_NAME_DEFAULT = 'vw_os_integracao'
 OS_SYNC_LOG_TABLE_DEFAULT = 'sincronizacao_log_os_integracao'
@@ -57,31 +56,33 @@ OS_EXECUTION_MODES = ('replace_nped', 'insert')
 OS_INSERT_BATCH_SIZE_DEFAULT = 500
 OS_SYNC_LOG_MAX_REGISTROS = 100
 
-# API HTTP de disparo da sync de OS (api.py)
+# HTTP API that triggers the OS sync (api.py)
 OS_API_HOST_DEFAULT = '0.0.0.0'
 OS_API_PORT_DEFAULT = 8077
 
-# Monitor da tarefa agendada "Integração WBC" (Task Scheduler do Windows).
-# O script PowerShell ``monitor_wbc_task.ps1`` (agendado a cada 10 min) consulta a
-# tarefa e grava o estado em ``WBC_TASK_STATE_FILE``. A API só *lê* esse arquivo e o
-# expõe em ``/status`` — não roda subprocesso nem consulta a tarefa a cada request.
-# Se o arquivo ficar mais velho que ``WBC_TASK_STALE_MIN``, o próprio monitor pode ter
-# parado, e o ``/status`` sinaliza isso como alerta (503 no ``?strict=1``).
+# Monitor for the "Integração WBC" scheduled task (Windows Task Scheduler).
+# The PowerShell script ``monitor_wbc_task.ps1`` (scheduled every 10 min) queries the
+# task and writes its state to ``WBC_TASK_STATE_FILE``. The API only *reads* that file
+# and exposes it on ``/status`` — it never spawns a subprocess or queries the task per
+# request. If the file grows older than ``WBC_TASK_STALE_MIN``, the monitor itself may
+# have died, and ``/status`` flags that as an alert (503 under ``?strict=1``).
 WBC_TASK_NAME_DEFAULT = 'Integração WBC'
 WBC_TASK_STATE_FILE_DEFAULT = 'state/wbc_task_state.json'
 WBC_TASK_STALE_MIN_DEFAULT = 25
 
-# Windows Update / reboot pendente (``windows_update.py``; plano completo em
-# ``../SAP_RDP/docs/PLANO_WINDOWS_UPDATE.md``). Todos os números vêm de MEDIÇÃO nos dois
-# servidores reais, não de estimativa.
+# Windows Update / pending reboot (``windows_update.py``; full plan in
+# ``../SAP_RDP/docs/PLANO_WINDOWS_UPDATE.md``). Every number here comes from MEASUREMENT
+# on the two real servers, not from an estimate.
 WU_ENABLED_DEFAULT = True
-# A thread dorme isto antes de coletar: dá tempo ao boot (a .11 sobe ~06:12) e a 1ª busca
-# do processo é a cara (30s a frio) — melhor pagá-la sem ninguém esperando.
+# The thread sleeps this long before collecting: it gives boot time to settle (.11 comes
+# up around 06:12) and the process's 1st search is the expensive one (30s cold) — better
+# to pay for it with nobody waiting.
 WU_DELAY_START_S_DEFAULT = 300.0
-# Varredura mais velha que isto => a contagem de pendentes é MENTIRA, vira "não sei". A .12
-# estava com 610,8 dias e mesmo assim devolvia "0 pendentes" em 22,5s, confiante.
+# A scan older than this makes the pending count a LIE, so it becomes "don't know". The
+# .12 was 610.8 days stale and still confidently returned "0 pending" in 22.5s.
 WU_VARREDURA_MAX_D_DEFAULT = 7.0
-# Teto da coleta: medido 3,1s aqui na .11 (22,5s na .12, 30s a frio). 120s dá folga sem pendurar.
+# Collection ceiling: measured 3.1s here on .11 (22.5s on .12, 30s cold). 120s leaves
+# headroom without hanging.
 WU_COLETA_TIMEOUT_S_DEFAULT = 120.0
 
 _BOOL_VERDADEIRO = ('1', 'true', 'yes', 'on', 'sim')
@@ -121,7 +122,7 @@ def _env(*keys: str) -> Optional[str]:
 
 
 def _env_bool(key: str, default: bool) -> bool:
-    """Bool do ambiente; vazio/ausente cai no default."""
+    """Bool from the environment; empty/missing falls back to the default."""
     bruto = os.getenv(key)
     if not bruto or not bruto.strip():
         return default
@@ -129,15 +130,17 @@ def _env_bool(key: str, default: bool) -> bool:
 
 
 def _env_float(key: str, default: float) -> float:
-    """Float do ambiente; lixo cai no DEFAULT em vez de derrubar a API no boot.
+    """Float from the environment; garbage falls back to the DEFAULT instead of taking
+    the API down at boot.
 
-    Diferente do ``int(os.getenv(...))`` usado nos campos antigos — ali um ``.env`` torto
-    levanta ``ValueError`` dentro de ``get_settings()`` e o serviço não sobe.
+    Unlike the ``int(os.getenv(...))`` used by the older fields — there a malformed
+    ``.env`` raises ``ValueError`` inside ``get_settings()`` and the service never starts.
 
-    E não é só robustez: ``WU_VARREDURA_MAX_D`` é **interpolado no script PowerShell** da
-    coleta (``windows_update._PS_COLETA``), e é esta função que garante que só um literal
-    numérico chegue lá. Trocá-la por leitura crua abriria injeção de PowerShell pelo
-    ``.env`` — há teste cravando isso (``test_limite_malicioso_no_env_nao_injeta_powershell``).
+    This is not just robustness: ``WU_VARREDURA_MAX_D`` is **interpolated into the
+    PowerShell collection script** (``windows_update._PS_COLETA``), and this function is
+    what guarantees only a numeric literal reaches it. Replacing it with a raw read would
+    open PowerShell injection via ``.env`` — a test pins this
+    (``test_limite_malicioso_no_env_nao_injeta_powershell``).
     """
     bruto = os.getenv(key)
     if not bruto or not bruto.strip():
@@ -176,7 +179,7 @@ class Settings:
     sql_driver: Optional[str]
     sql_enrichment_view: str
 
-    # Ordens de Serviço (view consolidada VW_OS_INTEGRACAO)
+    # Ordens de Serviço (consolidated view VW_OS_INTEGRACAO)
     os_sap_view_name: str
     os_table_name: str
     os_sync_log_table: str
@@ -186,17 +189,17 @@ class Settings:
     os_api_host: str
     os_api_port: int
 
-    # Monitor da tarefa agendada "Integração WBC" (Task Scheduler do Windows;
-    # NÃO confundir com a árvore WBC, que agora vem dentro de VW_OS_INTEGRACAO)
+    # Monitor for the "Integração WBC" scheduled task (Windows Task Scheduler;
+    # do NOT confuse with the WBC tree, which now comes inside VW_OS_INTEGRACAO)
     wbc_task_name: str
     wbc_task_state_file: str
     wbc_task_stale_min: int
 
-    # Windows Update (coleta cara, em background — ver windows_update.py)
-    wu_enabled: bool           # WU_ENABLED — desliga a thread de coleta
-    wu_delay_start_s: float    # WU_DELAY_START_S — espera da thread após o start da API
-    wu_varredura_max_d: float  # WU_VARREDURA_MAX_D — idade máx. da varredura p/ publicar a contagem
-    wu_coleta_timeout_s: float  # WU_COLETA_TIMEOUT_S — teto do powershell da coleta
+    # Windows Update (expensive collection, in the background — see windows_update.py)
+    wu_enabled: bool           # WU_ENABLED — turns the collection thread off
+    wu_delay_start_s: float    # WU_DELAY_START_S — thread wait after the API starts
+    wu_varredura_max_d: float  # WU_VARREDURA_MAX_D — max scan age for publishing the count
+    wu_coleta_timeout_s: float  # WU_COLETA_TIMEOUT_S — ceiling for the collection powershell
 
     intervalo_minutos: int
     janela_horas: str

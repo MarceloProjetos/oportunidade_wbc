@@ -36,13 +36,13 @@ def _with_retries(
     what: str = 'operation',
     retry_on: Optional[Callable[[Exception], bool]] = None,
 ) -> Any:
-    """Retry com backoff — ver ``retry.with_retries``.
+    """Retry with backoff — see ``retry.with_retries``.
 
-    Wrapper fino com os defaults do projeto. Era uma cópia byte-a-byte da função de
-    ``pipeline_core``: mexer na política de retry exigia lembrar dos dois lugares, e este
-    era o esquecido. A implementação foi para ``retry.py`` (sem dependências) em vez de
-    importar ``pipeline_core``, que arrastaria ``supabase``/``numpy`` (~1,2 s) para o
-    agendador, que não usa nada disso.
+    Thin wrapper carrying the project defaults. This used to be a byte-identical copy of
+    the ``pipeline_core`` function: changing the retry policy meant remembering both
+    places, and this was the forgotten one. The implementation moved to ``retry.py``
+    (dependency-free) rather than importing ``pipeline_core``, which would drag
+    ``supabase``/``numpy`` (~1.2s) into the scheduler, which uses none of it.
     """
     return with_retries(
         operation, attempts=attempts, base_delay=base_delay, what=what, retry_on=retry_on,

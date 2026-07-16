@@ -1,13 +1,13 @@
-"""Retry com backoff exponencial — genérico, SEM dependências pesadas.
+"""Exponential-backoff retry — generic, with NO heavy dependencies.
 
-Vive num módulo próprio (e não em ``pipeline_core``) de propósito: ``sap_connection``
-precisa de retry mas não do Supabase, e ``pipeline_core`` arrasta ``supabase``/``numpy``
-(~1,2 s de import). Um módulo enxuto deixa os dois usarem a MESMA política sem que o
-agendador pague por um import que não usa.
+Deliberately its own module instead of living in ``pipeline_core``: ``sap_connection``
+needs retry but not Supabase, and importing ``pipeline_core`` drags in
+``supabase``/``numpy`` (~1.2s). A lean module lets both share the SAME policy without
+making the scheduler pay for an import it never uses.
 
-Antes havia duas cópias byte-a-byte desta função (``pipeline_core.with_retries`` e
-``sap_connection._with_retries``), o que significava lembrar dos dois lugares ao mexer na
-política de retry — e o do SAP era o que ninguém lembrava.
+This function used to exist as two byte-identical copies (``pipeline_core.with_retries``
+and ``sap_connection._with_retries``), so changing the retry policy meant remembering
+both places — and the SAP one was the copy everyone forgot.
 """
 
 from __future__ import annotations
@@ -27,23 +27,23 @@ def with_retries(
     what: str = 'operation',
     retry_on: Optional[Callable[[Exception], bool]] = None,
 ) -> Any:
-    """Executa ``operation`` com backoff exponencial (``base_delay * 2**n``).
+    """Run ``operation`` with exponential backoff (``base_delay * 2**n``).
 
     Args:
-        operation: chamável sem argumentos; seu retorno é devolvido.
-        attempts: número máximo de tentativas.
-        base_delay: espera após a 1ª falha (dobra a cada tentativa).
-        what: rótulo para o log.
-        retry_on: recebe a exceção e devolve ``True`` p/ retentar. ``None`` = retenta
-            tudo. Use para NÃO insistir em erro determinístico (ex.: PGRST204 de schema,
-            erro de tenant do SAP) — retentar só atrasa e afoga a mensagem real.
+        operation: zero-argument callable; its return value is passed through.
+        attempts: maximum number of tries.
+        base_delay: wait after the 1st failure (doubles on each retry).
+        what: label for the log.
+        retry_on: receives the exception, returns ``True`` to retry. ``None`` = retry
+            everything. Use it to NOT hammer a deterministic error (e.g. PGRST204 schema
+            mismatch, SAP tenant error) — retrying only stalls and buries the real message.
 
     Returns:
-        O retorno de ``operation``.
+        Whatever ``operation`` returns.
 
     Raises:
-        A última exceção, se todas as tentativas falharem (ou na 1ª, se ``retry_on``
-        disser que não é para retentar).
+        The last exception, if every attempt fails (or the 1st one, if ``retry_on``
+        says not to retry).
     """
     last_exc: Optional[Exception] = None
     for attempt in range(1, attempts + 1):
