@@ -3,6 +3,42 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-16] — Windows Update não alerta mais: é informação, não saúde do sistema
+
+Ajuste logo após o deploy da F2 (abaixo). **O bloco `windows_update` não gera mais alerta
+nenhum** — nem reboot pendente, nem update pendente.
+
+Decisão do Marcelo: *"tem que ser simples e não travar o sistema; se um dia der errado não
+importa; se um dia o servidor não reiniciar não importa"*. Isto reverte a D1 do plano. O
+raciocínio é direto: alerta derruba `healthy` e faz o `?strict=1` responder **503** — era o
+**único** ponto em que este módulo mexia no comportamento de quem monitora a integração do SAP.
+Monitoramento de patch é informação útil; não é motivo para declarar a integração degradada.
+
+**Os dados continuam todos publicados** (`/status?checks=windows_update` e a tool MCP
+`estado_windows_update`): reboot pendente, updates pendentes, último patch, dias sem patch.
+Eles só não acendem alarme sozinhos. Quem quiser saber, pergunta.
+
+A medição colhida no deploy já apontava para cá: o reboot pendente desta máquina vem **só** do
+`PendingFileRenameOperations` (CBS e WindowsUpdate estão limpos) — o mais barulhento dos 3
+sinais — e cresceu **32 → 48 → 64 no mesmo dia**, com a máquina reiniciando toda manhã às
+06:12. O alerta ficaria aceso quase todo dia: exatamente o alarme crônico que a D1 original
+queria evitar para os updates, só que no outro campo. A decisão do Marcelo mata isso na raiz e
+mais simples — sem alerta nenhum.
+
+### Alterado
+
+- `monitoring.py`: removida a função `_windows_update_alerts` e sua chamada em `collect_status`.
+- Testes: `test_windows_update_nunca_gera_alerta` substitui os 3 anteriores e crava o pior caso
+  (reboot pendente + 47 updates + 90 dias sem patch → `healthy: True`, `alerts: []`, dado
+  publicado). **271 testes, lint 0.**
+
+### Validação da F2 em produção (deploy feito)
+
+Ponta a ponta na .11: logo após subir, `estado: "coletando"` + `pendentes: null` — o aceite
+contraintuitivo, **não `0`**. Aos 300 s a thread acordou, coletou em 4,9 s e publicou
+`pendentes: 3`, `ultimo_patch 2026-06-30 (KB5094147)`, `dias_sem_patch 16` — **exatamente os
+números que a F0 mediu à mão**, por um caminho de código completamente diferente.
+
 ## [2026-07-16] — Windows Update e reboot pendente no `/status` (F2 do PLANO_WINDOWS_UPDATE)
 
 Fase F2 do plano que vive em `../SAP_RDP/docs/PLANO_WINDOWS_UPDATE.md` (a F1 fez o mesmo na

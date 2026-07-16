@@ -76,14 +76,16 @@ importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não impor
   `LastInstallationSuccessDate` parece um `Get-HotFix` barato mas inclui **ruído do Defender**
   (divergiu nas duas máquinas) — não trocar. **`windows_update.py` é PORTE do módulo homônimo do
   repo SAP_RDP: mantenha os dois diffáveis** (bug corrigido aqui vai para lá, e vice-versa).
-- **Decisão D1: só REBOOT pendente vira alerta**, update pendente não. Alerta derruba `healthy` →
-  `?strict=1` responde 503 → a Mira diz "⚠️ atenção". Esta máquina tem `AUOptions=4` (instala
-  sozinha, e **é isso que a mantém em dia** — não "corrija" para 2, foi o que matou a .12):
-  update pendente é rotina e viraria alerta permanente, que ninguém lê.
+- **O bloco `windows_update` NUNCA gera alerta** — nem reboot pendente, nem update pendente.
+  É **informação, não saúde do sistema** (decisão do Marcelo em 2026-07-16, revisando a D1 do
+  plano: *"se um dia o servidor não reiniciar não importa"*). Alerta derruba `healthy` e faz o
+  `?strict=1` responder **503**: era o único ponto em que este módulo mexeria no comportamento
+  de quem monitora a integração, e ele fica fechado. **Não reintroduza** — há teste cravando
+  (`test_windows_update_nunca_gera_alerta`). Esta máquina tem `AUOptions=4` (instala sozinha, e
+  **é isso que a mantém em dia** — não "corrija" para 2, foi o que matou a .12).
 - **Testes: NUNCA deixe a suíte ler o winreg real.** `_stub_all_ok` (tests/test_monitoring.py)
-  stuba `_windows_update_signal` de propósito: **esta máquina TEM reboot pendente**, e sem o stub
-  os testes que exigem `alerts == []` quebram por um fato do ambiente. Pior, a "correção" óbvia
-  (apagar o alerta) deixaria a suíte verde **violando a D1** — a suíte premiaria quebrar a regra.
+  stuba `_windows_update_signal` de propósito: **esta máquina TEM reboot pendente**, e sem o
+  stub os testes passam a depender de um fato do ambiente, não do código.
 - Scripts `.ps1` são ASCII **de propósito** (PowerShell 5.1/BOM). Não adicionar acentos. O
   PowerShell escreve o stdout em **cp850**, não UTF-8 (medido) — quem lê saída de PS force
   `[Console]::OutputEncoding` na 1ª linha do script, senão "Atualização" chega "Atualiza??o".

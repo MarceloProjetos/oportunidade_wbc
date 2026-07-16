@@ -180,51 +180,29 @@ def test_collect_status_inclui_windows_update(monkeypatch):
     assert data['alerts'] == []
 
 
-def test_alert_reboot_pendente(monkeypatch):
-    """D1: reboot pendente é o ÚNICO sinal de Windows Update que vira alerta.
+def test_windows_update_nunca_gera_alerta(monkeypatch):
+    """Windows Update é INFORMAÇÃO, não saúde do sistema (Marcelo, 2026-07-16).
 
-    Se alguém apagar o alerta para "consertar" um teste que quebrou numa máquina com
-    reboot pendente, é ESTE teste que estoura e explica o porquê.
+    Reverte a D1 original (que fazia reboot pendente virar alerta). Motivo: "se um dia o
+    servidor não reiniciar não importa" — o monitor não pode dizer que a integração do SAP
+    está ruim por causa de um reboot pendente. Nem o pior caso acende alarme: reboot
+    pendente + 47 updates + 90 dias sem patch, e `healthy` continua True.
+
+    Este é o único ponto em que o Windows Update tocaria o comportamento de quem monitora
+    (alerta derruba `healthy` e faz o ?strict=1 responder 503). Ele fica fechado.
     """
     _stub_all_ok(monkeypatch)
     monkeypatch.setattr(monitoring, '_windows_update_signal',
-                        lambda: {**_wu_ok(),
+                        lambda: {**_wu_ok(), 'pendentes': 47, 'dias_sem_patch': 90,
                                  'reboot_pendente': {'pendente': True,
                                                      'motivos': ['PendingFileRenameOperations(32)'],
                                                      'erro': None}})
     data = monitoring.collect_status()
-    assert data['ok'] is True            # conexões ok
-    assert data['healthy'] is False      # mas há alerta -> ?strict=1 responde 503
-    assert any('reboot pendente' in a for a in data['alerts'])
-    assert any('PendingFileRenameOperations(32)' in a for a in data['alerts'])
-
-
-def test_update_pendente_nao_vira_alerta(monkeypatch):
-    """D1, o outro lado: 47 updates pendentes NÃO derrubam `healthy`.
-
-    Esta máquina se atualiza sozinha (AUOptions=4): alerta de update seria permanente, e
-    alerta que vive ligado treina todo mundo a ignorar o monitor.
-    """
-    _stub_all_ok(monkeypatch)
-    monkeypatch.setattr(monitoring, '_windows_update_signal',
-                        lambda: {**_wu_ok(), 'pendentes': 47, 'dias_sem_patch': 90})
-    data = monitoring.collect_status()
-    assert data['healthy'] is True
-    assert data['alerts'] == []
-
-
-def test_reboot_desconhecido_nao_vira_alerta_nem_negativa(monkeypatch):
-    """Tri-estado: `None` = não sei. Não alerta (não há fato), mas o erro fica à vista —
-    e em nenhum momento vira "sem reboot pendente"."""
-    _stub_all_ok(monkeypatch)
-    monkeypatch.setattr(monitoring, '_windows_update_signal',
-                        lambda: {**_wu_ok(),
-                                 'reboot_pendente': {'pendente': None, 'motivos': [],
-                                                     'erro': 'acesso negado'}})
-    data = monitoring.collect_status()
-    assert data['alerts'] == []
-    assert data['windows_update']['reboot_pendente']['pendente'] is None
-    assert data['windows_update']['reboot_pendente']['erro'] == 'acesso negado'
+    assert data['alerts'] == [], 'Windows Update não pode gerar alerta'
+    assert data['healthy'] is True, 'reboot/update pendente não pode degradar a integração'
+    # mas o dado continua publicado, para quem perguntar
+    assert data['windows_update']['reboot_pendente']['pendente'] is True
+    assert data['windows_update']['pendentes'] == 47
 
 
 def test_windows_update_signal_junta_reboot_e_updates(monkeypatch):

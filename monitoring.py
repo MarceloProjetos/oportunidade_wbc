@@ -316,24 +316,6 @@ def _windows_update_signal() -> Dict[str, Any]:
         }
 
 
-def _windows_update_alerts(wu: Dict[str, Any]) -> list:
-    """Decisão D1 do PLANO_WINDOWS_UPDATE (Marcelo, 2026-07-16): **só reboot vira alerta**.
-
-    Alerta derruba ``healthy`` → ``?strict=1`` responde 503 e a Mira diz "⚠️ atenção".
-    Update pendente é ROTINA (esta máquina tem ``AUOptions=4`` e se atualiza sozinha):
-    viraria "atenção" permanente, e alerta que vive ligado para de ser lido. Reboot
-    pendente é raro e acionável — e esta máquina roda a integração do SAP.
-
-    ``pendente`` é tri-estado: só ``True`` alerta. ``None`` = não deu para ler — não vira
-    alerta, mas também não vira "sem reboot pendente" (o campo ``erro`` fica à vista).
-    """
-    reboot = wu.get('reboot_pendente') or {}
-    if reboot.get('pendente') is not True:
-        return []
-    motivos = ', '.join(reboot.get('motivos') or []) or 'motivo não identificado'
-    return [f'reboot pendente ({motivos}) — a integração do SAP roda nesta máquina']
-
-
 def _local_ip() -> Optional[str]:
     """IP local de saída (sem enviar pacote — só resolve a rota). Fallback p/ hostname."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -446,8 +428,11 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
         )
     if scheduled_task is not None:
         alerts.extend(_scheduled_task_alerts(scheduled_task))
-    if wu_estado is not None:
-        alerts.extend(_windows_update_alerts(wu_estado))
+    # O bloco windows_update NÃO gera alerta — nem reboot pendente, nem update pendente.
+    # Decisão do Marcelo (2026-07-16, revisando a D1 do plano): isto é INFORMAÇÃO, não
+    # saúde do sistema. "Se um dia o servidor não reiniciar não importa" — o que não pode
+    # é o monitor dizer que a integração está ruim por causa disso (alerta derruba
+    # `healthy` e faz o ?strict=1 responder 503). Quem quiser o dado, pede e lê.
     if system.get('disk_low'):
         alerts.append(
             f"disco baixo: {system.get('disk_free_gb')} GB livres ({system.get('disk_percent')}% usado)"
