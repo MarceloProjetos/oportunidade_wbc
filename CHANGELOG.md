@@ -3,6 +3,27 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-16] — Comentários dos pipelines traduzidos para inglês técnico (onda 2/5)
+
+Segunda onda: `pipeline_core.py`, `extract_sap_to_supabase.py` e
+`extract_ordens_servico_engenharia.py`.
+
+Mesma garantia da onda 1 — AST sem docstrings idêntico nos três, `ruff` limpo, 271 testes
+passando — e uma varredura extra por comentário em PT que tivesse escapado (os 9 hits
+eram falsos positivos: palavras inglesas colidindo com tokens PT, como `# pragma: no
+cover` e `what to do`).
+
+Aqui estava a maior parte do conhecimento caro do repositório: os comentários que
+explicam *por que* o código é assim. Foram preservados na íntegra, não resumidos —
+o `neq` que não pega `NULL`, a janela entre insert e poda que some com o pedido, o
+naive datetime que vira UTC no `timestamptz`, a guarda de schema do PGRST204.
+
+### Alterado
+
+- `pipeline_core.py`, `extract_sap_to_supabase.py`,
+  `extract_ordens_servico_engenharia.py`: comentários e docstrings traduzidos para
+  inglês técnico.
+
 ## [2026-07-16] — Comentários do núcleo traduzidos para inglês técnico (onda 1/5)
 
 Primeira onda da tradução dos comentários do repositório para inglês técnico:

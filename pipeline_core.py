@@ -1,12 +1,12 @@
-"""Núcleo de pipeline compartilhado (genérico, sem domínio).
+"""Shared pipeline core (generic, domain-free).
 
-Funções/Classes reutilizáveis por qualquer ETL "view SAP → tabela Supabase":
-retry com backoff, validação de identificadores SQL, montagem de FROM, o loader
-do Supabase (insert em lotes, poda por execução, log de sincronização) e o
-preparo do DataFrame para inserção (campos de controle + serialização JSON).
+Functions/classes reusable by any "SAP view → Supabase table" ETL: retry with
+backoff, SQL identifier validation, FROM-clause building, the Supabase loader
+(batched insert, prune-by-execution, sync log) and DataFrame preparation for
+insertion (control fields + JSON serialization).
 
-Originalmente parte de ``extract_sap_to_supabase.py``; extraído para que tanto o
-pipeline de ``oportunidades`` quanto o de ``ordens_servico_engenharia`` o usem.
+Originally part of ``extract_sap_to_supabase.py``; extracted so that both the
+``oportunidades`` and the ``ordens_servico_engenharia`` pipelines can use it.
 """
 
 from __future__ import annotations
@@ -36,16 +36,16 @@ from retry import with_retries as _with_retries
 
 logger = logging.getLogger(__name__)
 
-# Lock de arquivo (cross-process) p/ serializar a carga de oportunidades entre o
-# agendador (run_scheduler.bat) e o "forçar sincronismo" da API (run_api.bat).
+# Cross-process file lock serializing the oportunidades load between the scheduler
+# (run_scheduler.bat) and the API's "force sync" (run_api.bat).
 try:
     from filelock import FileLock
     from filelock import Timeout as FileLockTimeout
-except ImportError:  # pragma: no cover - filelock é dependência de produção
+except ImportError:  # pragma: no cover - filelock is a production dependency
     FileLock = None  # type: ignore[assignment]
 
     class FileLockTimeout(Exception):  # type: ignore[no-redef]
-        """Fallback quando 'filelock' não está instalado."""
+        """Fallback for when 'filelock' is not installed."""
 
 _LOCK_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.locks')
 _OPORTUNIDADES_LOCK_PATH = os.path.join(_LOCK_DIR, 'oportunidades_sync.lock')
@@ -53,18 +53,18 @@ _OPORTUNIDADES_LOCK_PATH = os.path.join(_LOCK_DIR, 'oportunidades_sync.lock')
 
 @contextmanager
 def oportunidades_sync_lock(timeout: float = 0):
-    """Lock de arquivo (cross-process) para a carga de oportunidades.
+    """Cross-process file lock for the oportunidades load.
 
-    Compartilhado entre o agendador e o "forçar sincronismo" da API, evitando duas
-    cargas snapshot simultâneas (uma poderia podar as linhas da outra).
+    Shared between the scheduler and the API's "force sync", preventing two concurrent
+    snapshot loads (one could prune the other's rows).
 
     Args:
-        timeout: segundos a esperar pelo lock. ``0`` = não espera — levanta
-            ``FileLockTimeout`` se já houver carga em andamento.
+        timeout: seconds to wait for the lock. ``0`` = do not wait — raises
+            ``FileLockTimeout`` if a load is already running.
 
     Note:
-        Se ``filelock`` não estiver instalado, vira **no-op** (sem proteção
-        cross-process) — instale com ``pip install filelock``.
+        Without ``filelock`` installed this becomes a **no-op** (no cross-process
+        protection) — install it with ``pip install filelock``.
     """
     if FileLock is None:
         logger.warning("filelock não instalado — carga de oportunidades SEM lock cross-process")
@@ -77,32 +77,33 @@ def oportunidades_sync_lock(timeout: float = 0):
 
 @contextmanager
 def os_sync_lock(nped: object, timeout: float = 0):
-    """Lock de arquivo (cross-process) para a sync de OS de **um pedido**.
+    """Cross-process file lock for the OS sync of **a single pedido**.
 
-    O ``_sync_lock`` da ``api.py`` é ``threading.Lock`` — serializa as threads do waitress
-    e mais nada. Mas o pipeline também tem CLI
-    (``python extract_ordens_servico_engenharia.py 84080``), então dois PROCESSOS podiam
-    gravar o mesmo pedido ao mesmo tempo, com resultado destrutivo::
+    The ``_sync_lock`` in ``api.py`` is a ``threading.Lock`` — it serializes waitress
+    threads and nothing else. But the pipeline also has a CLI
+    (``python extract_ordens_servico_engenharia.py 84080``), so two PROCESSES could write
+    the same pedido at once, with a destructive result::
 
-        A insere (exec_A)          B insere (exec_B)
-        A poda tudo != exec_A  ->  apaga as linhas de B
-        B poda tudo != exec_B  ->  apaga as linhas de A
-        => o pedido SOME da tabela — e ambos logam 'sucesso'
+        A inserts (exec_A)            B inserts (exec_B)
+        A prunes all != exec_A   ->   deletes B's rows
+        B prunes all != exec_B   ->   deletes A's rows
+        => the pedido VANISHES from the table — and both log 'sucesso'
 
-    Isso viola o invariante que o carrega-depois-poda promete ("o pedido nunca fica
-    vazio"): o par insert+poda não é atômico. O lock fecha a janela entre processos.
+    That breaks the invariant load-then-prune promises ("a pedido is never empty"): the
+    insert+prune pair is not atomic. The lock closes the window between processes.
 
-    **Por pedido, não global**, de propósito: o invariante é *um escritor por N_PED*. Um
-    lock único bloquearia pedidos diferentes sem motivo e mentiria sobre o que protege.
-    Os arquivos ficam em ``.locks/`` (gitignorado) e são vazios.
+    **Per pedido, not global**, on purpose: the invariant is *one writer per N_PED*. A
+    single lock would block unrelated pedidos for no reason and would misrepresent what
+    it protects. The files live in ``.locks/`` (gitignored) and are empty.
 
     Args:
-        nped: pedido a travar (compõe o nome do arquivo; validado como inteiro).
-        timeout: segundos a esperar. ``0`` = não espera — levanta ``FileLockTimeout``
-            se outro processo já estiver sincronizando **este** pedido.
+        nped: pedido to lock (forms the file name; validated as an integer).
+        timeout: seconds to wait. ``0`` = do not wait — raises ``FileLockTimeout`` if
+            another process is already syncing **this** pedido.
 
     Note:
-        Sem ``filelock`` instalado vira **no-op** (mesmo contrato do lock de oportunidades).
+        Without ``filelock`` installed this becomes a **no-op** (same contract as the
+        oportunidades lock).
     """
     nped_int = coerce_positive_int(nped, what='NPED')
     if FileLock is None:
@@ -122,76 +123,76 @@ def with_retries(
     what: str = "operation",
     retry_on: Optional[Callable[[Exception], bool]] = None,
 ) -> Any:
-    """Retry com backoff — ver ``retry.with_retries``.
+    """Retry with backoff — see ``retry.with_retries``.
 
-    Wrapper fino que só aplica os defaults do projeto (``RETRY_ATTEMPTS`` /
-    ``RETRY_BASE_DELAY_S``). A implementação mora em ``retry.py``, sem dependências, para
-    ``sap_connection`` reusá-la sem arrastar o ``supabase``.
+    Thin wrapper that only applies the project defaults (``RETRY_ATTEMPTS`` /
+    ``RETRY_BASE_DELAY_S``). The implementation lives in ``retry.py``, dependency-free, so
+    ``sap_connection`` can reuse it without dragging in ``supabase``.
     """
     return _with_retries(
         operation, attempts=attempts, base_delay=base_delay, what=what, retry_on=retry_on,
     )
 
 
-# ── Guarda de schema: origem (view) × destino (tabela) ────────────────────────────
-# O espelho é ``SELECT *`` e o PostgREST casa a coluna por NOME. Coluna que existe na
-# view e NÃO existe na tabela derruba o INSERT INTEIRO com PGRST204 ("Could not find
-# the 'X' column of 'Y' in the schema cache").
+# ── Schema guard: source (view) × target (table) ──────────────────────────────────
+# The mirror is a ``SELECT *`` and PostgREST matches columns by NAME. A column that
+# exists in the view but NOT in the table takes down the WHOLE INSERT with PGRST204
+# ("Could not find the 'X' column of 'Y' in the schema cache").
 #
-# Aconteceu 3x em 2 dias (bloco de filial da solda 10/07; flags de processo e
-# U_INO_ORCITM 15/07) e cada vez custou dezenas de minutos, porque o erro:
-#   * nomeia só a PRIMEIRA coluna faltante (some uma, aparece a próxima);
-#   * vinha afogado em 3 retries com backoff — e retentar erro de SCHEMA é inútil,
-#     ele é determinístico;
-#   * não dizia o que fazer.
-# A guarda abaixo checa ANTES de inserir e loga o ALTER pronto para colar.
+# This happened 3x in 2 days (welding branch block on 07-10; process flags and
+# U_INO_ORCITM on 07-15) and each time cost tens of minutes, because the error:
+#   * names only the FIRST missing column (fix one, the next appears);
+#   * arrived buried under 3 backoff retries — and retrying a SCHEMA error is
+#     pointless, it is deterministic;
+#   * did not say what to do.
+# The guard below checks BEFORE inserting and logs a ready-to-paste ALTER.
 _PGRST_SCHEMA_CODES = ('PGRST204', 'PGRST205')
 _ISO_DT_RE = re.compile(r'^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}')
 
 
 def agora_iso() -> str:
-    """Instante atual em ISO-8601 **com offset** (ex.: ``2026-07-15T16:43:30-03:00``).
+    """Current instant in ISO-8601 **with offset** (e.g. ``2026-07-15T16:43:30-03:00``).
 
-    Use SEMPRE isto no lugar de ``datetime.now().isoformat()`` para gravar horário no
-    Supabase. Motivo (medido em 2026-07-15): o naive ``'16:43:30'`` numa coluna
-    ``timestamptz`` é interpretado como **UTC** pelo Postgres e vira ``16:43:30+00`` —
-    3h no passado, silenciosamente. Era o caso do ``data_hora_sincronizacao``, e todo o
-    painel "Últimas sincronizações" mostrava a hora errada.
+    ALWAYS use this instead of ``datetime.now().isoformat()`` when writing a timestamp to
+    Supabase. Reason (measured 2026-07-15): a naive ``'16:43:30'`` in a ``timestamptz``
+    column is read as **UTC** by Postgres and becomes ``16:43:30+00`` — silently 3h in the
+    past. That was happening to ``data_hora_sincronizacao``, and the whole "Últimas
+    sincronizações" panel showed the wrong time.
 
-    Com o offset, o instante grava certo no ``timestamptz`` e **nada muda** nas colunas
-    ``timestamp without time zone`` (ex.: ``data_hora_extracao``): o Postgres descarta o
-    offset e guarda a hora de parede, exatamente como antes. Por isso dá para usar a
-    mesma função nos dois casos.
+    With the offset, the instant is stored correctly in ``timestamptz`` and **nothing
+    changes** for ``timestamp without time zone`` columns (e.g. ``data_hora_extracao``):
+    Postgres drops the offset and keeps the wall-clock time, exactly as before. That is
+    why the same function works for both cases.
     """
     return datetime.now().astimezone().isoformat()
 
 
 def e_erro_de_schema(exc: object) -> bool:
-    """True se o erro é de SCHEMA do PostgREST (coluna/tabela fora do cache).
+    """True if the error is a PostgREST SCHEMA error (column/table missing from cache).
 
-    Determinístico: retentar não resolve, só atrasa e esconde a mensagem.
+    Deterministic: retrying does not fix it, it only stalls and hides the message.
     """
     texto = str(exc)
     return any(codigo in texto for codigo in _PGRST_SCHEMA_CODES)
 
 
 def _retry_se_transitorio(exc: Exception) -> bool:
-    """``retry_on`` do ``with_retries``: repete tudo, menos erro de schema."""
+    """``retry_on`` for ``with_retries``: retry everything except schema errors."""
     return not e_erro_de_schema(exc)
 
 
 def _tipo_pg_sugerido(data: List[Dict[str, Any]], coluna: str) -> str:
-    """Tipo Postgres sugerido p/ o ALTER, inferido do 1º valor não-nulo da coluna.
+    """Suggested Postgres type for the ALTER, inferred from the column's 1st non-null value.
 
-    É uma SUGESTÃO para o humano colar/conferir — não uma verdade sobre o HANA.
-    ``prepare_data`` já normalizou os tipos (numpy→int/float, datas→isoformat).
-    Só nulos ⇒ ``text``, que aceita qualquer coisa.
+    It is a SUGGESTION for a human to paste/review — not a truth about HANA.
+    ``prepare_data`` has already normalized the types (numpy→int/float, dates→isoformat).
+    All nulls ⇒ ``text``, which accepts anything.
     """
     for registro in data:
         valor = registro.get(coluna)
         if valor is None:
             continue
-        if isinstance(valor, bool):      # antes de int: bool é subclasse de int
+        if isinstance(valor, bool):      # before int: bool is a subclass of int
             return 'boolean'
         if isinstance(valor, int):
             return 'integer'
@@ -204,10 +205,10 @@ def _tipo_pg_sugerido(data: List[Dict[str, Any]], coluna: str) -> str:
 
 
 def alter_sugerido(table_name: str, faltando: List[str], data: List[Dict[str, Any]]) -> str:
-    """Monta o ``ALTER TABLE`` que alinha a tabela à origem, pronto para colar.
+    """Build the ready-to-paste ``ALTER TABLE`` that aligns the table with the source.
 
-    Nomes entre aspas preservam o case byte-exato exigido pelo PostgREST, e o
-    ``notify pgrst`` no fim evita que o insert seguinte falhe com o cache velho.
+    Quoted names preserve the byte-exact case PostgREST requires, and the trailing
+    ``notify pgrst`` keeps the next insert from failing against a stale cache.
     """
     adds = ',\n'.join(
         f'  add column if not exists "{col}" {_tipo_pg_sugerido(data, col)}'
@@ -243,19 +244,20 @@ def build_view_query(view_name: str, schema: Optional[str] = None) -> str:
     return view_name
 
 
-# Inteiro positivo (só dígitos) — usado p/ validar chaves numéricas (ex.: NPED)
-# antes de interpolá-las numa query. Rejeita sinais, decimais e espaços internos.
+# Positive integer (digits only) — used to validate numeric keys (e.g. NPED) before
+# interpolating them into a query. Rejects signs, decimals and inner whitespace.
 _POSITIVE_INT_RE = re.compile(r'^\d+$')
 
 
 def coerce_positive_int(value: Any, *, what: str = "valor") -> int:
-    """Valida e normaliza ``value`` como inteiro **positivo** (defesa contra injeção).
+    """Validate and normalize ``value`` as a **positive** integer (injection defense).
 
-    Aceita ``int`` ou string numérica (com espaços nas pontas). Rejeita não-dígitos,
-    negativos e zero — garantindo um identificador seguro para interpolar em SQL.
+    Accepts an ``int`` or a numeric string (surrounding whitespace allowed). Rejects
+    non-digits, negatives and zero — guaranteeing an identifier that is safe to
+    interpolate into SQL.
 
     Raises:
-        ValueError: se ``value`` não for um inteiro positivo.
+        ValueError: if ``value`` is not a positive integer.
     """
     s = str(value).strip()
     if not _POSITIVE_INT_RE.match(s):
@@ -310,13 +312,13 @@ class SupabaseLoader:
             return None
 
     def colunas_da_tabela(self, table_name: str) -> Optional[Set[str]]:
-        """Colunas da tabela no Supabase, ou ``None`` se não der para determinar.
+        """Table columns in Supabase, or ``None`` if they cannot be determined.
 
-        O PostgREST não expõe o schema numa chamada simples, então inferimos das
-        CHAVES de 1 linha real. Limitação assumida: **tabela vazia devolve ``None``**
-        (sem linha, sem chaves) — nesse caso a guarda de schema é pulada e o
-        PGRST204 do próprio insert volta a ser o diagnóstico. Preferimos o ponto
-        cego explícito a uma falsa sensação de checagem.
+        PostgREST does not expose the schema through a simple call, so we infer it from
+        the KEYS of 1 real row. Accepted limitation: **an empty table returns ``None``**
+        (no row, no keys) — in that case the schema guard is skipped and the insert's own
+        PGRST204 becomes the diagnosis again. An explicit blind spot beats a false sense
+        of checking.
         """
         try:
             res = self.client.table(table_name).select('*').limit(1).execute()
@@ -327,11 +329,11 @@ class SupabaseLoader:
         return set(linhas[0].keys()) if linhas else None
 
     def colunas_faltantes(self, table_name: str, data: List[Dict[str, Any]]) -> List[str]:
-        """Colunas dos registros que a tabela NÃO tem — a causa do PGRST204.
+        """Record columns the table does NOT have — the cause of PGRST204.
 
         Returns:
-            Lista (na ordem da origem) das colunas ausentes; ``[]`` se está tudo
-            certo **ou** se não deu para determinar (ver ``colunas_da_tabela``).
+            List (in source order) of the missing columns; ``[]`` if everything lines up
+            **or** if it could not be determined (see ``colunas_da_tabela``).
         """
         if not data:
             return []
@@ -343,26 +345,26 @@ class SupabaseLoader:
     def insert_data(
         self, table_name: str, data: List[Dict[str, Any]], batch_size: int = INSERT_BATCH_SIZE
     ) -> bool:
-        """Insere dados na tabela do Supabase, em lotes (batches).
+        """Insert data into the Supabase table, in batches.
 
-        Inserir em lotes evita estourar o limite de payload do PostgREST e dá mais
-        resiliência: cada lote tem seu próprio retry.
+        Batching avoids blowing the PostgREST payload limit and adds resilience: each
+        batch gets its own retry.
 
         Args:
-            table_name: Nome da tabela.
-            data: Lista de dicionários com os dados.
-            batch_size: Tamanho de cada lote.
+            table_name: Table name.
+            data: List of dictionaries holding the data.
+            batch_size: Size of each batch.
 
         Returns:
-            ``True`` se todos os lotes foram inseridos; ``False`` caso contrário.
+            ``True`` if every batch was inserted; ``False`` otherwise.
         """
         total = len(data)
         if total == 0:
             logger.warning("Nenhum registro para inserir.")
             return True
 
-        # Guarda de schema: falha ANTES de inserir, dizendo o que fazer (ver
-        # `colunas_faltantes`). Sem ela, o PGRST204 custa 3 retries e um erro genérico.
+        # Schema guard: fail BEFORE inserting, saying what to do (see
+        # `colunas_faltantes`). Without it, PGRST204 costs 3 retries and a generic error.
         faltando = self.colunas_faltantes(table_name, data)
         if faltando:
             logger.error(
@@ -381,7 +383,7 @@ class SupabaseLoader:
                 with_retries(
                     lambda l=lote: self.client.table(table_name).insert(l).execute(),
                     what=f"insert lote {num_lote} ('{table_name}')",
-                    retry_on=_retry_se_transitorio,  # erro de schema falha de primeira
+                    retry_on=_retry_se_transitorio,  # schema errors fail on the 1st try
                 )
                 logger.info(
                     f"Lote {num_lote}: {len(lote)} registro(s) inseridos "
@@ -395,17 +397,18 @@ class SupabaseLoader:
             return False
 
     def _reverter_parcial(self, table_name: str, data: List[Dict[str, Any]]) -> None:
-        """Remove as linhas JÁ inseridas desta execução quando o insert falha no meio.
+        """Remove rows ALREADY inserted by this execution when the insert fails midway.
 
-        O insert é em lotes e **não há transação entre eles**: se o lote 3 de 5 estoura,
-        os lotes 1-2 ficam gravados. Como a poda só roda no sucesso, a tabela ficava com a
-        execução ANTERIOR **+** o pedaço da nova — e a leitura soma as duas, inflando
-        ``total_orcamento`` e ``num_linhas``. É a classe do incidente de 2026-07-06 (R$ 96,78
-        num orçamento de R$ 3 mi), por outra causa.
+        The insert is batched and **there is no transaction across batches**: if batch 3
+        of 5 blows up, batches 1-2 stay written. Since the prune only runs on success, the
+        table was left with the PREVIOUS execution **+** part of the new one — and reads
+        sum both, inflating ``total_orcamento`` and ``num_linhas``. Same class as the
+        2026-07-06 incident (R$ 96.78 on a R$ 3M quote), by a different cause.
 
-        Apagar por ``id_execucao`` é preciso e seguro: o UUID é só desta carga, então não há
-        risco de levar dado bom junto. Best-effort — se a limpeza também falhar, loga o SQL
-        exato para remoção manual (melhor um comando pronto que um mistério).
+        Deleting by ``id_execucao`` is precise and safe: the UUID belongs to this load
+        only, so there is no risk of taking good data with it. Best-effort — if the
+        cleanup also fails, it logs the exact SQL for manual removal (a ready command
+        beats a mystery).
         """
         exec_id = (data[0] or {}).get('id_execucao') if data else None
         if not exec_id:
@@ -435,30 +438,31 @@ class SupabaseLoader:
         *,
         where_eq: Optional[Dict[str, Any]] = None,
     ) -> bool:
-        """Remove os registros de execuções anteriores, preservando a execução atual.
+        """Remove records from previous executions, preserving the current one.
 
-        Usado na estratégia **carrega-depois-poda**: deve ser chamado APÓS uma inserção
-        bem-sucedida. Assim, se a extração ou a carga falhar, os dados antigos permanecem
-        intactos e a tabela (ou o subconjunto filtrado) nunca fica vazia.
+        Used by the **load-then-prune** strategy: must be called AFTER a successful
+        insert. That way, if extraction or loading fails, the old data stays intact and
+        the table (or the filtered subset) is never empty.
 
         Args:
-            table_name: Nome da tabela.
-            keep_execution_id: ``id_execucao`` a ser preservado (o da carga atual).
-            where_eq: Filtros de igualdade adicionais (``coluna -> valor``) que **restringem**
-                a poda. Sem isso, apaga toda execução anterior da tabela (modo ``snapshot``
-                global de ``oportunidades``). Com ``{'NPED': 84080}``, apaga só as linhas
-                antigas daquele pedido (modo ``replace_nped`` de ordens de serviço).
+            table_name: Table name.
+            keep_execution_id: ``id_execucao`` to preserve (the current load's).
+            where_eq: Extra equality filters (``column -> value``) that **narrow** the
+                prune. Without them, it deletes every previous execution in the table
+                (the global ``snapshot`` mode of ``oportunidades``). With
+                ``{'NPED': 84080}``, it only deletes that pedido's old rows (the
+                ``replace_nped`` mode of ordens de serviço).
 
         Returns:
-            ``True`` se a limpeza ocorreu sem erro; ``False`` caso contrário.
+            ``True`` if the cleanup ran without error; ``False`` otherwise.
         """
         try:
             def _op():
-                # `neq` SOZINHO não pega linha com `id_execucao` NULL: em SQL,
-                # `NULL <> 'x'` avalia NULL (não TRUE) e o DELETE a ignora — medido.
-                # Uma linha órfã (carga manual, import, coluna criada depois) sobreviveria
-                # a TODA poda, para sempre, duplicando o dado servido. O `or_` inclui as
-                # nulas; os `eq` do where_eq continuam em AND com ele.
+                # `neq` ALONE does not catch rows with a NULL `id_execucao`: in SQL,
+                # `NULL <> 'x'` evaluates to NULL (not TRUE) and DELETE skips the row —
+                # measured. An orphan row (manual load, import, column added later) would
+                # survive EVERY prune, forever, duplicating the data served. The `or_`
+                # includes the nulls; where_eq's `eq` filters still AND with it.
                 query = (
                     self.client.table(table_name)
                     .delete()
@@ -488,26 +492,26 @@ class SupabaseLoader:
         max_registros: int = SYNC_LOG_MAX_REGISTROS,
         extra_fields: Optional[Dict[str, Any]] = None,
     ) -> bool:
-        """Grava um registro de log da sincronização e mantém só os N mais recentes.
+        """Write a sync log record and keep only the N most recent ones.
 
-        Insere uma linha com a hora local de término, a duração e o status; em seguida
-        poda a tabela para conservar apenas os ``max_registros`` registros mais recentes
-        (apaga os mais antigos pelo ``id``, que é auto-incremental).
+        Inserts a row with the local finish time, the duration and the status; then prunes
+        the table down to the ``max_registros`` most recent records (deleting the oldest
+        by ``id``, which is auto-incremented).
 
-        Esta operação é auxiliar: qualquer falha aqui é apenas logada e NÃO interrompe
-        nem afeta o fluxo principal de sincronização.
+        This is an auxiliary operation: any failure here is only logged and does NOT
+        interrupt or affect the main sync flow.
 
         Args:
-            table_name: Nome da tabela de log.
-            data_hora: Hora local do PC (ISO 8601) ao terminar a sincronização.
-            duracao_seg: Duração do processo, em segundos.
-            status: ``'sucesso'`` ou ``'falha'``.
-            qtd_registros: Nº de registros sincronizados (opcional).
-            max_registros: Quantidade máxima de registros a manter na tabela.
-            extra_fields: Colunas adicionais a gravar (ex.: ``{'nped': 84080}``).
+            table_name: Log table name.
+            data_hora: Machine-local time (ISO 8601) when the sync finished.
+            duracao_seg: Process duration, in seconds.
+            status: ``'sucesso'`` or ``'falha'``.
+            qtd_registros: Number of records synced (optional).
+            max_registros: Maximum number of records to keep in the table.
+            extra_fields: Extra columns to write (e.g. ``{'nped': 84080}``).
 
         Returns:
-            ``True`` se o registro foi gravado; ``False`` caso contrário.
+            ``True`` if the record was written; ``False`` otherwise.
         """
         try:
             registro: Dict[str, Any] = {
@@ -555,32 +559,32 @@ class SupabaseLoader:
 def prepare_data(
     df: pd.DataFrame, execution_id: Optional[str] = None
 ) -> Tuple[List[Dict[str, Any]], str]:
-    """Converte o DataFrame em registros prontos para inserir no Supabase.
+    """Convert the DataFrame into records ready to insert into Supabase.
 
-    Adiciona os campos de rastreio ``id_execucao`` e ``data_hora_extracao`` e normaliza
-    valores não serializáveis em JSON (datas, Decimal, tipos numpy e NaN/NaT).
+    Adds the tracking fields ``id_execucao`` and ``data_hora_extracao`` and normalizes
+    values that are not JSON-serializable (dates, Decimal, numpy types and NaN/NaT).
 
     Args:
-        df: DataFrame com os dados extraídos.
-        execution_id: ID para rastrear a execução. Gerado (UUID4) se não fornecido.
+        df: DataFrame holding the extracted data.
+        execution_id: ID used to track the execution. Generated (UUID4) if not provided.
 
     Returns:
-        Uma tupla ``(registros, execution_id)``, onde ``registros`` é a lista de
-        dicionários pronta para inserção e ``execution_id`` é o ID usado.
+        A ``(records, execution_id)`` tuple, where ``records`` is the list of
+        dictionaries ready for insertion and ``execution_id`` is the ID used.
     """
     if execution_id is None:
         execution_id = str(uuid.uuid4())
 
-    extraction_datetime = agora_iso()   # com offset — ver agora_iso()
+    extraction_datetime = agora_iso()   # with offset — see agora_iso()
 
-    # Converter DataFrame para lista de dicionários
+    # Convert DataFrame to a list of dictionaries
     data_list = df.to_dict(orient='records')
 
-    # Adicionar campos de execução e timestamp
+    # Add execution and timestamp fields
     for record in data_list:
         record['id_execucao'] = execution_id
         record['data_hora_extracao'] = extraction_datetime
-        # Tratar valores NULL/NaN e converter tipos não serializáveis em JSON
+        # Handle NULL/NaN values and convert types that are not JSON-serializable
         for key, value in record.items():
             if pd.isna(value):
                 record[key] = None
@@ -591,9 +595,9 @@ def prepare_data(
             elif isinstance(value, np.integer):
                 record[key] = int(value)
             elif isinstance(value, (np.floating, float)):
-                # Colunas INTEGER do SAP viram float no pandas por causa de NaN
-                # (ex.: 72051.0). Converter inteiros-exatos de volta para int para
-                # não violar colunas integer; manter decimais reais como float.
+                # SAP INTEGER columns become float in pandas because of NaN
+                # (e.g. 72051.0). Convert exact integers back to int so integer
+                # columns are not violated; keep real decimals as float.
                 f = float(value)
                 record[key] = int(f) if f.is_integer() else f
             elif isinstance(value, np.bool_):

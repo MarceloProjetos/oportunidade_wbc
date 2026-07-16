@@ -41,8 +41,8 @@ logger = logging.getLogger(__name__)
 
 
 def _configure_logging() -> None:
-    """Log básico no console. Chamado só pelo entrypoint (CLI), não no import —
-    como lib (importado pela API/agendador), não deve mexer no logging global."""
+    """Basic console logging. Called only by the entrypoint (CLI), never on import —
+    as a lib (imported by the API/scheduler) it must not touch global logging."""
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -95,17 +95,17 @@ def get_sqlserver_connection(
 
 
 def query_sqlserver_view(view_name: str, connection: Any) -> Optional[pd.DataFrame]:
-    """Lê todos os registros de uma view/tabela do SQL Server para um DataFrame.
+    """Read every record of a SQL Server view/table into a DataFrame.
 
     Args:
-        view_name: Nome qualificado da view/tabela (ex.: ``WBCCAD.dbo.INTEGRACAO_ORCSIT``).
-        connection: Conexão pyodbc ativa.
+        view_name: Qualified view/table name (e.g. ``WBCCAD.dbo.INTEGRACAO_ORCSIT``).
+        connection: Active pyodbc connection.
 
     Returns:
-        DataFrame com os resultados ou ``None`` em caso de erro.
+        DataFrame with the results, or ``None`` on error.
 
     Raises:
-        ValueError: Se ``view_name`` não for um identificador SQL válido.
+        ValueError: If ``view_name`` is not a valid SQL identifier.
     """
     validate_sql_identifier(view_name, what="nome da view (SQL Server)")
     try:
@@ -119,16 +119,16 @@ def query_sqlserver_view(view_name: str, connection: Any) -> Optional[pd.DataFra
 
 
 def extract_sap_to_dataframe(view_name: Optional[str] = None) -> Optional[pd.DataFrame]:
-    """Extrai uma view SAP para um DataFrame, limitando aos últimos N meses.
+    """Extract a SAP view into a DataFrame, limited to the last N months.
 
-    O filtro é aplicado na própria query (``WHERE``) sobre ``FILTRO_COLUNA_DATA``,
-    trazendo apenas os registros dos últimos ``MESES_RETROATIVOS`` meses.
+    The filter is applied in the query itself (``WHERE``) over ``FILTRO_COLUNA_DATA``,
+    fetching only the records from the last ``MESES_RETROATIVOS`` months.
 
     Args:
-        view_name: View SAP. Se ``None``, usa ``SAP_VIEW_NAME`` do ``.env``.
+        view_name: SAP view. If ``None``, uses ``SAP_VIEW_NAME`` from ``.env``.
 
     Returns:
-        DataFrame com os dados filtrados ou ``None`` em caso de erro.
+        DataFrame with the filtered data, or ``None`` on error.
     """
     settings = get_settings()
 
@@ -258,21 +258,21 @@ def main(
     execution_mode: str = 'snapshot',
     execution_id: Optional[str] = None,
 ) -> bool:
-    """Orquestra o pipeline completo: extrai do SAP, enriquece e carrega no Supabase.
+    """Orchestrate the full pipeline: extract from SAP, enrich and load into Supabase.
 
     Args:
-        view_name: View SAP a consultar. Se ``None``, usa ``SAP_VIEW_NAME`` do ``.env``.
-        execution_mode: Estratégia de carga:
-            ``'snapshot'`` (default) — insere a nova carga e remove as execuções
-            anteriores (carrega-depois-poda); a tabela reflete o estado atual e nunca
-            fica vazia se algo falhar;
-            ``'insert'`` — apenas insere (acumula histórico, pode duplicar).
-        execution_id: ID customizado para rastreamento. Gerado automaticamente se ``None``.
+        view_name: SAP view to query. If ``None``, uses ``SAP_VIEW_NAME`` from ``.env``.
+        execution_mode: Loading strategy:
+            ``'snapshot'`` (default) — insert the new load and remove previous executions
+            (load-then-prune); the table reflects the current state and never ends up
+            empty if something fails;
+            ``'insert'`` — insert only (accumulates history, may duplicate).
+        execution_id: Custom tracking ID. Generated automatically if ``None``.
 
     Returns:
-        ``True`` se o processo concluiu com sucesso, ``False`` caso contrário.
+        ``True`` if the process completed successfully, ``False`` otherwise.
     """
-    # Carregar configurações
+    # Load configuration
     settings = get_settings()
     view_name = view_name or settings.sap_view_name
 
@@ -295,15 +295,15 @@ def main(
         )
         return False
 
-    # Medição da sincronização (para o log): início, contagem e resultado
+    # Sync measurement (for the log): start, count and result
     inicio = time.monotonic()
     sync_log_table = settings.sync_log_table_name
     qtd_registros = 0
     resultado = False
-    loader: Optional[SupabaseLoader] = None  # reaproveitado no finally para gravar o log
+    loader: Optional[SupabaseLoader] = None  # reused in the finally to write the log
 
     try:
-        # 1. Extrair dados do SAP
+        # 1. Extract data from SAP
         logger.info("Iniciando extração de dados do SAP...")
         df = extract_sap_to_dataframe(view_name)
 
@@ -347,14 +347,14 @@ def main(
         # 3. Insert into Supabase
         success = loader.insert_data(settings.table_name, data_to_insert)
 
-        # Modo snapshot: carrega-depois-poda — só removemos as execuções anteriores
-        # APÓS a inserção dar certo, garantindo que a tabela nunca fique vazia.
+        # Snapshot mode: load-then-prune — previous executions are only removed AFTER the
+        # insert succeeds, guaranteeing the table is never left empty.
         if success and execution_mode == 'snapshot':
             if not loader.delete_other_executions(settings.table_name, exec_id):
-                # NÃO é sucesso: o contrato do snapshot ("substitui a tabela") não foi
-                # cumprido — ficaram DUAS execuções e quem lê recebe tudo duplicado.
-                # Antes era WARNING + return True: o log dizia 'sucesso' com a tabela
-                # corrompida. A próxima carga OK consolida.
+                # NOT a success: the snapshot contract ("replaces the table") was not met
+                # — TWO executions remain and readers get everything duplicated. This used
+                # to be WARNING + return True: the log said 'sucesso' with a corrupted
+                # table. The next successful load consolidates it.
                 logger.error(
                     "Inserção OK mas a PODA das execuções anteriores falhou: a tabela está "
                     "com registros DUPLICADOS (a atual + a anterior). A próxima carga "
@@ -374,15 +374,15 @@ def main(
         logger.error(f"Erro no processo: {e}")
         return False
     finally:
-        # Registrar a sincronização no log (hora do PC + duração). Isolado em try/except
-        # próprio para nunca afetar o resultado da sincronização principal.
+        # Record the sync in the log (machine time + duration). Isolated in its own
+        # try/except so it can never affect the main sync result.
         try:
             duracao = time.monotonic() - inicio
-            data_hora_pc = agora_iso()   # com offset: a coluna e timestamptz (ver agora_iso)
+            data_hora_pc = agora_iso()   # with offset: the column is timestamptz (see agora_iso)
             status = 'sucesso' if resultado else 'falha'
-            # Reaproveita o cliente já criado no fluxo principal; só instancia um novo se
-            # a falha ocorreu antes de ele existir (ex.: extração SAP falhou antes de
-            # chegar à carga no Supabase).
+            # Reuse the client already created in the main flow; only instantiate a new
+            # one if the failure happened before it existed (e.g. the SAP extraction
+            # failed before reaching the Supabase load).
             log_loader = loader or SupabaseLoader(
                 settings.supabase_url, settings.supabase_write_key
             )
@@ -395,16 +395,17 @@ def main(
 
 if __name__ == "__main__":
     _configure_logging()
-    # Parâmetros (todos opcionais):
-    #   view_name      — view SAP; se omitido, usa SAP_VIEW_NAME do .env
-    #   execution_mode — 'snapshot' (default) ou 'insert'
-    #   execution_id   — None gera um UUID automaticamente
+    # Parameters (all optional):
+    #   view_name      — SAP view; if omitted, uses SAP_VIEW_NAME from .env
+    #   execution_mode — 'snapshot' (default) or 'insert'
+    #   execution_id   — None generates a UUID automatically
     #
-    # O LOCK é obrigatório também aqui: a API (api.py) e o agendador
-    # (scripts/scheduled_execution.py) já pegavam o lock, mas este entrypoint passava por
-    # FORA dele. Rodar isto à mão durante uma carga do agendador podia ESVAZIAR a tabela —
-    # cada processo insere e depois poda "tudo que não é a minha execução", apagando as
-    # linhas do outro. `timeout=0`: se já há carga rodando, avisa e sai sem tocar em nada.
+    # The LOCK is mandatory here too: the API (api.py) and the scheduler
+    # (scripts/scheduled_execution.py) already took the lock, but this entrypoint ran
+    # OUTSIDE it. Running this by hand during a scheduler load could EMPTY the table —
+    # each process inserts and then prunes "everything that is not my execution",
+    # deleting the other's rows. `timeout=0`: if a load is already running, warn and exit
+    # without touching anything.
     try:
         with oportunidades_sync_lock(timeout=0):
             ok = main(execution_mode='snapshot')
