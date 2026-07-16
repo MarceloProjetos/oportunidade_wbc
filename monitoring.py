@@ -30,9 +30,17 @@ _PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 # Início (aprox.) do processo da API — usado para o uptime no /status.
 _PROC_START = time.time()
 
-# Acima deste nº de minutos sem carga de oportunidades, DENTRO da janela comercial
-# (dia útil 07–18h), sinalizamos que o serviço OrcaView-Scheduler pode ter caído.
-SCHEDULER_STALE_MIN = 35
+# Folga sobre o INTERVALO_MINUTOS antes de considerar o agendador parado. O limiar é
+# DERIVADO (intervalo + folga), não fixo: era `SCHEDULER_STALE_MIN = 35` hard-coded
+# enquanto o intervalo é configurável — com INTERVALO_MINUTOS=60 o /status passava a
+# gritar "agendador parado" o dia inteiro (e ?strict=1 devolvia 503 permanente), embora
+# tudo estivesse certo. A folga cobre a duração da carga + o atraso do trigger.
+SCHEDULER_STALE_FOLGA_MIN = 5
+
+
+def scheduler_stale_min() -> int:
+    """Minutos sem carga que caracterizam agendador parado (= intervalo + folga)."""
+    return get_settings().intervalo_minutos + SCHEDULER_STALE_FOLGA_MIN
 # Alertas de disco da unidade onde o app roda.
 DISK_LOW_GB = 5.0      # menos que isto livre
 DISK_PCT_ALERT = 90.0  # ou mais que isto usado
@@ -116,9 +124,18 @@ def _check_supabase() -> str:
 def _scheduler_signal() -> Dict[str, Any]:
     """Sinal INDIRETO do agendador: idade da última carga de oportunidades (lida do log).
 
-    Lê o registro mais recente em ``sincronizacao_log``. Só marca ``stale=True`` se estamos
-    na **janela comercial** (dia útil, 07–18h) e a última carga é mais antiga que
-    ``SCHEDULER_STALE_MIN`` — fora da janela/fim de semana, não ter carga recente é normal.
+    Lê o registro mais recente em ``sincronizacao_log``. Só marca ``stale=True`` quando a
+    ausência de carga é de fato ANORMAL, ou seja, quando **todas** valem:
+
+    * estamos na **janela comercial** (dia útil, dentro de ``JANELA_HORAS``) — fora dela e
+      no fim de semana, não ter carga recente é o esperado;
+    * a janela já abriu há mais que um ciclo (``warming_up=False``) — na abertura, a última
+      carga é a de ontem à noite e "velha" é normal até a 1ª execução do dia;
+    * a última carga é mais antiga que ``scheduler_stale_min()`` (= ``INTERVALO_MINUTOS`` +
+      folga), limiar **derivado** do intervalo configurado, não um número fixo.
+
+    O rigor é proposital: este sinal vira alerta e, com ``?strict=1``, **HTTP 503**. Alarme
+    falso recorrente treina todo mundo a ignorar o monitor — o que é pior que não ter monitor.
     """
     from supabase import create_client
     from supabase.client import ClientOptions
@@ -159,13 +176,26 @@ def _scheduler_signal() -> Dict[str, Any]:
     h_start, h_end = parse_janela_horas(s.janela_horas)
     now = datetime.now()
     in_window = is_business_day(now.date()) and h_start <= now.hour <= h_end
-    stale = bool(in_window and minutes is not None and minutes > SCHEDULER_STALE_MIN)
+    limite = scheduler_stale_min()
+
+    # Carência na ABERTURA da janela. Todo dia útil às 07:00 a última carga era a de
+    # ~18:5x do dia anterior (~780 min atrás) → 'stale' → alerta (e 503 no ?strict=1) até
+    # a 1ª execução do dia, que o IntervalTrigger pode levar até um intervalo inteiro para
+    # disparar. Eram ~30 min de alarme falso TODO dia — e monitor que grita à toa é monitor
+    # que ninguém olha. Dentro da carência, ausência de carga é esperada, não sintoma.
+    minutos_de_janela = (now.hour - h_start) * 60 + now.minute
+    aquecendo = in_window and minutos_de_janela < limite
+
+    stale = bool(
+        in_window and not aquecendo and minutes is not None and minutes > limite
+    )
     return {
         'last_sync': last_iso,
         'last_status': last.get('status'),
         'minutes_ago': minutes,
         'in_window': in_window,
-        'threshold_min': SCHEDULER_STALE_MIN,
+        'warming_up': aquecendo,
+        'threshold_min': limite,
         'stale': stale,
     }
 
@@ -351,7 +381,8 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
     if scheduler and scheduler.get('stale'):
         alerts.append(
             f"agendador possivelmente parado: última carga de oportunidades há "
-            f"{scheduler.get('minutes_ago')} min (limite {SCHEDULER_STALE_MIN} min na janela comercial)"
+            f"{scheduler.get('minutes_ago')} min (limite {scheduler.get('threshold_min')} min "
+            f"na janela comercial)"
         )
     if scheduled_task is not None:
         alerts.extend(_scheduled_task_alerts(scheduled_task))

@@ -3,6 +3,35 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-16] — `/status`: fim do alarme falso diário do agendador
+
+### Corrigido
+
+- **~30 min de alerta falso TODO dia útil, às 07:00.** Quando a janela comercial abria, a
+  última carga era a de ~18:5x do dia anterior (~780 min atrás) → `stale=True` → alerta, e
+  **503** para quem usa `?strict=1`. O alarme só sumia quando a 1ª execução do dia rodava —
+  o que o `IntervalTrigger` pode levar até um intervalo inteiro para fazer. Ou seja: o
+  monitor gritava justamente no horário em que as pessoas chegam. Agora há **carência na
+  abertura** (`warming_up`): dentro do 1º ciclo da janela, ausência de carga é o esperado,
+  não sintoma.
+
+- **Limiar de "agendador parado" era fixo (35 min) enquanto o intervalo é configurável.**
+  Com `INTERVALO_MINUTOS=60`, o `/status` passaria a acusar "agendador possivelmente parado"
+  **o dia inteiro** — e `?strict=1` devolveria **503 permanente** — com tudo funcionando.
+  Agora o limiar é **derivado**: `scheduler_stale_min()` = `INTERVALO_MINUTOS` + folga (5).
+  Com o default de 30 dá **35** — exatamente o valor antigo, então **nada muda em produção**;
+  o número fixo era uma coincidência esperando quebrar. A mensagem do alerta e o
+  `threshold_min` do payload passam a mostrar o limiar real.
+
+  > **Por que isto importa mais do que parece:** alarme falso recorrente treina todo mundo a
+  > ignorar o monitor. Um `/status` que grita à toa todo dia às 07:00 é pior que não ter
+  > monitor — e anula o valor do fix de ontem (o check inválido que devolvia "tudo verde").
+
+5 testes novos (210 no total), com relógio e log falsos: a abertura da janela (07:12, carga
+de ontem 18:52) **não** alarma; agendador parado de verdade (3h sem carga) **alarma**; com
+`INTERVALO_MINUTOS=60` uma carga de 45 min atrás é normal (limiar 65) mas 90 min alarma; e
+fora da janela nunca alarma.
+
 ## [2026-07-16] — Contrato: trava anti-loop nas rotas que faltavam, 502 no lugar de 200, e auth em tempo constante
 
 ### Corrigido

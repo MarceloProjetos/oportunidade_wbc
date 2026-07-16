@@ -2,10 +2,12 @@
 
 import json
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
 import monitoring
+from config import reset_settings
 
 
 def _stub_all_ok(monkeypatch):
@@ -168,3 +170,97 @@ def test_collect_status_aceita_subconjunto_valido(monkeypatch):
     _stub_all_ok(monkeypatch)
     data = monitoring.collect_status(only={'sap'})
     assert set(data['checks']) == {'sap'}
+
+
+# ============ Alarme falso do agendador (regressão 2026-07-16) ============
+# Dois defeitos na mesma expressão:
+#  (a) limiar 35 min HARDCODED enquanto INTERVALO_MINUTOS é configurável;
+#  (b) sem carência na abertura da janela: às 07:00 a última carga é a de ~18:5x de
+#      ontem (~780 min) -> 'stale' -> alerta + 503 no strict, TODO dia útil.
+
+def _sinal(monkeypatch, *, agora, ultima_carga, intervalo=30):
+    """Roda _scheduler_signal com relógio e log fakes.
+
+    `create_client` é importado DENTRO da função, então não dá para monkeypatchar o
+    módulo `monitoring` — o stub tem de ir em `sys.modules['supabase']`.
+    """
+    import sys
+    from datetime import datetime as _dt
+
+    monkeypatch.setenv('INTERVALO_MINUTOS', str(intervalo))
+    monkeypatch.setenv('SUPABASE_URL', 'https://x.supabase.co')
+    monkeypatch.setenv('SUPABASE_SERVICE_ROLE_KEY', 'svc')
+    monkeypatch.setenv('JANELA_HORAS', '7-18')
+    reset_settings()
+
+    class _FakeDT(_dt):
+        @classmethod
+        def now(cls, tz=None):
+            return agora
+
+    monkeypatch.setattr(monitoring, 'datetime', _FakeDT)
+
+    linha = {'data_hora_sincronizacao': ultima_carga.isoformat(), 'status': 'sucesso'}
+    fake_client = SimpleNamespace(table=lambda _t: SimpleNamespace(
+        select=lambda *_a: SimpleNamespace(
+            order=lambda *_a, **_k: SimpleNamespace(
+                limit=lambda _n: SimpleNamespace(
+                    execute=lambda: SimpleNamespace(data=[linha]))))))
+    monkeypatch.setitem(sys.modules, 'supabase',
+                        SimpleNamespace(create_client=lambda *a, **k: fake_client))
+    monkeypatch.setitem(sys.modules, 'supabase.client',
+                        SimpleNamespace(ClientOptions=lambda **k: None))
+    return monitoring._scheduler_signal()
+
+
+def test_abertura_da_janela_nao_alarma(monkeypatch):
+    """07:12 numa quarta: última carga é de ontem 18:52 (~780 min). Era 'stale' e
+    gritava até a 1ª execução do dia — ~30 min de alarme falso, TODO dia útil."""
+    from datetime import datetime as _dt
+    sinal = _sinal(monkeypatch,
+                   agora=_dt(2026, 7, 15, 7, 12),          # quarta, janela recém-aberta
+                   ultima_carga=_dt(2026, 7, 14, 18, 52))  # ontem à noite
+    assert sinal['in_window'] is True
+    assert sinal['warming_up'] is True
+    assert sinal['stale'] is False, 'voltou o alarme falso das 07:00'
+
+
+def test_agendador_parado_de_verdade_alarma(monkeypatch):
+    """O fix não pode cegar o monitor: 11:00 sem carga desde 08:00 é sintoma real."""
+    from datetime import datetime as _dt
+    sinal = _sinal(monkeypatch,
+                   agora=_dt(2026, 7, 15, 11, 0),
+                   ultima_carga=_dt(2026, 7, 15, 8, 0))    # 180 min > 35
+    assert sinal['warming_up'] is False
+    assert sinal['stale'] is True
+
+
+def test_limiar_deriva_do_intervalo(monkeypatch):
+    """INTERVALO_MINUTOS=60: uma carga de 45 min atrás é NORMAL. Com o 35 fixo, o
+    /status gritava o dia inteiro (e ?strict=1 dava 503 permanente)."""
+    from datetime import datetime as _dt
+    sinal = _sinal(monkeypatch,
+                   agora=_dt(2026, 7, 15, 14, 0),
+                   ultima_carga=_dt(2026, 7, 15, 13, 15),  # 45 min atrás
+                   intervalo=60)
+    assert sinal['threshold_min'] == 65          # 60 + folga, não 35
+    assert sinal['stale'] is False
+
+
+def test_limiar_derivado_ainda_pega_parada_real(monkeypatch):
+    """Com intervalo 60, 90 min sem carga continua sendo alerta."""
+    from datetime import datetime as _dt
+    sinal = _sinal(monkeypatch,
+                   agora=_dt(2026, 7, 15, 14, 0),
+                   ultima_carga=_dt(2026, 7, 15, 12, 30),  # 90 min > 65
+                   intervalo=60)
+    assert sinal['stale'] is True
+
+
+def test_fora_da_janela_nunca_alarma(monkeypatch):
+    """22:00: não ter carga recente é o esperado (comportamento preservado)."""
+    from datetime import datetime as _dt
+    sinal = _sinal(monkeypatch,
+                   agora=_dt(2026, 7, 15, 22, 0),
+                   ultima_carga=_dt(2026, 7, 15, 18, 50))
+    assert sinal['in_window'] is False and sinal['stale'] is False
