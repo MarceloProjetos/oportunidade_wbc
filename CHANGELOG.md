@@ -3,6 +3,26 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-16] — Comentários do serviço traduzidos para inglês técnico (onda 3/5)
+
+Terceira onda: `api.py`, `monitoring.py` e `scripts/scheduled_execution.py`.
+
+Mesma garantia das ondas anteriores — AST sem docstrings idêntico nos três, `ruff` limpo,
+273 testes passando. Os docstrings do `api.py` são inertes (é Flask, não FastAPI: não há
+OpenAPI gerado a partir deles), então traduzi-los não muda contrato nenhum.
+
+**`windows_update.py` ficou de FORA, de propósito.** O próprio docstring dele declara que
+o arquivo é um porte do `windows_update.py` do repo SAP_RDP e "deve ser mantido diffável
+com ele". Hoje as duas cópias divergem só no cabeçalho e nos consumidores, exatamente como
+o contrato promete. Traduzir só este lado faria todo comentário do corpo divergir e mataria
+a propriedade que permite levar um bugfix de um servidor para o outro por diff. Decisão do
+Marcelo pendente: traduzir os dois repos juntos, ou deixar este arquivo em PT.
+
+### Alterado
+
+- `api.py`, `monitoring.py`, `scripts/scheduled_execution.py`: comentários e docstrings
+  traduzidos para inglês técnico.
+
 ## [2026-07-16] — Comentários dos pipelines traduzidos para inglês técnico (onda 2/5)
 
 Segunda onda: `pipeline_core.py`, `extract_sap_to_supabase.py` e

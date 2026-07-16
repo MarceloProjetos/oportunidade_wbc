@@ -1,34 +1,36 @@
-"""API HTTP mínima para disparar a sincronização de OS por NPED (sob demanda).
+"""Minimal HTTP API to trigger the OS sync per NPED (on demand).
 
-Pensada para ser chamada **pelo app** (web/desktop) quando o usuário pede para
-sincronizar um pedido. A escrita continua sendo do backend (service_role); este
-serviço só expõe um gatilho HTTP.
+Designed to be called **by the app** (web/desktop) when a user asks to sync a pedido.
+Writing remains the backend's job (service_role); this service only exposes an HTTP
+trigger.
 
 Endpoints
 ---------
-- ``GET  /health``                         → ``{"status": "ok"}``
-- ``GET  /ordens-servico/<nped>``           → detalhe (resumo) da OS de um pedido
-- ``POST /ordens-servico/<nped>/sincronizar`` → sincroniza + devolve o resumo (par do GET)
-- ``POST /sync/ordens-servico/<nped>``      → sincroniza **um** pedido
-- ``POST /sync/ordens-servico``             → corpo ``{"nped": N}`` ou ``{"npeds": [...]}``
+- ``GET  /health``                          → ``{"status": "ok"}``
+- ``GET  /ordens-servico/<nped>``           → detail (summary) of a pedido's OS
+- ``POST /ordens-servico/<nped>/sincronizar`` → syncs + returns the summary (GET's pair)
+- ``POST /sync/ordens-servico/<nped>``      → syncs **one** pedido
+- ``POST /sync/ordens-servico``             → body ``{"nped": N}`` or ``{"npeds": [...]}``
 
-Autenticação (opcional, **recomendada em produção**)
-----------------------------------------------------
-Defina ``OS_API_KEY`` no ``.env``. O cliente deve enviar o header
-``X-API-Key: <chave>`` (ou ``Authorization: Bearer <chave>``). Sem ``OS_API_KEY``,
-o endpoint fica **aberto** (use só em rede interna confiável / desenvolvimento).
+Authentication (optional, **recommended in production**)
+--------------------------------------------------------
+Set ``OS_API_KEY`` in ``.env``. The client must send the ``X-API-Key: <key>`` header
+(or ``Authorization: Bearer <key>``). Without ``OS_API_KEY`` the endpoint is **open**
+(use only on a trusted internal network / development).
 
-Como rodar
+How to run
 ----------
-- Dev/Produção:  ``python api.py`` (forma suportada — sobe via waitress se instalado,
-                 senão Flask dev, e configura o log em arquivo ``logs/api.log``).
-- Alternativa:   ``waitress-serve --listen=0.0.0.0:8077 api:app`` — importa só o ``app``,
-                 então **não** passa por ``main()``: o log usa o default (sem arquivo).
+- Dev/Production: ``python api.py`` (the supported form — serves via waitress if
+                  installed, otherwise Flask dev, and configures file logging to
+                  ``logs/api.log``).
+- Alternative:    ``waitress-serve --listen=0.0.0.0:8077 api:app`` — imports only ``app``,
+                  so it does **not** go through ``main()``: logging uses the default
+                  (no file).
 
-Exemplo de chamada::
+Example call::
 
     curl -X POST http://localhost:8077/sync/ordens-servico/84080 \\
-         -H "X-API-Key: SUA_CHAVE"
+         -H "X-API-Key: YOUR_KEY"
 """
 
 from __future__ import annotations
@@ -69,11 +71,11 @@ logger = logging.getLogger(__name__)
 
 
 def _configure_logging() -> None:
-    """Configura o log (arquivo rotativo + console).
+    """Configure logging (rotating file + console).
 
-    Chamado só pelo entrypoint (``main``), **não no import** — assim importar o
-    módulo nos testes não redireciona o log da suíte para ``logs/api.log``. Com
-    arquivo, o log da API persiste ao fechar a janela / rodar como serviço.
+    Called only by the entrypoint (``main``), **not on import** — that way importing the
+    module in tests does not redirect the suite's log into ``logs/api.log``. With a file,
+    the API log survives closing the window / running as a service.
     """
     log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
     os.makedirs(log_dir, exist_ok=True)
@@ -92,34 +94,35 @@ def _configure_logging() -> None:
 app = Flask(__name__)
 _WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web')
 
-# Serializa as cargas: nunca duas sincronizações simultâneas (evita múltiplas
-# conexões SAP e corridas no replace_nped). O volume é baixo (gatilho sob demanda).
+# Serializes the loads: never two concurrent syncs (avoids multiple SAP connections and
+# races in replace_nped). Volume is low (on-demand trigger).
 _sync_lock = threading.Lock()
 
-# ── Rate-limit das ESCRITAS (trava anti-loop) ──────────────────────────────────────
-# Janela deslizante in-process por "bucket". GENEROSO de propósito: pega runaway/loop de
-# agente sem atrapalhar uso normal (uma pessoa/uso comum fica muito abaixo). Configurável
-# por env: RATE_SYNC_OS_MAX (syncs de OS/min) e RATE_FORCE_OPORT_MAX (cargas completas/min).
+# ── Rate limit on WRITES (anti-loop guard) ────────────────────────────────────────
+# In-process sliding window per "bucket". GENEROUS on purpose: it catches an agent
+# runaway/loop without getting in the way of normal use (a person's ordinary use stays
+# far below). Configurable by env: RATE_SYNC_OS_MAX (OS syncs/min) and
+# RATE_FORCE_OPORT_MAX (full loads/min).
 _RATE_WINDOW_S = 60.0
 _RATE_SYNC_OS_MAX = int(os.getenv('RATE_SYNC_OS_MAX', '60'))
 _RATE_FORCE_OPORT_MAX = int(os.getenv('RATE_FORCE_OPORT_MAX', '6'))
 
-# Teto de pedidos por request no POST /sync/ordens-servico. O lote roda SERIALIZADO
-# dentro do _sync_lock (2 conexões HANA por pedido), então uma lista enorme viraria uma
-# request de horas segurando a fila inteira. 50 é folgado p/ o uso real (a tela oferece
-# até 30 em "Buscar na Lista") e ainda assim limita a ~poucos minutos por request.
+# Cap on pedidos per request in POST /sync/ordens-servico. The batch runs SERIALIZED
+# inside _sync_lock (2 HANA connections per pedido), so a huge list would become an
+# hours-long request holding the whole queue. 50 is roomy for real use (the screen offers
+# up to 30 in "Buscar na Lista") and still caps a request at ~a few minutes.
 _SYNC_LOTE_MAX = int(os.getenv('SYNC_LOTE_MAX', '50'))
 
 
 class _RateLimiter:
-    """Janela deslizante thread-safe: conta chamadas por 'bucket' e diz se passou do limite."""
+    """Thread-safe sliding window: counts calls per 'bucket' and says if the limit is past."""
 
     def __init__(self) -> None:
         self._hits: dict = {}
         self._lock = threading.Lock()
 
     def check(self, bucket: str, limite: int, janela_s: float) -> Tuple[bool, float]:
-        """Registra um hit; retorna ``(permitido, segundos_até_liberar)``."""
+        """Record a hit; returns ``(allowed, seconds_until_release)``."""
         agora = time.monotonic()
         corte = agora - janela_s
         with self._lock:
@@ -132,7 +135,7 @@ class _RateLimiter:
             return True, 0.0
 
     def reset(self) -> None:
-        """Zera o estado (usado nos testes)."""
+        """Clear the state (used by the tests)."""
         with self._lock:
             self._hits.clear()
 
@@ -141,7 +144,7 @@ _rate_limiter = _RateLimiter()
 
 
 def _checar_rate(bucket: str, limite: int):
-    """Se estourou o rate-limit, devolve ``(resposta_429, 429)`` p/ retornar; senão ``None``."""
+    """If the rate limit is blown, returns ``(response_429, 429)`` to return; else ``None``."""
     permitido, retry = _rate_limiter.check(bucket, limite, _RATE_WINDOW_S)
     if permitido:
         return None
@@ -156,7 +159,7 @@ def _checar_rate(bucket: str, limite: int):
     return resp, 429
 
 
-# Cliente Supabase (service_role) p/ ler o log — criado sob demanda e reaproveitado.
+# Supabase client (service_role) for reading the log — created on demand and reused.
 _supabase_client = None
 
 
@@ -174,7 +177,7 @@ def _supabase():
 
 
 def _fetch_log(table: str, limit: int) -> List[dict]:
-    """Últimas ``limit`` sincronizações (mais recentes primeiro) da tabela ``table``."""
+    """The last ``limit`` syncs (newest first) from table ``table``."""
     res = (
         _supabase().table(table)
         .select('*').order('id', desc=True).limit(limit).execute()
@@ -183,43 +186,44 @@ def _fetch_log(table: str, limit: int) -> List[dict]:
 
 
 def _clear_log(table: str) -> int:
-    """Apaga todos os registros da tabela de log ``table``. Retorna quantos removeu."""
-    # PostgREST exige um filtro no delete; 'id <> 0' casa todas as linhas (id começa em 1).
+    """Delete every record from the log table ``table``. Returns how many were removed."""
+    # PostgREST requires a filter on delete; 'id <> 0' matches every row (id starts at 1).
     res = _supabase().table(table).delete().neq('id', 0).execute()
     return len(res.data or [])
 
 
 def _count_rows(table: str) -> Optional[int]:
-    """Total de linhas da tabela ``table`` (via count exato do PostgREST)."""
+    """Total rows in table ``table`` (via PostgREST's exact count)."""
     res = _supabase().table(table).select('id', count='exact').limit(1).execute()
     return res.count
 
 
-# Tradução do Status da OS. A view VW_OS_INTEGRACAO traz o código cru (P/R/L/C); a
-# antiga tabela de lookup status_ordens_servico_eng foi descontinuada na consolidação.
+# OS Status translation. The VW_OS_INTEGRACAO view carries the raw code (P/R/L/C); the
+# old status_ordens_servico_eng lookup table was retired in the consolidation.
 _OS_STATUS_DESC = {'P': 'Planejado', 'R': 'Liberado', 'L': 'Encerrado', 'C': 'Cancelado'}
 
-# Colunas do detalhe/resumo de OS — enxutas de propósito (a view VW_OS_INTEGRACAO tem
-# 54 colunas; puxamos só o que o resumo usa). Inclui os campos de EXPEDIÇÃO
-# (ObsPedido/DtLiber/DtEntregaPED) que antes exigiam uma 2ª query no espelho separado.
+# Columns for the OS detail/summary — deliberately lean (the VW_OS_INTEGRACAO view has
+# 54 columns; we pull only what the summary uses). Includes the EXPEDIÇÃO fields
+# (ObsPedido/DtLiber/DtEntregaPED) that used to require a 2nd query on the separate mirror.
 _OS_DETALHE_COLS = (
     'id,N_PED,N_OP,DescItemPED,DescItemEstrut,DtPedido,'
     'CodClien,NomeClien,Status,TotalOrcam,ObsPedido,DtLiber,DtEntregaPED,'
     'Solda,Pintura,Almox,Exped,id_execucao,data_hora_extracao'
 )
 
-# Flags de PROCESSO (colunas 50-53 da view): 1 = o item passa pelo processo, 0 = não.
-# Substituem, por 4 colunas, as 4 TABELAS dropadas na consolidação de 14/07
-# (vw_os_solda/vw_os_pintura_v0/vw_os_almox_impressao/vw_os_exped_impressao_v2) —
-# antes o processo era identificado pela TABELA em que a linha aparecia.
+# PROCESS flags (columns 50-53 of the view): 1 = the item goes through the process,
+# 0 = it does not. These 4 columns replace the 4 TABLES dropped in the 07-14
+# consolidation (vw_os_solda/vw_os_pintura_v0/vw_os_almox_impressao/
+# vw_os_exped_impressao_v2) — the process used to be identified by WHICH TABLE the row
+# showed up in.
 _OS_PROCESSOS = ('Solda', 'Pintura', 'Almox', 'Exped')
 
 
 def _flag_ligada(valor: object) -> bool:
-    """True se a flag de processo da linha está ligada (1).
+    """True if the row's process flag is on (1).
 
-    A view devolve inteiro (1/0), mas toleramos texto/decimal/None — um valor
-    inesperado nunca deve derrubar o resumo, só não conta.
+    The view returns an integer (1/0), but we tolerate text/decimal/None — an unexpected
+    value must never take the summary down, it just does not count.
     """
     try:
         return int(valor) == 1
@@ -228,11 +232,11 @@ def _flag_ligada(valor: object) -> bool:
 
 
 def _resumo_processos(linhas: List[dict]) -> dict:
-    """Agrega as flags de processo: ``{processo: {'tem': bool, 'linhas': int}}``.
+    """Aggregate the process flags: ``{process: {'tem': bool, 'linhas': int}}``.
 
-    As flags são POR ITEM — um pedido normalmente tem itens mistos (parte vai p/
-    solda, parte não), então um booleano de cabeçalho seria enganoso. Damos as
-    duas respostas: *passa pelo processo?* e *quantos itens*.
+    The flags are PER ITEM — a pedido normally has mixed items (some go to welding, some
+    do not), so a header-level boolean would be misleading. We give both answers: *does it
+    go through the process?* and *how many items*.
     """
     processos = {}
     for proc in _OS_PROCESSOS:
@@ -242,7 +246,7 @@ def _resumo_processos(linhas: List[dict]) -> dict:
 
 
 def _fetch_os_detalhe(nped: int) -> List[dict]:
-    """Linhas (colunas enxutas) da OS de um N_PED, ordenadas por id. Vazio se não há OS."""
+    """Rows (lean columns) of an N_PED's OS, ordered by id. Empty if there is no OS."""
     res = (
         _supabase().table(get_settings().os_table_name)
         .select(_OS_DETALHE_COLS).eq('N_PED', nped).order('id').execute()
@@ -251,12 +255,12 @@ def _fetch_os_detalhe(nped: int) -> List[dict]:
 
 
 def _soma_total_orcamento(linhas: List[dict]) -> Optional[float]:
-    """Soma o ``TotalOrcam`` das linhas (valor de mercadorias, sem impostos).
+    """Sum the rows' ``TotalOrcam`` (goods value, taxes excluded).
 
-    ``TotalOrcam`` é POR LINHA na view (350 valores distintos num pedido real),
-    não um cabeçalho repetido — pegar ``linhas[0]`` devolvia um valor de item
-    aleatório (a ordem entre cargas não é estável). Incidente 2026-07-06:
-    pedido 84080 mostrava "96,78" p/ um orçamento de ~R$ 3,05 mi.
+    ``TotalOrcam`` is PER ROW in the view (350 distinct values on a real pedido), not a
+    repeated header — taking ``linhas[0]`` returned a random item's value (row order is
+    not stable across loads). Incident 2026-07-06: pedido 84080 showed "96.78" for a quote
+    of ~R$ 3.05M.
     """
     total = 0.0
     achou = False
@@ -273,22 +277,22 @@ def _soma_total_orcamento(linhas: List[dict]) -> Optional[float]:
 
 
 def _resumo_os(linhas: List[dict]) -> dict:
-    """Resumo do pedido a partir das linhas já lidas (sem query extra).
+    """Summary of the pedido from rows already read (no extra query).
 
-    A view VW_OS_INTEGRACAO é desnormalizada por item: os campos de CABEÇALHO
-    (cliente, status, datas) se repetem em cada linha — pegamos da primeira. As OPs
-    (``N_OP``) são agregadas e o ``total_orcamento`` é a SOMA das linhas (ver
+    The VW_OS_INTEGRACAO view is denormalized per item: the HEADER fields (customer,
+    status, dates) repeat on every row — we take them from the first. The OPs (``N_OP``)
+    are aggregated and ``total_orcamento`` is the SUM of the rows (see
     ``_soma_total_orcamento``).
 
-    Os campos de EXPEDIÇÃO (``data_entrega``, ``data_liberacao``, ``obs``) agora saem
-    da MESMA linha (antes vinham de um espelho separado). ``obs`` = ``ObsPedido``
-    (observação do PEDIDO; a view tem também ``Obs``, da OP, que NÃO serve aqui).
-    ``exped_disponivel`` fica ``True`` por compatibilidade com o app web — não há mais
-    espelho separado que possa faltar.
+    The EXPEDIÇÃO fields (``data_entrega``, ``data_liberacao``, ``obs``) now come from the
+    SAME row (they used to come from a separate mirror). ``obs`` = ``ObsPedido`` (the
+    PEDIDO's note; the view also has ``Obs``, from the OP, which is NOT the one wanted
+    here). ``exped_disponivel`` is hardcoded ``True`` for compatibility with the web app —
+    there is no separate mirror left that could be missing.
 
-    As flags de processo (Solda/Pintura/Almox/Exped) são POR ITEM, não do pedido —
-    vão agregadas em ``processos`` (ver ``_resumo_processos``), não como booleanos
-    de cabeçalho, que seriam enganosos num pedido com itens mistos.
+    The process flags (Solda/Pintura/Almox/Exped) are PER ITEM, not per pedido — they go
+    aggregated into ``processos`` (see ``_resumo_processos``), not as header booleans,
+    which would be misleading on a pedido with mixed items.
     """
     primeira = linhas[0]
     status = primeira.get('Status')
@@ -315,17 +319,18 @@ def _resumo_os(linhas: List[dict]) -> dict:
 
 
 def _autorizado() -> bool:
-    """True se ``OS_API_KEY`` não está definido (aberto) ou se a chave bate.
+    """True if ``OS_API_KEY`` is unset (open) or if the key matches.
 
-    Aceita a chave por: header ``X-API-Key``, ``Authorization: Bearer <chave>`` ou query
-    string ``?key=`` / ``?api_key=`` (o query param permite testar no navegador, que não
-    envia headers; ciente de que a chave aparece na URL/histórico do navegador).
+    Accepts the key via: the ``X-API-Key`` header, ``Authorization: Bearer <key>``, or the
+    query string ``?key=`` / ``?api_key=`` (the query param allows testing from a browser,
+    which sends no headers; with the caveat that the key then appears in the URL/browser
+    history).
 
-    A comparação usa ``compare_digest`` (tempo constante): ``==`` curto-circuita no 1º byte
-    diferente, e o tempo de resposta vaza quantos bytes o palpite acertou — dá para
-    descobrir a chave byte a byte. Agravante: aceitamos a chave por query string, então o
-    ataque é um GET simples em loop, sem rate-limit nas leituras. O ``mcp/serve_http.py``
-    já fazia certo; a API não.
+    The comparison uses ``compare_digest`` (constant time): ``==`` short-circuits on the
+    1st differing byte, and the response time leaks how many bytes the guess got right —
+    enough to recover the key byte by byte. Made worse by accepting the key on the query
+    string, so the attack is a plain GET in a loop, with no rate limit on reads.
+    ``mcp/serve_http.py`` already did this right; the API did not.
     """
     chave = get_settings().os_api_key
     if not chave:
@@ -338,27 +343,27 @@ def _autorizado() -> bool:
     if not enviado:
         enviado = request.args.get('key') or request.args.get('api_key')
     if not enviado:
-        return False   # compare_digest não aceita None
-    # encode: compare_digest exige bytes ou str ASCII-only — uma chave com acento
-    # levantaria TypeError e viraria 500 em vez de 401.
+        return False   # compare_digest does not accept None
+    # encode: compare_digest requires bytes or an ASCII-only str — a key with an accent
+    # would raise TypeError and turn into a 500 instead of a 401.
     return hmac.compare_digest(enviado.encode('utf-8'), chave.encode('utf-8'))
 
 
 def requer_chave(fn):
-    """Exige ``X-API-Key`` na rota (ver ``_autorizado``); sem/errada → **401**.
+    """Require ``X-API-Key`` on the route (see ``_autorizado``); missing/wrong → **401**.
 
-    Substitui o ``if not _autorizado(): return 401`` que estava colado em 11 rotas. O ganho
-    não é linha: é matar a classe de bug **"rota nova sem guarda"** — o padrão anterior
-    dependia de lembrar, e o repo cresce. Agora esquecer o decorator deixa a rota
-    visivelmente sem ele, em vez de parecer igual às outras.
+    Replaces the ``if not _autorizado(): return 401`` that was pasted into 11 routes. The
+    gain is not lines: it kills the **"new route without a guard"** bug class — the old
+    pattern relied on remembering, and the repo keeps growing. Now forgetting the
+    decorator leaves the route visibly without it, instead of looking like all the others.
 
-    Ficam SEM ele, de propósito (ver CLAUDE.md): ``/``, ``/favicon.ico``, ``/health`` e
-    ``/status`` — monitoramento e uso no navegador.
+    Deliberately WITHOUT it (see CLAUDE.md): ``/``, ``/favicon.ico``, ``/health`` and
+    ``/status`` — monitoring and browser use.
 
-    Ordem importa: ``@app.get(...)`` **em cima**, ``@requer_chave`` logo abaixo — senão o
-    Flask registra o wrapper como endpoint e a guarda não roda no request.
+    Order matters: ``@app.get(...)`` **on top**, ``@requer_chave`` right below — otherwise
+    Flask registers the wrapper as the endpoint and the guard never runs on the request.
     """
-    @wraps(fn)   # sem isto, o Flask usa o nome do wrapper como endpoint e colide
+    @wraps(fn)   # without this, Flask uses the wrapper's name as the endpoint and collides
     def _wrapper(*args, **kwargs):
         if not _autorizado():
             return jsonify(ok=False, error='unauthorized'), 401
@@ -367,12 +372,12 @@ def requer_chave(fn):
 
 
 def _sync_one(nped: int) -> dict:
-    """Sincroniza um NPED. Antes, diagnostica via OWOR + ORDR: se não há OS ainda
-    (distinguindo pedido aberto, cancelado ou inexistente), ou se a OS está cancelada,
-    devolve um aviso **sem** tentar sincronizar (não gera log de falha).
+    """Sync one NPED. First it diagnoses via OWOR + ORDR: if there is no OS yet
+    (telling an open, cancelled or non-existent pedido apart), or if the OS is cancelled,
+    it returns a notice **without** attempting the sync (no failure log is written).
 
-    Os ``motivo`` das respostas são propositalmente SEM acento — legíveis em qualquer
-    terminal/console sem depender do escape ``\\uXXXX`` do JSON.
+    The responses' ``motivo`` are deliberately accent-free — readable on any
+    terminal/console without depending on JSON's ``\\uXXXX`` escaping.
     """
     try:
         diag = diagnosticar_nped(nped)
@@ -397,23 +402,24 @@ def _sync_one(nped: int) -> dict:
                 'status_pedido': status_pedido,
                 'motivo': 'A OS deste pedido esta cancelada.'}
 
-    # OS existe (ou não deu para diagnosticar) → tenta sincronizar
+    # OS exists (or could not be diagnosed) → try to sync
     try:
         ok = bool(sync_os(nped))
     except FileLockTimeout:
-        # Outro PROCESSO (ex.: o CLI) está sincronizando este mesmo pedido. Não é erro:
-        # nada foi alterado e o outro conclui a carga. 'ocupado' → 409, como o irmão de
-        # oportunidades — distinguir isso de 'erro' evita caçar um problema que não existe.
+        # Another PROCESS (e.g. the CLI) is syncing this same pedido. Not an error:
+        # nothing was changed and the other one finishes the load. 'ocupado' → 409, like
+        # the oportunidades sibling — telling this apart from 'erro' avoids hunting a
+        # problem that does not exist.
         logger.warning("NPED %s já está sendo sincronizado por outro processo.", nped)
         return {'nped': nped, 'ok': False, 'tipo': 'ocupado', 'status_pedido': status_pedido,
                 'motivo': 'Este pedido ja esta sendo sincronizado por outro processo.'}
-    except Exception as exc:  # nunca deixa a request estourar 500 silenciosamente
+    except Exception as exc:  # never let the request blow up as a silent 500
         logger.error("Erro ao sincronizar NPED %s: %s", nped, exc)
         ok = False
 
     if ok:
-        # Carga única: a view VW_OS_INTEGRACAO já traz OS + estrutura/árvore + orçamento
-        # numa só tabela — não há mais sub-syncs de árvore WBC nem de views de impressão.
+        # Single load: the VW_OS_INTEGRACAO view already brings OS + tree/structure +
+        # quote in one table — there are no more WBC tree or print-view sub-syncs.
         return {'nped': nped, 'ok': True, 'tipo': None, 'motivo': None,
                 'status_pedido': status_pedido}
     return {'nped': nped, 'ok': False, 'tipo': 'erro', 'status_pedido': status_pedido,
@@ -421,7 +427,7 @@ def _sync_one(nped: int) -> dict:
 
 
 def _sincronizar(npeds: List[int]) -> Tuple[Any, int]:
-    """Sincroniza os NPEDs (serializados) e devolve ``(json, http_status)``."""
+    """Sync the NPEDs (serialized) and return ``(json, http_status)``."""
     resultados = []
     with _sync_lock:
         for n in npeds:
@@ -434,29 +440,29 @@ def _sincronizar(npeds: List[int]) -> Tuple[Any, int]:
         'results': resultados,
         'summary': {'total': total, 'sucesso': sucesso, 'falha': total - sucesso},
     }
-    http = 200 if sucesso == total else 207  # 207 = algum não sincronizou (parcial)
+    http = 200 if sucesso == total else 207  # 207 = some did not sync (partial)
     return jsonify(payload), http
 
 
 @app.get('/')
 def ui():
-    """Página amigável (campo de pedido + chave + botão Sincronizar)."""
+    """Friendly page (pedido field + key + Sincronizar button)."""
     return send_from_directory(_WEB_DIR, 'sincronizar.html')
 
 
 @app.get('/favicon.ico')
 def favicon():
-    return ('', 204)  # evita 404 ruidoso no log
+    return ('', 204)  # avoids a noisy 404 in the log
 
 
 @app.get('/health')
 def health():
-    """Liveness leve (a API está de pé?). Sem chave, sem checagem externa — rápido e
-    sempre disponível. Para o diagnóstico profundo, use ``/status``."""
+    """Light liveness (is the API up?). No key, no external check — fast and always
+    available. For the deep diagnosis, use ``/status``."""
     return jsonify(status='ok', service='ordens-servico-engenharia')
 
 
-# aliases aceitos no ?checks= → nome canônico da checagem
+# aliases accepted in ?checks= → canonical check name
 _CHECK_ALIASES = {
     'sql': 'sql_server', 'sqlserver': 'sql_server', 'wbc': 'sql_server',
     'hana': 'sap', 'agendador': 'scheduler', 'sched': 'scheduler',
@@ -468,18 +474,19 @@ _CHECK_ALIASES = {
 
 @app.get('/status')
 def status_detalhado():
-    """Diagnóstico **sob demanda**: SAP, SQL Server (WBC), Supabase (com latência), sinal
-    do agendador e sistema (CPU/memória/disco/IP/uptime).
+    """**On-demand** diagnosis: SAP, SQL Server (WBC), Supabase (with latency), scheduler
+    signal and system (CPU/memory/disk/IP/uptime).
 
-    **Aberto** (sem chave) — pensado p/ monitoramento e p/ abrir direto no navegador.
-    Roda só quando chamado (sem polling). Parâmetros:
-    - ``?checks=sap,sql`` — roda só as checagens listadas (sap, sql/sql_server, supabase,
-      scheduler/agendador, scheduled_task/tarefa, windows_update/update/reboot). Omitido =
-      todas. ``system`` vem sempre. Nome inválido → **400** com a lista do que é aceito (ver
-      ``collect_status``: um typo devolvia ``healthy: true`` sem checar nada).
-    - ``?strict=1`` — devolve **HTTP 503** se alguma conexão falhar **ou** houver alertas
-      (disco baixo, agendador possivelmente parado, reboot pendente). Útil p/ monitores por
-      código de status.
+    **Open** (no key) — meant for monitoring and for opening straight in a browser. Runs
+    only when called (no polling). Parameters:
+    - ``?checks=sap,sql`` — runs only the listed checks (sap, sql/sql_server, supabase,
+      scheduler/agendador, scheduled_task/tarefa, windows_update/update/reboot). Omitted =
+      all of them. ``system`` always comes. An invalid name → **400** with the list of what
+      is accepted (see ``collect_status``: a typo used to return ``healthy: true`` without
+      checking anything).
+    - ``?strict=1`` — returns **HTTP 503** if any connection fails **or** there are alerts
+      (low disk, scheduler possibly stopped, pending reboot). Useful for monitors that key
+      off the status code.
     """
     raw = request.args.get('checks')
     only = None
@@ -490,8 +497,8 @@ def status_detalhado():
     try:
         data = collect_status(only)
     except ValueError as exc:
-        # Nome de check inválido. 400 ANTES do 500 genérico: é erro do cliente, e
-        # responder o que é aceito poupa a próxima tentativa às cegas.
+        # Invalid check name. 400 BEFORE the generic 500: it is a client error, and
+        # answering with what is accepted saves the next blind attempt.
         aceitos = sorted(set(SELECTABLE_CHECKS) | set(_CHECK_ALIASES))
         return jsonify(ok=False, error=str(exc), aceitos=aceitos), 400
     except Exception as exc:
@@ -506,7 +513,7 @@ def status_detalhado():
 @app.get('/historico')
 @requer_chave
 def historico():
-    """Últimas sincronizações (lê a tabela de log). Requer X-API-Key."""
+    """Latest syncs (reads the log table). Requires X-API-Key."""
     try:
         limit = int(request.args.get('limit', 20))
     except (TypeError, ValueError):
@@ -523,7 +530,7 @@ def historico():
 @app.delete('/historico')
 @requer_chave
 def historico_limpar():
-    """Limpa o histórico de OS (apaga a tabela de log). Requer X-API-Key."""
+    """Clear the OS history (empties the log table). Requires X-API-Key."""
     try:
         removidos = _clear_log(get_settings().os_sync_log_table)
     except Exception as exc:
@@ -535,10 +542,11 @@ def historico_limpar():
 @app.get('/ordens-servico/disponiveis')
 @requer_chave
 def os_disponiveis():
-    """Lista até 30 pedidos com OS criada no SAP (NPED + cliente + data). Requer X-API-Key.
+    """List up to 30 pedidos with an OS created in SAP (NPED + customer + date).
+    Requires X-API-Key.
 
-    Alimenta o botão "Buscar na Lista" do painel: o usuário escolhe os pedidos sem
-    precisar digitar os NPEDs.
+    Feeds the panel's "Buscar na Lista" button: the user picks pedidos without having to
+    type the NPEDs.
     """
     limit = _limit_arg(default=30, maximo=50)
     try:
@@ -554,15 +562,15 @@ def os_disponiveis():
 @app.get('/ordens-servico/<nped>')
 @requer_chave
 def os_detalhe(nped: str):
-    """Detalhe da OS de UM pedido (lê a tabela única no Supabase). Requer X-API-Key.
+    """Detail of ONE pedido's OS (reads the single Supabase table). Requires X-API-Key.
 
-    Devolve um ``resumo`` (cliente, status, total, nº de linhas e de OPs, última
-    sincronização, datas de entrega/liberação e observação do pedido — todos vindos
-    da mesma tabela ``vw_os_integracao``). Com ``?linhas=1`` inclui também as
-    ``linhas`` (colunas enxutas). Responde **404** se o pedido não tem OS sincronizada.
+    Returns a ``resumo`` (customer, status, total, row and OP counts, last sync, delivery
+    and release dates, and the pedido's note — all from the same ``vw_os_integracao``
+    table). With ``?linhas=1`` it also includes the ``linhas`` (lean columns). Responds
+    **404** if the pedido has no synced OS.
 
-    Obs.: a rota estática ``/ordens-servico/disponiveis`` tem prioridade no roteador
-    do Werkzeug, então não é capturada por este ``<nped>``.
+    Note: the static route ``/ordens-servico/disponiveis`` has priority in Werkzeug's
+    router, so it is not captured by this ``<nped>``.
     """
     try:
         n = coerce_positive_int(nped, what='NPED')
@@ -584,19 +592,20 @@ def os_detalhe(nped: str):
 @app.post('/ordens-servico/<nped>/sincronizar')
 @requer_chave
 def os_sincronizar(nped: str):
-    """Sincroniza (SAP → Supabase) a OS de UM pedido e devolve o ``resumo`` resultante.
-    Requer X-API-Key. **Par de escrita** do ``GET /ordens-servico/<nped>``.
+    """Sync (SAP → Supabase) ONE pedido's OS and return the resulting ``resumo``.
+    Requires X-API-Key. The **write pair** of ``GET /ordens-servico/<nped>``.
 
-    Reúsa ``_sync_one`` (serializado no ``_sync_lock``): diagnostica OWOR + ORDR antes — se o
-    pedido **não tem OS gerada** (tipos ``sem_os``, ``pedido_cancelado``, ``pedido_nao_encontrado``,
-    conforme o status do pedido na ORDR) ou a OS está **cancelada**, devolve o aviso **sem
-    sincronizar**. As respostas incluem ``status_pedido`` (Aberto/Cancelado/Fechado). É idempotente
-    (``replace_nped`` substitui, não duplica) — a carga única já traz OS + árvore + orçamento. Em
-    sucesso, relê a tabela e inclui o ``resumo`` fresco (cliente, status, nº de linhas/OPs, última
-    sincronização).
+    Reuses ``_sync_one`` (serialized under ``_sync_lock``): it diagnoses OWOR + ORDR first
+    — if the pedido **has no OS generated** (types ``sem_os``, ``pedido_cancelado``,
+    ``pedido_nao_encontrado``, according to the pedido's status in ORDR) or the OS is
+    **cancelled**, it returns the notice **without syncing**. Responses include
+    ``status_pedido`` (Aberto/Cancelado/Fechado). It is idempotent (``replace_nped``
+    replaces, does not duplicate) — the single load already brings OS + tree + quote. On
+    success it re-reads the table and includes a fresh ``resumo`` (customer, status,
+    row/OP counts, last sync).
 
-    Status: ``200`` (sincronizado **ou** aviso de negócio sem_os/cancelada) · ``502`` (falha de
-    sincronização) · ``400`` NPED inválido · ``401`` sem/má X-API-Key.
+    Status: ``200`` (synced **or** a business notice sem_os/cancelada) · ``502`` (sync
+    failure) · ``400`` invalid NPED · ``401`` missing/bad X-API-Key.
     """
     try:
         n = coerce_positive_int(nped, what='NPED')
@@ -615,19 +624,20 @@ def os_sincronizar(nped: str):
         try:
             linhas = _fetch_os_detalhe(n)
             if linhas:
-                # Resumo fresco já sai com datas/obs — tudo vem da tabela única.
+                # The fresh summary already carries dates/obs — it all comes from the
+                # single table.
                 payload['resumo'] = _resumo_os(linhas)
-        except Exception as exc:  # sync já foi; só não conseguimos reler o resumo
+        except Exception as exc:  # the sync happened; we just could not re-read the summary
             logger.error("Sync OK mas falha ao reler o resumo do NPED %s: %s", n, exc)
 
-    # avisos de negócio (sem_os / cancelada / pedido_cancelado / pedido_nao_encontrado)
-    # respondem 200; 'ocupado' = outro processo já sincronizando este pedido (409, mesma
-    # semântica do irmão de oportunidades); 'erro' = falha real de sync (502).
+    # business notices (sem_os / cancelada / pedido_cancelado / pedido_nao_encontrado)
+    # respond 200; 'ocupado' = another process is already syncing this pedido (409, same
+    # semantics as the oportunidades sibling); 'erro' = a real sync failure (502).
     http = {'erro': 502, 'ocupado': 409}.get(resultado.get('tipo'), 200)
     return jsonify(payload), http
 
 
-# ===================== Oportunidades (pipeline agendado) =====================
+# ===================== Oportunidades (scheduled pipeline) =====================
 
 def _limit_arg(default: int = 20, maximo: int = 100) -> int:
     try:
@@ -640,7 +650,7 @@ def _limit_arg(default: int = 20, maximo: int = 100) -> int:
 @app.get('/oportunidades/historico')
 @requer_chave
 def oport_historico():
-    """Últimos sincronismos de oportunidades (lê sincronizacao_log). Requer X-API-Key."""
+    """Latest oportunidades syncs (reads sincronizacao_log). Requires X-API-Key."""
     try:
         itens = _fetch_log(get_settings().sync_log_table_name, _limit_arg())
     except Exception as exc:
@@ -652,7 +662,7 @@ def oport_historico():
 @app.delete('/oportunidades/historico')
 @requer_chave
 def oport_historico_limpar():
-    """Limpa o log de oportunidades. Requer X-API-Key."""
+    """Clear the oportunidades log. Requires X-API-Key."""
     try:
         removidos = _clear_log(get_settings().sync_log_table_name)
     except Exception as exc:
@@ -664,7 +674,7 @@ def oport_historico_limpar():
 @app.get('/oportunidades/info')
 @requer_chave
 def oport_info():
-    """Contexto do pipeline de oportunidades: total de linhas + agenda. Requer X-API-Key."""
+    """Context for the oportunidades pipeline: total rows + schedule. Requires X-API-Key."""
     s = get_settings()
     total = None
     try:
@@ -682,10 +692,10 @@ def oport_info():
 @app.post('/oportunidades/sincronizar')
 @requer_chave
 def oport_sincronizar():
-    """Força a carga COMPLETA de oportunidades (a mesma do agendador). Requer X-API-Key.
+    """Force the FULL oportunidades load (the scheduler's own). Requires X-API-Key.
 
-    Usa um lock de arquivo cross-process: se o agendador (ou outro disparo) já estiver
-    rodando, responde 409 em vez de rodar duas cargas snapshot ao mesmo tempo.
+    Uses a cross-process file lock: if the scheduler (or another trigger) is already
+    running, it responds 409 instead of running two snapshot loads at once.
     """
     limitado = _checar_rate('force_oport', _RATE_FORCE_OPORT_MAX)
     if limitado is not None:
@@ -702,9 +712,9 @@ def oport_sincronizar():
         return jsonify(ok=False, tipo='erro', motivo='Nao foi possivel sincronizar.'), 502
     if ok:
         return jsonify(ok=True)
-    # 502 igual ao except acima: é a MESMA classe de problema (a carga não aconteceu).
-    # Sem o status code, o Flask devolvia 200 e qualquer monitor que decida por código
-    # — o padrão — lia a falha como sucesso.
+    # 502 like the except above: it is the SAME class of problem (the load did not
+    # happen). Without the status code, Flask returned 200 and any monitor that decides by
+    # code — the norm — read the failure as a success.
     return jsonify(ok=False, tipo='erro',
                    motivo='Nao foi possivel sincronizar (0 registros?).'), 502
 
@@ -712,7 +722,7 @@ def oport_sincronizar():
 @app.post('/sync/ordens-servico/<nped>')
 @requer_chave
 def sync_um(nped: str):
-    """Sincroniza **um** pedido. Requer X-API-Key. Mesma trava anti-loop do par
+    """Sync **one** pedido. Requires X-API-Key. Same anti-loop guard as its pair
     ``/ordens-servico/<nped>/sincronizar`` (bucket ``sync_os``)."""
     try:
         n = coerce_positive_int(nped, what='NPED')
@@ -728,10 +738,10 @@ def sync_um(nped: str):
 @app.post('/sync/ordens-servico')
 @requer_chave
 def sync_varios():
-    """Sincroniza vários pedidos: ``{"nped": N}`` ou ``{"npeds": [...]}``. Requer X-API-Key.
+    """Sync several pedidos: ``{"nped": N}`` or ``{"npeds": [...]}``. Requires X-API-Key.
 
-    Limites: no máximo ``SYNC_LOTE_MAX`` pedidos por request e a trava anti-loop
-    (bucket ``sync_os``) — ver ``_SYNC_LOTE_MAX``.
+    Limits: at most ``SYNC_LOTE_MAX`` pedidos per request, plus the anti-loop guard
+    (bucket ``sync_os``) — see ``_SYNC_LOTE_MAX``.
     """
     body = request.get_json(silent=True) or {}
     bruto = body.get('npeds')
@@ -742,10 +752,10 @@ def sync_varios():
     if not isinstance(bruto, list):
         bruto = [bruto]
     if len(bruto) > _SYNC_LOTE_MAX:
-        # Sem cap, `{"npeds": [1..5000]}` era 1 request segurando o _sync_lock por HORAS
-        # (2 conexões HANA por pedido, tudo dentro do lock): nenhuma outra sync entrava e
-        # cada tentativa consumia um thread do waitress esperando → o pool esgota e a API
-        # inteira para de responder, /health incluído.
+        # Without the cap, `{"npeds": [1..5000]}` was 1 request holding _sync_lock for
+        # HOURS (2 HANA connections per pedido, all inside the lock): no other sync could
+        # get in and every attempt burned a waitress thread waiting → the pool drains and
+        # the whole API stops responding, /health included.
         return jsonify(
             ok=False, error=f'lote grande demais: {len(bruto)} pedidos (max {_SYNC_LOTE_MAX})',
             motivo='Divida em requests menores — o lote roda serializado e segura a fila.',
@@ -762,7 +772,7 @@ def sync_varios():
 
 
 def main() -> None:
-    """Sobe o servidor (waitress em produção; Flask dev como fallback)."""
+    """Start the server (waitress in production; Flask dev as fallback)."""
     _configure_logging()
     s = get_settings()
     if not s.os_api_key:
@@ -770,9 +780,10 @@ def main() -> None:
             "OS_API_KEY não definido — endpoint SEM autenticação "
             "(ok p/ rede interna/dev; defina OS_API_KEY em produção)."
         )
-    # A busca de updates custa 3,1s aqui (medido; 30s a frio) e estouraria o timeout de
-    # quem chama o /status — por isso roda numa thread daemon, fora do caminho do request.
-    # Aqui no entrypoint e NÃO no import: senão a suíte de testes dispararia PowerShell.
+    # The update search costs 3.1s here (measured; 30s cold) and would blow the timeout of
+    # whoever calls /status — hence it runs on a daemon thread, off the request path.
+    # Here in the entrypoint and NOT on import: otherwise the test suite would fire
+    # PowerShell.
     windows_update.iniciar_coletor(s)
     host, port = s.os_api_host, s.os_api_port
     try:

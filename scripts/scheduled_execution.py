@@ -27,11 +27,11 @@ logger = logging.getLogger(__name__)
 
 
 def _configure_logging() -> None:
-    """Configura o log (arquivo rotativo + console).
+    """Configure logging (rotating file + console).
 
-    Chamado só pelo entrypoint (``main_scheduler``), **não no import** — assim
-    importar o módulo nos testes não redireciona o log da suíte para o arquivo
-    de produção ``logs/scheduled_execution.log``.
+    Called only by the entrypoint (``main_scheduler``), **not on import** — that way
+    importing the module in tests does not redirect the suite's log into the production
+    file ``logs/scheduled_execution.log``.
     """
     os.makedirs('logs', exist_ok=True)
     file_handler = TimedRotatingFileHandler(
@@ -96,7 +96,7 @@ def job_execucao(*, ignorar_janela: bool = False) -> None:
         settings = get_settings()
         view_name = settings.sap_view_name or 'SUA_VIEW_SAP'
         try:
-            # Lock de arquivo: nunca roda junto com o "forçar sincronismo" da API.
+            # File lock: never runs alongside the API's "force sync".
             with oportunidades_sync_lock(timeout=0):
                 success = main(view_name=view_name, execution_mode=settings.execution_mode)
             logger.info('Run finished: %s', 'OK' if success else 'FAILED')
