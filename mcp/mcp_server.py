@@ -225,6 +225,46 @@ def estado_tarefa_wbc() -> Dict[str, Any]:
 
 
 @mcp.tool()
+def estado_windows_update() -> Dict[str, Any]:
+    """Windows Update do SERVIDOR DE INTEGRAÇÃO (192.168.7.11): updates pendentes, último
+    patch e se há REBOOT PENDENTE.
+
+    Use para "o servidor de integração está atualizado?", "tem update pendente?", "quando
+    foi o último patch?", "precisa reiniciar?". Endpoint aberto (não exige chave); é o
+    bloco ``windows_update`` do /status, pedido ISOLADO (não abre as conexões de teste
+    com SAP/SQL/Supabase).
+
+    Atenção: esta é a máquina da INTEGRAÇÃO (API 8077, agendador WBC). O servidor RDP do
+    SAP (192.168.7.12) é outra máquina, com tools próprias — não confunda as respostas.
+
+    LEIA O ``pendentes`` COM ATENÇÃO — ele pode ser ``null``, e ``null`` NÃO é zero:
+
+    - ``pendentes: null`` + ``pendentes_motivo`` = **não sabemos**. Acontece quando o
+      agente do Windows Update não varre há tempo demais: nesse caso a busca até responde,
+      mas responde 0 porque o cache dela está vazio — e esse 0 seria mentira. **Nunca
+      relate "0 updates pendentes" quando o valor vier null; diga que não é possível saber
+      e mostre o motivo.**
+    - ``reboot_pendente.pendente`` é tri-estado: ``true``/``false`` são fatos; **``null`` =
+      não foi possível ler** (aí ``erro`` explica). Nunca relate ``null`` como "sem reboot
+      pendente". ``motivos`` diz de onde veio o sinal (CBS, WindowsUpdate,
+      PendingFileRenameOperations).
+    - ``patching_automatico: false`` significa que o serviço de Windows Update está
+      DESABILITADO — a máquina não se atualiza sozinha. É contexto essencial: sem ele,
+      "0 pendentes" engana.
+    - ``dias_sem_patch`` é o dado mais útil quando o resto está indisponível.
+    - ``estado: "coletando"`` = a API subiu há pouco e a 1ª coleta (~3 s) ainda não
+      terminou; ela roda em background para não travar as consultas.
+    """
+    data = _get("/status", {"checks": "windows_update"})
+    # Como em `estado_tarefa_wbc`: no /status, `windows_update` é chave de TOPO (irmã de
+    # `checks`/`alerts`), não fica dentro de `checks`.
+    if isinstance(data, dict) and "windows_update" in data:
+        return {"ok": data.get("ok", True), "windows_update": data["windows_update"],
+                "alerts": data.get("alerts", [])}
+    return data
+
+
+@mcp.tool()
 def ultimos_erros(limit: int = 10) -> Dict[str, Any]:
     """Só as sincronizações de OS que FALHARAM, dentre as últimas execuções (filtra o /historico).
     Requer a SIS_API_KEY. Use para "teve falha de sync hoje?" sem ler o histórico inteiro.

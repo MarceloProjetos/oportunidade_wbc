@@ -20,6 +20,7 @@ import time
 from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 
+import windows_update
 from config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -46,9 +47,14 @@ DISK_LOW_GB = 5.0      # menos que isto livre
 DISK_PCT_ALERT = 90.0  # ou mais que isto usado
 
 # Checagens que o ?checks= pode selecionar (system é sempre incluído, é local/barato).
-SELECTABLE_CHECKS = ('sap', 'sql_server', 'supabase', 'scheduler', 'scheduled_task')
+SELECTABLE_CHECKS = ('sap', 'sql_server', 'supabase', 'scheduler', 'scheduled_task',
+                     'windows_update')
 # Nota: a classificação dos LastTaskResult (sucesso/running/never-run/recusado) vive em
 # monitor_wbc_task.ps1 — o Python só LÊ o JSON de estado que o script grava.
+# Nota 2: `windows_update` é barato AQUI (~0,2 ms de winreg + leitura de cache) porque a
+# busca cara (3,1 s medidos nesta máquina) roda numa thread daemon disparada no start da
+# API — ver windows_update.py. Ele entra no ?checks= para poder ser pedido ISOLADO, sem
+# pagar as 3 conexões de teste (SAP/SQL/Supabase); é o que a tool MCP faz.
 
 
 def _timed(fn: Callable[[], Optional[str]]) -> Dict[str, Any]:
@@ -277,6 +283,57 @@ def _scheduled_task_signal() -> Dict[str, Any]:
     return data
 
 
+def _windows_update_signal() -> Dict[str, Any]:
+    """Reboot pendente + updates pendentes + último patch (bloco ``windows_update``).
+
+    Barato de propósito: ``reboot_pendente()`` é ~0,2 ms de ``winreg`` (sempre fresco, não
+    depende do agente do Windows Update) e ``estado_updates()`` só LÊ o cache que a thread
+    de background popula. A busca que custa 3,1 s nesta máquina NÃO acontece aqui — se
+    acontecesse, estouraria o timeout de quem chama o ``/status``.
+
+    **Leia ``pendentes`` com atenção: ``None`` NÃO é zero.** Ver ``windows_update.py`` —
+    com o agente sem varrer, a busca responde ``0`` e o ``0`` é mentira.
+    """
+    try:
+        return {
+            'reboot_pendente': windows_update.reboot_pendente(),
+            **windows_update.estado_updates(),
+        }
+    except Exception as exc:
+        # O /status é o endpoint de saúde: este bloco não pode derrubá-lo (viraria 500 no
+        # api.py e o monitor perderia SAP/SQL/Supabase junto). Falha vira "não sei" — e
+        # "não sei" NUNCA pode virar "sem reboot pendente"/"0 pendentes" (invariantes 1 e 2).
+        logger.warning('Falha ao ler o estado do Windows Update: %s', exc)
+        return {
+            'reboot_pendente': {'pendente': None, 'motivos': [], 'erro': str(exc)[:200]},
+            'estado': 'erro',
+            'patching_automatico': None,
+            'pendentes': None,
+            'pendentes_motivo': f'falha ao ler o Windows Update: {str(exc)[:120]}',
+            'ultima_varredura': None,
+            'ultimo_patch': None,
+            'dias_sem_patch': None,
+        }
+
+
+def _windows_update_alerts(wu: Dict[str, Any]) -> list:
+    """Decisão D1 do PLANO_WINDOWS_UPDATE (Marcelo, 2026-07-16): **só reboot vira alerta**.
+
+    Alerta derruba ``healthy`` → ``?strict=1`` responde 503 e a Mira diz "⚠️ atenção".
+    Update pendente é ROTINA (esta máquina tem ``AUOptions=4`` e se atualiza sozinha):
+    viraria "atenção" permanente, e alerta que vive ligado para de ser lido. Reboot
+    pendente é raro e acionável — e esta máquina roda a integração do SAP.
+
+    ``pendente`` é tri-estado: só ``True`` alerta. ``None`` = não deu para ler — não vira
+    alerta, mas também não vira "sem reboot pendente" (o campo ``erro`` fica à vista).
+    """
+    reboot = wu.get('reboot_pendente') or {}
+    if reboot.get('pendente') is not True:
+        return []
+    motivos = ', '.join(reboot.get('motivos') or []) or 'motivo não identificado'
+    return [f'reboot pendente ({motivos}) — a integração do SAP roda nesta máquina']
+
+
 def _local_ip() -> Optional[str]:
     """IP local de saída (sem enviar pacote — só resolve a rota). Fallback p/ hostname."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -339,8 +396,10 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
     Returns:
         Dict com ``ok`` (todas as conexões que rodaram estão verdes), ``healthy`` (``ok`` e
         sem alertas), ``checks`` (conectividade), ``scheduler`` (sinal indireto),
-        ``scheduled_task`` (estado da tarefa "Integração WBC", lido do monitor), ``system`` e
-        ``alerts`` (lista de avisos legíveis: disco baixo, agendador parado, tarefa travada…).
+        ``scheduled_task`` (estado da tarefa "Integração WBC", lido do monitor),
+        ``windows_update`` (reboot pendente + updates pendentes + último patch), ``system`` e
+        ``alerts`` (lista de avisos legíveis: disco baixo, agendador parado, tarefa travada,
+        reboot pendente…).
 
         ``ok``/``healthy`` refletem SÓ as checagens que rodaram — pedir um subconjunto é
         escolha explícita de quem chama, e não afirma nada sobre o resto.
@@ -375,6 +434,7 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
 
     scheduler = _scheduler_signal() if 'scheduler' in sel else None
     scheduled_task = _scheduled_task_signal() if 'scheduled_task' in sel else None
+    wu_estado = _windows_update_signal() if 'windows_update' in sel else None
     system = _system_info()
 
     alerts = []
@@ -386,6 +446,8 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
         )
     if scheduled_task is not None:
         alerts.extend(_scheduled_task_alerts(scheduled_task))
+    if wu_estado is not None:
+        alerts.extend(_windows_update_alerts(wu_estado))
     if system.get('disk_low'):
         alerts.append(
             f"disco baixo: {system.get('disk_free_gb')} GB livres ({system.get('disk_percent')}% usado)"
@@ -406,6 +468,8 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
         out['scheduler'] = scheduler
     if scheduled_task is not None:
         out['scheduled_task'] = scheduled_task
+    if wu_estado is not None:
+        out['windows_update'] = wu_estado
     return out
 
 

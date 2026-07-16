@@ -72,3 +72,45 @@ def test_sql_enrichment_view_from_env(monkeypatch):
     monkeypatch.setenv('SQL_ENRICHMENT_VIEW', 'MYDB.dbo.MY_VIEW')
     reset_settings()
     assert get_settings().sql_enrichment_view == 'MYDB.dbo.MY_VIEW'
+
+
+# ───────────────────────── Windows Update (windows_update.py) ─────────────────────────
+
+def test_wu_defaults(monkeypatch):
+    for var in ('WU_ENABLED', 'WU_DELAY_START_S', 'WU_VARREDURA_MAX_D', 'WU_COLETA_TIMEOUT_S'):
+        monkeypatch.delenv(var, raising=False)
+    reset_settings()
+    s = get_settings()
+    assert s.wu_enabled is True
+    assert s.wu_delay_start_s == 300.0
+    assert s.wu_varredura_max_d == 7.0
+    assert s.wu_coleta_timeout_s == 120.0
+
+
+def test_wu_varredura_max_d_e_float_nao_int(monkeypatch):
+    """7.9 tem de continuar 7.9: truncar faria o PowerShell da coleta usar 7 e divergir
+    em silêncio do limite reaplicado no Python."""
+    monkeypatch.setenv('WU_VARREDURA_MAX_D', '7.9')
+    reset_settings()
+    assert get_settings().wu_varredura_max_d == 7.9
+
+
+def test_wu_env_invalido_cai_no_default_e_nao_derruba_a_api(monkeypatch):
+    """`.env` torto não pode impedir a API de subir — e é o que barra injeção de
+    PowerShell pelo WU_VARREDURA_MAX_D (ver windows_update._PS_COLETA)."""
+    monkeypatch.setenv('WU_VARREDURA_MAX_D', 'lixo; Remove-Item C:\\')
+    monkeypatch.setenv('WU_DELAY_START_S', 'nao-e-numero')
+    reset_settings()
+    s = get_settings()   # não levanta
+    assert s.wu_varredura_max_d == 7.0
+    assert s.wu_delay_start_s == 300.0
+
+
+@pytest.mark.parametrize(('valor', 'esperado'), [
+    ('false', False), ('0', False), ('no', False), ('', True),   # vazio = default
+    ('true', True), ('1', True), ('sim', True),
+])
+def test_wu_enabled_bool(valor, esperado, monkeypatch):
+    monkeypatch.setenv('WU_ENABLED', valor)
+    reset_settings()
+    assert get_settings().wu_enabled is esperado

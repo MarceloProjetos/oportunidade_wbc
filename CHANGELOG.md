@@ -3,6 +3,91 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-16] — Windows Update e reboot pendente no `/status` (F2 do PLANO_WINDOWS_UPDATE)
+
+Fase F2 do plano que vive em `../SAP_RDP/docs/PLANO_WINDOWS_UPDATE.md` (a F1 fez o mesmo na
+.12). **O desenho inteiro vem de medição nas máquinas reais, não de estimativa** — e o achado
+que o justifica é caro: a **.12 estava há 610 dias sem patch** enquanto respondia
+*"0 updates pendentes"*, em 22,5 s, confiante.
+
+**A armadilha central: "0 pendentes" MENTE quando o agente não varre.** Não é um erro que dá
+para tratar com `try/except` — a busca `IsInstalled=0` **responde**, cara, e devolve **0**,
+porque o cache de varredura do agente está vazio. Por isso a contagem só é publicada quando a
+última varredura é recente (`LastSearchSuccessDate`, COM `Microsoft.Update.AutoUpdate`, 7-17 ms);
+senão sai **`None` + o motivo**. **`None` nunca pode virar `0`.**
+
+### Adicionado
+
+- **`windows_update.py` (novo)** — porte do módulo homônimo do repo SAP_RDP; **os dois devem ser
+  mantidos diffáveis** (bug corrigido em um vai para o outro). Reboot pendente via `winreg`
+  (**0,2 ms**, não depende do agente — a .12 leu todas as chaves com o serviço desabilitado),
+  updates pendentes e último patch via COM/PowerShell.
+- **Check `windows_update` no `/status`** (`SELECTABLE_CHECKS` + `collect_status`), com bloco
+  de topo `windows_update` (irmão de `checks`/`alerts`, como o `scheduled_task`). Aliases no
+  `?checks=`: `wu`, `update`, `updates`, `patch`, `reboot`, `windowsupdate`.
+- **Tool MCP `estado_windows_update`** na fachada 8078 (11 tools). Pede o bloco **isolado**
+  (`?checks=windows_update`), sem abrir as 3 conexões de teste. A docstring é load-bearing:
+  proíbe o LLM de relatar "0 pendentes" quando o valor é `null`, e desambigua desta máquina
+  (192.168.7.11) para o servidor RDP (192.168.7.12), que tem tools próprias.
+- **Config**: `WU_ENABLED`, `WU_DELAY_START_S` (300), `WU_VARREDURA_MAX_D` (7),
+  `WU_COLETA_TIMEOUT_S` (120) + helpers `_env_bool`/`_env_float`. O `_env_float` **rejeita lixo
+  e cai no default**: além de não derrubar a API no boot, é o que impede injeção de PowerShell
+  pelo `.env` (o `WU_VARREDURA_MAX_D` é interpolado no script da coleta).
+- **52 testes novos** (221 → **273**), lint 0.
+
+### Arquitetura — por que thread daemon, e não cache preguiçoso
+
+A busca custa **3,1 s aqui**, 22,5 s na .12 e 30 s a frio: **varia 10×** e estoura o timeout de
+15 s de quem consulta. Um cache lazy faria a 1ª pergunta do dia dar timeout. Então a coleta cara
+roda numa **thread daemon** disparada no `api.main()` (+5 min) e o `/status` **só lê o cache** —
+medido: **0,04 ms** no caminho síncrono, contra 12,8 s da coleta real. Cache em **memória, sem
+JSON e sem Task Scheduler**: **o boot é o agendamento** (esta máquina reinicia todo dia ~06:12,
+então um job "1×/dia às 03:00" nunca dispararia).
+
+### Decisão D1 — só **reboot** vira alerta; update pendente é informativo
+
+Alerta derruba `healthy` → `?strict=1` responde **503** e a Mira diz "⚠️ atenção". Esta máquina
+tem `AUOptions=4` (baixa e instala sozinha) e **é isso que a mantém em dia** (16 dias no último
+patch): update pendente é rotina e viraria alerta permanente — e alarme que vive ligado treina
+todo mundo a ignorar o monitor. ⚠️ **Não "corrigir" a política desta máquina para `AUOptions=2`**:
+foi desligar a automação que deixou a .12 610 dias para trás. *O remédio de uma é o veneno da
+outra.*
+
+> **Consequência imediata do deploy:** esta máquina **tem reboot pendente agora** (`PFRO(32)`,
+> medido na F0). Assim que a F2 subir, o `/status` passa a acusá-lo — `healthy: false` e **503 no
+> `?strict=1`** — até a máquina reiniciar limpa. Isso é a D1 funcionando: o fato já existia, só
+> era invisível.
+
+### Tri-estado: erro de leitura nunca vira "sem reboot pendente"
+
+`pendente` é `true`/`false` (fatos) ou **`null`** (não deu para ler — o `erro` explica). Um
+`Test-Path` booleano faria a API **afirmar** "sem reboot pendente" num acesso negado: falso
+negativo silencioso no dado mais crítico. Mesmo princípio do `[]` vs `None` do `_quser_sessions`
+no repo SAP_RDP. Falha na leitura também não derruba o `/status` inteiro (viraria 500 e levaria
+SAP/SQL/Supabase junto) — vira "não sei", com o bloco preservado.
+
+### Armadilhas que a revisão adversarial da F1 já tinha pago (aplicadas aqui de saída)
+
+- **A suíte não pode ler o estado da máquina.** `_stub_all_ok` stuba `_windows_update_signal`:
+  sem isso os testes leriam o **winreg real** e quebrariam **nesta máquina**, que tem reboot
+  pendente. E a "correção" óbvia — apagar o alerta — deixaria a suíte **verde violando a D1**.
+  Verificado rodando a suíte inteira com um reboot pendente **simulado**: 273 passam.
+- **Defesa em profundidade**: o Python **reaplica** a regra de frescor (`_filtrar_contagem`)
+  mesmo o PowerShell já a aplicando — a invariante nº 1 não pode ter ponto único de decisão do
+  outro lado de um subprocess, e esta camada é a que tem testes.
+- **`time.sleep()` DENTRO do try**: `.env` com `-1`/`nan`/`inf` matava a thread antes de gravar
+  e o estado ficava `"coletando"` **para sempre**.
+- **O PowerShell escreve em cp850, não UTF-8** (medido): sem forçar `[Console]::OutputEncoding`
+  na 1ª linha, `"Atualização"` chega `"Atualiza??o"` — o campo `erro` vem de mensagem localizada
+  do Windows.
+- **`WU_VARREDURA_MAX_D` vai ao PS como `float`, não `int`**: truncar faria o PS usar 7 com o
+  `.env` pedindo 7,9, divergindo em silêncio do limite reaplicado no Python.
+
+Verificação além da suíte: as três invariantes foram **mutation-testadas** (apagar o alerta de
+reboot, publicar `0` no lugar de `null`, tirar o check do `SELECTABLE_CHECKS`) — as três mutações
+quebram testes. E a coleta real rodou ponta a ponta: 12,8 s, varredura de 0,2 dia → publicou um
+`pendentes: 0` **legítimo** com `ultimo_patch KB5101650` batendo com o `Get-HotFix`.
+
 ## [2026-07-16] — Duas duplicações que pagavam: retry único e guarda de auth por decorator
 
 As duas simplificações que a revisão aprovou. As grandes (unificar os 2 conjuntos de

@@ -21,14 +21,15 @@ Serviço de integração SAP B1 → Supabase. Roda em produção no `192.168.7.1
 | `pipeline_core.py` | Núcleo compartilhado: `SupabaseLoader`, locks de arquivo, validação, retry |
 | `extract_sap_to_supabase.py` | Pipeline OPORTUNIDADES (carga completa, agendada) |
 | `extract_ordens_servico_engenharia.py` | Pipeline OS por N_PED (sob demanda) da view HANA consolidada `VW_OS_INTEGRACAO` → tabela única `vw_os_integracao` + `diagnosticar_nped` |
-| `monitoring.py` | `collect_status()` — checks SAP/SQL/Supabase/scheduler/disco do `/status` |
+| `monitoring.py` | `collect_status()` — checks SAP/SQL/Supabase/scheduler/windows_update/disco do `/status` |
+| `windows_update.py` | Reboot pendente (winreg, ~0,2ms) + updates pendentes/último patch (COM via PowerShell, 3-30s → thread daemon + cache). O `monitoring.py` só o consulta no check `windows_update` |
 | `sap_connection.py` | `SAPExtractor` (HANA via hdbcli) |
 | `db_utils.py` | `read_dbapi_query` (28 linhas) |
 | `feriados_br.py` | Feriados nacionais BR até 2030 (agendador pula) |
 | `scripts/scheduled_execution.py` | Loop do agendador (APScheduler, janela 7-18, seg-sex) |
 | `mcp/` | Fachada MCP fina e read-only sobre a API 8077 — NÃO fala com banco |
 | `web/sincronizar.html` | Página única servida em `GET /` |
-| `tests/` | pytest, 158 testes; `test_<modulo>.py` espelha o módulo |
+| `tests/` | pytest, 273 testes; `test_<modulo>.py` espelha o módulo |
 
 Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api.py` orquestra e
 importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não importa nada da raiz).
@@ -41,6 +42,7 @@ importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não impor
 | Variável de ambiente / default | `config.py` + `.env.example` + `tests/test_config.py` |
 | Lógica de extração/carga | o `extract_*.py` do pipeline + seu teste |
 | Check do `/status` | `monitoring.py` + `tests/test_monitoring.py` |
+| Windows Update / reboot pendente | `windows_update.py` + `tests/test_windows_update.py` (+ plano em `../SAP_RDP/docs/PLANO_WINDOWS_UPDATE.md`) |
 | Agendamento/janela/feriado | `scripts/scheduled_execution.py` + `feriados_br.py` |
 | Tool MCP | `mcp/mcp_server.py` (+ `mcp/README.md` só p/ registro no cliente) |
 | Schema/RLS Supabase | `sql/*.sql` (DDL de referência; NÃO roda automaticamente) |
@@ -63,7 +65,28 @@ importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não impor
   **locks**: `_sync_lock` (thread) p/ OS, `oportunidades_sync_lock` (arquivo, cross-process,
   409 se ocupado) p/ carga completa.
 - `config.get_settings()` é cacheado — testes usam `reset_settings()` após mexer em env.
-- Scripts `.ps1` são ASCII **de propósito** (PowerShell 5.1/BOM). Não adicionar acentos.
+- **Windows Update: "0 pendentes" MENTE se o agente não varre.** Não é erro tratável — a busca
+  `IsInstalled=0` **responde** (3,1s aqui, 22,5s na .12), diz **0** e está errada, porque o cache
+  de varredura do agente está vazio. A .12 ficou **610 dias sem patch** exatamente assim. Por isso
+  `windows_update.py` só publica `pendentes` quando `LastSearchSuccessDate` (COM
+  `Microsoft.Update.AutoUpdate`, 7-17ms) é recente; senão devolve **`None` + motivo**.
+  **Nunca troque `None` por `0`.** Custos medidos: reboot pendente 0,2ms (winreg, independe do
+  agente) · varredura 7-17ms · `Get-HotFix` ~1s · busca 3,1s aqui / 30s a frio — daí a thread
+  daemon no `api.main()`: a busca estouraria o timeout de quem chama o `/status`.
+  `LastInstallationSuccessDate` parece um `Get-HotFix` barato mas inclui **ruído do Defender**
+  (divergiu nas duas máquinas) — não trocar. **`windows_update.py` é PORTE do módulo homônimo do
+  repo SAP_RDP: mantenha os dois diffáveis** (bug corrigido aqui vai para lá, e vice-versa).
+- **Decisão D1: só REBOOT pendente vira alerta**, update pendente não. Alerta derruba `healthy` →
+  `?strict=1` responde 503 → a Mira diz "⚠️ atenção". Esta máquina tem `AUOptions=4` (instala
+  sozinha, e **é isso que a mantém em dia** — não "corrija" para 2, foi o que matou a .12):
+  update pendente é rotina e viraria alerta permanente, que ninguém lê.
+- **Testes: NUNCA deixe a suíte ler o winreg real.** `_stub_all_ok` (tests/test_monitoring.py)
+  stuba `_windows_update_signal` de propósito: **esta máquina TEM reboot pendente**, e sem o stub
+  os testes que exigem `alerts == []` quebram por um fato do ambiente. Pior, a "correção" óbvia
+  (apagar o alerta) deixaria a suíte verde **violando a D1** — a suíte premiaria quebrar a regra.
+- Scripts `.ps1` são ASCII **de propósito** (PowerShell 5.1/BOM). Não adicionar acentos. O
+  PowerShell escreve o stdout em **cp850**, não UTF-8 (medido) — quem lê saída de PS force
+  `[Console]::OutputEncoding` na 1ª linha do script, senão "Atualização" chega "Atualiza??o".
 - Repo GitHub ainda se chama `oportunidade_wbc` (mantido de propósito); pasta local e
   prod já são `ServidorIntegracaoSAP`. Env vars/endpoints antigos (`OPORTUNIDADE_WBC_*`,
   `/api/oportunidade-wbc/status` no web) são funcionais — NÃO renomear.

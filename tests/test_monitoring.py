@@ -10,7 +10,17 @@ import monitoring
 from config import reset_settings
 
 
-def _stub_all_ok(monkeypatch):
+def _wu_ok() -> dict:
+    """Bloco windows_update de uma máquina saudável (varreu hoje, sem reboot pendente)."""
+    return {'reboot_pendente': {'pendente': False, 'motivos': [], 'erro': None},
+            'estado': 'ok', 'patching_automatico': True, 'pendentes': 3,
+            'pendentes_motivo': None, 'ultima_varredura': '2026-07-16T06:20:00',
+            'ultimo_patch': '2026-06-30', 'dias_sem_patch': 16}
+
+
+def _stub_all_ok(monkeypatch, *, stub_wu=True):
+    """Deixa todas as checagens verdes. `stub_wu=False` só para quem testa o próprio
+    `_windows_update_signal` (aí ele precisa rodar de verdade)."""
     monkeypatch.setattr(monitoring, '_check_sap', lambda: 'sap-ok')
     monkeypatch.setattr(monitoring, '_check_sql_server', lambda: 'sql-ok')
     monkeypatch.setattr(monitoring, '_check_supabase', lambda: 'sb-ok')
@@ -19,6 +29,14 @@ def _stub_all_ok(monkeypatch):
     monkeypatch.setattr(monitoring, '_scheduled_task_signal',
                         lambda: {'available': True, 'healthy': True, 'stale': False,
                                  'task_name': 'Integração WBC', 'state': 'Ready', 'problems': []})
+    # OBRIGATÓRIO stubar: sem isto `_windows_update_signal` lê o winreg REAL da máquina que
+    # roda a suíte. ESTA MÁQUINA (.11) TEM REBOOT PENDENTE — os testes que exigem
+    # `alerts == []` quebrariam por causa de um fato do ambiente, não do código. Pior: a
+    # "correção" óbvia (apagar o alerta de reboot) deixaria a suíte verde violando a D1 —
+    # ou seja, a suíte premiaria quebrar a regra que ela existe para proteger. Foi
+    # exatamente o que a revisão adversarial da F1 pegou na .12.
+    if stub_wu:
+        monkeypatch.setattr(monitoring, '_windows_update_signal', _wu_ok)
 
 
 def test_system_info_keys():
@@ -52,6 +70,7 @@ def test_checks_filter(monkeypatch):
     data = monitoring.collect_status(only={'sap'})
     assert set(data['checks']) == {'sap'}        # só a checagem pedida rodou
     assert 'scheduler' not in data               # scheduler não foi selecionado
+    assert 'windows_update' not in data          # nem o windows_update
 
 
 def test_alert_scheduler_stale(monkeypatch):
@@ -143,6 +162,116 @@ def test_scheduled_task_signal_missing_file(monkeypatch, tmp_path):
     sig = monitoring._scheduled_task_signal()
     assert sig['available'] is False
     assert sig['healthy'] is False
+
+
+# ───────────────── Windows Update / reboot pendente (check windows_update) ─────────────────
+# Plano: ../SAP_RDP/docs/PLANO_WINDOWS_UPDATE.md. O que estes testes protegem:
+#  - D1: SÓ reboot vira alerta (update pendente é rotina; alerta crônico não é lido);
+#  - invariante 1: `pendentes: null` NUNCA pode virar 0;
+#  - invariante 2: erro de leitura NUNCA pode virar "sem reboot pendente";
+#  - o /status não paga os 3,1s da busca (ela roda na thread do windows_update.py).
+
+def test_collect_status_inclui_windows_update(monkeypatch):
+    _stub_all_ok(monkeypatch)
+    data = monitoring.collect_status()
+    assert data['windows_update']['pendentes'] == 3
+    assert data['windows_update']['reboot_pendente']['pendente'] is False
+    assert data['healthy'] is True       # update pendente NÃO é alerta (D1)
+    assert data['alerts'] == []
+
+
+def test_alert_reboot_pendente(monkeypatch):
+    """D1: reboot pendente é o ÚNICO sinal de Windows Update que vira alerta.
+
+    Se alguém apagar o alerta para "consertar" um teste que quebrou numa máquina com
+    reboot pendente, é ESTE teste que estoura e explica o porquê.
+    """
+    _stub_all_ok(monkeypatch)
+    monkeypatch.setattr(monitoring, '_windows_update_signal',
+                        lambda: {**_wu_ok(),
+                                 'reboot_pendente': {'pendente': True,
+                                                     'motivos': ['PendingFileRenameOperations(32)'],
+                                                     'erro': None}})
+    data = monitoring.collect_status()
+    assert data['ok'] is True            # conexões ok
+    assert data['healthy'] is False      # mas há alerta -> ?strict=1 responde 503
+    assert any('reboot pendente' in a for a in data['alerts'])
+    assert any('PendingFileRenameOperations(32)' in a for a in data['alerts'])
+
+
+def test_update_pendente_nao_vira_alerta(monkeypatch):
+    """D1, o outro lado: 47 updates pendentes NÃO derrubam `healthy`.
+
+    Esta máquina se atualiza sozinha (AUOptions=4): alerta de update seria permanente, e
+    alerta que vive ligado treina todo mundo a ignorar o monitor.
+    """
+    _stub_all_ok(monkeypatch)
+    monkeypatch.setattr(monitoring, '_windows_update_signal',
+                        lambda: {**_wu_ok(), 'pendentes': 47, 'dias_sem_patch': 90})
+    data = monitoring.collect_status()
+    assert data['healthy'] is True
+    assert data['alerts'] == []
+
+
+def test_reboot_desconhecido_nao_vira_alerta_nem_negativa(monkeypatch):
+    """Tri-estado: `None` = não sei. Não alerta (não há fato), mas o erro fica à vista —
+    e em nenhum momento vira "sem reboot pendente"."""
+    _stub_all_ok(monkeypatch)
+    monkeypatch.setattr(monitoring, '_windows_update_signal',
+                        lambda: {**_wu_ok(),
+                                 'reboot_pendente': {'pendente': None, 'motivos': [],
+                                                     'erro': 'acesso negado'}})
+    data = monitoring.collect_status()
+    assert data['alerts'] == []
+    assert data['windows_update']['reboot_pendente']['pendente'] is None
+    assert data['windows_update']['reboot_pendente']['erro'] == 'acesso negado'
+
+
+def test_windows_update_signal_junta_reboot_e_updates(monkeypatch):
+    """O bloco publicado = reboot (winreg, fresco) + estado do cache, num objeto só."""
+    monkeypatch.setattr(monitoring.windows_update, 'reboot_pendente',
+                        lambda: {'pendente': False, 'motivos': [], 'erro': None})
+    monkeypatch.setattr(monitoring.windows_update, 'estado_updates',
+                        lambda: {'estado': 'ok', 'pendentes': 3, 'patching_automatico': True})
+    bloco = monitoring._windows_update_signal()
+    assert bloco['reboot_pendente']['pendente'] is False
+    assert bloco['pendentes'] == 3 and bloco['estado'] == 'ok'
+
+
+def test_windows_update_signal_nao_dispara_powershell(monkeypatch):
+    """O /status não pode pagar os 3,1s da busca — a thread de background já pagou."""
+    def _boom(*_a, **_k):
+        raise AssertionError('o /status disparou PowerShell — isso trava o endpoint de saúde')
+
+    monkeypatch.setattr(monitoring.windows_update.subprocess, 'run', _boom)
+    monitoring._windows_update_signal()   # só winreg + cache; não pode estourar
+
+
+def test_falha_no_windows_update_nao_derruba_o_status(monkeypatch):
+    """Este bloco não pode virar 500 e levar SAP/SQL/Supabase junto — e "não sei"
+    NUNCA vira "sem reboot pendente"/"0 pendentes"."""
+    _stub_all_ok(monkeypatch, stub_wu=False)    # o _windows_update_signal REAL tem de rodar
+    monkeypatch.setattr(monitoring.windows_update, 'reboot_pendente',
+                        lambda: (_ for _ in ()).throw(RuntimeError('winreg explodiu')))
+    data = monitoring.collect_status()          # não levanta
+    wu = data['windows_update']
+    assert wu['reboot_pendente']['pendente'] is None    # não sei != sem reboot
+    assert wu['pendentes'] is None                      # não sei != 0
+    assert 'winreg explodiu' in wu['reboot_pendente']['erro']
+    assert data['alerts'] == []                 # erro de leitura não inventa alerta
+    assert data['checks']['sap']['ok'] is True  # o resto do /status sobreviveu
+
+
+def test_checks_filter_isola_windows_update(monkeypatch):
+    """?checks=windows_update responde sem abrir as 3 conexões de teste — é o que a tool
+    MCP `estado_windows_update` usa."""
+    _stub_all_ok(monkeypatch)
+    monkeypatch.setattr(monitoring, '_check_sap',
+                        lambda: (_ for _ in ()).throw(AssertionError('não devia conectar no SAP')))
+    data = monitoring.collect_status(only={'windows_update'})
+    assert data['checks'] == {}
+    assert data['windows_update']['pendentes'] == 3
+    assert 'scheduler' not in data and 'scheduled_task' not in data
 
 
 # ===================== Nome de check inválido (regressão 2026-07-15) =====================

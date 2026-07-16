@@ -45,6 +45,7 @@ from typing import Any, List, Optional, Tuple
 
 from flask import Flask, jsonify, request, send_from_directory
 
+import windows_update
 from config import get_settings
 from extract_ordens_servico_engenharia import (
     diagnosticar_nped,
@@ -460,6 +461,8 @@ _CHECK_ALIASES = {
     'sql': 'sql_server', 'sqlserver': 'sql_server', 'wbc': 'sql_server',
     'hana': 'sap', 'agendador': 'scheduler', 'sched': 'scheduler',
     'task': 'scheduled_task', 'tarefa': 'scheduled_task', 'wbc_task': 'scheduled_task',
+    'wu': 'windows_update', 'windowsupdate': 'windows_update', 'update': 'windows_update',
+    'updates': 'windows_update', 'patch': 'windows_update', 'reboot': 'windows_update',
 }
 
 
@@ -471,11 +474,12 @@ def status_detalhado():
     **Aberto** (sem chave) — pensado p/ monitoramento e p/ abrir direto no navegador.
     Roda só quando chamado (sem polling). Parâmetros:
     - ``?checks=sap,sql`` — roda só as checagens listadas (sap, sql/sql_server, supabase,
-      scheduler/agendador, scheduled_task/tarefa). Omitido = todas. ``system`` vem sempre.
-      Nome inválido → **400** com a lista do que é aceito (ver ``collect_status``: um
-      typo devolvia ``healthy: true`` sem checar nada).
+      scheduler/agendador, scheduled_task/tarefa, windows_update/update/reboot). Omitido =
+      todas. ``system`` vem sempre. Nome inválido → **400** com a lista do que é aceito (ver
+      ``collect_status``: um typo devolvia ``healthy: true`` sem checar nada).
     - ``?strict=1`` — devolve **HTTP 503** se alguma conexão falhar **ou** houver alertas
-      (disco baixo, agendador possivelmente parado). Útil p/ monitores por código de status.
+      (disco baixo, agendador possivelmente parado, reboot pendente). Útil p/ monitores por
+      código de status.
     """
     raw = request.args.get('checks')
     only = None
@@ -766,6 +770,10 @@ def main() -> None:
             "OS_API_KEY não definido — endpoint SEM autenticação "
             "(ok p/ rede interna/dev; defina OS_API_KEY em produção)."
         )
+    # A busca de updates custa 3,1s aqui (medido; 30s a frio) e estouraria o timeout de
+    # quem chama o /status — por isso roda numa thread daemon, fora do caminho do request.
+    # Aqui no entrypoint e NÃO no import: senão a suíte de testes dispararia PowerShell.
+    windows_update.iniciar_coletor(s)
     host, port = s.os_api_host, s.os_api_port
     try:
         from waitress import serve

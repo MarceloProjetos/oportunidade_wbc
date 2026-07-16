@@ -71,6 +71,21 @@ WBC_TASK_NAME_DEFAULT = 'Integração WBC'
 WBC_TASK_STATE_FILE_DEFAULT = 'state/wbc_task_state.json'
 WBC_TASK_STALE_MIN_DEFAULT = 25
 
+# Windows Update / reboot pendente (``windows_update.py``; plano completo em
+# ``../SAP_RDP/docs/PLANO_WINDOWS_UPDATE.md``). Todos os números vêm de MEDIÇÃO nos dois
+# servidores reais, não de estimativa.
+WU_ENABLED_DEFAULT = True
+# A thread dorme isto antes de coletar: dá tempo ao boot (a .11 sobe ~06:12) e a 1ª busca
+# do processo é a cara (30s a frio) — melhor pagá-la sem ninguém esperando.
+WU_DELAY_START_S_DEFAULT = 300.0
+# Varredura mais velha que isto => a contagem de pendentes é MENTIRA, vira "não sei". A .12
+# estava com 610,8 dias e mesmo assim devolvia "0 pendentes" em 22,5s, confiante.
+WU_VARREDURA_MAX_D_DEFAULT = 7.0
+# Teto da coleta: medido 3,1s aqui na .11 (22,5s na .12, 30s a frio). 120s dá folga sem pendurar.
+WU_COLETA_TIMEOUT_S_DEFAULT = 120.0
+
+_BOOL_VERDADEIRO = ('1', 'true', 'yes', 'on', 'sim')
+
 # Scheduler
 INTERVALO_MINUTOS_DEFAULT = 30
 INTERVALO_PISO_MIN = 5
@@ -103,6 +118,34 @@ def _env(*keys: str) -> Optional[str]:
         if value:
             return value
     return None
+
+
+def _env_bool(key: str, default: bool) -> bool:
+    """Bool do ambiente; vazio/ausente cai no default."""
+    bruto = os.getenv(key)
+    if not bruto or not bruto.strip():
+        return default
+    return bruto.strip().lower() in _BOOL_VERDADEIRO
+
+
+def _env_float(key: str, default: float) -> float:
+    """Float do ambiente; lixo cai no DEFAULT em vez de derrubar a API no boot.
+
+    Diferente do ``int(os.getenv(...))`` usado nos campos antigos — ali um ``.env`` torto
+    levanta ``ValueError`` dentro de ``get_settings()`` e o serviço não sobe.
+
+    E não é só robustez: ``WU_VARREDURA_MAX_D`` é **interpolado no script PowerShell** da
+    coleta (``windows_update._PS_COLETA``), e é esta função que garante que só um literal
+    numérico chegue lá. Trocá-la por leitura crua abriria injeção de PowerShell pelo
+    ``.env`` — há teste cravando isso (``test_limite_malicioso_no_env_nao_injeta_powershell``).
+    """
+    bruto = os.getenv(key)
+    if not bruto or not bruto.strip():
+        return default
+    try:
+        return float(bruto.strip())
+    except ValueError:
+        return default
 
 
 @dataclass(frozen=True)
@@ -148,6 +191,12 @@ class Settings:
     wbc_task_name: str
     wbc_task_state_file: str
     wbc_task_stale_min: int
+
+    # Windows Update (coleta cara, em background — ver windows_update.py)
+    wu_enabled: bool           # WU_ENABLED — desliga a thread de coleta
+    wu_delay_start_s: float    # WU_DELAY_START_S — espera da thread após o start da API
+    wu_varredura_max_d: float  # WU_VARREDURA_MAX_D — idade máx. da varredura p/ publicar a contagem
+    wu_coleta_timeout_s: float  # WU_COLETA_TIMEOUT_S — teto do powershell da coleta
 
     intervalo_minutos: int
     janela_horas: str
@@ -195,6 +244,10 @@ class Settings:
             wbc_task_stale_min=max(
                 1, int(os.getenv('WBC_TASK_STALE_MIN', WBC_TASK_STALE_MIN_DEFAULT))
             ),
+            wu_enabled=_env_bool('WU_ENABLED', WU_ENABLED_DEFAULT),
+            wu_delay_start_s=_env_float('WU_DELAY_START_S', WU_DELAY_START_S_DEFAULT),
+            wu_varredura_max_d=_env_float('WU_VARREDURA_MAX_D', WU_VARREDURA_MAX_D_DEFAULT),
+            wu_coleta_timeout_s=_env_float('WU_COLETA_TIMEOUT_S', WU_COLETA_TIMEOUT_S_DEFAULT),
             intervalo_minutos=max(
                 INTERVALO_PISO_MIN,
                 int(os.getenv('INTERVALO_MINUTOS', INTERVALO_MINUTOS_DEFAULT)),
