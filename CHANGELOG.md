@@ -3,6 +3,44 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-16] — Feriados: a tabela acaba em 2030 e agora avisa (antes falhava calada)
+
+### Corrigido
+
+- **A partir de 01/01/2031 o agendador rodaria carga no feriado, em silêncio.** A tabela de
+  feriados vai de 2024 a 2030; fora disso, `is_national_holiday` devolve `False` e
+  `is_business_day(date(2031, 1, 1))` respondia **`True`** — Ano-Novo virava dia útil, sem
+  aviso nenhum. É o tipo de bug que dorme anos e acorda no pior dia. Agora `is_business_day`
+  **loga um WARNING** quando a data sai da cobertura, dizendo o intervalo conhecido e como
+  consertar (`HOLIDAY_YEAR_END`). Novo helper `covers(d)`. O comportamento não muda dentro
+  de 2024-2030, e o caminho normal não polui o log.
+
+### Alterado
+
+- **Consciência Negra virou feriado fixo na tabela.** O `if year >= _BLACK_CONSCIOUSNESS_FROM_YEAR`
+  era **sempre verdadeiro** — a constante é 2024 e a tabela **começa** em 2024. Como a data é
+  nacional desde 2024 (Lei 14.759/2023), foi para `_FIXED_HOLIDAYS` com o porquê no
+  comentário. Verificado que o conjunto de feriados é **idêntico** ao anterior (91 datas,
+  zero diferença) — refatoração puramente estrutural.
+
+### Documentado (código morto que fica de propósito)
+
+- **`db_utils.read_dbapi_query(params=...)`** está inalcançável desde que o
+  `extract_wbc_arvore` saiu na consolidação (era seu único usuário). **Mantido**: é a única
+  porta para consulta parametrizada quando aparecer o próximo `WHERE x = ?`. Remover
+  economizaria 3 linhas e apagaria a defesa contra injeção. O docstring agora diz isso, para
+  ninguém "limpar" depois.
+
+> **Não removido, por verificação:** os aliases PT do `feriados_br` (`eh_dia_util`,
+> `eh_feriado_nacional`, `feriados_nacionais`) foram reportados como "sem consumidor" — mas
+> `tests/test_feriados_br.py` e `tests/test_scheduler.py` os importam. Apagar quebraria a
+> suíte. `exports/*.json` (2 MB, gitignorado) são dados de cliente — limpeza é decisão do
+> Marcelo, não minha.
+
+5 testes novos (215 no total): `covers` nas bordas (2023/2024/2030/2031); fora da cobertura
+**avisa** e diz como consertar; dentro **não** loga; fim de semana ainda vale fora da tabela;
+e Consciência Negra presente em todos os anos cobertos (guarda a refatoração).
+
 ## [2026-07-16] — `/status`: fim do alarme falso diário do agendador
 
 ### Corrigido

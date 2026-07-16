@@ -16,6 +16,13 @@ def read_dbapi_query(
         query: SQL com placeholders ``?`` se usar ``params`` (qmark; suportado por
             hdbcli e pyodbc).
         params: valores p/ os placeholders (consulta parametrizada — evita injeção).
+
+    Note:
+        Hoje **nenhum** chamador passa ``params`` (o único que passava era o
+        ``extract_wbc_arvore``, removido na consolidação de 14/07), então o ramo
+        parametrizado está inalcançável. É **de propósito**: é a única porta para
+        consulta parametrizada quando aparecer o próximo ``WHERE x = ?``. Remover
+        economizaria 3 linhas e apagaria a defesa contra injeção — não vale.
     """
     cursor = connection.cursor()
     if params is None:
