@@ -30,7 +30,7 @@ Mudanças notáveis deste projeto. Formato inspirado em
   `sap_os_service.py`). Isso quase mordeu no mesmo dia: o web envia `windows_update`, e só não
   quebrou porque o nome tinha sido adicionado aqui por outra frente — **sorte, não desenho**.
   A tupla agora carrega o aviso; o espelho do lado do web (`CHECKS_ACEITOS`) e o teste de
-  contrato estão na V117.254 de lá.
+  contrato estão na V117.255 de lá.
 
 ## [2026-07-16] — Comentários do serviço traduzidos para inglês técnico (onda 3/5)
 
