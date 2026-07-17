@@ -32,7 +32,6 @@ from typing import Iterable, List, Optional
 import pandas as pd
 
 from config import (
-    OS_EXECUTION_MODE_DEFAULT,
     OS_EXECUTION_MODES,
     OS_SYNC_LOG_MAX_REGISTROS,
     get_settings,
@@ -256,21 +255,33 @@ def listar_pedidos_com_os(limit: int = 30) -> Optional[List[dict]]:
 
 def main(
     nped: object,
-    execution_mode: str = OS_EXECUTION_MODE_DEFAULT,
+    execution_mode: Optional[str] = None,
     execution_id: Optional[str] = None,
 ) -> bool:
     """Sync a single ``NPED`` into the Ordens de Serviço (Engenharia) table.
 
     Args:
         nped: Pedido to sync.
-        execution_mode: ``'replace_nped'`` (default — replaces that NPED's rows) or
-            ``'insert'`` (accumulate only, keeping history by ``id_execucao``).
+        execution_mode: ``'replace_nped'`` (replaces that NPED's rows) or ``'insert'``
+            (accumulate only, keeping history by ``id_execucao``). ``None`` (default)
+            reads ``OS_EXECUTION_MODE`` from the env — see the Note.
         execution_id: Custom ID (UUID generated automatically if ``None``).
 
     Returns:
         ``True`` if it completed successfully; ``False`` otherwise.
+
+    Note:
+        The default used to be the ``OS_EXECUTION_MODE_DEFAULT`` **constant**, so
+        ``settings.os_execution_mode`` was never read and the ``OS_EXECUTION_MODE`` env
+        var did nothing — while `.env.example` and the README documented it as working.
+        Setting it in production changed nothing, silently. Now it is resolved at CALL
+        time (not as a default argument, which would freeze `get_settings()` at import and
+        break `reset_settings()` in tests), matching what the oportunidades pipeline
+        already does via ``scheduled_execution.py``.
     """
     settings = get_settings()
+    if execution_mode is None:
+        execution_mode = settings.os_execution_mode
 
     if execution_mode not in OS_EXECUTION_MODES:
         logger.error(

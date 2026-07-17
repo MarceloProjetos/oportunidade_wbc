@@ -48,6 +48,14 @@ DISK_LOW_GB = 5.0      # less than this free
 DISK_PCT_ALERT = 90.0  # or more than this used
 
 # Checks that ?checks= can select (system is always included, it is local/cheap).
+#
+# ⚠️ CROSS-REPO CONTRACT — these names are a PUBLIC API, not an internal detail.
+# The web app (web_orcaview_V117) sends them in `?checks=` from `sap_os_service.py`
+# (`CHECKS_ACEITOS` there mirrors this tuple), and since 2026-07-16 `collect_status`
+# answers **400** to an unknown name. So renaming/removing an entry here does not
+# degrade the web — it BREAKS it (the /status panel and the Mira assistant). Adding is
+# safe; renaming means updating `CHECKS_ACEITOS` on the web side too. The `_CHECK_ALIASES`
+# in api.py (sql→sql_server, wu→windows_update, …) are part of the same contract.
 SELECTABLE_CHECKS = ('sap', 'sql_server', 'supabase', 'scheduler', 'scheduled_task',
                      'windows_update')
 # Note: classifying LastTaskResult (success/running/never-run/refused) lives in

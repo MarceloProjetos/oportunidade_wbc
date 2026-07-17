@@ -3,6 +3,35 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-07-17] — `OS_EXECUTION_MODE` funciona (era doc mentindo) e `?checks=` vira contrato explícito
+
+### Corrigido
+
+- **`OS_EXECUTION_MODE` estava documentado em dois lugares e era silenciosamente ignorado.**
+  `.env.example` e o README descreviam a variável como se funcionasse, mas `main()` usava a
+  **constante** `OS_EXECUTION_MODE_DEFAULT` como default do parâmetro — `settings.os_execution_mode`
+  **nunca era lido**. Quem setasse a var em produção achava que mudou o comportamento e não
+  mudou; nada avisava. **Doc mentindo é pior que doc ausente.**
+
+  Duas saídas possíveis (apagar a doc ou fazer a env valer); escolhida a segunda, por
+  consistência: o pipeline de oportunidades **já faz certo** (`execution_mode=settings.execution_mode`
+  em `scheduled_execution.py`). Agora `main(execution_mode=None)` resolve pela settings **na
+  chamada** — e não como valor default do argumento, que congelaria `get_settings()` no import
+  e quebraria o `reset_settings()` dos testes. Argumento explícito continua vencendo a env.
+
+  4 testes: a env `insert` **não poda**; sem env o default de produção segue `replace_nped`
+  (nada muda); o argumento explícito ganha da env; e lixo na env falha claro.
+
+### Alterado
+
+- **`SELECTABLE_CHECKS` agora se declara um contrato entre repos.** Desde 16/07 o `/status`
+  responde **400** para check desconhecido — o que transforma renomear/remover um nome de
+  "detalhe interno" em **quebrar o web** (o painel e o Assistente Mira mandam `?checks=` de
+  `sap_os_service.py`). Isso quase mordeu no mesmo dia: o web envia `windows_update`, e só não
+  quebrou porque o nome tinha sido adicionado aqui por outra frente — **sorte, não desenho**.
+  A tupla agora carrega o aviso; o espelho do lado do web (`CHECKS_ACEITOS`) e o teste de
+  contrato estão na V117.254 de lá.
+
 ## [2026-07-16] — Comentários do serviço traduzidos para inglês técnico (onda 3/5)
 
 Terceira onda: `api.py`, `monitoring.py` e `scripts/scheduled_execution.py`.

@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 import extract_ordens_servico_engenharia as mod
-from config import get_settings
+from config import get_settings, reset_settings
 
 
 def _set_sap_env(monkeypatch):
@@ -268,3 +268,71 @@ def test_sync_pega_lock_do_pedido(monkeypatch):
     nomes = [e[0] for e in eventos]
     assert nomes == ['lock', 'insert', 'poda', 'unlock']   # insert+poda DENTRO do lock
     assert eventos[0][1] == 84080                          # travou o pedido certo
+
+
+# ============ OS_EXECUTION_MODE: a env var agora FUNCIONA (2026-07-17) ============
+# Era documentada em .env.example e no README, mas `main()` usava a CONSTANTE como default
+# do parâmetro — `settings.os_execution_mode` nunca era lido. Quem setasse a var em
+# produção achava que mudou o comportamento e não mudou. Doc mentindo é pior que doc
+# ausente.
+
+def test_env_os_execution_mode_e_respeitada(monkeypatch):
+    """OS_EXECUTION_MODE=insert no .env => sem poda (o modo insert acumula)."""
+    _set_supabase_env(monkeypatch)
+    monkeypatch.setenv('OS_EXECUTION_MODE', 'insert')
+    reset_settings()
+    df = pd.DataFrame({'N_PED': [84080], 'N_OP': [1]})
+    monkeypatch.setattr(mod, 'extract_os_to_dataframe', lambda nped: df)
+
+    fake_cls = MagicMock()
+    inst = fake_cls.return_value
+    inst.insert_data.return_value = True
+    monkeypatch.setattr(mod, 'SupabaseLoader', fake_cls)
+
+    assert mod.main(84080) is True                      # SEM passar execution_mode
+    inst.insert_data.assert_called_once()
+    inst.delete_other_executions.assert_not_called()    # 'insert' não poda — a env pegou
+
+
+def test_env_default_continua_replace_nped(monkeypatch):
+    """Sem a env, o comportamento de produção não muda: replace_nped."""
+    _set_supabase_env(monkeypatch)
+    monkeypatch.delenv('OS_EXECUTION_MODE', raising=False)
+    reset_settings()
+    df = pd.DataFrame({'N_PED': [84080], 'N_OP': [1]})
+    monkeypatch.setattr(mod, 'extract_os_to_dataframe', lambda nped: df)
+
+    fake_cls = MagicMock()
+    inst = fake_cls.return_value
+    inst.insert_data.return_value = True
+    inst.delete_other_executions.return_value = True
+    monkeypatch.setattr(mod, 'SupabaseLoader', fake_cls)
+
+    assert mod.main(84080) is True
+    inst.delete_other_executions.assert_called_once()   # podou = replace_nped
+
+
+def test_argumento_explicito_ganha_da_env(monkeypatch):
+    """Quem passa o modo na chamada manda — a env é só o default."""
+    _set_supabase_env(monkeypatch)
+    monkeypatch.setenv('OS_EXECUTION_MODE', 'insert')
+    reset_settings()
+    df = pd.DataFrame({'N_PED': [84080], 'N_OP': [1]})
+    monkeypatch.setattr(mod, 'extract_os_to_dataframe', lambda nped: df)
+
+    fake_cls = MagicMock()
+    inst = fake_cls.return_value
+    inst.insert_data.return_value = True
+    inst.delete_other_executions.return_value = True
+    monkeypatch.setattr(mod, 'SupabaseLoader', fake_cls)
+
+    assert mod.main(84080, execution_mode='replace_nped') is True
+    inst.delete_other_executions.assert_called_once()   # o explícito venceu a env
+
+
+def test_env_com_modo_invalido_falha_claro(monkeypatch):
+    """Lixo na env não passa silenciosamente."""
+    _set_supabase_env(monkeypatch)
+    monkeypatch.setenv('OS_EXECUTION_MODE', 'snapshot')   # modo de oportunidades, não de OS
+    reset_settings()
+    assert mod.main(84080) is False
