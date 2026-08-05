@@ -102,6 +102,15 @@ create table if not exists public.vw_os_integracao (
   "DtEntregaPED"       timestamp,
   "CodigoOrcam"        text,
   "U_INO_VERSAOWBC"    text,
+  -- ⚠️ DIVERGÊNCIA DE TIPO com a view (conferida no catálogo em 2026-08-05):
+  --   "U_INO_LINHA"  → NVARCHAR(25) na view, integer aqui  ← RISCO
+  --   "U_INO_ORCITM" → INTEGER na view, text aqui          ← inócuo (text aceita)
+  -- Só a 1ª morde: hoje passa porque os valores são numéricos, mas UM valor com
+  -- letra derruba o INSERT inteiro do pedido (o insert do PostgREST é em lote).
+  -- NÃO convertida de propósito: o PCP lê esta tabela direto e trocar o tipo
+  -- mudaria ordenação/comparação do lado dele. Decisão do Marcelo em 05/08 —
+  -- fica anotado; se um dia quebrar, a correção é `alter column ... type text`
+  -- (int → text sempre casta) + avisar o PCP.
   "U_INO_LINHA"        integer,
   "U_INO_ORCITM"       text,
   -- Flags de PROCESSO por item (1 = passa pelo processo, 0 = não). Substituem, por
