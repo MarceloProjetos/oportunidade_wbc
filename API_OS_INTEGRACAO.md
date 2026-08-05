@@ -1,6 +1,6 @@
 # Ordens de Serviço — o que mudou e os campos novos
 
-**Data:** 15/07/2026 · **Servidor:** `192.168.7.11` · **API:** `http://192.168.7.11:8077`
+**Data:** 15/07/2026 *(atualizado em 05/08/2026 — §2.2)* · **Servidor:** `192.168.7.11` · **API:** `http://192.168.7.11:8077`
 **Público:** equipes que consomem OS (pela API ou lendo o Supabase direto)
 
 ---
@@ -9,8 +9,10 @@
 
 Duas mudanças, ambas **já em produção**:
 
-1. **As 6 tabelas de OS viraram 1**: `vw_os_integracao` (54 colunas). As antigas foram **apagadas**.
+1. **As 6 tabelas de OS viraram 1**: `vw_os_integracao` (55 colunas). As antigas foram **apagadas**.
 2. **Nasceram 4 flags de processo** — `Solda`, `Pintura`, `Almox`, `Exped` — que dizem, **por item**, por quais processos ele passa. Elas substituem as 4 tabelas que identificavam isso antes.
+
+**05/08/2026:** entrou também o campo **`U_INO_D_Adicionais`** (Dados Adicionais do item) — §2.2.
 
 > ⚠️ **Isto quebra quem lia as tabelas antigas.** Elas não foram renomeadas nem mantidas em paralelo — foram dropadas. Detalhes na §5.
 
@@ -49,6 +51,25 @@ Duas mudanças, ambas **já em produção**:
 | `U_INO_ORCITM` | `text` |
 
 Item do orçamento (UDF). Vinha da antiga `vw_os_solda`.
+
+### 2.3 `U_INO_D_Adicionais` ⭐ (05/08/2026)
+
+| Campo | Tipo na view | Tipo no espelho |
+| --- | --- | --- |
+| `U_INO_D_Adicionais` | `NVARCHAR(5000)` | `text` |
+
+**Dados Adicionais** do item — a UDF `U_INO_D_Adicionais` da *linha* do documento (`RDR1`/`QUT1`, `NCLOB` na origem; a view entrega recortada em 5.000 caracteres).
+
+> 🔑 Como as flags de processo, é **por item**, não do pedido. Duas linhas do mesmo `N_PED` têm textos diferentes.
+
+**Onde ele aparece:**
+
+| Você consome... | O que fazer |
+| --- | --- |
+| O **Supabase direto** | nada — a coluna já vem no `select *` da `vw_os_integracao` |
+| A **API 8077** | peça explicitamente: `GET /ordens-servico/{nped}?linhas=1&adicionais=1` |
+
+Ele fica **fora** do payload padrão de propósito: são até 5.000 caracteres **por item** (~1,7 MB num pedido de 344 linhas), e quase todo consumidor da API só quer o `resumo`.
 
 ---
 
@@ -101,6 +122,7 @@ curl -H "X-API-Key: SUA_CHAVE" http://192.168.7.11:8077/ordens-servico/84172
 ```
 
 Com `?linhas=1`, a resposta traz também `linhas[]` — os itens da OS, cada um com as suas 4 flags.
+Somando `&adicionais=1`, cada linha traz ainda o `U_INO_D_Adicionais` (§2.3) — sozinho, o `adicionais=1` não faz nada, porque o campo é por item e só existe dentro de `linhas[]`.
 
 ### 3.3 O bloco `processos`
 
@@ -249,7 +271,7 @@ A carga é **sob demanda, por pedido**. Se o `N_PED` não retorna nada, ele aind
 
 ---
 
-## 6. Referência — as 54 colunas
+## 6. Referência — as 55 colunas
 
 **Pedido / OS:** `N_PED` *(chave)* · `N_OP` · `Status` · `LinhRef` · `VisOrder`
 
@@ -257,7 +279,7 @@ A carga é **sob demanda, por pedido**. Se o `N_PED` não retorna nada, ele aind
 
 **Datas:** `DtPedido` · `DtVenc` · `DtInic` · `DtLiber` · `DtEncerr` · `DtEntregaPED` · `DataEntrega` · `DiasTotal`
 
-**Item do pedido:** `CodItemPED` · `DescItemPED` · `Quantity` · `UM` · `Deposito` · `Obs` · `ObsPedido`
+**Item do pedido:** `CodItemPED` · `DescItemPED` · `U_INO_D_Adicionais` *(⭐ 05/08)* · `Quantity` · `UM` · `Deposito` · `Obs` · `ObsPedido`
 
 **Estrutura / árvore:** `LinhEstrut` · `LinhVisEstrut` · `CodItemEstrut` · `DescItemEstrut` · `QtdBasEstrut` · `QtdPlanEstrut` · `QtdSaida` · `QtdLiberEstrut` · `TipoEmissOP` · `TipoItemEstrut` · `DeposEstrut` · `GrupoItem`
 

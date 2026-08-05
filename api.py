@@ -203,13 +203,20 @@ def _count_rows(table: str) -> Optional[int]:
 _OS_STATUS_DESC = {'P': 'Planejado', 'R': 'Liberado', 'L': 'Encerrado', 'C': 'Cancelado'}
 
 # Columns for the OS detail/summary — deliberately lean (the VW_OS_INTEGRACAO view has
-# 54 columns; we pull only what the summary uses). Includes the EXPEDIÇÃO fields
+# 55 columns; we pull only what the summary uses). Includes the EXPEDIÇÃO fields
 # (ObsPedido/DtLiber/DtEntregaPED) that used to require a 2nd query on the separate mirror.
 _OS_DETALHE_COLS = (
     'id,N_PED,N_OP,DescItemPED,DescItemEstrut,DtPedido,'
     'CodClien,NomeClien,Status,TotalOrcam,ObsPedido,DtLiber,DtEntregaPED,'
     'Solda,Pintura,Almox,Exped,id_execucao,data_hora_extracao'
 )
+
+# "Dados Adicionais" of the LINE (view column 6, NVARCHAR(5000)) — deliberately OUT of the
+# lean set and only fetched on request. It is PER ITEM and up to 5.000 chars: on a real
+# pedido (344 rows) it adds up to ~1,7 MB to a call that usually only wants the summary,
+# and the MCP facade would dump all of it into the model's context. Consumers that need it
+# read the mirror table directly (the PCP does) or ask for `?linhas=1&adicionais=1`.
+_OS_COL_ADICIONAIS = 'U_INO_D_Adicionais'
 
 # PROCESS flags (columns 50-53 of the view): 1 = the item goes through the process,
 # 0 = it does not. These 4 columns replace the 4 TABLES dropped in the 07-14
@@ -231,6 +238,11 @@ def _flag_ligada(valor: object) -> bool:
         return False
 
 
+def _flag_query(nome: str) -> bool:
+    """True if the ``nome`` query param is on (``1``/``true``/``yes``)."""
+    return request.args.get(nome) in ('1', 'true', 'yes')
+
+
 def _resumo_processos(linhas: List[dict]) -> dict:
     """Aggregate the process flags: ``{process: {'tem': bool, 'linhas': int}}``.
 
@@ -245,11 +257,18 @@ def _resumo_processos(linhas: List[dict]) -> dict:
     return processos
 
 
-def _fetch_os_detalhe(nped: int) -> List[dict]:
-    """Rows (lean columns) of an N_PED's OS, ordered by id. Empty if there is no OS."""
+def _fetch_os_detalhe(nped: int, incluir_adicionais: bool = False) -> List[dict]:
+    """Rows (lean columns) of an N_PED's OS, ordered by id. Empty if there is no OS.
+
+    ``incluir_adicionais`` adds ``U_INO_D_Adicionais`` (see ``_OS_COL_ADICIONAIS``) to the
+    projection — opt-in because it is a per-item field of up to 5.000 chars.
+    """
+    cols = _OS_DETALHE_COLS
+    if incluir_adicionais:
+        cols = f'{cols},{_OS_COL_ADICIONAIS}'
     res = (
         _supabase().table(get_settings().os_table_name)
-        .select(_OS_DETALHE_COLS).eq('N_PED', nped).order('id').execute()
+        .select(cols).eq('N_PED', nped).order('id').execute()
     )
     return res.data or []
 
@@ -566,8 +585,13 @@ def os_detalhe(nped: str):
 
     Returns a ``resumo`` (customer, status, total, row and OP counts, last sync, delivery
     and release dates, and the pedido's note — all from the same ``vw_os_integracao``
-    table). With ``?linhas=1`` it also includes the ``linhas`` (lean columns). Responds
-    **404** if the pedido has no synced OS.
+    table). With ``?linhas=1`` it also includes the ``linhas`` (lean columns); adding
+    ``&adicionais=1`` puts ``U_INO_D_Adicionais`` (Dados Adicionais, per item, up to 5.000
+    chars) in each row. Responds **404** if the pedido has no synced OS.
+
+    ``adicionais`` only takes effect together with ``linhas`` — the field is per item and
+    has no place in the summary, so asking for it alone would just make the query heavier
+    for nothing.
 
     Note: the static route ``/ordens-servico/disponiveis`` has priority in Werkzeug's
     router, so it is not captured by this ``<nped>``.
@@ -576,15 +600,18 @@ def os_detalhe(nped: str):
         n = coerce_positive_int(nped, what='NPED')
     except ValueError as exc:
         return jsonify(ok=False, error=str(exc)), 400
+    quer_linhas = _flag_query('linhas')
     try:
-        linhas = _fetch_os_detalhe(n)
+        linhas = _fetch_os_detalhe(
+            n, incluir_adicionais=quer_linhas and _flag_query('adicionais')
+        )
     except Exception as exc:
         logger.error("Erro ao ler a OS do NPED %s: %s", n, exc)
         return jsonify(ok=False, error='falha ao ler a OS'), 502
     if not linhas:
         return jsonify(ok=False, error='pedido sem OS sincronizada', nped=n), 404
     payload = {'ok': True, 'nped': n, 'resumo': _resumo_os(linhas)}
-    if request.args.get('linhas') in ('1', 'true', 'yes'):
+    if quer_linhas:
         payload['linhas'] = linhas
     return jsonify(payload)
 

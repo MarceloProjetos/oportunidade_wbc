@@ -3,6 +3,36 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-08-05] — `U_INO_D_Adicionais`: a view virou 55 colunas e a sync de OS estava parada
+
+### Corrigido
+
+- **A sincronização de OS estava falhando em produção — 100%, para qualquer pedido.** A view
+  `SBOALTAMIRAPROD.VW_OS_INTEGRACAO` ganhou hoje a coluna `U_INO_D_Adicionais`
+  (`NVARCHAR(5000)`, posição 6, logo depois de `DescItemPED`) e o espelho não tinha a coluna.
+  Como a extração é `SELECT *` e o insert casa **por nome**, o PostgREST derruba o INSERT
+  inteiro com `PGRST204`. O log conta a história: `84229` sucesso às 17:03, `84227` **falha**
+  às 19:13, 19:13 e 19:14 — três tentativas seguidas, nenhuma linha gravada.
+
+  Correção: [sql/alter_vw_os_integracao_u_ino_d_adicionais_2026-08-05.sql](sql/alter_vw_os_integracao_u_ino_d_adicionais_2026-08-05.sql)
+  (`add column if not exists` + `notify pgrst`). O DDL base ([sql/vw_os_integracao.sql](sql/vw_os_integracao.sql))
+  foi atualizado junto, mas **não** deve ser re-executado: ele começa com `drop table ... cascade`.
+
+  **Segunda vez que isto para a produção** (a 1ª foi 15/07, com `U_INO_ORCITM`). O README agora
+  traz o aviso e a query de catálogo que gera o ALTER a partir das colunas **reais** da view.
+
+### Adicionado
+
+- **`U_INO_D_Adicionais` exposto na API — opt-in.** `GET /ordens-servico/{nped}?linhas=1&adicionais=1`
+  traz o campo em cada linha; sem a flag, nada muda no payload. Ele ficou **fora** da projeção
+  enxuta de propósito: é **por item** e tem até 5.000 caracteres (~1,7 MB num pedido de 344
+  linhas) numa chamada que quase sempre só quer o `resumo` — e a fachada MCP jogaria tudo isso
+  no contexto do modelo. Quem lê o Supabase direto (o **PCP**) recebe a coluna sem fazer nada.
+
+  4 testes novos: a projeção padrão **não** pede o campo; com `incluir_adicionais` ela vira
+  `<enxuta>,U_INO_D_Adicionais`; o campo chega em `linhas[]`; e `adicionais=1` **sozinho** não
+  pesa a query (o campo só existe dentro de `linhas[]`). 281 testes, `ruff` limpo.
+
 ## [2026-07-17] — `OS_EXECUTION_MODE` funciona (era doc mentindo) e `?checks=` vira contrato explícito
 
 ### Corrigido

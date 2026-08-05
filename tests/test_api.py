@@ -119,7 +119,7 @@ _FAKE_OS_ROWS = [
 
 
 def test_os_detalhe_resumo(client, monkeypatch):
-    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
     r = client.get('/ordens-servico/84080')
     assert r.status_code == 200
     body = r.get_json()
@@ -144,13 +144,83 @@ def test_resumo_total_orcamento_soma_e_tolera_lixo():
 
 
 def test_os_detalhe_incluir_linhas(client, monkeypatch):
-    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
     body = client.get('/ordens-servico/84080?linhas=1').get_json()
     assert 'linhas' in body and len(body['linhas']) == 2
 
 
+# ----- U_INO_D_Adicionais (Dados Adicionais, por item — opt-in) -----
+
+class _FakeQuery:
+    """Encadeamento table().select().eq().order().execute() do PostgREST."""
+
+    def __init__(self, registro, linhas):
+        self._registro, self._linhas = registro, linhas
+
+    def select(self, cols):
+        self._registro.append(cols)
+        return self
+
+    def eq(self, *_a, **_k):
+        return self
+
+    def order(self, *_a, **_k):
+        return self
+
+    def execute(self):
+        return type('Res', (), {'data': self._linhas})()
+
+
+def _stub_supabase(monkeypatch, linhas):
+    """Stuba _supabase() e devolve a lista onde as projeções ficam registradas."""
+    registro: list = []
+    fake = type('Cli', (), {'table': lambda _s, _n: _FakeQuery(registro, linhas)})()
+    monkeypatch.setattr(apimod, '_supabase', lambda: fake)
+    return registro
+
+
+def test_fetch_os_detalhe_nao_pede_adicionais_por_padrao(monkeypatch):
+    """O campo tem até 5.000 chars POR ITEM: fora da projeção enxuta por padrão."""
+    registro = _stub_supabase(monkeypatch, list(_FAKE_OS_ROWS))
+    apimod._fetch_os_detalhe(84080)
+    assert 'U_INO_D_Adicionais' not in registro[0]
+
+
+def test_fetch_os_detalhe_inclui_adicionais_quando_pedido(monkeypatch):
+    registro = _stub_supabase(monkeypatch, list(_FAKE_OS_ROWS))
+    apimod._fetch_os_detalhe(84080, incluir_adicionais=True)
+    assert registro[0].endswith(',U_INO_D_Adicionais')
+    # a projeção enxuta continua inteira — o campo é acréscimo, não substituição
+    assert registro[0].startswith(apimod._OS_DETALHE_COLS)
+
+
+def test_os_detalhe_adicionais_chega_nas_linhas(client, monkeypatch):
+    """?linhas=1&adicionais=1 → o campo vai em cada linha."""
+    linhas = [{**r, 'U_INO_D_Adicionais': f'Pintura RAL {i}'}
+              for i, r in enumerate(_FAKE_OS_ROWS)]
+    pedidos: list = []
+    monkeypatch.setattr(
+        apimod, '_fetch_os_detalhe',
+        lambda n, incluir_adicionais=False: pedidos.append(incluir_adicionais) or linhas)
+    body = client.get('/ordens-servico/84080?linhas=1&adicionais=1').get_json()
+    assert pedidos == [True]
+    assert body['linhas'][0]['U_INO_D_Adicionais'] == 'Pintura RAL 0'
+
+
+def test_os_detalhe_adicionais_sem_linhas_nao_e_buscado(client, monkeypatch):
+    """adicionais=1 sozinho não pesa a query: sem ?linhas=1 o campo nem sairia no payload."""
+    pedidos: list = []
+    monkeypatch.setattr(
+        apimod, '_fetch_os_detalhe',
+        lambda n, incluir_adicionais=False: pedidos.append(incluir_adicionais)
+        or list(_FAKE_OS_ROWS))
+    body = client.get('/ordens-servico/84080?adicionais=1').get_json()
+    assert pedidos == [False]
+    assert 'linhas' not in body
+
+
 def test_os_detalhe_404_sem_os(client, monkeypatch):
-    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: [])
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: [])
     r = client.get('/ordens-servico/99999')
     assert r.status_code == 404
     assert r.get_json()['error'] == 'pedido sem OS sincronizada'
@@ -158,7 +228,7 @@ def test_os_detalhe_404_sem_os(client, monkeypatch):
 
 @pytest.mark.parametrize('bad', ['-5', '0', 'abc', '84080.0'])
 def test_os_detalhe_nped_invalido_400(client, monkeypatch, bad):
-    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
     assert client.get(f'/ordens-servico/{bad}').status_code == 400
 
 
@@ -172,7 +242,7 @@ def test_os_detalhe_disponiveis_nao_e_capturado(client, monkeypatch):
 def test_os_detalhe_requires_key_when_set(client, monkeypatch):
     monkeypatch.setenv('OS_API_KEY', 'segredo')
     reset_settings()
-    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
     assert client.get('/ordens-servico/84080').status_code == 401
     assert client.get('/ordens-servico/84080',
                       headers={'X-API-Key': 'segredo'}).status_code == 200
@@ -183,7 +253,7 @@ def test_os_detalhe_requires_key_when_set(client, monkeypatch):
 def test_os_detalhe_campos_entrega_no_resumo(client, monkeypatch):
     """Datas de entrega/liberação e observação saem da própria linha (tabela única),
     sem 2ª query a um espelho separado."""
-    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
     resumo = client.get('/ordens-servico/84080').get_json()['resumo']
     assert resumo['exped_disponivel'] is True   # compat. web: sempre True na tabela única
     assert resumo['data_entrega'] == '2026-07-20T00:00:00'
@@ -197,7 +267,7 @@ def test_os_detalhe_campos_entrega_no_resumo(client, monkeypatch):
 def test_resumo_agrega_processos_por_item(client, monkeypatch):
     """As flags de processo são POR ITEM: o resumo agrega (passa? quantos itens?),
     em vez de um booleano de cabeçalho — o pedido tem itens mistos."""
-    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
     proc = client.get('/ordens-servico/84080').get_json()['resumo']['processos']
     # só a 1ª linha vai p/ solda e pintura; as duas passam por almox e exped
     assert proc['solda'] == {'tem': True, 'linhas': 1}
@@ -209,14 +279,14 @@ def test_resumo_agrega_processos_por_item(client, monkeypatch):
 def test_resumo_processo_sem_nenhum_item(client, monkeypatch):
     """Nenhum item no processo → tem False e contagem zero (não some do payload)."""
     rows = [{**r, 'Solda': 0} for r in _FAKE_OS_ROWS]
-    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: rows)
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: rows)
     proc = client.get('/ordens-servico/84080').get_json()['resumo']['processos']
     assert proc['solda'] == {'tem': False, 'linhas': 0}
 
 
 def test_resumo_processos_cobre_as_4_flags(client, monkeypatch):
     """O payload traz sempre as 4 flags — nenhuma some por estar zerada."""
-    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
     proc = client.get('/ordens-servico/84080').get_json()['resumo']['processos']
     assert set(proc) == {'solda', 'pintura', 'almox', 'exped'}
 
@@ -232,7 +302,7 @@ def test_flag_ligada_tolera_valor_inesperado(valor, esperado):
 
 def test_os_sincronizar_resumo_traz_entrega(client, monkeypatch):
     """O resumo fresco pós-sync também sai com os campos de entrega (mesma tabela)."""
-    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
     body = client.post('/ordens-servico/84080/sincronizar').get_json()
     assert body['resumo']['data_entrega'] == '2026-07-20T00:00:00'
     assert body['resumo']['exped_disponivel'] is True
@@ -242,7 +312,7 @@ def test_os_sincronizar_resumo_traz_entrega(client, monkeypatch):
 
 def test_os_sincronizar_ok_com_resumo(client, monkeypatch):
     """Sync OK → 200, resultado.ok e o resumo fresco relido da tabela."""
-    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
     r = client.post('/ordens-servico/84080/sincronizar')
     assert r.status_code == 200
     body = r.get_json()
@@ -329,7 +399,7 @@ def test_os_sincronizar_nped_invalido_400(client, bad):
 def test_os_sincronizar_requires_key_when_set(client, monkeypatch):
     monkeypatch.setenv('OS_API_KEY', 'segredo')
     reset_settings()
-    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
     assert client.post('/ordens-servico/84080/sincronizar').status_code == 401
     assert client.post('/ordens-servico/84080/sincronizar',
                        headers={'X-API-Key': 'segredo'}).status_code == 200
@@ -337,7 +407,7 @@ def test_os_sincronizar_requires_key_when_set(client, monkeypatch):
 
 def test_os_sincronizar_rate_limit_429(client, monkeypatch):
     """Trava anti-loop: passou do limite → 429 com Retry-After."""
-    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
     monkeypatch.setattr(apimod, '_RATE_SYNC_OS_MAX', 2)   # limite baixo p/ o teste
     assert client.post('/ordens-servico/84080/sincronizar').status_code == 200
     assert client.post('/ordens-servico/84081/sincronizar').status_code == 200
@@ -716,7 +786,7 @@ def test_toda_rota_nova_exige_chave_ou_e_abertura_declarada(client, monkeypatch)
     monkeypatch.setattr(apimod, '_fetch_log', lambda t, n: [])
     monkeypatch.setattr(apimod, '_clear_log', lambda t: 0)
     monkeypatch.setattr(apimod, '_count_rows', lambda t: 0)
-    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: [])
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: [])
     monkeypatch.setattr(apimod, 'listar_pedidos_com_os', lambda limit: [])
 
     desprotegidas = []
