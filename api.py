@@ -203,12 +203,12 @@ def _count_rows(table: str) -> Optional[int]:
 _OS_STATUS_DESC = {'P': 'Planejado', 'R': 'Liberado', 'L': 'Encerrado', 'C': 'Cancelado'}
 
 # Columns for the OS detail/summary — deliberately lean (the VW_OS_INTEGRACAO view has
-# 55 columns; we pull only what the summary uses). Includes the EXPEDIÇÃO fields
+# 56 columns; we pull only what the summary uses). Includes the EXPEDIÇÃO fields
 # (ObsPedido/DtLiber/DtEntregaPED) that used to require a 2nd query on the separate mirror.
 _OS_DETALHE_COLS = (
     'id,N_PED,N_OP,DescItemPED,DescItemEstrut,DtPedido,'
     'CodClien,NomeClien,Status,TotalOrcam,ObsPedido,DtLiber,DtEntregaPED,'
-    'Solda,Pintura,Almox,Exped,id_execucao,data_hora_extracao'
+    'Solda,Pintura,Almox,Exped,Compras,id_execucao,data_hora_extracao'
 )
 
 # "Dados Adicionais" of the LINE (view column 6, NVARCHAR(5000)) — deliberately OUT of the
@@ -218,12 +218,17 @@ _OS_DETALHE_COLS = (
 # read the mirror table directly (the PCP does) or ask for `?linhas=1&adicionais=1`.
 _OS_COL_ADICIONAIS = 'U_INO_D_Adicionais'
 
-# PROCESS flags (columns 50-53 of the view): 1 = the item goes through the process,
-# 0 = it does not. These 4 columns replace the 4 TABLES dropped in the 07-14
-# consolidation (vw_os_solda/vw_os_pintura_v0/vw_os_almox_impressao/
-# vw_os_exped_impressao_v2) — the process used to be identified by WHICH TABLE the row
-# showed up in.
-_OS_PROCESSOS = ('Solda', 'Pintura', 'Almox', 'Exped')
+# PROCESS flags (the view's last columns): 1 = the item goes through the process, 0 = it
+# does not. The first four replace the 4 TABLES dropped in the 07-14 consolidation
+# (vw_os_solda/vw_os_pintura_v0/vw_os_almox_impressao/vw_os_exped_impressao_v2) — the
+# process used to be identified by WHICH TABLE the row showed up in. ``Compras`` was added
+# to the view on 08-05 and never had a table of its own.
+#
+# Adding a name here is a CONTRACT CHANGE: it adds a key to ``resumo.processos``. Growing
+# is safe (the block was documented from day one as "always the 4 keys, even zeroed", and
+# consumers read by name) — but a name must never be REMOVED or renamed without warning
+# whoever reads the 8077.
+_OS_PROCESSOS = ('Solda', 'Pintura', 'Almox', 'Exped', 'Compras')
 
 
 def _flag_ligada(valor: object) -> bool:
@@ -309,7 +314,7 @@ def _resumo_os(linhas: List[dict]) -> dict:
     here). ``exped_disponivel`` is hardcoded ``True`` for compatibility with the web app —
     there is no separate mirror left that could be missing.
 
-    The process flags (Solda/Pintura/Almox/Exped) are PER ITEM, not per pedido — they go
+    The process flags (Solda/Pintura/Almox/Exped/Compras) are PER ITEM, not per pedido — they go
     aggregated into ``processos`` (see ``_resumo_processos``), not as header booleans,
     which would be misleading on a pedido with mixed items.
     """

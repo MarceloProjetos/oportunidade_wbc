@@ -3,6 +3,34 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-08-06] — 5ª flag de processo: `Compras` (a view virou 56 colunas)
+
+### Adicionado
+
+- **`Compras` entra como a 5ª flag de processo.** A view ganhou `Compras` (`INTEGER`,
+  posição 56, logo depois de `Exped`): `1` = o item passa por **compras**, `0` = não passa.
+  Mesma família de `Solda`/`Pintura`/`Almox`/`Exped` — e, como elas, é **por item**.
+  Diferente das outras quatro, nunca teve tabela: nasceu já como coluna.
+
+  ALTER em [sql/alter_vw_os_integracao_flag_compras_2026-08-05.sql](sql/alter_vw_os_integracao_flag_compras_2026-08-05.sql),
+  aplicado na produção. Sem ele a sync pararia de novo com `PGRST204` — **terceira vez**
+  que uma coluna nova da view faria isso; o aviso no README agora diz "confira as colunas
+  antes de culpar o código".
+
+- **`resumo.processos` passa a ter 5 chaves** (ganhou `compras`). É mudança de contrato,
+  mas **compatível**: o bloco sempre foi documentado como "todas as chaves, mesmo zeradas",
+  e quem consome lê por nome. `_OS_PROCESSOS` agora carrega o aviso de que **crescer** é
+  seguro e **remover/renomear** não é. O teste que cravava as 4 chaves virou
+  `test_resumo_processos_cobre_todas_as_flags` e crava as 5.
+
+### Alterado
+
+- **Exemplo do `API_OS_INTEGRACAO.md` remedido contra a produção (06/08).** O pedido 84172
+  rendia 344 linhas/137 OPs em 15/07 e rende **302/121** hoje — os números do doc eram de
+  julho e o `compras` não existia. Todo o `resumo` do exemplo foi remedido numa chamada
+  real, e o doc agora diz explicitamente que o espelho reflete a OS **no momento da
+  sincronização**, não um histórico. (`compras` = 177 dos 302 itens.)
+
 ## [2026-08-05] — `U_INO_D_Adicionais`: a view virou 55 colunas e a sync de OS estava parada
 
 ### Corrigido

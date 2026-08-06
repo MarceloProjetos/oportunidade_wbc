@@ -98,22 +98,23 @@ def test_limpar_historico_requires_key_when_set(client, monkeypatch):
 # ----- /ordens-servico/<nped> (detalhe da OS) -----
 
 # Shape da tabela única VW_OS_INTEGRACAO (usa "N_PED"; datas de entrega/obs na mesma
-# linha). Solda/Pintura/Almox/Exped são flags POR ITEM: aqui a 1ª linha vai p/ solda e
-# pintura, a 2ª não — e ambas passam por almox/exped (pedido com itens mistos).
+# linha). Solda/Pintura/Almox/Exped/Compras são flags POR ITEM: aqui a 1ª linha vai p/
+# solda e pintura, a 2ª não — ambas passam por almox/exped, e só a 2ª por compras
+# (pedido com itens mistos: um fabricado, um comprado).
 _FAKE_OS_ROWS = [
     {'id': 1, 'N_PED': 84080, 'N_OP': 138757, 'DescItemPED': 'Estantes',
      'DescItemEstrut': 'Coluna', 'DtPedido': '2026-06-24T00:00:00', 'CodClien': 'C011627',
      'NomeClien': 'ARAUCO CELULOSE', 'Status': 'R', 'TotalOrcam': 20640.0,
      'ObsPedido': 'Entregar no galpao 2.', 'DtLiber': '2026-06-24T00:00:00',
      'DtEntregaPED': '2026-07-20T00:00:00',
-     'Solda': 1, 'Pintura': 1, 'Almox': 1, 'Exped': 1,
+     'Solda': 1, 'Pintura': 1, 'Almox': 1, 'Exped': 1, 'Compras': 0,
      'id_execucao': 'exec-1', 'data_hora_extracao': '2026-06-25T16:38:20'},
     {'id': 2, 'N_PED': 84080, 'N_OP': 138758, 'DescItemPED': 'Estantes',
      'DescItemEstrut': 'Longarina', 'DtPedido': '2026-06-24T00:00:00', 'CodClien': 'C011627',
      'NomeClien': 'ARAUCO CELULOSE', 'Status': 'R', 'TotalOrcam': 20640.0,
      'ObsPedido': 'Entregar no galpao 2.', 'DtLiber': '2026-06-24T00:00:00',
      'DtEntregaPED': '2026-07-20T00:00:00',
-     'Solda': 0, 'Pintura': 0, 'Almox': 1, 'Exped': 1,
+     'Solda': 0, 'Pintura': 0, 'Almox': 1, 'Exped': 1, 'Compras': 1,
      'id_execucao': 'exec-1', 'data_hora_extracao': '2026-06-25T16:38:20'},
 ]
 
@@ -274,6 +275,8 @@ def test_resumo_agrega_processos_por_item(client, monkeypatch):
     assert proc['pintura'] == {'tem': True, 'linhas': 1}
     assert proc['almox'] == {'tem': True, 'linhas': 2}
     assert proc['exped'] == {'tem': True, 'linhas': 2}
+    # e só a 2ª passa por compras (item comprado, não fabricado)
+    assert proc['compras'] == {'tem': True, 'linhas': 1}
 
 
 def test_resumo_processo_sem_nenhum_item(client, monkeypatch):
@@ -284,11 +287,16 @@ def test_resumo_processo_sem_nenhum_item(client, monkeypatch):
     assert proc['solda'] == {'tem': False, 'linhas': 0}
 
 
-def test_resumo_processos_cobre_as_4_flags(client, monkeypatch):
-    """O payload traz sempre as 4 flags — nenhuma some por estar zerada."""
+def test_resumo_processos_cobre_todas_as_flags(client, monkeypatch):
+    """O payload traz sempre TODAS as flags — nenhuma some por estar zerada.
+
+    Cresceu de 4 para 5 em 05/08 (entrou `Compras`). O conjunto é cravado aqui de
+    propósito: adicionar uma chave é compatível (o consumidor lê por nome), remover ou
+    renomear quebra quem consome a 8077.
+    """
     monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
     proc = client.get('/ordens-servico/84080').get_json()['resumo']['processos']
-    assert set(proc) == {'solda', 'pintura', 'almox', 'exped'}
+    assert set(proc) == {'solda', 'pintura', 'almox', 'exped', 'compras'}
 
 
 @pytest.mark.parametrize('valor,esperado', [

@@ -1,18 +1,18 @@
 # Ordens de Serviço — o que mudou e os campos novos
 
-**Data:** 15/07/2026 *(atualizado em 05/08/2026 — §2.2)* · **Servidor:** `192.168.7.11` · **API:** `http://192.168.7.11:8077`
+**Data:** 15/07/2026 *(atualizado em 05/08/2026 — §2.1 e §2.3)* · **Servidor:** `192.168.7.11` · **API:** `http://192.168.7.11:8077`
 **Público:** equipes que consomem OS (pela API ou lendo o Supabase direto)
 
 ---
 
 ## 1. Resumo em 30 segundos
 
-Duas mudanças, ambas **já em produção**:
+Duas mudanças estruturais, ambas **já em produção**:
 
-1. **As 6 tabelas de OS viraram 1**: `vw_os_integracao` (55 colunas). As antigas foram **apagadas**.
-2. **Nasceram 4 flags de processo** — `Solda`, `Pintura`, `Almox`, `Exped` — que dizem, **por item**, por quais processos ele passa. Elas substituem as 4 tabelas que identificavam isso antes.
+1. **As 6 tabelas de OS viraram 1**: `vw_os_integracao` (56 colunas). As antigas foram **apagadas**.
+2. **Nasceram flags de processo** — `Solda`, `Pintura`, `Almox`, `Exped` e, desde 05/08, `Compras` — que dizem, **por item**, por quais processos ele passa. As 4 primeiras substituem as 4 tabelas que identificavam isso antes.
 
-**05/08/2026:** entrou também o campo **`U_INO_D_Adicionais`** (Dados Adicionais do item) — §2.2.
+**05/08/2026:** entraram **`U_INO_D_Adicionais`** (Dados Adicionais do item — §2.3) e a **5ª flag de processo `Compras`** (§2.1). Quem lê o `resumo.processos` ganha uma chave nova, `compras`.
 
 > ⚠️ **Isto quebra quem lia as tabelas antigas.** Elas não foram renomeadas nem mantidas em paralelo — foram dropadas. Detalhes na §5.
 
@@ -27,7 +27,7 @@ Duas mudanças, ambas **já em produção**:
 
 ## 2. Os campos novos
 
-### 2.1 As 4 flags de processo ⭐
+### 2.1 As flags de processo ⭐
 
 | Campo | Tipo | Significado |
 | --- | --- | --- |
@@ -35,14 +35,17 @@ Duas mudanças, ambas **já em produção**:
 | `Pintura` | `integer` | `1` = o item vai para **pintura**, `0` = não vai |
 | `Almox` | `integer` | `1` = o item passa pelo **almoxarifado**, `0` = não passa |
 | `Exped` | `integer` | `1` = o item passa pela **expedição**, `0` = não passa |
+| `Compras` | `integer` | `1` = o item passa por **compras**, `0` = não passa — **⭐ nova em 05/08/2026** |
 
 > 🔑 **A regra mais importante deste documento: as flags são POR ITEM, não por pedido.**
 >
-> Um pedido tem centenas de itens e normalmente eles são **mistos** — parte vai para solda, parte não. Não existe "o pedido 84172 é de solda". Existe *"40 dos 344 itens do pedido 84172 vão para solda"*.
+> Um pedido tem centenas de itens e normalmente eles são **mistos** — parte vai para solda, parte não. Não existe "o pedido 84172 é de solda". Existe *"43 dos 302 itens do pedido 84172 vão para solda"*.
 >
-> Exemplo real (pedido 84172, 344 itens): **solda 40 · pintura 72 · almox 55 · exped 127**.
+> Exemplo real (pedido 84172, 302 itens, medido em 06/08): **solda 43 · pintura 63 · almox 49 · exped 112 · compras 177**.
 
-**De onde elas vêm:** antes, para saber se um item ia para solda, você olhava se ele aparecia na tabela `vw_os_solda`. O processo era *a tabela*. Agora o processo é *uma coluna do item* — mesma informação, sem precisar de 4 tabelas.
+**De onde elas vêm:** antes, para saber se um item ia para solda, você olhava se ele aparecia na tabela `vw_os_solda`. O processo era *a tabela*. Agora o processo é *uma coluna do item* — mesma informação, sem precisar de 4 tabelas. `Compras` nasceu já como coluna: nunca teve tabela.
+
+> A lista **pode crescer** (cresceu de 4 para 5 em 05/08). Leia as flags **por nome**, nunca "as 4 últimas colunas" nem por posição.
 
 ### 2.2 `U_INO_ORCITM`
 
@@ -69,7 +72,7 @@ Item do orçamento (UDF). Vinha da antiga `vw_os_solda`.
 | O **Supabase direto** | nada — a coluna já vem no `select *` da `vw_os_integracao` |
 | A **API 8077** | peça explicitamente: `GET /ordens-servico/{nped}?linhas=1&adicionais=1` |
 
-Ele fica **fora** do payload padrão de propósito: são até 5.000 caracteres **por item** (~1,7 MB num pedido de 344 linhas), e quase todo consumidor da API só quer o `resumo`.
+Ele fica **fora** do payload padrão de propósito: são até 5.000 caracteres **por item** (~1,5 MB num pedido de 302 linhas), e quase todo consumidor da API só quer o `resumo`.
 
 ---
 
@@ -87,7 +90,7 @@ Detalhe da OS de um pedido. Requer o header `X-API-Key`.
 curl -H "X-API-Key: SUA_CHAVE" http://192.168.7.11:8077/ordens-servico/84172
 ```
 
-**Resposta** (resposta real, encurtada):
+**Resposta** (resposta real do mesmo pedido, medida em 06/08/2026, encurtada):
 
 ```json
 {
@@ -97,43 +100,46 @@ curl -H "X-API-Key: SUA_CHAVE" http://192.168.7.11:8077/ordens-servico/84172
     "cliente": "AFTERCLICK SERVICOS INTEGRADOS LTDA",
     "cod_cliente": "C009997",
     "descricao": "Porta-Paletes",
-    "status": "P",
-    "status_desc": "Planejado",
-    "data_pedido": "2026-07-15T00:00:00",
+    "status": "R",
+    "status_desc": "Liberado",
+    "data_pedido": "2026-07-30T00:00:00",
     "data_entrega": "2026-08-14T00:00:00",
-    "data_liberacao": null,
-    "obs": "DIFERENCIAL DE ALIQUOTA DE ICMS: R$ 116.419,59",
-    "num_linhas": 344,
-    "num_ops": 137,
-    "ops": [143867, 143868, "..."],
-    "total_orcamento": 2347906.95,
+    "data_liberacao": "2026-08-03T00:00:00",
+    "obs": null,
+    "num_linhas": 302,
+    "num_ops": 121,
+    "ops": [146504, 146505, "..."],
+    "total_orcamento": 2408365.16,
 
     "processos": {                                    // ⭐ NOVO
-      "solda":   { "tem": true, "linhas": 40  },
-      "pintura": { "tem": true, "linhas": 72  },
-      "almox":   { "tem": true, "linhas": 55  },
-      "exped":   { "tem": true, "linhas": 127 }
+      "solda":   { "tem": true, "linhas": 43  },
+      "pintura": { "tem": true, "linhas": 63  },
+      "almox":   { "tem": true, "linhas": 49  },
+      "exped":   { "tem": true, "linhas": 112 },
+      "compras": { "tem": true, "linhas": 177 }        // ⭐ desde 05/08
     },
 
-    "ultima_sincronizacao": "2026-07-15T16:29:07.967286",
-    "id_execucao": "bf295374-3c99-4d8f-b075-ab6f7f8366ad"
+    "ultima_sincronizacao": "2026-08-06T11:38:11.973106",
+    "id_execucao": "58ff2126-95a3-44f5-8187-113d9e5113c1"
   }
 }
 ```
 
-Com `?linhas=1`, a resposta traz também `linhas[]` — os itens da OS, cada um com as suas 4 flags.
+> Mesmo pedido, números diferentes dos que este doc trazia em 15/07 (eram 344 linhas e 137 OPs): o espelho reflete a OS **no momento da sincronização**, não um histórico.
+
+Com `?linhas=1`, a resposta traz também `linhas[]` — os itens da OS, cada um com as suas 5 flags de processo.
 Somando `&adicionais=1`, cada linha traz ainda o `U_INO_D_Adicionais` (§2.3) — sozinho, o `adicionais=1` não faz nada, porque o campo é por item e só existe dentro de `linhas[]`.
 
 ### 3.3 O bloco `processos`
 
-Sempre traz **as 4 chaves**, mesmo zeradas (nenhuma some do payload):
+Sempre traz **todas as chaves** (hoje 5, desde 05/08), mesmo zeradas — nenhuma some do payload:
 
 | Campo | Tipo | Significado |
 | --- | --- | --- |
 | `<processo>.tem` | `bool` | **Algum** item do pedido passa por esse processo? |
 | `<processo>.linhas` | `int` | **Quantos** itens passam |
 
-*"O pedido 84172 vai para solda?"* → `resumo.processos.solda.tem` → `true` (e `.linhas` = 40 diz quantos itens).
+*"O pedido 84172 vai para solda?"* → `resumo.processos.solda.tem` → `true` (e `.linhas` = 43 diz quantos itens).
 
 Ele é **agregado** de propósito: como as flags são por item (§2.1), um booleano único do pedido seria enganoso.
 
@@ -271,7 +277,7 @@ A carga é **sob demanda, por pedido**. Se o `N_PED` não retorna nada, ele aind
 
 ---
 
-## 6. Referência — as 55 colunas
+## 6. Referência — as 56 colunas
 
 **Pedido / OS:** `N_PED` *(chave)* · `N_OP` · `Status` · `LinhRef` · `VisOrder`
 
@@ -287,7 +293,7 @@ A carga é **sob demanda, por pedido**. Se o `N_PED` não retorna nada, ele aind
 
 **WBC:** `U_INO_VERSAOWBC` · `U_INO_LINHA` · `U_INO_ORCITM`
 
-**Processo (⭐ novas):** `Solda` · `Pintura` · `Almox` · `Exped`
+**Processo (⭐ novas):** `Solda` · `Pintura` · `Almox` · `Exped` · `Compras` *(⭐ 05/08)*
 
 **Controle** (geradas na carga, não vêm do SAP): `id` *(PK — use no `order by`)* · `id_execucao` · `data_hora_extracao` *(quando o pedido foi sincronizado)* · `origem_view` · `inserted_at`
 

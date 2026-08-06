@@ -349,7 +349,7 @@ do agendador. Não exige credenciais reais (sem integração com SAP/Supabase em
 
 Pipeline **independente** do de oportunidades, que sincroniza a view SAP HANA
 **consolidada** `VW_OS_INTEGRACAO` (OS + estrutura/árvore de produto + orçamento,
-55 colunas) para uma **única** tabela Supabase `vw_os_integracao`, **sob demanda,
+56 colunas) para uma **única** tabela Supabase `vw_os_integracao`, **sob demanda,
 por `N_PED`**. Usa a **mesma conexão SAP** e reaproveita o núcleo compartilhado
 [pipeline_core.py](pipeline_core.py) (`SupabaseLoader`, `prepare_data`, etc.).
 **Não** faz enriquecimento com SQL Server nem usa `SITCOD`.
@@ -365,8 +365,10 @@ RLS + policy de leitura `anon`, e o log `sincronizacao_log_os_integracao`).
 > ⚠️ **Coluna nova na view = ALTER obrigatório, senão a sync PARA.** A extração é
 > `SELECT *` e o insert casa a coluna **por nome**: coluna que existe na view e não
 > existe na tabela derruba o INSERT inteiro com `PGRST204` — nenhum pedido sincroniza
-> até o ALTER rodar. Já aconteceu duas vezes (15/07 `U_INO_ORCITM` + flags de processo;
-> 05/08 `U_INO_D_Adicionais`). Para tabela que já existe use um `sql/alter_*.sql`
+> até o ALTER rodar. Já aconteceu **três** vezes (15/07 `U_INO_ORCITM` + as 4 flags de
+> processo; 05/08 `U_INO_D_Adicionais`; 05/08 a 5ª flag `Compras`). A view muda com
+> frequência — **confira as colunas antes de culpar o código.** Para tabela que já existe
+> use um `sql/alter_*.sql`
 > (o DDL base começa com `drop table ... cascade` e apagaria a produção), e gere o
 > ALTER a partir das colunas **reais** da view, nunca de uma lista transcrita à mão:
 >
