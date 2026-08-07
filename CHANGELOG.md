@@ -3,6 +3,80 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-08-07] — escrita de status de Ordem de Produção no SAP (Service Layer)
+
+### Adicionado
+
+- **O primeiro caminho de ESCRITA em SAP deste repositório.** Até aqui o serviço só lia
+  SAP (HANA/`hdbcli`) e escrevia no Supabase. Agora
+  [ordens_producao_sl.py](ordens_producao_sl.py) faz `PATCH` em `ProductionOrders` pelo
+  **Service Layer** (REST, 50000) e move uma OP para **Liberada** ou **Encerrada**. A base
+  alvo é a de **produção** (`SBOALTAMIRAPROD`) — decisão do Marcelo em 07/08, sem etapa de
+  homolog. Plano completo em [docs/PLANO_OP_STATUS.md](docs/PLANO_OP_STATUS.md).
+
+- **Duas rotas** em [api.py](api.py):
+  `GET /ordens-producao/<numero>` (status + `transicoes_permitidas`) e
+  `POST /ordens-producao/<numero>/status` (a escrita). `<numero>` é o **DocNum** por
+  padrão; `?chave=docentry` lê pela chave interna. Documentadas no
+  [README](README.md#ordens-de-produção--escrita-de-status-no-sap).
+
+- **105 testes novos**, todos offline (a suíte foi de 273 para 378). O transporte é uma
+  sessão falsa que grava o que recebeu — metade das asserções é sobre o que **não**
+  aconteceu (o "zero PATCH" da idempotência, a allowlist barrando antes da rede).
+
+### Como isso não vira um incidente
+
+Cada guarda abaixo tem teste cravando. São o motivo de a entrega existir nesse formato, e
+afrouxar qualquer uma exige decisão explícita:
+
+- **Nasce desligado.** `OP_SL_ENABLED` default `false`: sem ligar no `.env`, as rotas
+  respondem `503` e **não abrem socket**. Rollback em produção = uma linha + restart.
+- **`POST` fail-closed.** Sem `OS_API_KEY` definida, responde `503`. É a **única** rota do
+  arquivo que faz isso: todas as outras caem abertas quando não há chave (comportamento
+  documentado no topo do `api.py`). Aceitável para leitura e para escrita no Supabase, que
+  é reversível; não para escrita em SAP de produção.
+- **Máquina de estados do nosso lado**, não lida do texto de erro do SAP: nada sai de
+  Encerrada/Cancelada, e **alvo == status atual devolve `ja_estava` sem mandar PATCH** —
+  repetir a chamada não pode aplicar nada duas vezes, por construção.
+- **Allowlist antes da rede.** `OP_STATUS_PERMITIDOS` (default `boposReleased,boposClosed`)
+  é conferida antes de qualquer HTTP, e o parser **descarta código desconhecido**: um typo
+  no `.env` nunca vira corpo de PATCH na produção. Lista vazia bloqueia tudo (fail closed).
+- **Compare-and-swap opcional** (`status_atual` no corpo): se alguém mudou a OP enquanto
+  isso, responde `409` sem escrever — é o que impede duas telas de sobrescreverem a
+  decisão uma da outra.
+- **DocNum ambíguo é recusado** (`409`), nunca resolvido por `[0]`. Recusar custa uma
+  retentativa com o DocEntry; adivinhar custa a OP errada alterada em produção.
+- **Sessão do SL compartilhada com TTL**, relogin automático em `401`/`"Invalid session"`
+  (**um** replay, nunca em loop) e `/Logout` explícito na sessão substituída. Um login por
+  request esgota o teto de sessões concorrentes do Service Layer e o derruba para todo
+  mundo, cliente B1 incluído.
+- **Timeout em toda request** (`connect 5s` / `read 30s`). `requests` ignora
+  `session.timeout`; sem `timeout=` explícito um SAP morto segura a thread para sempre e o
+  pool do waitress drena — `/health` morre junto.
+- **Sem retry no `PATCH`.** Recusa de mudança de status é determinística; retentar só
+  enterra a mensagem real. O retry existe só no login, que é o passo genuinamente
+  transitório.
+- **Trava anti-loop própria** (`RATE_OP_STATUS_MAX`, default 20/min) — mais apertada que as
+  outras, por ser a única na frente de uma escrita em SAP de produção.
+
+### Alterado
+
+- `requests` vira dependência **direta** em [requirements.txt](requirements.txt) (vinha só
+  por transitividade). **O deploy da .11 precisa de `pip install -r requirements.txt`**,
+  não só do `git pull`. Escolhido em vez do `httpx` para manter
+  `ordens_producao_sl.py` diffável com o `compras_sap_service.py` do `web_orcaview_V117`.
+- `config.py` ganhou `_env_int` (irmão do `_env_float`): `.env` torto cai no default em vez
+  de derrubar a API no boot.
+- `main()` agora loga **WARNING** quando a escrita está ligada, dizendo base/servidor/usuário.
+
+### Pendente
+
+- **Pré-voo em produção (Fase 3)**, com o Marcelo: `OP_SL_ENABLED=true` na .11, OP
+  **129850**, Planejada → Liberada → Encerrada, conferindo na tela do SAP.
+- Rotacionar a senha do usuário `financeiro04` — está em texto claro no notebook
+  `production_order_sl.ipynb` apontando para produção. A troca tem de ser coordenada com o
+  `.env` do .90 (é o mesmo usuário do `SL_USERNAME` do `web_orcaview_V117`).
+
 ## [2026-08-06] — 5ª flag de processo: `Compras` (a view virou 56 colunas)
 
 ### Adicionado

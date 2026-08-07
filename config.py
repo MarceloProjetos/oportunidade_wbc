@@ -60,6 +60,31 @@ OS_SYNC_LOG_MAX_REGISTROS = 100
 OS_API_HOST_DEFAULT = '0.0.0.0'
 OS_API_PORT_DEFAULT = 8077
 
+# Ordem de Produção — status writes through the SAP B1 Service Layer
+# (``ordens_producao_sl.py``). This is the FIRST write path into SAP in this repo, and it
+# points straight at PRODUCTION (``SBOALTAMIRAPROD``) — every default below is chosen so
+# that nothing happens until someone turns it on deliberately.
+OP_SL_ENABLED_DEFAULT = False          # kill switch: off = the route answers 503, no socket
+OP_SL_SERVER_DEFAULT = 'sapbusinessonehana-vm'
+OP_SL_PORT_DEFAULT = 50000
+OP_SL_COMPANY_DB_DEFAULT = 'SBOALTAMIRAPROD'
+OP_SL_VERIFY_SSL_DEFAULT = False       # the internal Service Layer serves a self-signed cert
+# (connect, read): a dead SAP host fails fast on connect; the read tolerates the SL's slow
+# first query (OBServerDLL takes its ~15s grace after the service restarts).
+OP_SL_TIMEOUT_CONNECT_S_DEFAULT = 5.0
+OP_SL_TIMEOUT_READ_S_DEFAULT = 30.0
+# 45 min. The SL drops an idle session on its own; renewing before that keeps the session
+# reused instead of paying a login per request (a login per request is what exhausts the
+# SL's finite session pool and takes it down for the B1 client too).
+OP_SL_SESSION_TTL_S_DEFAULT = 2700.0
+
+# The four statuses SAP knows for a Production Order. Only these may reach a PATCH body.
+OP_STATUS_CODES = ('boposPlanned', 'boposReleased', 'boposClosed', 'boposCancelled')
+# Allowlist of statuses this API may SET. Deliberately narrower than OP_STATUS_CODES:
+# cancelling and moving back to Planned are out of scope (decision 2026-08-07). Widening
+# this is an explicit decision, not a config tweak.
+OP_STATUS_PERMITIDOS_DEFAULT = 'boposReleased,boposClosed'
+
 # Monitor for the "Integração WBC" scheduled task (Windows Task Scheduler).
 # The PowerShell script ``monitor_wbc_task.ps1`` (scheduled every 10 min) queries the
 # task and writes its state to ``WBC_TASK_STATE_FILE``. The API only *reads* that file
@@ -151,6 +176,44 @@ def _env_float(key: str, default: float) -> float:
         return default
 
 
+def _env_int(key: str, default: int) -> int:
+    """Int from the environment; garbage falls back to the DEFAULT.
+
+    Same rationale as :func:`_env_float`: the older ``int(os.getenv(...))`` fields turn a
+    malformed ``.env`` into a ``ValueError`` inside ``get_settings()``, and the service
+    never starts. A port typo must not take ``/health`` down with it.
+    """
+    bruto = os.getenv(key)
+    if not bruto or not bruto.strip():
+        return default
+    try:
+        return int(bruto.strip())
+    except ValueError:
+        return default
+
+
+def parse_status_permitidos(bruto: Optional[str]) -> tuple[str, ...]:
+    """Parse ``OP_STATUS_PERMITIDOS`` into a tuple of canonical SAP status codes.
+
+    Anything that is not one of :data:`OP_STATUS_CODES` is DROPPED — this tuple is what
+    ends up in a PATCH body sent to the production company database, so a typo in the
+    ``.env`` must never reach the SAP.
+
+    Dropping everything is a valid outcome: an empty tuple refuses every write (fail
+    closed), which is the right answer for a ``.env`` nobody can read as intended.
+    """
+    itens = [x.strip() for x in (bruto or '').split(',') if x.strip()]
+    canonico = {c.lower(): c for c in OP_STATUS_CODES}
+    validos: list[str] = []
+    for item in itens:
+        code = canonico.get(item.lower())
+        if code is None:
+            logger.error('[CONFIG] OP_STATUS_PERMITIDOS: status desconhecido ignorado: %r', item)
+        elif code not in validos:
+            validos.append(code)
+    return tuple(validos)
+
+
 @dataclass(frozen=True)
 class Settings:
     """Environment snapshot for the ETL pipeline."""
@@ -188,6 +251,19 @@ class Settings:
     os_api_key: Optional[str]
     os_api_host: str
     os_api_port: int
+
+    # Ordem de Produção — status write via Service Layer (see ordens_producao_sl.py)
+    op_sl_enabled: bool
+    op_sl_server: str
+    op_sl_port: int
+    op_sl_company_db: str
+    op_sl_username: Optional[str]
+    op_sl_password: Optional[str]
+    op_sl_verify_ssl: bool
+    op_sl_timeout_connect_s: float
+    op_sl_timeout_read_s: float
+    op_sl_session_ttl_s: float
+    op_status_permitidos: tuple[str, ...]
 
     # Monitor for the "Integração WBC" scheduled task (Windows Task Scheduler;
     # do NOT confuse with the WBC tree, which now comes inside VW_OS_INTEGRACAO)
@@ -242,6 +318,25 @@ class Settings:
             os_api_key=os.getenv('OS_API_KEY') or None,
             os_api_host=os.getenv('OS_API_HOST', OS_API_HOST_DEFAULT),
             os_api_port=int(os.getenv('OS_API_PORT', OS_API_PORT_DEFAULT)),
+            op_sl_enabled=_env_bool('OP_SL_ENABLED', OP_SL_ENABLED_DEFAULT),
+            op_sl_server=os.getenv('OP_SL_SERVER', OP_SL_SERVER_DEFAULT),
+            op_sl_port=_env_int('OP_SL_PORT', OP_SL_PORT_DEFAULT),
+            op_sl_company_db=os.getenv('OP_SL_COMPANY_DB', OP_SL_COMPANY_DB_DEFAULT),
+            op_sl_username=os.getenv('OP_SL_USERNAME') or None,
+            op_sl_password=os.getenv('OP_SL_PASSWORD') or None,
+            op_sl_verify_ssl=_env_bool('OP_SL_VERIFY_SSL', OP_SL_VERIFY_SSL_DEFAULT),
+            op_sl_timeout_connect_s=_env_float(
+                'OP_SL_TIMEOUT_CONNECT_S', OP_SL_TIMEOUT_CONNECT_S_DEFAULT
+            ),
+            op_sl_timeout_read_s=_env_float(
+                'OP_SL_TIMEOUT_READ_S', OP_SL_TIMEOUT_READ_S_DEFAULT
+            ),
+            op_sl_session_ttl_s=_env_float(
+                'OP_SL_SESSION_TTL_S', OP_SL_SESSION_TTL_S_DEFAULT
+            ),
+            op_status_permitidos=parse_status_permitidos(
+                os.getenv('OP_STATUS_PERMITIDOS', OP_STATUS_PERMITIDOS_DEFAULT)
+            ),
             wbc_task_name=os.getenv('WBC_TASK_NAME', WBC_TASK_NAME_DEFAULT),
             wbc_task_state_file=os.getenv('WBC_TASK_STATE_FILE', WBC_TASK_STATE_FILE_DEFAULT),
             wbc_task_stale_min=max(
@@ -271,6 +366,31 @@ class Settings:
 
     def sql_ready(self) -> bool:
         return bool(self.sql_host and self.sql_user and self.sql_password)
+
+    @property
+    def op_sl_base_url(self) -> str:
+        return f'https://{self.op_sl_server}:{self.op_sl_port}/b1s/v1'
+
+    @property
+    def op_sl_timeout(self) -> tuple[float, float]:
+        """``(connect, read)`` for every Service Layer call."""
+        return (self.op_sl_timeout_connect_s, self.op_sl_timeout_read_s)
+
+    def op_sl_ready(self) -> bool:
+        """True when the OP status write may run at all.
+
+        Missing credentials do **not** raise at import time on purpose: this is an optional
+        feature, and blowing up ``get_settings()`` would take the whole API down —
+        ``/health`` included — over a module nobody may be using. Not ready = 503 on the
+        route, not a dead service.
+        """
+        return bool(
+            self.op_sl_enabled
+            and self.op_sl_server
+            and self.op_sl_company_db
+            and self.op_sl_username
+            and self.op_sl_password
+        )
 
 
 _settings: Optional[Settings] = None

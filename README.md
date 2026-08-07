@@ -22,6 +22,7 @@ view do **SAP B1 (HANA)**, enriquece com a situação do orçamento vinda do **S
   - [4. Variáveis de ambiente (.env)](#4-variáveis-de-ambiente-env)
 - [Banco de Dados (Supabase)](#banco-de-dados-supabase)
 - [Como Rodar](#como-rodar)
+- [Ordens de Produção — escrita de status no SAP](#ordens-de-produção--escrita-de-status-no-sap)
 - [Agendamento (Automático)](#agendamento-automático)
 - [Monitoramento](#monitoramento)
 - [Versionamento (GitHub)](#versionamento-github)
@@ -480,6 +481,67 @@ netsh advfirewall firewall add rule name="OrcaView OS API 8077" dir=in action=al
 Conferir: abra `http://127.0.0.1:8077/health` (ou de outra máquina `http://<ip-servidor>:8077/health`)
 → `{"status":"ok"}`. **Não** deixe o `run_api.bat` aberto manualmente junto com o serviço
 (brigam pela porta 8077).
+
+---
+
+## Ordens de Produção — escrita de status no SAP
+
+⚠️ **É o único caminho deste serviço que muda dado DENTRO do SAP** (todo o resto lê SAP e
+escreve no Supabase), e ele aponta para a base de **produção** `SBOALTAMIRAPROD`. Vai pelo
+**Service Layer** (REST, porta 50000), não pelo HANA. Módulo:
+[ordens_producao_sl.py](ordens_producao_sl.py) · plano: [docs/PLANO_OP_STATUS.md](docs/PLANO_OP_STATUS.md).
+
+**Nasce desligado.** Sem `OP_SL_ENABLED=true` no `.env`, as duas rotas respondem `503` e
+não abrem socket. Rollback em produção = voltar para `false` e reiniciar o serviço.
+
+### O que dá para fazer
+
+Só **Liberar** (`boposReleased`) e **Encerrar** (`boposClosed`). Cancelar e voltar para
+Planejada estão fora de escopo — um pedido desses é recusado com `400` **antes** de
+qualquer chamada ao SAP (allowlist `OP_STATUS_PERMITIDOS`).
+
+| Status atual | → `liberada` | → `encerrada` |
+| --- | --- | --- |
+| Planejada | ✅ | ✅ |
+| Liberada | 200 `ja_estava` (sem PATCH) | ✅ |
+| Encerrada | ⛔ 409 | 200 `ja_estava` (sem PATCH) |
+| Cancelada | ⛔ 409 | ⛔ 409 |
+
+### Endpoints
+
+```bash
+# consultar (DocNum = o número da tela do SAP)
+curl "http://192.168.7.11:8077/ordens-producao/129850" -H "X-API-Key: SUA_CHAVE"
+
+# encerrar, conferindo antes que ela ainda está Liberada (compare-and-swap)
+curl -X POST "http://192.168.7.11:8077/ordens-producao/129850/status" \
+     -H "X-API-Key: SUA_CHAVE" -H "Content-Type: application/json" \
+     -d '{"status":"encerrada","status_atual":"liberada"}'
+
+# pelo DocEntry (chave interna) em vez do DocNum
+curl "http://192.168.7.11:8077/ordens-producao/126599?chave=docentry" -H "X-API-Key: SUA_CHAVE"
+```
+
+O `GET` devolve `transicoes_permitidas` já filtrado pelo status da OP e pela allowlist —
+é com ele que uma tela desabilita o botão errado antes do usuário clicar.
+
+Status: `200` mudou (ou `ja_estava: true`) · `400` número/status inválido ou fora da
+allowlist · `401` sem `X-API-Key` · `404` OP inexistente · `409` status terminal, DocNum
+ambíguo ou `status_atual` divergente · `429` trava anti-loop · `502` Service Layer fora do
+ar ou SAP recusou · `503` feature desligada ou API sem chave configurada.
+
+### Três coisas que valem saber antes de consumir
+
+- **`DocEntry` ≠ `DocNum`.** A OP 125060 é o DocEntry 126599. O default é DocNum;
+  `?chave=docentry` troca. DocNum que casa com mais de uma ordem é **recusado** (409), não
+  resolvido pelo primeiro resultado.
+- **O `POST` é fail-closed.** Sem `OS_API_KEY` definida no servidor ele responde `503`.
+  As outras rotas ficam abertas quando não há chave (documentado em [api.py](api.py)); esta
+  não fica, porque escreve em SAP de produção.
+- **Repetir a chamada é seguro.** Alvo igual ao status atual devolve `ja_estava: true` e
+  **não** manda PATCH nenhum.
+
+Variáveis: ver o bloco `OP_SL_*` no [.env.example](.env.example).
 
 ---
 

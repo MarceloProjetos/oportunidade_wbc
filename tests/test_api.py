@@ -802,7 +802,7 @@ def test_toda_rota_nova_exige_chave_ou_e_abertura_declarada(client, monkeypatch)
         if regra.rule.startswith('/static') or regra.rule in _ROTAS_ABERTAS:
             continue
         metodo = next(m for m in ('GET', 'POST', 'DELETE') if m in regra.methods)
-        url = regra.rule.replace('<nped>', '84080')
+        url = regra.rule.replace('<nped>', '84080').replace('<numero>', '129850')
         if client.open(url, method=metodo).status_code != 401:
             desprotegidas.append(f'{metodo} {regra.rule}')
 
@@ -829,3 +829,201 @@ def test_requer_chave_preserva_o_endpoint(client):
     endpoints = [r.endpoint for r in rotas]
     assert len(set(endpoints)) == len(endpoints), 'endpoints colidiram: faltou @wraps?'
     assert '_wrapper' not in endpoints
+
+
+# ============ Ordens de Produção: ESCRITA no SAP (2026-08-07) ============
+# As únicas rotas deste arquivo que mudam dado DENTRO do SAP. A máquina de estados tem
+# suíte própria (tests/test_ordens_producao_sl.py); aqui só se testa o HTTP: guarda,
+# validação de corpo, mapeamento de erro → status code e o fail-closed.
+
+_OP_RESUMO = {
+    'doc_entry': 126599, 'doc_num': 129850, 'item': 'PAR000PADRA000000000',
+    'quantidade_planejada': 36.0, 'status': 'boposReleased', 'status_desc': 'Liberada',
+    'origem': 'bopooSalesOrder', 'origem_numero': 83871, 'data_entrega': '2026-08-20',
+    'transicoes_permitidas': ['encerrada'],
+}
+
+
+@pytest.fixture
+def op_client(client, monkeypatch):
+    """Cliente com OS_API_KEY definida (a escrita de OP é fail-closed sem ela) e o
+    módulo de domínio dublado — nenhum teste desta seção fala com o SAP."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    monkeypatch.setenv('OP_SL_ENABLED', 'true')
+    monkeypatch.setenv('OP_SL_USERNAME', 'usuario')
+    monkeypatch.setenv('OP_SL_PASSWORD', 'senha')
+    reset_settings()
+    chamadas = []
+
+    def _consultar(numero, *, por_docentry=False):
+        chamadas.append(('consultar', numero, por_docentry))
+        return dict(_OP_RESUMO)
+
+    def _atualizar(numero, status, *, por_docentry=False, status_atual=None):
+        chamadas.append(('atualizar', numero, status, por_docentry, status_atual))
+        return {'doc_entry': 126599, 'doc_num': numero, 'item': 'X',
+                'status_anterior': 'boposReleased', 'status_novo': 'boposClosed',
+                'ja_estava': False}
+
+    monkeypatch.setattr(apimod.op_sl, 'consultar_op', _consultar)
+    monkeypatch.setattr(apimod.op_sl, 'atualizar_status', _atualizar)
+    client._op = chamadas
+    client._auth = {'X-API-Key': 'segredo'}
+    return client
+
+
+def test_op_detalhe_devolve_o_resumo(op_client):
+    r = op_client.get('/ordens-producao/129850', headers=op_client._auth)
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['ok'] is True
+    assert body['op']['status_desc'] == 'Liberada'
+    assert body['op']['transicoes_permitidas'] == ['encerrada']
+
+
+def test_op_detalhe_por_docnum_e_o_default(op_client):
+    op_client.get('/ordens-producao/129850', headers=op_client._auth)
+    assert op_client._op[0] == ('consultar', 129850, False)
+
+
+def test_op_detalhe_aceita_chave_docentry(op_client):
+    op_client.get('/ordens-producao/126599?chave=docentry', headers=op_client._auth)
+    assert op_client._op[0] == ('consultar', 126599, True)
+
+
+@pytest.mark.parametrize('ruim', ['abc', '0', '-5'])
+def test_op_detalhe_numero_invalido_400(op_client, ruim):
+    r = op_client.get(f'/ordens-producao/{ruim}', headers=op_client._auth)
+    assert r.status_code == 400
+
+
+def test_op_detalhe_inexistente_404(op_client, monkeypatch):
+    def _boom(numero, **kw):
+        raise apimod.op_sl.OPNaoEncontrada('Ordem de producao 999999 nao encontrada no SAP.')
+    monkeypatch.setattr(apimod.op_sl, 'consultar_op', _boom)
+    r = op_client.get('/ordens-producao/999999', headers=op_client._auth)
+    assert r.status_code == 404
+    assert r.get_json()['tipo'] == 'nao_encontrada'
+
+
+def test_op_detalhe_exige_chave(op_client):
+    assert op_client.get('/ordens-producao/129850').status_code == 401
+
+
+def test_op_status_muda_e_devolve_o_de_para(op_client):
+    r = op_client.post('/ordens-producao/129850/status',
+                       json={'status': 'encerrada'}, headers=op_client._auth)
+    assert r.status_code == 200
+    body = r.get_json()
+    assert (body['status_anterior'], body['status_novo']) == ('boposReleased', 'boposClosed')
+    assert body['ja_estava'] is False
+
+
+def test_op_status_repassa_status_atual_e_chave(op_client):
+    op_client.post('/ordens-producao/126599/status?chave=docentry',
+                   json={'status': 'encerrada', 'status_atual': 'liberada'},
+                   headers=op_client._auth)
+    assert op_client._op[0] == ('atualizar', 126599, 'encerrada', True, 'liberada')
+
+
+def test_op_status_exige_chave(op_client):
+    r = op_client.post('/ordens-producao/129850/status', json={'status': 'encerrada'})
+    assert r.status_code == 401
+
+
+def test_op_status_sem_os_api_key_configurada_e_503(client, monkeypatch):
+    """FAIL-CLOSED: é a única rota do arquivo que RECUSA quando a API está aberta.
+    As outras escrevem no Supabase (reversível); esta escreve no SAP de PRODUÇÃO."""
+    monkeypatch.delenv('OS_API_KEY', raising=False)
+    reset_settings()
+    chamou = []
+    monkeypatch.setattr(apimod.op_sl, 'atualizar_status',
+                        lambda *a, **k: chamou.append(1))
+    r = client.post('/ordens-producao/129850/status', json={'status': 'encerrada'})
+    assert r.status_code == 503
+    assert r.get_json()['tipo'] == 'sem_chave'
+    assert chamou == [], 'não pode nem chegar ao módulo de domínio'
+
+
+@pytest.mark.parametrize('corpo', [None, {}, {'status': ''}, {'outra': 'coisa'}])
+def test_op_status_corpo_sem_status_400(op_client, corpo):
+    r = op_client.post('/ordens-producao/129850/status', json=corpo, headers=op_client._auth)
+    assert r.status_code == 400
+    assert op_client._op == []
+
+
+@pytest.mark.parametrize('tipo_exc,http', [
+    ('OPStatusInvalido', 400),
+    ('OPTransicaoInvalida', 409),
+    ('OPConflito', 409),
+    ('OPAmbigua', 409),
+    ('OPNaoEncontrada', 404),
+    ('OPIndisponivel', 502),
+    ('OPDesativado', 503),
+])
+def test_op_status_mapeia_cada_erro_de_dominio(op_client, monkeypatch, tipo_exc, http):
+    """Cada OPError carrega o próprio status — um tipo novo no domínio aparece certo
+    aqui sem tocar na rota."""
+    classe = getattr(apimod.op_sl, tipo_exc)
+
+    def _boom(*a, **k):
+        raise classe('motivo de teste')
+    monkeypatch.setattr(apimod.op_sl, 'atualizar_status', _boom)
+    r = op_client.post('/ordens-producao/129850/status',
+                       json={'status': 'encerrada'}, headers=op_client._auth)
+    assert r.status_code == http
+    assert r.get_json()['motivo'] == 'motivo de teste'
+
+
+def test_op_status_idempotente_devolve_ja_estava(op_client, monkeypatch):
+    monkeypatch.setattr(apimod.op_sl, 'atualizar_status', lambda *a, **k: {
+        'doc_entry': 126599, 'doc_num': 129850, 'item': 'X',
+        'status_anterior': 'boposClosed', 'status_novo': 'boposClosed', 'ja_estava': True})
+    r = op_client.post('/ordens-producao/129850/status',
+                       json={'status': 'encerrada'}, headers=op_client._auth)
+    assert r.status_code == 200
+    assert r.get_json()['ja_estava'] is True
+
+
+def test_op_status_erro_inesperado_vira_502_e_nao_500(op_client, monkeypatch):
+    def _boom(*a, **k):
+        raise RuntimeError('algo que ninguem previu')
+    monkeypatch.setattr(apimod.op_sl, 'atualizar_status', _boom)
+    r = op_client.post('/ordens-producao/129850/status',
+                       json={'status': 'encerrada'}, headers=op_client._auth)
+    assert r.status_code == 502
+    assert 'ninguem previu' not in r.get_data(as_text=True), 'não vazar detalhe interno'
+
+
+def test_op_status_tem_trava_anti_loop(op_client, monkeypatch):
+    monkeypatch.setattr(apimod, '_RATE_OP_STATUS_MAX', 2)
+    for _ in range(2):
+        r = op_client.post('/ordens-producao/129850/status',
+                           json={'status': 'encerrada'}, headers=op_client._auth)
+        assert r.status_code == 200
+    r = op_client.post('/ordens-producao/129850/status',
+                       json={'status': 'encerrada'}, headers=op_client._auth)
+    assert r.status_code == 429
+    assert r.headers['Retry-After']
+
+
+def test_op_status_corpo_invalido_nao_gasta_a_trava(op_client, monkeypatch):
+    """Validar antes de contar: um corpo ruim nunca chega ao SAP, então não pode
+    consumir a cota que protege o SAP."""
+    monkeypatch.setattr(apimod, '_RATE_OP_STATUS_MAX', 1)
+    op_client.post('/ordens-producao/129850/status', json={}, headers=op_client._auth)
+    r = op_client.post('/ordens-producao/129850/status',
+                       json={'status': 'encerrada'}, headers=op_client._auth)
+    assert r.status_code == 200
+
+
+def test_op_kill_switch_desligado_fecha_as_duas_rotas(client, monkeypatch):
+    """Sem dublê: atravessa a rota até o módulo real e para no kill switch."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    monkeypatch.setenv('OP_SL_ENABLED', 'false')
+    reset_settings()
+    auth = {'X-API-Key': 'segredo'}
+    assert client.get('/ordens-producao/129850', headers=auth).status_code == 503
+    r = client.post('/ordens-producao/129850/status', json={'status': 'encerrada'}, headers=auth)
+    assert r.status_code == 503
+    assert r.get_json()['tipo'] == 'desativado'

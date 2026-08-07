@@ -23,13 +23,14 @@ Serviço de integração SAP B1 → Supabase. Roda em produção no `192.168.7.1
 | `extract_ordens_servico_engenharia.py` | Pipeline OS por N_PED (sob demanda) da view HANA consolidada `VW_OS_INTEGRACAO` → tabela única `vw_os_integracao` + `diagnosticar_nped` |
 | `monitoring.py` | `collect_status()` — checks SAP/SQL/Supabase/scheduler/windows_update/disco do `/status` |
 | `windows_update.py` | Reboot pendente (winreg, ~0,2ms) + updates pendentes/último patch (COM via PowerShell, 3-30s → thread daemon + cache). O `monitoring.py` só o consulta no check `windows_update` |
+| `ordens_producao_sl.py` | **ÚNICA ESCRITA em SAP** deste repo: status de Ordem de Produção via Service Layer (REST). Sessão + máquina de estados + allowlist. Nasce desligado (`OP_SL_ENABLED`) |
 | `sap_connection.py` | `SAPExtractor` (HANA via hdbcli) |
 | `db_utils.py` | `read_dbapi_query` (28 linhas) |
 | `feriados_br.py` | Feriados nacionais BR até 2030 (agendador pula) |
 | `scripts/scheduled_execution.py` | Loop do agendador (APScheduler, janela 7-18, seg-sex) |
 | `mcp/` | Fachada MCP fina e read-only sobre a API 8077 — NÃO fala com banco |
 | `web/sincronizar.html` | Página única servida em `GET /` |
-| `tests/` | pytest, 273 testes; `test_<modulo>.py` espelha o módulo |
+| `tests/` | pytest, 378 testes; `test_<modulo>.py` espelha o módulo |
 
 Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api.py` orquestra e
 importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não importa nada da raiz).
@@ -41,6 +42,7 @@ importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não impor
 | Endpoint HTTP (novo/alterar) | `api.py` + `tests/test_api.py` |
 | Variável de ambiente / default | `config.py` + `.env.example` + `tests/test_config.py` |
 | Lógica de extração/carga | o `extract_*.py` do pipeline + seu teste |
+| Status de Ordem de Produção (escrita SAP) | `ordens_producao_sl.py` + `tests/test_ordens_producao_sl.py` (+ plano em `docs/PLANO_OP_STATUS.md`) |
 | Check do `/status` | `monitoring.py` + `tests/test_monitoring.py` |
 | Windows Update / reboot pendente | `windows_update.py` + `tests/test_windows_update.py` (+ plano em `../SAP_RDP/docs/PLANO_WINDOWS_UPDATE.md`) |
 | Agendamento/janela/feriado | `scripts/scheduled_execution.py` + `feriados_br.py` |
@@ -64,6 +66,24 @@ importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não impor
 - Escritas têm **rate-limit in-process** (`RATE_SYNC_OS_MAX`, `RATE_FORCE_OPORT_MAX`) e
   **locks**: `_sync_lock` (thread) p/ OS, `oportunidades_sync_lock` (arquivo, cross-process,
   409 se ocupado) p/ carga completa.
+- **`ordens_producao_sl.py` é a ÚNICA coisa aqui que muda dado dentro do SAP**, e mira a
+  base de **PRODUÇÃO** (`SBOALTAMIRAPROD`). Três invariantes com teste cravando — não
+  afrouxe nenhuma sem decisão explícita: (1) `OP_SL_ENABLED` **nasce `false`** (rollback em
+  produção = uma linha no `.env` + restart); (2) `POST /ordens-producao/<n>/status` é
+  **fail-closed** — sem `OS_API_KEY` responde **503**, ao contrário de todas as outras
+  rotas, que caem abertas (as outras escrevem no Supabase, reversível; esta, não); (3)
+  alvo == status atual devolve `ja_estava` **sem mandar PATCH** — a idempotência é do
+  desenho, não do SAP. A allowlist `OP_STATUS_PERMITIDOS` é conferida **antes da rede** e
+  descarta código desconhecido: nada que não seja `bopos*` conhecido vira corpo de PATCH.
+  Cancelar e voltar para Planejada estão **fora de escopo** (decisão 2026-08-07).
+- **DocEntry ≠ DocNum na OP** (a OP 125060 é o DocEntry 126599). O default das rotas é
+  DocNum (o número da tela); `?chave=docentry` troca. DocNum que casa com mais de uma
+  ordem é **recusado** (409), nunca resolvido por `[0]`.
+- **Sessão do Service Layer: nunca um login por request.** O SL tem teto de sessões
+  concorrentes e vazá-las derruba o SL para todo mundo, cliente B1 incluído — por isso a
+  sessão é compartilhada com TTL e a sessão **substituída sai pelo `/Logout`**.
+  `ordens_producao_sl.py` é irmão de `web_orcaview_V117/backend/services/compras_sap_service.py`:
+  **mantenha os dois diffáveis** (correção num vale para o outro).
 - `config.get_settings()` é cacheado — testes usam `reset_settings()` após mexer em env.
 - **Windows Update: "0 pendentes" MENTE se o agente não varre.** Não é erro tratável — a busca
   `IsInstalled=0` **responde** (3,1s aqui, 22,5s na .12), diz **0** e está errada, porque o cache

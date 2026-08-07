@@ -114,3 +114,79 @@ def test_wu_enabled_bool(valor, esperado, monkeypatch):
     monkeypatch.setenv('WU_ENABLED', valor)
     reset_settings()
     assert get_settings().wu_enabled is esperado
+
+
+# ============ Ordem de Produção: escrita no SAP (2026-08-07) ============
+
+def test_op_sl_nasce_desligado_e_apontando_para_producao(monkeypatch):
+    """O default TEM de ser desligado: a base alvo é a de PRODUÇÃO."""
+    for chave in ('OP_SL_ENABLED', 'OP_SL_COMPANY_DB', 'OP_SL_SERVER', 'OP_SL_PORT'):
+        monkeypatch.delenv(chave, raising=False)
+    reset_settings()
+    s = get_settings()
+    assert s.op_sl_enabled is False
+    assert s.op_sl_company_db == 'SBOALTAMIRAPROD'
+    assert s.op_sl_base_url == 'https://sapbusinessonehana-vm:50000/b1s/v1'
+
+
+def test_op_sl_ready_exige_switch_e_credencial(monkeypatch):
+    monkeypatch.setenv('OP_SL_ENABLED', 'true')
+    monkeypatch.setenv('OP_SL_USERNAME', 'u')
+    monkeypatch.delenv('OP_SL_PASSWORD', raising=False)
+    reset_settings()
+    assert get_settings().op_sl_ready() is False
+
+    monkeypatch.setenv('OP_SL_PASSWORD', 'p')
+    reset_settings()
+    assert get_settings().op_sl_ready() is True
+
+    monkeypatch.setenv('OP_SL_ENABLED', 'false')
+    reset_settings()
+    assert get_settings().op_sl_ready() is False
+
+
+def test_credencial_ausente_nao_derruba_o_get_settings(monkeypatch):
+    """Diferente do config do repo web, que levanta no import: aqui a feature é
+    opcional e um ValueError mataria a API inteira, /health incluído."""
+    monkeypatch.setenv('OP_SL_ENABLED', 'true')
+    monkeypatch.delenv('OP_SL_PASSWORD', raising=False)
+    reset_settings()
+    assert get_settings().op_sl_password is None   # não levanta
+
+
+def test_op_status_permitidos_default():
+    reset_settings()
+    assert get_settings().op_status_permitidos == ('boposReleased', 'boposClosed')
+
+
+@pytest.mark.parametrize(('bruto', 'esperado'), [
+    ('boposClosed', ('boposClosed',)),
+    ('boposclosed, boposreleased', ('boposClosed', 'boposReleased')),   # case-insensitive
+    ('boposClosed,boposClosed', ('boposClosed',)),                      # sem duplicata
+    ('boposClosed,lixo', ('boposClosed',)),                             # descarta o inválido
+    ('lixo,boposInventado', ()),                                        # nada sobra
+    ('', ()),
+])
+def test_op_status_permitidos_so_deixa_passar_codigo_conhecido(monkeypatch, bruto, esperado):
+    """Essa tupla vira corpo de PATCH na base de PRODUÇÃO — typo no `.env` não pode
+    chegar ao SAP. Sobrar nada é resposta válida: bloqueia toda escrita."""
+    monkeypatch.setenv('OP_STATUS_PERMITIDOS', bruto)
+    reset_settings()
+    assert get_settings().op_status_permitidos == esperado
+
+
+def test_op_status_permitidos_nao_aceita_cancelar_por_default(monkeypatch):
+    monkeypatch.delenv('OP_STATUS_PERMITIDOS', raising=False)
+    reset_settings()
+    assert 'boposCancelled' not in get_settings().op_status_permitidos
+
+
+def test_op_porta_torta_no_env_cai_no_default(monkeypatch):
+    monkeypatch.setenv('OP_SL_PORT', 'nao-e-numero')
+    reset_settings()
+    assert get_settings().op_sl_port == 50000
+
+
+def test_op_timeout_default_tem_connect_curto_e_read_longo():
+    reset_settings()
+    assert get_settings().op_sl_timeout == (5.0, 30.0)

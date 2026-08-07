@@ -11,6 +11,8 @@ Endpoints
 - ``POST /ordens-servico/<nped>/sincronizar`` → syncs + returns the summary (GET's pair)
 - ``POST /sync/ordens-servico/<nped>``      → syncs **one** pedido
 - ``POST /sync/ordens-servico``             → body ``{"nped": N}`` or ``{"npeds": [...]}``
+- ``GET  /ordens-producao/<numero>``        → one Production Order (status + transitions)
+- ``POST /ordens-producao/<numero>/status`` → **writes into SAP**: Liberada / Encerrada
 
 Authentication (optional, **recommended in production**)
 --------------------------------------------------------
@@ -47,6 +49,7 @@ from typing import Any, List, Optional, Tuple
 
 from flask import Flask, jsonify, request, send_from_directory
 
+import ordens_producao_sl as op_sl
 import windows_update
 from config import get_settings
 from extract_ordens_servico_engenharia import (
@@ -98,6 +101,11 @@ _WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web')
 # races in replace_nped). Volume is low (on-demand trigger).
 _sync_lock = threading.Lock()
 
+# Serializes Production Order status writes. Global rather than per-OP because volume is
+# low (a person clicking a button) and it also keeps the shared Service Layer session from
+# being renewed by two threads at once. Per-OP locking is the upgrade if volume ever grows.
+_op_lock = threading.Lock()
+
 # ── Rate limit on WRITES (anti-loop guard) ────────────────────────────────────────
 # In-process sliding window per "bucket". GENEROUS on purpose: it catches an agent
 # runaway/loop without getting in the way of normal use (a person's ordinary use stays
@@ -106,6 +114,10 @@ _sync_lock = threading.Lock()
 _RATE_WINDOW_S = 60.0
 _RATE_SYNC_OS_MAX = int(os.getenv('RATE_SYNC_OS_MAX', '60'))
 _RATE_FORCE_OPORT_MAX = int(os.getenv('RATE_FORCE_OPORT_MAX', '6'))
+# Production Order status writes. TIGHTER than the others on purpose: this is the only
+# bucket in front of a write into SAP PRODUCTION, and no legitimate use changes 20 order
+# statuses in a minute by hand.
+_RATE_OP_STATUS_MAX = int(os.getenv('RATE_OP_STATUS_MAX', '20'))
 
 # Cap on pedidos per request in POST /sync/ordens-servico. The batch runs SERIALIZED
 # inside _sync_lock (2 HANA connections per pedido), so a huge list would become an
@@ -803,6 +815,116 @@ def sync_varios():
     return _sincronizar(npeds)
 
 
+# ===================== Ordens de Produção (ESCRITA no SAP) =====================
+# The only routes in this file that WRITE into SAP. Everything else reads SAP and writes
+# to Supabase. The domain logic (state machine, allowlist, Service Layer session) lives in
+# ``ordens_producao_sl``; here there is only HTTP.
+
+
+def _chave_docentry() -> bool:
+    """True when ``?chave=docentry`` — the ``<numero>`` is the DocEntry, not the DocNum."""
+    return (request.args.get('chave') or '').strip().lower() in ('docentry', 'entry', 'absentry')
+
+
+def _resposta_op_erro(exc: op_sl.OPError) -> Tuple[Any, int]:
+    """Turn a domain error into its HTTP answer.
+
+    Each ``OPError`` subclass carries its own ``tipo``/``http``, so a new error type in the
+    domain module lands correctly here with no change — the alternative was a ladder of
+    isinstance checks that someone would forget to extend.
+    """
+    corpo = {'ok': False, 'tipo': exc.tipo, 'motivo': exc.motivo}
+    corpo.update(exc.extra)
+    return jsonify(corpo), exc.http
+
+
+@app.get('/ordens-producao/<numero>')
+@requer_chave
+def op_detalhe(numero: str):
+    """Status and identification of ONE Production Order. Requires X-API-Key.
+
+    ``<numero>`` is the **DocNum** (the number on the SAP screen); ``?chave=docentry``
+    reads by DocEntry instead. Read-only — it does not change anything in the SAP.
+
+    The answer includes ``transicoes_permitidas`` (already filtered by
+    ``OP_STATUS_PERMITIDOS`` and by the order's own status), which is what lets a screen
+    grey out the wrong button instead of finding out on the POST.
+    """
+    try:
+        n = coerce_positive_int(numero, what='numero da OP')
+    except ValueError as exc:
+        return jsonify(ok=False, error=str(exc)), 400
+    try:
+        op = op_sl.consultar_op(n, por_docentry=_chave_docentry())
+    except op_sl.OPError as exc:
+        return _resposta_op_erro(exc)
+    except Exception as exc:  # never let the request blow up as a silent 500
+        logger.error("Erro ao consultar a OP %s: %s", n, exc)
+        return jsonify(ok=False, tipo='erro',
+                       motivo='Nao foi possivel consultar a ordem de producao.'), 502
+    return jsonify(ok=True, op=op)
+
+
+@app.post('/ordens-producao/<numero>/status')
+@requer_chave
+def op_status(numero: str):
+    """Change the status of ONE Production Order **in the SAP**. Requires X-API-Key.
+
+    Body: ``{"status": "liberada"|"encerrada", "status_atual": "<opcional>"}``. ``status``
+    also accepts the raw code (``boposReleased``/``boposClosed``). ``status_atual`` is a
+    compare-and-swap: sent and divergent → 409, nothing written.
+
+    Status: ``200`` changed (or ``ja_estava: true``, with no PATCH sent) · ``400`` invalid
+    number/status or status outside the allowlist · ``401`` missing X-API-Key · ``404`` no
+    such OP · ``409`` terminal status, ambiguous DocNum or compare-and-swap mismatch ·
+    ``429`` anti-loop guard · ``502`` Service Layer down or the SAP refused · ``503``
+    feature off or this API has no key configured.
+    """
+    # FAIL-CLOSED, unlike every other route here. Elsewhere an unset OS_API_KEY leaves the
+    # API open (documented at the top of this file) — acceptable for reads and for writes
+    # into Supabase, which we can undo. This one writes into SAP PRODUCTION, so "no key
+    # configured" must mean "refuse", never "let anyone through".
+    if not get_settings().os_api_key:
+        return jsonify(
+            ok=False, tipo='sem_chave',
+            motivo=('Escrita em OP exige OS_API_KEY configurada no servidor. '
+                    'Defina OS_API_KEY no .env e reinicie a API.'),
+        ), 503
+
+    try:
+        n = coerce_positive_int(numero, what='numero da OP')
+    except ValueError as exc:
+        return jsonify(ok=False, error=str(exc)), 400
+
+    body = request.get_json(silent=True) or {}
+    if not body.get('status'):
+        return jsonify(
+            ok=False, error="informe 'status'",
+            motivo="Corpo esperado: {'status': 'liberada'|'encerrada'}.",
+        ), 400
+
+    # After validating the body: a malformed request never reaches the SAP, so it should
+    # not burn a token of the guard that protects the SAP.
+    limitado = _checar_rate('op_status', _RATE_OP_STATUS_MAX)
+    if limitado is not None:
+        return limitado
+
+    try:
+        with _op_lock:
+            resultado = op_sl.atualizar_status(
+                n, body['status'],
+                por_docentry=_chave_docentry(),
+                status_atual=body.get('status_atual'),
+            )
+    except op_sl.OPError as exc:
+        return _resposta_op_erro(exc)
+    except Exception as exc:
+        logger.error("Erro ao atualizar o status da OP %s: %s", n, exc)
+        return jsonify(ok=False, tipo='erro',
+                       motivo='Nao foi possivel atualizar o status da OP.'), 502
+    return jsonify(ok=True, **resultado)
+
+
 def main() -> None:
     """Start the server (waitress in production; Flask dev as fallback)."""
     _configure_logging()
@@ -810,7 +932,16 @@ def main() -> None:
     if not s.os_api_key:
         logger.warning(
             "OS_API_KEY não definido — endpoint SEM autenticação "
-            "(ok p/ rede interna/dev; defina OS_API_KEY em produção)."
+            "(ok p/ rede interna/dev; defina OS_API_KEY em produção). "
+            "A escrita de status de OP fica BLOQUEADA (503) enquanto não houver chave."
+        )
+    # Loud on purpose: this is the one feature of this service that changes data inside
+    # SAP, and it points at the production company database.
+    if s.op_sl_ready():
+        logger.warning(
+            "ESCRITA de status de Ordem de Producao LIGADA — base %s em %s (usuario %s). "
+            "Rollback: OP_SL_ENABLED=false no .env + restart.",
+            s.op_sl_company_db, s.op_sl_server, s.op_sl_username,
         )
     # The update search costs 3.1s here (measured; 30s cold) and would blow the timeout of
     # whoever calls /status — hence it runs on a daemon thread, off the request path.
