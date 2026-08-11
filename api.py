@@ -60,8 +60,14 @@ from extract_ordens_servico_engenharia import (
     main as sync_os,
 )
 from extract_sap_to_supabase import main as sync_oportunidades
+from extract_vendas_bi import main as sync_vendas_bi
 from monitoring import SELECTABLE_CHECKS, collect_status
-from pipeline_core import FileLockTimeout, coerce_positive_int, oportunidades_sync_lock
+from pipeline_core import (
+    FileLockTimeout,
+    coerce_positive_int,
+    oportunidades_sync_lock,
+    vendas_bi_sync_lock,
+)
 
 # UTF-8 console on Windows
 try:
@@ -114,6 +120,9 @@ _op_lock = threading.Lock()
 _RATE_WINDOW_S = 60.0
 _RATE_SYNC_OS_MAX = int(os.getenv('RATE_SYNC_OS_MAX', '60'))
 _RATE_FORCE_OPORT_MAX = int(os.getenv('RATE_FORCE_OPORT_MAX', '6'))
+# Agregados do dashboard Vendas: 4 consultas agregadas e menos de mil linhas de
+# upsert, mas ainda são 4 viagens ao HANA — o teto evita o loop de um agente.
+_RATE_VENDAS_BI_MAX = int(os.getenv('RATE_VENDAS_BI_MAX', '6'))
 # Production Order status writes. TIGHTER than the others on purpose: this is the only
 # bucket in front of a write into SAP PRODUCTION, and no legitimate use changes 20 order
 # statuses in a minute by hand.
@@ -761,6 +770,33 @@ def oport_sincronizar():
     # code — the norm — read the failure as a success.
     return jsonify(ok=False, tipo='erro',
                    motivo='Nao foi possivel sincronizar (0 registros?).'), 502
+
+
+@app.post('/vendas-bi/sincronizar')
+@requer_chave
+def vendas_bi_sincronizar():
+    """Recalcula os agregados do dashboard Vendas do app. Requer X-API-Key.
+
+    Mesmo desenho do gatilho de oportunidades: rate-limit próprio e lock de
+    arquivo — duas cargas simultâneas fariam upsert da mesma chave e a última a
+    terminar venceria, o que é inofensivo mas desperdiça duas viagens ao HANA.
+    """
+    limitado = _checar_rate('vendas_bi', _RATE_VENDAS_BI_MAX)
+    if limitado is not None:
+        return limitado
+
+    try:
+        with vendas_bi_sync_lock(timeout=0):
+            ok = bool(sync_vendas_bi())
+    except FileLockTimeout:
+        return jsonify(ok=False, tipo='ocupado',
+                       motivo='Ja ha uma carga de vendas em andamento.'), 409
+    except Exception as exc:
+        logger.error("Erro ao sincronizar vendas BI: %s", exc)
+        return jsonify(ok=False, tipo='erro', motivo='Nao foi possivel sincronizar.'), 502
+    if ok:
+        return jsonify(ok=True)
+    return jsonify(ok=False, tipo='erro', motivo='Nao foi possivel sincronizar.'), 502
 
 
 @app.post('/sync/ordens-servico/<nped>')

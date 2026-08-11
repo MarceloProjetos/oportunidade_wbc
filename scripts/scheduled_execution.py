@@ -17,11 +17,16 @@ from apscheduler.triggers.interval import IntervalTrigger
 import scripts._bootstrap  # noqa: F401
 from config import get_settings, parse_janela_horas
 from extract_sap_to_supabase import main
+from extract_vendas_bi import main as sync_vendas_bi
 from feriados_br import is_business_day, is_national_holiday
-from pipeline_core import FileLockTimeout, oportunidades_sync_lock
+from pipeline_core import FileLockTimeout, oportunidades_sync_lock, vendas_bi_sync_lock
 
 LOG_RETENTION_DAYS = 6
 HEARTBEAT_INTERVAL_S = 3600
+#: De quanto em quanto tempo os agregados de Vendas são recalculados.
+#: 15 min porque o KPI "hoje" é o único número da tela que anda durante o dia —
+#: o resto (séries, ranking do mês) muda devagar e não justifica mais frequência.
+VENDAS_BI_INTERVALO_MIN = 15
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +116,29 @@ def job_execucao(*, ignorar_janela: bool = False) -> None:
         _execution_lock.release()
 
 
+def job_vendas_bi() -> None:
+    """Recalcula os agregados do dashboard Vendas do app.
+
+    Roda **em dia útil, dentro da janela comercial**, como a carga de
+    oportunidades: fora do expediente ninguém lança pedido, e o KPI "hoje"
+    parado à noite é o valor correto — não um valor velho.
+
+    Job próprio (e lock próprio) de propósito: se a carga de oportunidades
+    falhar, o dashboard de vendas não pode parar junto, e vice-versa.
+    """
+    if not can_run_load():
+        logger.debug('Vendas BI pulado: fora do dia útil/janela')
+        return
+    try:
+        with vendas_bi_sync_lock(timeout=0):
+            ok = sync_vendas_bi()
+        logger.info('Vendas BI: %s', 'OK' if ok else 'FALHOU')
+    except FileLockTimeout:
+        logger.warning('Vendas BI pulado: carga já em andamento (lock de arquivo)')
+    except Exception as exc:
+        logger.error('Vendas BI erro: %s', exc)
+
+
 def configurar_agenda() -> BackgroundScheduler:
     settings = get_settings()
     # JANELA_HORAS already validated in get_settings(); re-check for scheduler startup log
@@ -131,6 +159,12 @@ def configurar_agenda() -> BackgroundScheduler:
             f'Every {settings.intervalo_minutos}min '
             f'({settings.janela_horas}h, Mon-Fri, no holidays)'
         ),
+    )
+    scheduler.add_job(
+        job_vendas_bi,
+        trigger=IntervalTrigger(minutes=VENDAS_BI_INTERVALO_MIN),
+        id='vendas_bi',
+        name=f'Vendas BI a cada {VENDAS_BI_INTERVALO_MIN}min ({settings.janela_horas}h, Mon-Fri)',
     )
     for job in scheduler.get_jobs():
         logger.info('Job: %s — %s', job.name, job.trigger)

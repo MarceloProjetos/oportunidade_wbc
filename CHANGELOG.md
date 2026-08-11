@@ -3,6 +3,53 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-08-11] — agregados do dashboard "Vendas" do app (HANA → Supabase)
+
+### Adicionado
+
+- **Terceiro pipeline** deste serviço: [extract_vendas_bi.py](extract_vendas_bi.py)
+  alimenta as três tabelas `bi_vendas_*` que o `mobile_orcaview_V3` desenha no modo
+  **Vendas** do Dashboard — o que hoje só existia no Power BI. Plano completo em
+  `mobile_orcaview_V3/docs/PLANO_VENDAS_BI.md`.
+
+- **A medida foi achada MEDINDO, não deduzindo.** Agosto/2026 fecha em
+  R$ 1.314.876,11 com `SUM("VlrPedido")` — exatamente o número do Power BI —,
+  enquanto o `valorXindice` do modelo do PBIX (`VlrPedido * Indice_Pedido`) dá
+  R$ 1.309.079,46. Ou seja: **o dashboard não usa o índice**. Trocar a medida no SQL
+  faz a tela do celular divergir da do Power BI sem nenhum erro aparecer — há teste
+  cravando que `Indice_Pedido` não entra na consulta.
+  Faturamento é `SUM("Valor")` de **`VW_FATO_FATURAMENTO`** (a view chama-se assim;
+  `FATO_FATURAMENTO` é só o nome da consulta no PBIX), sem `ValorAdiant`.
+
+- ⚠️ **Vendedor casa por NOME, nunca por código.** `VW_PEDIDO_ALTA."CodVend"` já é o
+  nome; `VW_FATO_FATURAMENTO."CodVend"` é o `SlpCode` e leva `LEFT JOIN` com `OSLP`.
+  Do outro lado, `app_profiles.slp_code` **diverge** do `OSLP.SlpCode` em produção
+  (Edson 6≠7, Luiz Augusto 12≠9, Robson 47≠11) — casar por código entregaria o
+  número de um vendedor para outro.
+
+- `POST /vendas-bi/sincronizar` (X-API-Key, `RATE_VENDAS_BI_MAX`, lock de arquivo
+  próprio) e job de 15 min no agendador, na mesma janela comercial dos outros.
+
+- `SupabaseLoader.upsert_data` no [pipeline_core.py](pipeline_core.py): irmão do
+  `insert_data` para as cargas que reescrevem o mesmo conjunto. **Sem reversão
+  parcial de propósito** — a chave é natural, então um lote que falha no meio deixa
+  dado antigo porém coerente, enquanto reverter (ou apagar-e-inserir) abriria um
+  buraco visível para quem estiver com o app aberto.
+
+- DDL + RLS em [sql/bi_vendas.sql](sql/bi_vendas.sql), **já aplicado em produção**.
+  Nenhuma policy para `anon`: faturamento por cliente e ranking de vendedor são dado
+  sensível. Provado simulando os papéis — admin alcança 15 vendedores, o
+  representante alcança **só o próprio** (zero linhas de `__TOTAL__`, zero ranking de
+  clientes) e `anon` alcança **nada** nas três tabelas.
+
+- 22 testes novos (`tests/test_extract_vendas_bi.py`), suíte em **400**.
+
+### Pendente
+
+- **Deploy na `.11`**: o pipeline rodou uma vez, à mão, da máquina de
+  desenvolvimento, só para popular as tabelas. Sem `git pull` + restart dos serviços
+  NSSM lá, o dado da tela congela na carga de 11/08 17:41.
+
 ## [2026-08-07] — escrita de status de Ordem de Produção no SAP (Service Layer)
 
 ### Adicionado

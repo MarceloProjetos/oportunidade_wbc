@@ -21,6 +21,7 @@ Serviço de integração SAP B1 → Supabase. Roda em produção no `192.168.7.1
 | `pipeline_core.py` | Núcleo compartilhado: `SupabaseLoader`, locks de arquivo, validação, retry |
 | `extract_sap_to_supabase.py` | Pipeline OPORTUNIDADES (carga completa, agendada) |
 | `extract_ordens_servico_engenharia.py` | Pipeline OS por N_PED (sob demanda) da view HANA consolidada `VW_OS_INTEGRACAO` → tabela única `vw_os_integracao` + `diagnosticar_nped` |
+| `extract_vendas_bi.py` | Pipeline VENDAS BI (agendado, 15min): `VW_PEDIDO_ALTA` + `VW_FATO_FATURAMENTO` → agregados `bi_vendas_*` que o app desenha no modo Vendas do Dashboard |
 | `monitoring.py` | `collect_status()` — checks SAP/SQL/Supabase/scheduler/windows_update/disco do `/status` |
 | `windows_update.py` | Reboot pendente (winreg, ~0,2ms) + updates pendentes/último patch (COM via PowerShell, 3-30s → thread daemon + cache). O `monitoring.py` só o consulta no check `windows_update` |
 | `ordens_producao_sl.py` | **ÚNICA ESCRITA em SAP** deste repo: status de Ordem de Produção via Service Layer (REST). Sessão + máquina de estados + allowlist. Nasce desligado (`OP_SL_ENABLED`) |
@@ -76,6 +77,13 @@ importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não impor
   desenho, não do SAP. A allowlist `OP_STATUS_PERMITIDOS` é conferida **antes da rede** e
   descarta código desconhecido: nada que não seja `bopos*` conhecido vira corpo de PATCH.
   Cancelar e voltar para Planejada estão **fora de escopo** (decisão 2026-08-07).
+- **Vendas BI: a medida de "Pedidos" é `SUM("VlrPedido")`, sem índice.** O modelo do
+  Power BI tem uma coluna `valorXindice` (`VlrPedido * Indice_Pedido`) que **não** é a
+  que o dashboard mostra — medido em 11/08/2026: agosto fecha em R$ 1.314.876,11 pelo
+  bruto (igual ao PBI) e R$ 1.309.079,46 pelo índice. Trocar isso faz a tela do app
+  divergir do Power BI **sem erro nenhum aparecer**. Idem faturamento: `SUM("Valor")` de
+  `VW_FATO_FATURAMENTO`, sem `ValorAdiant`. Vendedor casa por **nome**
+  (`OSLP.SlpName` = `app_profiles.slp_name`) — o `slp_code` dos dois lados **diverge**.
 - **DocEntry ≠ DocNum na OP** (a OP 125060 é o DocEntry 126599). O default das rotas é
   DocNum (o número da tela); `?chave=docentry` troca. DocNum que casa com mais de uma
   ordem é **recusado** (409), nunca resolvido por `[0]`.

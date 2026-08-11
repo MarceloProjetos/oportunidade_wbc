@@ -76,6 +76,23 @@ def oportunidades_sync_lock(timeout: float = 0):
 
 
 @contextmanager
+def vendas_bi_sync_lock(timeout: float = 0):
+    """Lock cross-process da carga de agregados do dashboard Vendas.
+
+    Irmão do de oportunidades, com arquivo PRÓPRIO: as duas cargas leem views
+    diferentes e escrevem tabelas diferentes, então uma travar a outra só
+    atrasaria as duas sem proteger nada.
+    """
+    if FileLock is None:
+        logger.warning("filelock não instalado — carga de vendas SEM lock cross-process")
+        yield
+        return
+    os.makedirs(_LOCK_DIR, exist_ok=True)
+    with FileLock(os.path.join(_LOCK_DIR, 'vendas_bi_sync.lock'), timeout=timeout):
+        yield
+
+
+@contextmanager
 def os_sync_lock(nped: object, timeout: float = 0):
     """Cross-process file lock for the OS sync of **a single pedido**.
 
@@ -341,6 +358,74 @@ class SupabaseLoader:
         if colunas is None:
             return []
         return [col for col in data[0] if col not in colunas]
+
+    def upsert_data(
+        self,
+        table_name: str,
+        data: List[Dict[str, Any]],
+        on_conflict: str,
+        batch_size: int = INSERT_BATCH_SIZE,
+    ) -> bool:
+        """Insert-or-update em lote, pela chave natural da tabela.
+
+        Irmão de :meth:`insert_data` para as cargas que **reescrevem o mesmo
+        conjunto** a cada execução (os agregados de BI, por exemplo): a tabela
+        tem chave natural e o pipeline roda de 15 em 15 minutos, então inserir
+        de novo daria conflito e apagar-tudo-e-inserir deixaria a tela vazia
+        entre as duas operações — um buraco visível para quem estiver com o app
+        aberto.
+
+        Sem reversão parcial de propósito, ao contrário do `insert_data`: aqui
+        um lote que falha no meio deixa dados **antigos porém coerentes** (a
+        chave é a mesma), e a execução seguinte corrige. Reverter é que criaria
+        o buraco.
+
+        Args:
+            table_name: Nome da tabela.
+            data: Linhas.
+            on_conflict: Colunas da chave natural, separadas por vírgula —
+                exatamente como o PostgREST espera (``'metrica,vendedor,ano,mes'``).
+            batch_size: Tamanho do lote.
+
+        Returns:
+            ``True`` se todos os lotes entraram.
+        """
+        total = len(data)
+        if total == 0:
+            logger.warning("Nenhum registro para upsert.")
+            return True
+
+        faltando = self.colunas_faltantes(table_name, data)
+        if faltando:
+            logger.error(
+                "[SCHEMA] A origem tem %s coluna(s) que a tabela '%s' NAO tem: %s.\n"
+                "O upsert falharia com PGRST204. Rode no Supabase e sincronize de novo:\n\n"
+                "%s\n",
+                len(faltando), table_name, ', '.join(faltando),
+                alter_sugerido(table_name, faltando, data),
+            )
+            return False
+
+        try:
+            for inicio in range(0, total, batch_size):
+                lote = data[inicio:inicio + batch_size]
+                num_lote = inicio // batch_size + 1
+                with_retries(
+                    lambda l=lote: self.client.table(table_name)
+                    .upsert(l, on_conflict=on_conflict)
+                    .execute(),
+                    what=f"upsert lote {num_lote} ('{table_name}')",
+                    retry_on=_retry_se_transitorio,
+                )
+                logger.info(
+                    f"Lote {num_lote}: {len(lote)} registro(s) upsert "
+                    f"({min(inicio + batch_size, total)}/{total})"
+                )
+            logger.info(f"{total} registro(s) gravados em '{table_name}'")
+            return True
+        except Exception as e:
+            logger.error(f"Erro no upsert do Supabase: {e}")
+            return False
 
     def insert_data(
         self, table_name: str, data: List[Dict[str, Any]], batch_size: int = INSERT_BATCH_SIZE
