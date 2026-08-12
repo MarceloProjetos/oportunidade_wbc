@@ -61,10 +61,12 @@ create table if not exists public.bi_vendas_serie_mensal (
   primary key (metrica, vendedor, ano, mes)
 );
 
--- Ranking do mês. `vendedor` aqui é o ESCOPO de quem pode ver, não o dono da
--- linha: o ranking de clientes só existe para '__TOTAL__' (representante não vê
--- a carteira dos outros).
+-- Ranking, um par (vendedores + clientes) POR ESCOPO — os quatro cartões do
+-- topo da tela filtram os três blocos, e ranking de um dia não se deriva do
+-- ranking do mês. `vendedor` aqui é o ESCOPO DE VISIBILIDADE, não o dono da
+-- linha: só existe '__TOTAL__' (representante não vê a carteira dos outros).
 create table if not exists public.bi_vendas_ranking (
+  escopo        text        not null check (escopo in ('hoje','ontem','mes_atual','mes_passado')),
   competencia   date        not null,
   tipo          text        not null check (tipo in ('vendedor','cliente')),
   vendedor      text        not null,
@@ -73,14 +75,14 @@ create table if not exists public.bi_vendas_ranking (
   valor         numeric(18,2) not null default 0,
   posicao       smallint    not null,
   atualizado_em timestamptz not null default now(),
-  primary key (competencia, tipo, vendedor, chave)
+  primary key (escopo, tipo, vendedor, chave)
 );
 
 -- O app lê sempre por vendedor (o seu ou '__TOTAL__'); o índice acompanha.
 create index if not exists ix_bi_vendas_serie_vendedor
   on public.bi_vendas_serie_mensal (vendedor, metrica, ano, mes);
-create index if not exists ix_bi_vendas_ranking_comp
-  on public.bi_vendas_ranking (vendedor, tipo, competencia, posicao);
+create index if not exists ix_bi_vendas_ranking_escopo
+  on public.bi_vendas_ranking (vendedor, escopo, tipo, posicao);
 
 
 -- ----------------------------------------------------------------------------

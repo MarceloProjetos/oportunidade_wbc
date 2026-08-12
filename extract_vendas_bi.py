@@ -32,7 +32,7 @@ from __future__ import annotations
 import logging
 import sys
 from datetime import date, timedelta
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional
 
 from config import get_settings
 from pipeline_core import (
@@ -76,17 +76,25 @@ def sql_pedidos_mensal(schema: str, ano_inicial: int) -> str:
     '''
 
 
-def sql_pedidos_dia(schema: str, de: date, ate: date) -> str:
-    """Pedidos por dia/vendedor num intervalo fechado — alimenta hoje e ontem."""
+def sql_detalhe_recente(schema: str, de: date, ate: date) -> str:
+    """Pedidos por dia × vendedor × cliente no intervalo fechado ``[de, ate]``.
+
+    Uma consulta só alimenta **os quatro KPIs e os quatro rankings**, porque a
+    janela mínima que a tela precisa (do 1º dia do mês passado até hoje) cabe em
+    ~150 linhas agregadas. Duas consultas separadas — uma para o dia, outra para
+    o mês — divergiriam a cada pedido lançado entre as duas, e o app mostraria um
+    KPI que não é a soma do ranking exibido logo abaixo dele.
+    """
     validate_sql_identifier(schema)
     return f'''
         SELECT TO_VARCHAR("DATA", 'YYYY-MM-DD') AS DIA,
                "CodVend" AS VENDEDOR,
+               "CardCode" AS CHAVE, MAX("Cliente") AS NOME,
                SUM("VlrPedido") AS VALOR, COUNT(*) AS QTD
           FROM "{schema}"."VW_PEDIDO_ALTA"
          WHERE "DATA" >= '{de.isoformat()} 00:00:00'
            AND "DATA" <  '{(ate + timedelta(days=1)).isoformat()} 00:00:00'
-         GROUP BY TO_VARCHAR("DATA", 'YYYY-MM-DD'), "CodVend"
+         GROUP BY TO_VARCHAR("DATA", 'YYYY-MM-DD'), "CodVend", "CardCode"
     '''
 
 
@@ -109,16 +117,22 @@ def sql_faturamento_mensal(schema: str, ano_inicial: int) -> str:
     '''
 
 
-def sql_ranking_clientes(schema: str, competencia: date) -> str:
-    """Clientes do mês, do maior para o menor."""
-    validate_sql_identifier(schema)
-    return f'''
-        SELECT "CardCode" AS CHAVE, MAX("Cliente") AS NOME, SUM("VlrPedido") AS VALOR
-          FROM "{schema}"."VW_PEDIDO_ALTA"
-         WHERE YEAR("DATA") = {competencia.year} AND MONTH("DATA") = {competencia.month}
-         GROUP BY "CardCode"
-         ORDER BY 3 DESC
-    '''
+def janelas(hoje: date) -> Dict[str, tuple]:
+    """Intervalo fechado ``(de, ate)`` de cada escopo, e a competência de cada um.
+
+    Mês passado é calculado voltando um dia do dia 1 do mês corrente — a virada
+    de ano sai de graça e não há aritmética de mês 0.
+    """
+    primeiro = date(hoje.year, hoje.month, 1)
+    fim_passado = primeiro - timedelta(days=1)
+    inicio_passado = date(fim_passado.year, fim_passado.month, 1)
+    ontem = hoje - timedelta(days=1)
+    return {
+        'hoje': (hoje, hoje, hoje),
+        'ontem': (ontem, ontem, ontem),
+        'mes_atual': (primeiro, hoje, primeiro),
+        'mes_passado': (inicio_passado, fim_passado, inicio_passado),
+    }
 
 
 # ------------------------------------------------------- montagem das linhas
@@ -177,68 +191,51 @@ def linhas_serie(
     return list(saida.values())
 
 
+def _no_intervalo(dia: str, de: date, ate: date) -> bool:
+    """`YYYY-MM-DD` dentro do intervalo fechado. Comparação de string basta no ISO."""
+    return bool(dia) and de.isoformat() <= dia <= ate.isoformat()
+
+
 def linhas_kpi(
-    diarios: Iterable[Dict[str, Any]],
-    serie_pedidos: Sequence[Dict[str, Any]],
+    detalhe: Iterable[Dict[str, Any]],
     hoje: date,
     quando: str,
 ) -> List[Dict[str, Any]]:
     """Os quatro cartões, por vendedor e consolidado.
 
-    ``hoje``/``ontem`` saem do retorno diário; ``mes_atual``/``mes_passado``
-    saem da série mensal já montada — não de uma consulta nova, pelo mesmo
-    motivo do ``__TOTAL__`` em :func:`linhas_serie`.
+    Os quatro escopos saem do **mesmo** retorno diário (:func:`sql_detalhe_recente`),
+    e não de consultas separadas: o cartão "mês atual" tem de ser exatamente a
+    soma do ranking do mês que aparece logo abaixo dele na tela.
 
-    Vendedor sem venda no dia **ganha linha zerada**: sem ela o app não
+    Vendedor sem venda no período **ganha linha zerada**: sem ela o app não
     distingue "nenhum pedido hoje" de "o dado não chegou", e as duas coisas
     pintam a mesma tela vazia.
     """
-    ontem = hoje - timedelta(days=1)
-    mes_passado = date(hoje.year, hoje.month, 1) - timedelta(days=1)
-
-    por_dia: Dict[tuple, Dict[str, float]] = {}
-    vendedores = {TOTAL}
-    for r in diarios:
-        dia = str(r.get('DIA') or '')
-        vendedor = (r.get('VENDEDOR') or '?').strip()
-        vendedores.add(vendedor)
-        for chave_vend in (vendedor, TOTAL):
-            acc = por_dia.setdefault((dia, chave_vend), {'valor': 0.0, 'qtd': 0})
-            acc['valor'] = round(acc['valor'] + _num(r.get('VALOR')), 2)
-            acc['qtd'] += _int(r.get('QTD'))
-
-    por_mes: Dict[tuple, Dict[str, float]] = {}
-    for linha in serie_pedidos:
-        if linha['metrica'] != 'pedidos':
-            continue
-        vendedores.add(linha['vendedor'])
-        k = (linha['ano'], linha['mes'], linha['vendedor'])
-        por_mes[k] = {'valor': linha['valor'], 'qtd': linha['qtd_pedidos']}
+    linhas = list(detalhe)
+    vendedores = {TOTAL} | {(r.get('VENDEDOR') or '?').strip() for r in linhas}
 
     saida: List[Dict[str, Any]] = []
-    for vendedor in sorted(vendedores):
-        alvos = (
-            ('hoje', hoje, por_dia.get((hoje.isoformat(), vendedor))),
-            ('ontem', ontem, por_dia.get((ontem.isoformat(), vendedor))),
-            (
-                'mes_atual',
-                date(hoje.year, hoje.month, 1),
-                por_mes.get((hoje.year, hoje.month, vendedor)),
-            ),
-            (
-                'mes_passado',
-                date(mes_passado.year, mes_passado.month, 1),
-                por_mes.get((mes_passado.year, mes_passado.month, vendedor)),
-            ),
-        )
-        for escopo, competencia, achado in alvos:
+    for escopo, (de, ate, competencia) in janelas(hoje).items():
+        acumulado: Dict[str, Dict[str, float]] = {
+            v: {'valor': 0.0, 'qtd': 0} for v in vendedores
+        }
+        for r in linhas:
+            if not _no_intervalo(str(r.get('DIA') or ''), de, ate):
+                continue
+            vendedor = (r.get('VENDEDOR') or '?').strip()
+            for chave_vend in (vendedor, TOTAL):
+                acumulado[chave_vend]['valor'] = round(
+                    acumulado[chave_vend]['valor'] + _num(r.get('VALOR')), 2
+                )
+                acumulado[chave_vend]['qtd'] += _int(r.get('QTD'))
+        for vendedor in sorted(vendedores):
             saida.append(
                 {
                     'escopo': escopo,
                     'vendedor': vendedor,
                     'competencia': competencia.isoformat(),
-                    'valor': _num(achado['valor']) if achado else 0.0,
-                    'qtd_pedidos': _int(achado['qtd']) if achado else 0,
+                    'valor': acumulado[vendedor]['valor'],
+                    'qtd_pedidos': int(acumulado[vendedor]['qtd']),
                     'atualizado_em': quando,
                 }
             )
@@ -246,62 +243,102 @@ def linhas_kpi(
 
 
 def linhas_ranking(
-    serie_pedidos: Sequence[Dict[str, Any]],
-    clientes: Iterable[Dict[str, Any]],
-    competencia: date,
+    detalhe: Iterable[Dict[str, Any]],
+    hoje: date,
     quando: str,
     top_clientes: int = TOP_CLIENTES,
 ) -> List[Dict[str, Any]]:
-    """Ranking de vendedores (visível a quem vê tudo) e de clientes (só total).
+    """Ranking de vendedores e de clientes, **um conjunto por escopo**.
 
-    O ranking de clientes fica **apenas** no escopo ``__TOTAL__`` porque a
-    decisão de 11/08/2026 é que representante não vê a carteira dos outros —
-    e o recorte por vendedor exigiria uma consulta por vendedor para um dado
-    que ninguém pediu.
+    Os quatro escopos existem porque na tela o cartão do topo virou filtro: tocar
+    em "ontem" tem de trocar o ranking inteiro, e ranking de um dia não se deriva
+    do ranking do mês.
+
+    Dois escopos de visibilidade convivem na coluna ``vendedor``:
+
+    - ``__TOTAL__`` — placar de vendedores **e** de clientes da empresa. Só
+      admin e diretoria alcançam (RLS).
+    - o nome de cada vendedor — **apenas os clientes dele**. É o que o
+      representante vê: sem isso o card do ranking nasce vazio na tela dele, o
+      que se lê como app quebrado. O placar de vendedores continua fora do
+      alcance dele — é o número dos colegas.
     """
+    linhas = list(detalhe)
     saida: List[Dict[str, Any]] = []
 
-    do_mes = [
-        linha
-        for linha in serie_pedidos
-        if linha['metrica'] == 'pedidos'
-        and linha['ano'] == competencia.year
-        and linha['mes'] == competencia.month
-        and linha['vendedor'] != TOTAL
-    ]
-    do_mes.sort(key=lambda linha: linha['valor'], reverse=True)
-    for i, linha in enumerate(do_mes, start=1):
-        saida.append(
-            {
-                'competencia': competencia.replace(day=1).isoformat(),
-                'tipo': 'vendedor',
-                'vendedor': TOTAL,
-                'chave': linha['vendedor'],
-                'nome': linha['vendedor'],
-                'valor': linha['valor'],
-                'posicao': i,
-                'atualizado_em': quando,
-            }
-        )
+    for escopo, (de, ate, competencia) in janelas(hoje).items():
+        do_periodo = [r for r in linhas if _no_intervalo(str(r.get('DIA') or ''), de, ate)]
 
-    ordenados = sorted(clientes, key=lambda r: _num(r.get('VALOR')), reverse=True)
-    for i, r in enumerate(ordenados[:top_clientes], start=1):
-        chave = str(r.get('CHAVE') or '').strip()
-        if not chave:
-            continue
-        saida.append(
-            {
-                'competencia': competencia.replace(day=1).isoformat(),
-                'tipo': 'cliente',
-                'vendedor': TOTAL,
-                'chave': chave,
-                'nome': str(r.get('NOME') or chave).strip(),
-                'valor': _num(r.get('VALOR')),
-                'posicao': i,
-                'atualizado_em': quando,
-            }
-        )
+        por_vendedor: Dict[str, float] = {}
+        # (escopo_visibilidade, cardcode) → {nome, valor}
+        por_cliente: Dict[tuple, Dict[str, Any]] = {}
+        for r in do_periodo:
+            vendedor = (r.get('VENDEDOR') or '?').strip()
+            valor = _num(r.get('VALOR'))
+            por_vendedor[vendedor] = round(por_vendedor.get(vendedor, 0.0) + valor, 2)
+
+            chave = str(r.get('CHAVE') or '').strip()
+            if not chave:
+                continue
+            for visibilidade in (TOTAL, vendedor):
+                cliente = por_cliente.setdefault(
+                    (visibilidade, chave),
+                    {'nome': str(r.get('NOME') or chave).strip(), 'valor': 0.0},
+                )
+                cliente['valor'] = round(cliente['valor'] + valor, 2)
+
+        ordenados_v = sorted(por_vendedor.items(), key=lambda kv: kv[1], reverse=True)
+        for i, (vendedor, valor) in enumerate(ordenados_v, start=1):
+            saida.append(
+                _linha_ranking(escopo, 'vendedor', TOTAL, vendedor, vendedor, valor, i, competencia, quando)
+            )
+
+        # Um ranking de clientes por escopo de visibilidade, cada um numerado
+        # do 1º ao N — a posição é dentro da lista que aquele usuário vê.
+        visibilidades = {v for v, _ in por_cliente}
+        for visibilidade in sorted(visibilidades):
+            dessa = [(k, d) for (v, k), d in por_cliente.items() if v == visibilidade]
+            dessa.sort(key=lambda kv: kv[1]['valor'], reverse=True)
+            for i, (chave, dados) in enumerate(dessa[:top_clientes], start=1):
+                saida.append(
+                    _linha_ranking(
+                        escopo,
+                        'cliente',
+                        visibilidade,
+                        chave,
+                        dados['nome'],
+                        dados['valor'],
+                        i,
+                        competencia,
+                        quando,
+                    )
+                )
     return saida
+
+
+def _linha_ranking(
+    escopo: str,
+    tipo: str,
+    visibilidade: str,
+    chave: str,
+    nome: str,
+    valor: float,
+    posicao: int,
+    competencia: date,
+    quando: str,
+) -> Dict[str, Any]:
+    """Uma linha de ranking. ``visibilidade`` é quem alcança, não quem vendeu."""
+    return {
+        'escopo': escopo,
+        'competencia': competencia.isoformat(),
+        'tipo': tipo,
+        'vendedor': visibilidade,
+        'chave': chave,
+        'nome': nome,
+        'valor': valor,
+        'posicao': posicao,
+        'atualizado_em': quando,
+    }
 
 
 # ------------------------------------------------------------------ pipeline
@@ -326,18 +363,18 @@ def montar_payload(ex: SAPExtractor, schema: str, hoje: date) -> Dict[str, List[
     faturamento = _consultar(
         ex, sql_faturamento_mensal(schema, ano_inicial), 'faturamento mensal'
     )
-    diarios = _consultar(
-        ex, sql_pedidos_dia(schema, hoje - timedelta(days=1), hoje), 'pedidos do dia'
-    )
-    clientes = _consultar(ex, sql_ranking_clientes(schema, hoje), 'ranking clientes')
+    # Do 1º dia do mês passado até hoje — a menor janela que cobre os quatro
+    # escopos dos cartões, que agora também filtram os rankings.
+    inicio = janelas(hoje)['mes_passado'][0]
+    detalhe = _consultar(ex, sql_detalhe_recente(schema, inicio, hoje), 'detalhe recente')
 
     serie = linhas_serie(pedidos, 'pedidos', quando) + linhas_serie(
         faturamento, 'faturamento', quando
     )
     return {
         TABELA_SERIE: serie,
-        TABELA_KPI: linhas_kpi(diarios, serie, hoje, quando),
-        TABELA_RANKING: linhas_ranking(serie, clientes, hoje, quando),
+        TABELA_KPI: linhas_kpi(detalhe, hoje, quando),
+        TABELA_RANKING: linhas_ranking(detalhe, hoje, quando),
     }
 
 
@@ -367,7 +404,7 @@ def main(hoje: Optional[date] = None) -> bool:
     for tabela, chaves in (
         (TABELA_SERIE, 'metrica,vendedor,ano,mes'),
         (TABELA_KPI, 'escopo,vendedor'),
-        (TABELA_RANKING, 'competencia,tipo,vendedor,chave'),
+        (TABELA_RANKING, 'escopo,tipo,vendedor,chave'),
     ):
         linhas = payload[tabela]
         if not linhas:
