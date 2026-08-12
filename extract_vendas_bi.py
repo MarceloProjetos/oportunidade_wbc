@@ -36,9 +36,11 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from config import get_settings
 from pipeline_core import (
+    FileLockTimeout,
     SupabaseLoader,
     agora_iso,
     validate_sql_identifier,
+    vendas_bi_sync_lock,
 )
 from sap_connection import SAPExtractor
 
@@ -53,6 +55,9 @@ TABELA_RANKING = 'bi_vendas_ranking'
 #: Linha consolidada (todos os vendedores somados).
 TOTAL = '__TOTAL__'
 
+#: Os quatro recortes de tempo dos cartões. Ordem estável para os testes.
+ESCOPOS = ('hoje', 'ontem', 'mes_atual', 'mes_passado')
+
 #: Quantos anos de histórico alimentam os gráficos (inclui o ano corrente).
 ANOS_HISTORICO = 3
 
@@ -64,7 +69,13 @@ TOP_CLIENTES = 20
 
 
 def sql_pedidos_mensal(schema: str, ano_inicial: int) -> str:
-    """Pedidos por ano/mês/vendedor."""
+    """Pedidos por ano/mês/vendedor.
+
+    Teto de data em `CURRENT_DATE`: um pedido digitado com ano errado (2027)
+    entraria na série e, como o app deriva a régua do gráfico **do próprio
+    dado**, o eixo inteiro escorregaria — 2025-2027, sem 2024, sem nada
+    explicando por quê.
+    """
     validate_sql_identifier(schema)
     return f'''
         SELECT YEAR("DATA") AS ANO, MONTH("DATA") AS MES,
@@ -72,6 +83,7 @@ def sql_pedidos_mensal(schema: str, ano_inicial: int) -> str:
                SUM("VlrPedido") AS VALOR, COUNT(*) AS QTD
           FROM "{schema}"."VW_PEDIDO_ALTA"
          WHERE YEAR("DATA") >= {int(ano_inicial)}
+           AND "DATA" < ADD_DAYS(CURRENT_DATE, 1)
          GROUP BY YEAR("DATA"), MONTH("DATA"), "CodVend"
     '''
 
@@ -109,10 +121,11 @@ def sql_faturamento_mensal(schema: str, ano_inicial: int) -> str:
     return f'''
         SELECT YEAR(f."DATA") AS ANO, MONTH(f."DATA") AS MES,
                COALESCE(v."SlpName", '?') AS VENDEDOR,
-               SUM(f."Valor") AS VALOR, COUNT(*) AS QTD
+               SUM(f."Valor") AS VALOR, COUNT(DISTINCT f."DOC") AS QTD
           FROM "{schema}"."VW_FATO_FATURAMENTO" f
           LEFT JOIN "{schema}"."OSLP" v ON v."SlpCode" = f."CodVend"
          WHERE YEAR(f."DATA") >= {int(ano_inicial)}
+           AND f."DATA" < ADD_DAYS(CURRENT_DATE, 1)
          GROUP BY YEAR(f."DATA"), MONTH(f."DATA"), COALESCE(v."SlpName", '?')
     '''
 
@@ -390,6 +403,7 @@ def main(hoje: Optional[date] = None) -> bool:
 
     hoje = hoje or date.today()
     ex = SAPExtractor(s.sap_host, s.sap_port, s.sap_user, s.sap_password, s.sap_database)
+    logger.info('[VENDAS_BI] carga de %s', hoje.isoformat())
     if not ex.connect():
         logger.error('[VENDAS_BI] não conectou no HANA')
         return False
@@ -411,6 +425,44 @@ def main(hoje: Optional[date] = None) -> bool:
             logger.warning('[VENDAS_BI] %s: nada a gravar', tabela)
             continue
         ok = loader.upsert_data(tabela, linhas, on_conflict=chaves) and ok
+
+    # A poda vem DEPOIS da escrita, e só se ela deu certo: assim a tela nunca
+    # fica sem dado — no pior caso mostra o anterior.
+    if ok:
+        carimbo = payload[TABELA_KPI][0]['atualizado_em'] if payload[TABELA_KPI] else None
+        if carimbo:
+            ok = _podar(loader, carimbo) and ok
+    return ok
+
+
+def _podar(loader: SupabaseLoader, quando: str) -> bool:
+    """Apaga o que a execução NÃO reescreveu, nas tabelas de chave sem data.
+
+    Por que existe: `bi_vendas_kpi` tem chave `(escopo, vendedor)` e
+    `bi_vendas_ranking` tem `(escopo, tipo, vendedor, chave)` — **nenhuma das
+    duas carrega data**. O upsert sobrescreve o que voltou a aparecer e deixa o
+    resto intacto, então quem sai do período **fica na tabela para sempre**:
+
+    - o ranking de "hoje" amanhece com os clientes de ontem e o cartão em cima
+      dizendo R$ 0,00;
+    - no dia 1º, "mês atual" mostra o mês anterior inteiro;
+    - o vendedor que passa um mês sem vender some do detalhe e congela com os
+      quatro cartões de semanas atrás, rotulados "Hoje".
+
+    Sem a poda a tabela também cresce sem teto (dezenas de clientes novos por
+    mês) e o recorte `__TOTAL__` acaba passando das 1000 linhas do `db_max_rows`
+    do PostgREST — que trunca **calado**.
+
+    O critério é o carimbo: toda linha desta execução levou o mesmo
+    ``atualizado_em``, então "diferente do meu carimbo" é exatamente o resto.
+
+    A série mensal não entra aqui: a chave dela tem ano e mês, então cada linha
+    é reescrita no lugar e não há órfã. (E o mês que sai da janela de histórico
+    some por conta própria quando o ano roda.)
+    """
+    ok = True
+    for tabela in (TABELA_KPI, TABELA_RANKING):
+        ok = loader.delete_nao_carimbadas(tabela, 'atualizado_em', quando) and ok
     return ok
 
 
@@ -418,4 +470,14 @@ if __name__ == '__main__':
     logging.basicConfig(
         level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    sys.exit(0 if main() else 1)
+    # O lock fica no entrypoint, e não dentro de `main()`: a API e o agendador
+    # já o pegam antes de chamar, e um `FileLock` aninhado sobre o mesmo arquivo
+    # travaria os dois no Windows. Sem isto, a carga manual (`python -m
+    # extract_vendas_bi`) corria por fora e podia atropelar a agendada — foi o
+    # que deixou KPI e ranking de execuções diferentes na mesma tela.
+    try:
+        with vendas_bi_sync_lock(timeout=0):
+            sys.exit(0 if main() else 1)
+    except FileLockTimeout:
+        logger.error('[VENDAS_BI] já há uma carga em andamento — nada a fazer')
+        sys.exit(2)

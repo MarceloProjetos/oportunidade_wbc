@@ -234,6 +234,55 @@ class TestLinhasRanking:
         assert len(chaves) == len(set(chaves))
 
 
+class TestPoda:
+    """A poda do que a execução não reescreveu.
+
+    A chave natural de `bi_vendas_kpi` e `bi_vendas_ranking` **não tem data**,
+    então sem poda a linha de um período antigo fica para sempre: o ranking de
+    "hoje" amanhece com os clientes de ontem enquanto o cartão em cima mostra
+    R$ 0,00. Foi um achado real da auditoria de 12/08/2026.
+
+    O critério é o carimbo da execução — exato e de uma chamada por tabela.
+    """
+
+    class LoaderFake:
+        def __init__(self, falhar=False):
+            self.podas = []
+            self.falhar = falhar
+
+        def delete_nao_carimbadas(self, tabela, coluna, carimbo):
+            self.podas.append((tabela, coluna, carimbo))
+            return not self.falhar
+
+    def test_poda_as_duas_tabelas_de_chave_sem_data(self):
+        from extract_vendas_bi import TABELA_KPI, TABELA_RANKING, TABELA_SERIE, _podar
+
+        loader = self.LoaderFake()
+        assert _podar(loader, QUANDO) is True
+        tabelas = [p[0] for p in loader.podas]
+        assert tabelas == [TABELA_KPI, TABELA_RANKING]
+        # A série tem ano e mês na chave: cada linha é reescrita no lugar.
+        assert TABELA_SERIE not in tabelas
+
+    def test_o_criterio_e_o_carimbo_desta_execucao(self):
+        from extract_vendas_bi import _podar
+
+        loader = self.LoaderFake()
+        _podar(loader, QUANDO)
+        assert all(p[1] == 'atualizado_em' and p[2] == QUANDO for p in loader.podas)
+
+    def test_falha_na_poda_derruba_o_resultado(self):
+        from extract_vendas_bi import _podar
+
+        assert _podar(self.LoaderFake(falhar=True), QUANDO) is False
+
+    def test_todas_as_linhas_de_uma_execucao_levam_o_mesmo_carimbo(self):
+        # É isso que torna "diferente do meu carimbo" equivalente a "resto".
+        carimbos = {linha['atualizado_em'] for linha in linhas_kpi(DETALHE, HOJE, QUANDO)}
+        carimbos |= {linha['atualizado_em'] for linha in linhas_ranking(DETALHE, HOJE, QUANDO)}
+        assert carimbos == {QUANDO}
+
+
 class TestSql:
     """O SQL não é testado contra o HANA — só contra o que ele PROMETE."""
 
@@ -246,6 +295,17 @@ class TestSql:
         sql = sql_faturamento_mensal('SBOALTAMIRAPROD', 2024)
         assert 'SUM(f."Valor")' in sql
         assert 'ValorAdiant' not in sql
+
+    def test_faturamento_conta_NOTA_e_nao_item(self):
+        # A view tem grão de item (julho: 172 linhas para 87 notas); COUNT(*)
+        # gravaria o dobro em `qtd_pedidos`.
+        assert 'COUNT(DISTINCT f."DOC")' in sql_faturamento_mensal('SBOALTAMIRAPROD', 2024)
+
+    def test_as_series_tem_teto_de_data(self):
+        # Pedido digitado com ano futuro escorregaria a régua do gráfico
+        # inteiro, porque o app deriva os anos do próprio dado.
+        assert 'ADD_DAYS(CURRENT_DATE, 1)' in sql_pedidos_mensal('SBOALTAMIRAPROD', 2024)
+        assert 'ADD_DAYS(CURRENT_DATE, 1)' in sql_faturamento_mensal('SBOALTAMIRAPROD', 2024)
 
     def test_faturamento_casa_vendedor_por_codigo_da_OSLP_e_devolve_nome(self):
         sql = sql_faturamento_mensal('SBOALTAMIRAPROD', 2024)

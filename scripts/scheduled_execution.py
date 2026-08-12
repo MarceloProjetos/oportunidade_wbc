@@ -27,6 +27,8 @@ HEARTBEAT_INTERVAL_S = 3600
 #: 15 min porque o KPI "hoje" é o único número da tela que anda durante o dia —
 #: o resto (séries, ranking do mês) muda devagar e não justifica mais frequência.
 VENDAS_BI_INTERVALO_MIN = 15
+#: Fora do expediente (noite, fim de semana, feriado). Basta para a virada do dia.
+VENDAS_BI_INTERVALO_FORA_MIN = 60
 
 logger = logging.getLogger(__name__)
 
@@ -116,17 +118,23 @@ def job_execucao(*, ignorar_janela: bool = False) -> None:
         _execution_lock.release()
 
 
-def job_vendas_bi() -> None:
+def job_vendas_bi(*, ignorar_janela: bool = False) -> None:
     """Recalcula os agregados do dashboard Vendas do app.
 
-    Roda **em dia útil, dentro da janela comercial**, como a carga de
-    oportunidades: fora do expediente ninguém lança pedido, e o KPI "hoje"
-    parado à noite é o valor correto — não um valor velho.
+    ⚠️ **Roda também fora do expediente e no fim de semana**, ao contrário da
+    carga de oportunidades. O motivo é o cartão "Hoje": ele muda de significado
+    à meia-noite, não por um pedido novo. Preso à janela comercial, o app
+    mostrava a **sexta-feira** o sábado inteiro, o domingo inteiro e até as 7h de
+    segunda — dois dias por semana com o KPI mais olhado da tela errado por
+    construção, e o dia inteiro em feriado.
+
+    A frequência é que muda: de 15 em 15 min no expediente (é quando o número
+    anda), de hora em hora fora dele — o suficiente para a virada do dia.
 
     Job próprio (e lock próprio) de propósito: se a carga de oportunidades
     falhar, o dashboard de vendas não pode parar junto, e vice-versa.
     """
-    if not can_run_load():
+    if not ignorar_janela and not can_run_load():
         logger.debug('Vendas BI pulado: fora do dia útil/janela')
         return
     try:
@@ -165,6 +173,15 @@ def configurar_agenda() -> BackgroundScheduler:
         trigger=IntervalTrigger(minutes=VENDAS_BI_INTERVALO_MIN),
         id='vendas_bi',
         name=f'Vendas BI a cada {VENDAS_BI_INTERVALO_MIN}min ({settings.janela_horas}h, Mon-Fri)',
+    )
+    # Fora do expediente e no fim de semana, de hora em hora: é o que faz o
+    # cartão "Hoje" virar à meia-noite em vez de mostrar a sexta-feira até
+    # segunda. O lock de arquivo garante que os dois jobs não se atropelem.
+    scheduler.add_job(
+        lambda: job_vendas_bi(ignorar_janela=True),
+        trigger=IntervalTrigger(minutes=VENDAS_BI_INTERVALO_FORA_MIN),
+        id='vendas_bi_fora_janela',
+        name=f'Vendas BI a cada {VENDAS_BI_INTERVALO_FORA_MIN}min (24/7)',
     )
     for job in scheduler.get_jobs():
         logger.info('Job: %s — %s', job.name, job.trigger)

@@ -427,6 +427,48 @@ class SupabaseLoader:
             logger.error(f"Erro no upsert do Supabase: {e}")
             return False
 
+    def delete_por_filtro(self, table_name: str, filtros: Dict[str, Any]) -> bool:
+        """Apaga todas as linhas que casam com ``filtros`` (igualdade em cada campo).
+
+        Existe para as cargas de chave natural sem data: quando um recorte
+        inteiro deixa de existir na origem (um dia sem venda nenhuma), o upsert
+        não tem o que sobrescrever e as linhas do dia anterior ficam.
+        """
+        try:
+            q = self.client.table(table_name).delete()
+            for coluna, valor in filtros.items():
+                q = q.eq(coluna, valor)
+            with_retries(lambda: q.execute(), what=f"delete ({table_name}, {filtros})")
+            return True
+        except Exception as exc:
+            logger.error("Erro ao apagar de '%s' (%s): %s", table_name, filtros, exc)
+            return False
+
+    def delete_nao_carimbadas(self, table_name: str, coluna: str, carimbo: Any) -> bool:
+        """Apaga tudo o que **não** tem o carimbo desta execução.
+
+        A poda das cargas de chave natural sem data. Toda linha escrita por uma
+        execução leva o mesmo ``atualizado_em``; o que sobrou com carimbo
+        diferente é, por definição, resto de execução anterior — o cliente que
+        parou de comprar, o vendedor que saiu do período, o dia que virou.
+
+        Uma chamada por tabela, em vez de comparar chave a chave: além de barato,
+        é **exato** — não depende de a chave ser única entre recortes.
+
+        ⚠️ Só chame quando a escrita da execução deu certo por inteiro. Podar
+        depois de um upsert parcial apagaria dado bom que esta execução não
+        conseguiu reescrever.
+        """
+        try:
+            with_retries(
+                lambda: self.client.table(table_name).delete().neq(coluna, carimbo).execute(),
+                what=f"poda ('{table_name}' fora de {carimbo})",
+            )
+            return True
+        except Exception as exc:
+            logger.error("Erro ao podar '%s': %s", table_name, exc)
+            return False
+
     def insert_data(
         self, table_name: str, data: List[Dict[str, Any]], batch_size: int = INSERT_BATCH_SIZE
     ) -> bool:
