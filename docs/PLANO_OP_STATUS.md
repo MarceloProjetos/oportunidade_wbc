@@ -21,7 +21,7 @@ no repo irmão (`web_orcaview_V117/backend/services/sap_service_layer.py` e
 | Escopo extra | **GET de consulta da OP** | Ficam de fora: lote por Pedido de Venda, log de auditoria no Supabase, tool MCP |
 
 Pré-voo respondido no mesmo dia: a .11 **alcança** `sapbusinessonehana-vm:50000`; o usuário
-é o **`financeiro04`**; `requests` foi **pinado**; a OP de teste da Fase 3 é a **129850**.
+de integração está definido no `.env` da .11; `requests` foi **pinado**; a OP de teste da Fase 3 é a **129850**.
 
 **Estado: F0, F1, F2 e F4 entregues** (378 testes verdes, ruff em 0). Falta só a **Fase 3**
 — o pré-voo em produção, que é com o Marcelo.
@@ -39,7 +39,7 @@ Pré-voo respondido no mesmo dia: a .11 **alcança** `sapbusinessonehana-vm:5000
 | Vazar sessão do Service Layer | O SL tem limite finito de sessões concorrentes; vazar derruba o SL **para todo mundo**, inclusive o cliente B1 | Sessão compartilhada com TTL + relogin em 401/"Invalid session" + logout no shutdown. Nunca um login por request |
 | SAP fora do ar travando a API | Sem `timeout=` explícito, `requests` espera **para sempre** — foi o que congelou o servidor web quando o SAP caiu | `TimeoutSession` (connect 5s / read 30s) injetando timeout em **toda** request, inclusive as que forem escritas depois |
 | Loop de agente/retry batendo no SAP | Já aconteceu no repo (daí os rate limits existentes) | Bucket de rate limit próprio (`op_status`, default 20/min) + retry **só** no login, nunca no PATCH (erro de PATCH é determinístico) |
-| Credencial em texto claro | O notebook tem `financeiro04` / `sap@123` apontando para **produção**, salvo em `~/Downloads` | Credencial só via `.env` (gitignored). Ver §6 — **recomendo rotacionar essa senha** |
+| Credencial em texto claro | O notebook tem usuário/senha de **produção** em texto claro, salvo em `~/Downloads` | Credencial só via `.env` (gitignored). Ver §6 — **recomendo rotacionar essa senha** |
 | `verify=False` sem rastro | O notebook faz `urllib3.disable_warnings()` no import, e o fato de o TLS estar desligado some | `verify` vira env (`OP_SL_VERIFY_SSL`, default `false` pelo cert self-signed interno). A supressão do aviso **continua global** — o urllib3 não tem chave por sessão — mas acontece **tarde** (no 1º login) e **só depois** de um WARNING nomeando o host ir para o log |
 
 ---
@@ -203,13 +203,13 @@ opcional. Falta de credencial vira 503 na rota, não serviço morto.
 
 **O que preciso de você:**
 
-1. **Rotacionar a senha do `financeiro04`.** Ela está em texto claro no
+1. **Rotacionar a senha do usuário de integração.** Ela está em texto claro no
    `production_order_sl.ipynb` em `~/Downloads`, apontando para **produção**, e foi
    compartilhada nesta conversa. O mesmo usuário é o default do `SL_USERNAME` no
    `web_orcaview_V117/backend/config.py` — a rotação precisa ser coordenada com o `.env`
    do .90, senão derruba o Compras e a criação de oportunidade.
 2. **Usuário SL dedicado** (ex.: `integracao_op`) com permissão só de Ordem de Produção,
-   em vez do `financeiro04`. Um usuário de escrita compartilhado entre módulos torna
+   em vez do usuário compartilhado atual. Um usuário de escrita compartilhado entre módulos torna
    impossível saber, no log do SAP, quem mudou a OP.
 3. **Não commitar o notebook** neste repo com as credenciais dentro.
 
@@ -309,7 +309,7 @@ Nada abaixo roda sem você. A OP escolhida é a **129850**.
 
 1. Deploy na .11: `git pull` **+ `pip install -r requirements.txt`** (o `requests` virou
    dependência direta — só o pull não basta).
-2. No `.env` da .11: `OP_SL_ENABLED=true`, `OP_SL_USERNAME=financeiro04`,
+2. No `.env` da .11: `OP_SL_ENABLED=true`, `OP_SL_USERNAME=<usuário de integração>`,
    `OP_SL_PASSWORD=...`. Conferir que `OS_API_KEY` está definida — sem ela o POST responde
    503 de propósito.
 3. Restart do serviço `OrcaView-OS-API`. O log deve trazer o WARNING

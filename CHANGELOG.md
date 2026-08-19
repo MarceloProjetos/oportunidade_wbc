@@ -3,6 +3,18 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-08-19] — remoção de credencial SAP dos docs (segurança)
+
+### Segurança
+
+- Auditoria de segredos no histórico do git encontrou usuário e senha do Service
+  Layer de **produção** em texto claro em `docs/PLANO_OP_STATUS.md` (commit `6f8d460`,
+  2026-08-07) — e este repositório é **público** no GitHub. As ocorrências (senha na
+  tabela de riscos; usuário em mais 4 pontos do plano e no próprio CHANGELOG) foram
+  redigidas. O valor permanece no histórico do git, então **a rotação da senha no SAP
+  é obrigatória**, não opcional — coordenada com o `.env` do .90 (mesmo usuário do
+  `SL_USERNAME` do `web_orcaview_V117`) e o `.env` da .11.
+
 ## [2026-08-11] — agregados do dashboard "Vendas" do app (HANA → Supabase)
 
 ### Adicionado
@@ -120,7 +132,7 @@ afrouxar qualquer uma exige decisão explícita:
 
 - **Pré-voo em produção (Fase 3)**, com o Marcelo: `OP_SL_ENABLED=true` na .11, OP
   **129850**, Planejada → Liberada → Encerrada, conferindo na tela do SAP.
-- Rotacionar a senha do usuário `financeiro04` — está em texto claro no notebook
+- Rotacionar a senha do usuário de integração SAP — está em texto claro no notebook
   `production_order_sl.ipynb` apontando para produção. A troca tem de ser coordenada com o
   `.env` do .90 (é o mesmo usuário do `SL_USERNAME` do `web_orcaview_V117`).
 
