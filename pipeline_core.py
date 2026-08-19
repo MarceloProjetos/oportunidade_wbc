@@ -469,6 +469,26 @@ class SupabaseLoader:
             logger.error("Erro ao podar '%s': %s", table_name, exc)
             return False
 
+    def delete_menor_que(self, table_name: str, coluna: str, limite: Any) -> bool:
+        """Apaga toda linha com ``coluna`` estritamente menor que ``limite``.
+
+        A poda das cargas cuja chave TEM data (ou ano): o upsert reescreve cada
+        linha no lugar dentro da janela consultada, mas o que fica **atrás** da
+        janela ninguém reescreve nem apaga — congela na tabela para sempre. O
+        carimbo não serve aqui: consulta de origem que falha vira lista vazia
+        (não erro), e podar por carimbo apagaria a métrica inteira que essa
+        execução não conseguiu ler.
+        """
+        try:
+            with_retries(
+                lambda: self.client.table(table_name).delete().lt(coluna, limite).execute(),
+                what=f"poda ('{table_name}' com {coluna} < {limite})",
+            )
+            return True
+        except Exception as exc:
+            logger.error("Erro ao podar '%s': %s", table_name, exc)
+            return False
+
     def insert_data(
         self, table_name: str, data: List[Dict[str, Any]], batch_size: int = INSERT_BATCH_SIZE
     ) -> bool:

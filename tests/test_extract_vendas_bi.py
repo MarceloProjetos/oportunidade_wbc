@@ -243,38 +243,87 @@ class TestPoda:
     R$ 0,00. Foi um achado real da auditoria de 12/08/2026.
 
     O critério é o carimbo da execução — exato e de uma chamada por tabela.
+
+    A série mensal tem o furo INVERSO (achado da revisão de 19/08/2026): a chave
+    tem ano e mês, então dentro da janela não há órfã — mas o upsert só alcança
+    ``ano >= ano_inicial``, e o ano que sai da janela na virada ninguém reescreve
+    nem apaga. A poda dela é por ano, e nunca por carimbo: consulta HANA que
+    falha vira lista vazia, e o carimbo apagaria a métrica inteira que a
+    execução não conseguiu ler.
     """
 
+    ANO_INICIAL = 2024
+
     class LoaderFake:
-        def __init__(self, falhar=False):
+        def __init__(self, falhar=False, falhar_serie=False):
             self.podas = []
+            self.podas_por_ano = []
             self.falhar = falhar
+            self.falhar_serie = falhar_serie
 
         def delete_nao_carimbadas(self, tabela, coluna, carimbo):
             self.podas.append((tabela, coluna, carimbo))
             return not self.falhar
 
-    def test_poda_as_duas_tabelas_de_chave_sem_data(self):
+        def delete_menor_que(self, tabela, coluna, limite):
+            self.podas_por_ano.append((tabela, coluna, limite))
+            return not (self.falhar or self.falhar_serie)
+
+    def test_poda_por_carimbo_so_nas_tabelas_de_chave_sem_data(self):
         from extract_vendas_bi import TABELA_KPI, TABELA_RANKING, TABELA_SERIE, _podar
 
         loader = self.LoaderFake()
-        assert _podar(loader, QUANDO) is True
+        assert _podar(loader, QUANDO, self.ANO_INICIAL) is True
         tabelas = [p[0] for p in loader.podas]
         assert tabelas == [TABELA_KPI, TABELA_RANKING]
-        # A série tem ano e mês na chave: cada linha é reescrita no lugar.
+        # A série NUNCA entra na poda por carimbo: consulta HANA que falha vira
+        # lista vazia, e o carimbo apagaria a métrica inteira que não foi lida.
         assert TABELA_SERIE not in tabelas
 
     def test_o_criterio_e_o_carimbo_desta_execucao(self):
         from extract_vendas_bi import _podar
 
         loader = self.LoaderFake()
-        _podar(loader, QUANDO)
+        _podar(loader, QUANDO, self.ANO_INICIAL)
         assert all(p[1] == 'atualizado_em' and p[2] == QUANDO for p in loader.podas)
+
+    def test_serie_poda_os_anos_atras_da_janela_de_historico(self):
+        # Sem isto, em 01/01/2027 as linhas de 2024 congelam na tabela para
+        # sempre — o upsert só reescreve `ano >= ano_inicial` e nenhum DELETE
+        # as alcançava. Cresce um ano a cada virada.
+        from extract_vendas_bi import TABELA_SERIE, _podar
+
+        loader = self.LoaderFake()
+        assert _podar(loader, QUANDO, self.ANO_INICIAL) is True
+        assert loader.podas_por_ano == [(TABELA_SERIE, 'ano', self.ANO_INICIAL)]
 
     def test_falha_na_poda_derruba_o_resultado(self):
         from extract_vendas_bi import _podar
 
-        assert _podar(self.LoaderFake(falhar=True), QUANDO) is False
+        assert _podar(self.LoaderFake(falhar=True), QUANDO, self.ANO_INICIAL) is False
+
+    def test_falha_na_poda_da_serie_tambem_derruba_o_resultado(self):
+        from extract_vendas_bi import _podar
+
+        loader = self.LoaderFake(falhar_serie=True)
+        assert _podar(loader, QUANDO, self.ANO_INICIAL) is False
+
+
+class TestAnoInicial:
+    """A mesma conta serve à consulta e à poda — se divergirem, ou a poda come
+    dado vivo, ou o lixo volta a acumular."""
+
+    def test_janela_de_tres_anos_inclui_o_corrente(self):
+        from extract_vendas_bi import ano_inicial
+
+        assert ano_inicial(date(2026, 8, 19)) == 2024
+
+    def test_na_virada_do_ano_a_janela_roda_e_2024_fica_atras_dela(self):
+        # O cenário exato do achado: em 01/01/2027 a janela vira 2025-2027 e a
+        # poda tem de alcançar tudo com ano < 2025.
+        from extract_vendas_bi import ano_inicial
+
+        assert ano_inicial(date(2027, 1, 1)) == 2025
 
     def test_todas_as_linhas_de_uma_execucao_levam_o_mesmo_carimbo(self):
         # É isso que torna "diferente do meu carimbo" equivalente a "resto".

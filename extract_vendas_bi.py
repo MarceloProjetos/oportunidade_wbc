@@ -65,6 +65,18 @@ ANOS_HISTORICO = 3
 TOP_CLIENTES = 20
 
 
+def ano_inicial(hoje: date) -> int:
+    """Primeiro ano da janela de histórico (o corrente conta como um).
+
+    É a MESMA conta para consultar e para podar: as consultas mensais só trazem
+    ``ano >= ano_inicial``, então tudo o que ficou atrás disso na
+    ``bi_vendas_serie_mensal`` é lixo por definição — nenhum upsert volta a
+    tocá-lo. Se as duas contas divergirem, ou a poda come dado vivo, ou o lixo
+    volta a acumular.
+    """
+    return hoje.year - (ANOS_HISTORICO - 1)
+
+
 # ---------------------------------------------------------------- SQL (HANA)
 
 
@@ -370,12 +382,10 @@ def _consultar(ex: SAPExtractor, sql: str, rotulo: str) -> List[Dict[str, Any]]:
 def montar_payload(ex: SAPExtractor, schema: str, hoje: date) -> Dict[str, List[Dict[str, Any]]]:
     """Consulta o HANA e devolve as linhas prontas das três tabelas."""
     quando = agora_iso()
-    ano_inicial = hoje.year - (ANOS_HISTORICO - 1)
+    desde = ano_inicial(hoje)
 
-    pedidos = _consultar(ex, sql_pedidos_mensal(schema, ano_inicial), 'pedidos mensal')
-    faturamento = _consultar(
-        ex, sql_faturamento_mensal(schema, ano_inicial), 'faturamento mensal'
-    )
+    pedidos = _consultar(ex, sql_pedidos_mensal(schema, desde), 'pedidos mensal')
+    faturamento = _consultar(ex, sql_faturamento_mensal(schema, desde), 'faturamento mensal')
     # Do 1º dia do mês passado até hoje — a menor janela que cobre os quatro
     # escopos dos cartões, que agora também filtram os rankings.
     inicio = janelas(hoje)['mes_passado'][0]
@@ -431,12 +441,12 @@ def main(hoje: Optional[date] = None) -> bool:
     if ok:
         carimbo = payload[TABELA_KPI][0]['atualizado_em'] if payload[TABELA_KPI] else None
         if carimbo:
-            ok = _podar(loader, carimbo) and ok
+            ok = _podar(loader, carimbo, ano_inicial(hoje)) and ok
     return ok
 
 
-def _podar(loader: SupabaseLoader, quando: str) -> bool:
-    """Apaga o que a execução NÃO reescreveu, nas tabelas de chave sem data.
+def _podar(loader: SupabaseLoader, quando: str, desde: int) -> bool:
+    """Apaga o que a execução NÃO reescreveu e nenhuma futura reescreveria.
 
     Por que existe: `bi_vendas_kpi` tem chave `(escopo, vendedor)` e
     `bi_vendas_ranking` tem `(escopo, tipo, vendedor, chave)` — **nenhuma das
@@ -456,13 +466,20 @@ def _podar(loader: SupabaseLoader, quando: str) -> bool:
     O critério é o carimbo: toda linha desta execução levou o mesmo
     ``atualizado_em``, então "diferente do meu carimbo" é exatamente o resto.
 
-    A série mensal não entra aqui: a chave dela tem ano e mês, então cada linha
-    é reescrita no lugar e não há órfã. (E o mês que sai da janela de histórico
-    some por conta própria quando o ano roda.)
+    A série mensal é podada por **ano**, não por carimbo. A chave dela tem ano e
+    mês, então dentro da janela cada linha é reescrita no lugar — mas o upsert
+    só alcança ``ano >= desde``, e quando o ano vira, o ano que saiu da janela
+    fica atrás dela: nenhuma execução o reescreve nem o apaga, e ele congelaria
+    na tabela para sempre, crescendo um ano a cada virada (achado da revisão de
+    19/08/2026 — as linhas de 2024 ficariam lá a partir de 01/01/2027). O
+    carimbo não serve para ela: consulta HANA que falha vira lista vazia, e a
+    poda por carimbo apagaria a métrica inteira que a execução não conseguiu
+    ler.
     """
     ok = True
     for tabela in (TABELA_KPI, TABELA_RANKING):
         ok = loader.delete_nao_carimbadas(tabela, 'atualizado_em', quando) and ok
+    ok = loader.delete_menor_que(TABELA_SERIE, 'ano', desde) and ok
     return ok
 
 
