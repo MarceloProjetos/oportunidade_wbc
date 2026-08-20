@@ -61,14 +61,16 @@ create table if not exists public.bi_vendas_serie_mensal (
   primary key (metrica, vendedor, ano, mes)
 );
 
--- Ranking, um par (vendedores + clientes) POR ESCOPO — os quatro cartões do
+-- Ranking POR ESCOPO: vendedores + clientes (top 20) + UFs (todas — o
+-- subtotal por estado cobre TODOS os clientes do período, não o top 20).
+-- Em banco criado antes de 2026-08-20: rodar sql/migracao_bi_vendas_ranking_uf.sql. — os quatro cartões do
 -- topo da tela filtram os três blocos, e ranking de um dia não se deriva do
 -- ranking do mês. `vendedor` aqui é o ESCOPO DE VISIBILIDADE, não o dono da
 -- linha: só existe '__TOTAL__' (representante não vê a carteira dos outros).
 create table if not exists public.bi_vendas_ranking (
   escopo        text        not null check (escopo in ('hoje','ontem','mes_atual','mes_passado')),
   competencia   date        not null,
-  tipo          text        not null check (tipo in ('vendedor','cliente')),
+  tipo          text        not null check (tipo in ('vendedor','cliente','uf')),
   vendedor      text        not null,
   chave         text        not null,
   nome          text        not null,

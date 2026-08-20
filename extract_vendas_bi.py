@@ -110,15 +110,20 @@ def sql_detalhe_recente(schema: str, de: date, ate: date) -> str:
     KPI que não é a soma do ranking exibido logo abaixo dele.
     """
     validate_sql_identifier(schema)
+    # LEFT JOIN OCRD: a UF do cliente (State1, endereco de cobranca — o mesmo
+    # campo que alimenta o espelho sap_clientes que o web usa). LEFT de
+    # proposito: cliente sem cadastro de UF nao pode sumir do detalhe.
     return f'''
-        SELECT TO_VARCHAR("DATA", 'YYYY-MM-DD') AS DIA,
-               "CodVend" AS VENDEDOR,
-               "CardCode" AS CHAVE, MAX("Cliente") AS NOME,
-               SUM("VlrPedido") AS VALOR, COUNT(*) AS QTD
-          FROM "{schema}"."VW_PEDIDO_ALTA"
-         WHERE "DATA" >= '{de.isoformat()} 00:00:00'
-           AND "DATA" <  '{(ate + timedelta(days=1)).isoformat()} 00:00:00'
-         GROUP BY TO_VARCHAR("DATA", 'YYYY-MM-DD'), "CodVend", "CardCode"
+        SELECT TO_VARCHAR(p."DATA", 'YYYY-MM-DD') AS DIA,
+               p."CodVend" AS VENDEDOR,
+               p."CardCode" AS CHAVE, MAX(p."Cliente") AS NOME,
+               MAX(c."State1") AS UF,
+               SUM(p."VlrPedido") AS VALOR, COUNT(*) AS QTD
+          FROM "{schema}"."VW_PEDIDO_ALTA" p
+          LEFT JOIN "{schema}"."OCRD" c ON c."CardCode" = p."CardCode"
+         WHERE p."DATA" >= '{de.isoformat()} 00:00:00'
+           AND p."DATA" <  '{(ate + timedelta(days=1)).isoformat()} 00:00:00'
+         GROUP BY TO_VARCHAR(p."DATA", 'YYYY-MM-DD'), p."CodVend", p."CardCode"
     '''
 
 
@@ -273,7 +278,12 @@ def linhas_ranking(
     quando: str,
     top_clientes: int = TOP_CLIENTES,
 ) -> List[Dict[str, Any]]:
-    """Ranking de vendedores e de clientes, **um conjunto por escopo**.
+    """Ranking de vendedores, de clientes e de UFs, **um conjunto por escopo**.
+
+    ⚠️ ``tipo='uf'`` exige o CHECK ampliado em ``bi_vendas_ranking``
+    (``sql/migracao_bi_vendas_ranking_uf.sql``) — **o ALTER vai ANTES deste
+    código entrar em produção**: ampliar o domínio não quebra o código velho,
+    mas o código novo gravando 'uf' no CHECK antigo falha a carga inteira.
 
     Os quatro escopos existem porque na tela o cartão do topo virou filtro: tocar
     em "ontem" tem de trocar o ranking inteiro, e ranking de um dia não se deriva
@@ -297,10 +307,17 @@ def linhas_ranking(
         por_vendedor: Dict[str, float] = {}
         # (escopo_visibilidade, cardcode) → {nome, valor}
         por_cliente: Dict[tuple, Dict[str, Any]] = {}
+        # UF → valor, sobre TODOS os clientes do período (não o top 20): é o
+        # agregado que a tabela "Clientes por UF" do web precisa para o
+        # subtotal por estado ser o número inteiro, não o do recorte.
+        por_uf: Dict[str, float] = {}
         for r in do_periodo:
             vendedor = (r.get('VENDEDOR') or '?').strip()
             valor = _num(r.get('VALOR'))
             por_vendedor[vendedor] = round(por_vendedor.get(vendedor, 0.0) + valor, 2)
+
+            uf = str(r.get('UF') or '').strip().upper() or 'ND'
+            por_uf[uf] = round(por_uf.get(uf, 0.0) + valor, 2)
 
             chave = str(r.get('CHAVE') or '').strip()
             if not chave:
@@ -316,6 +333,15 @@ def linhas_ranking(
         for i, (vendedor, valor) in enumerate(ordenados_v, start=1):
             saida.append(
                 _linha_ranking(escopo, 'vendedor', TOTAL, vendedor, vendedor, valor, i, competencia, quando)
+            )
+
+        # tipo='uf': só visibilidade __TOTAL__ (dado da empresa; o representante
+        # não alcança pela RLS). O app mobile filtra tipo em ('vendedor',
+        # 'cliente') e IGNORA este — conferido em lib/vendas/montar.ts.
+        ordenadas_uf = sorted(por_uf.items(), key=lambda kv: kv[1], reverse=True)
+        for i, (uf, valor) in enumerate(ordenadas_uf, start=1):
+            saida.append(
+                _linha_ranking(escopo, 'uf', TOTAL, uf, uf, valor, i, competencia, quando)
             )
 
         # Um ranking de clientes por escopo de visibilidade, cada um numerado

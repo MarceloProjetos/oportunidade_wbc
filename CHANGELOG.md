@@ -3,6 +3,23 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-08-20] — vendas BI: agregado por UF no ranking (tipo='uf')
+
+### Adicionado
+
+- `linhas_ranking` passa a emitir **`tipo='uf'`** (visibilidade `__TOTAL__`):
+  valor do período por UF do cliente, sobre **TODOS** os clientes — é o subtotal
+  que o card "Clientes por UF" do web precisa inteiro, não o do top 20. A UF vem
+  de `LEFT JOIN OCRD."State1"` no `sql_detalhe_recente` (o mesmo campo do
+  espelho `sap_clientes`); sem cadastro vira `'ND'`. O app mobile ignora o tipo
+  novo (filtro estrito em `lib/vendas/montar.ts`, conferido).
+- `sql/migracao_bi_vendas_ranking_uf.sql` — ALTER do CHECK de
+  `bi_vendas_ranking` para aceitar `'uf'`. ⚠️ **ORDEM DO DEPLOY: o ALTER vai
+  ANTES do pull+restart na .11** — o CHECK antigo com o código novo derruba a
+  carga inteira do ranking a cada 15 min; o inverso é inofensivo.
+- Teste: soma das UFs = total do período com `top_clientes` cortando a lista de
+  clientes (suíte: 418).
+
 ## [2026-08-19] — remoção de credencial SAP dos docs (segurança)
 
 ### Segurança

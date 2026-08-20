@@ -165,6 +165,33 @@ class TestLinhasRanking:
         # Só o Clayton vendeu hoje.
         assert [linha['nome'] for linha in hoje] == ['Clayton']
 
+    def test_uf_agrega_todos_os_clientes_e_so_no_total(self):
+        # 3 clientes de SP + 1 sem UF; top_clientes=2 CORTA a lista de clientes,
+        # mas o agregado por UF cobre TODOS — é a razão de ele existir.
+        detalhe = [
+            {'DIA': '2026-08-12', 'VENDEDOR': 'Clayton', 'CHAVE': 'C1', 'NOME': 'A',
+             'UF': 'SP', 'VALOR': 500.0, 'QTD': 1},
+            {'DIA': '2026-08-12', 'VENDEDOR': 'Clayton', 'CHAVE': 'C2', 'NOME': 'B',
+             'UF': 'sp', 'VALOR': 300.0, 'QTD': 1},
+            {'DIA': '2026-08-12', 'VENDEDOR': 'Robson', 'CHAVE': 'C3', 'NOME': 'C',
+             'UF': 'SP', 'VALOR': 100.0, 'QTD': 1},
+            {'DIA': '2026-08-12', 'VENDEDOR': 'Robson', 'CHAVE': 'C4', 'NOME': 'D',
+             'UF': None, 'VALOR': 50.0, 'QTD': 1},
+            {'DIA': '2026-08-12', 'VENDEDOR': 'Robson', 'CHAVE': 'C5', 'NOME': 'E',
+             'UF': 'PR', 'VALOR': 700.0, 'QTD': 1},
+        ]
+        linhas = linhas_ranking(detalhe, HOJE, QUANDO, top_clientes=2)
+        ufs = [x for x in linhas if x['tipo'] == 'uf' and x['escopo'] == 'hoje']
+        # Ordenadas por valor, caixa normalizada, ND para o sem-UF.
+        assert [(x['chave'], x['valor'], x['posicao']) for x in ufs] == [
+            ('SP', 900.0, 1), ('PR', 700.0, 2), ('ND', 50.0, 3),
+        ]
+        # Visibilidade: só __TOTAL__ (o mobile ignora o tipo; o representante
+        # não alcança pela RLS).
+        assert {x['vendedor'] for x in ufs} == {TOTAL}
+        # E a soma das UFs = o total do período (nenhum cliente fica de fora).
+        assert sum(x['valor'] for x in ufs) == 1650.0
+
     def test_placar_de_vendedores_so_existe_no_escopo_total(self):
         vend = [linha for linha in self._ranking() if linha['tipo'] == 'vendedor']
         assert {linha['vendedor'] for linha in vend} == {TOTAL}
@@ -363,8 +390,11 @@ class TestSql:
 
     def test_detalhe_traz_dia_vendedor_e_cliente_numa_consulta_so(self):
         sql = sql_detalhe_recente('SBOALTAMIRAPROD', date(2026, 7, 1), date(2026, 8, 12))
-        for coluna in ('"CodVend"', '"CardCode"', 'TO_VARCHAR("DATA"'):
+        for coluna in ('p."CodVend"', 'p."CardCode"', 'TO_VARCHAR(p."DATA"'):
             assert coluna in sql
+        # A UF vem do cadastro do parceiro (OCRD.State1), por LEFT JOIN — o
+        # mesmo campo que alimenta o espelho sap_clientes que o web usa.
+        assert 'LEFT JOIN' in sql and '"OCRD"' in sql and '"State1"' in sql
 
     def test_intervalo_do_detalhe_e_meio_aberto_e_inclui_hoje_inteiro(self):
         sql = sql_detalhe_recente('SBOALTAMIRAPROD', date(2026, 7, 1), date(2026, 8, 12))
