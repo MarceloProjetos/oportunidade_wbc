@@ -64,6 +64,22 @@ ANOS_HISTORICO = 3
 #: Quantos clientes entram no ranking do mês.
 TOP_CLIENTES = 20
 
+#: As 27 UFs — régua do agregado por estado. O State1 do OCRD traz código
+#: numérico p/ endereço estrangeiro ('001' na Guiana, visto em produção
+#: 20/08): valor fora da lista vira 'EX' (exterior), vazio vira 'ND'.
+UFS_BR = frozenset((
+    'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS',
+    'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC',
+    'SP', 'SE', 'TO',
+))
+
+
+def _uf_normalizada(bruta: Any) -> str:
+    valor = str(bruta or '').strip().upper()
+    if not valor:
+        return 'ND'
+    return valor if valor in UFS_BR else 'EX'
+
 
 def ano_inicial(hoje: date) -> int:
     """Primeiro ano da janela de histórico (o corrente conta como um).
@@ -316,7 +332,7 @@ def linhas_ranking(
             valor = _num(r.get('VALOR'))
             por_vendedor[vendedor] = round(por_vendedor.get(vendedor, 0.0) + valor, 2)
 
-            uf = str(r.get('UF') or '').strip().upper() or 'ND'
+            uf = _uf_normalizada(r.get('UF'))
             por_uf[uf] = round(por_uf.get(uf, 0.0) + valor, 2)
 
             chave = str(r.get('CHAVE') or '').strip()

@@ -180,17 +180,23 @@ class TestLinhasRanking:
             {'DIA': '2026-08-12', 'VENDEDOR': 'Robson', 'CHAVE': 'C5', 'NOME': 'E',
              'UF': 'PR', 'VALOR': 700.0, 'QTD': 1},
         ]
+        # Estrangeiros ('001' da Guiana e 'GY') somam num EX único — State1
+        # fora das 27 UFs não pode virar "estado" na tela (visto em produção).
+        detalhe.append({'DIA': '2026-08-12', 'VENDEDOR': 'Robson', 'CHAVE': 'C6',
+                        'NOME': 'GMIN', 'UF': '001', 'VALOR': 40.0, 'QTD': 1})
+        detalhe.append({'DIA': '2026-08-12', 'VENDEDOR': 'Robson', 'CHAVE': 'C7',
+                        'NOME': 'GY CO', 'UF': 'GY', 'VALOR': 20.0, 'QTD': 1})
         linhas = linhas_ranking(detalhe, HOJE, QUANDO, top_clientes=2)
         ufs = [x for x in linhas if x['tipo'] == 'uf' and x['escopo'] == 'hoje']
-        # Ordenadas por valor, caixa normalizada, ND para o sem-UF.
+        # Ordenadas por valor, caixa normalizada, EX p/ estrangeiro, ND sem UF.
         assert [(x['chave'], x['valor'], x['posicao']) for x in ufs] == [
-            ('SP', 900.0, 1), ('PR', 700.0, 2), ('ND', 50.0, 3),
+            ('SP', 900.0, 1), ('PR', 700.0, 2), ('EX', 60.0, 3), ('ND', 50.0, 4),
         ]
         # Visibilidade: só __TOTAL__ (o mobile ignora o tipo; o representante
         # não alcança pela RLS).
         assert {x['vendedor'] for x in ufs} == {TOTAL}
         # E a soma das UFs = o total do período (nenhum cliente fica de fora).
-        assert sum(x['valor'] for x in ufs) == 1650.0
+        assert sum(x['valor'] for x in ufs) == 1710.0
 
     def test_placar_de_vendedores_so_existe_no_escopo_total(self):
         vend = [linha for linha in self._ranking() if linha['tipo'] == 'vendedor']

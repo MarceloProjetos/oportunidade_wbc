@@ -5,6 +5,13 @@ Mudanças notáveis deste projeto. Formato inspirado em
 
 ## [2026-08-20] — vendas BI: agregado por UF no ranking (tipo='uf')
 
+### Corrigido (mesmo dia)
+
+- **'001' não é UF.** O `State1` do OCRD traz código numérico para endereço
+  estrangeiro (visto em produção: GMIN Ventures, Guiana) e virava "estado" no
+  agregado. Só as 27 UFs valem: fora da lista vira **'EX'** (exterior), vazio
+  vira 'ND' — `_uf_normalizada`, com teste somando '001'+'GY' num EX único.
+
 ### Adicionado
 
 - `linhas_ranking` passa a emitir **`tipo='uf'`** (visibilidade `__TOTAL__`):
