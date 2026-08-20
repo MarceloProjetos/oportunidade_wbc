@@ -163,6 +163,26 @@ def sql_faturamento_mensal(schema: str, ano_inicial: int) -> str:
     '''
 
 
+def sql_orcamentos_mensal(schema: str, ano_inicial: int) -> str:
+    """Orçamentos (cotações) emitidos por ano/mês/vendedor.
+
+    ``VW_ORCAMENTO_ALT`` é a view de COTAÇÕES do PBI (probe 20/08): 1 linha por
+    cotação na última versão (8148 linhas / 8146 distintas — as 2 repetidas são
+    idênticas, lixo de join da view; não vale dedupe). ``Representante`` está no
+    mesmo espaço de nomes do ``CodVend`` da VW_PEDIDO_ALTA.
+    """
+    validate_sql_identifier(schema)
+    return f'''
+        SELECT YEAR("DataCotacao") AS ANO, MONTH("DataCotacao") AS MES,
+               "Representante" AS VENDEDOR,
+               SUM("Valor") AS VALOR, COUNT(*) AS QTD
+          FROM "{schema}"."VW_ORCAMENTO_ALT"
+         WHERE YEAR("DataCotacao") >= {int(ano_inicial)}
+           AND "DataCotacao" < ADD_DAYS(CURRENT_DATE, 1)
+         GROUP BY YEAR("DataCotacao"), MONTH("DataCotacao"), "Representante"
+    '''
+
+
 def janelas(hoje: date) -> Dict[str, tuple]:
     """Intervalo fechado ``(de, ate)`` de cada escopo, e a competência de cada um.
 
@@ -433,8 +453,13 @@ def montar_payload(ex: SAPExtractor, schema: str, hoje: date) -> Dict[str, List[
     inicio = janelas(hoje)['mes_passado'][0]
     detalhe = _consultar(ex, sql_detalhe_recente(schema, inicio, hoje), 'detalhe recente')
 
-    serie = linhas_serie(pedidos, 'pedidos', quando) + linhas_serie(
-        faturamento, 'faturamento', quando
+    orcamentos = _consultar(
+        ex, sql_orcamentos_mensal(schema, desde), 'orcamentos mensal'
+    )
+    serie = (
+        linhas_serie(pedidos, 'pedidos', quando)
+        + linhas_serie(faturamento, 'faturamento', quando)
+        + linhas_serie(orcamentos, 'orcamentos', quando)
     )
     return {
         TABELA_SERIE: serie,

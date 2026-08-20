@@ -51,7 +51,7 @@ create table if not exists public.bi_vendas_kpi (
 -- simplesmente não existe aqui — quem transforma ausência em `null` (e não em
 -- zero) é o app, e é isso que impede a linha de 2026 de despencar em setembro.
 create table if not exists public.bi_vendas_serie_mensal (
-  metrica       text        not null check (metrica in ('pedidos','faturamento')),
+  metrica       text        not null check (metrica in ('pedidos','faturamento','orcamentos')),
   vendedor      text        not null,
   ano           smallint    not null,
   mes           smallint    not null check (mes between 1 and 12),

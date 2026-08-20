@@ -3,6 +3,19 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-08-20] — vendas BI: série de orçamentos emitidos (metrica='orcamentos')
+
+### Adicionado
+
+- `sql_orcamentos_mensal`: cotações da **`VW_ORCAMENTO_ALT`** por ano/mês/
+  `Representante` (valor + qtd), entrando na `bi_vendas_serie_mensal` como
+  `metrica='orcamentos'` via `linhas_serie` (consolidado `__TOTAL__` de graça).
+  ⚠️ Achado do probe: a view é de **COTAÇÕES**, não meta/budget — "% da meta"
+  precisaria de fonte manual (decisão 4 do plano do web, opção 1 escolhida).
+  View já vem deduplicada (8148/8146; 2 pares idênticos desprezíveis).
+- `sql/migracao_bi_vendas_serie_orcamentos.sql` — ALTER do CHECK de metrica.
+  ⚠️ **ORDEM: o ALTER vai ANTES do deploy** (igual à migração de UF).
+
 ## [2026-08-20] — vendas BI: agregado por UF no ranking (tipo='uf')
 
 ### Corrigido (mesmo dia)

@@ -26,6 +26,7 @@ from extract_vendas_bi import (
     linhas_serie,
     sql_detalhe_recente,
     sql_faturamento_mensal,
+    sql_orcamentos_mensal,
     sql_pedidos_mensal,
 )
 
@@ -407,6 +408,15 @@ class TestSql:
         assert "'2026-07-01 00:00:00'" in sql
         # Fim exclusivo no dia SEGUINTE: sem isso, pedido das 14h de hoje sumia.
         assert "'2026-08-13 00:00:00'" in sql
+
+    def test_orcamentos_vem_da_view_de_cotacoes_por_data_da_cotacao(self):
+        sql = sql_orcamentos_mensal('SBOALTAMIRAPROD', 2024)
+        assert '"VW_ORCAMENTO_ALT"' in sql
+        assert '"DataCotacao"' in sql and '"Representante"' in sql
+        assert 'YEAR("DataCotacao") >= 2024' in sql
+        # Mesmo teto do resto da serie: cotacao digitada com ano errado nao
+        # pode escorregar o eixo do grafico.
+        assert 'ADD_DAYS(CURRENT_DATE, 1)' in sql
 
     def test_schema_invalido_e_recusado_antes_de_virar_consulta(self):
         with pytest.raises(ValueError):
