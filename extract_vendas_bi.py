@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional
 
 from config import get_settings
@@ -468,21 +468,82 @@ def montar_payload(ex: SAPExtractor, schema: str, hoje: date) -> Dict[str, List[
     }
 
 
+ROTINA_NOME = 'VENDAS_BI'
+ROTINA_ROTULO = 'Agregados do dashboard Vendas'
+
+
 def main(hoje: Optional[date] = None) -> bool:
-    """Carga completa dos agregados de Vendas. `True` se tudo entrou."""
+    """Carga completa dos agregados de Vendas. `True` se tudo entrou.
+
+    Envelope de :func:`_carga` que cronometra a execução e **registra o desfecho**
+    em ``rotinas_execucao``. O registro existe porque, até 21/08/2026, esta rotina
+    não tinha desfecho gravado em lugar nenhum: um `False` devolvido daqui não era
+    lido por ninguém, e uma falha parcial durou 20 horas sem acender nada.
+    """
+    inicio = datetime.now().astimezone()
+    falhas: List[str] = []
+    # O loader nasce AQUI, fora do `try`, e não lá dentro: uma consulta que
+    # estoura no meio do HANA levaria junto o único objeto capaz de gravar o
+    # desfecho, e a falha mais provável de todas terminaria — de novo — calada.
+    loader = _preparar(falhas)
+    if loader is None:
+        return False
+    try:
+        ok = _carga(loader, hoje, falhas)
+    except Exception as e:  # noqa: BLE001 — registra e relança, sem engolir
+        falhas.append(f'{type(e).__name__}: {e}')
+        _registrar_execucao(loader, inicio, False, falhas)
+        raise
+    _registrar_execucao(loader, inicio, ok, falhas)
+    return ok
+
+
+def _registrar_execucao(
+    loader: Optional[SupabaseLoader],
+    inicio: datetime,
+    ok: bool,
+    falhas: List[str],
+) -> None:
+    """Grava o desfecho, se houver com quem gravar. Nunca atrapalha a carga."""
+    if loader is None:
+        return
+    loader.registrar_rotina(
+        ROTINA_NOME,
+        ROTINA_ROTULO,
+        inicio=inicio,
+        fim=datetime.now().astimezone(),
+        sucesso=ok,
+        erro='; '.join(falhas) if falhas else None,
+    )
+
+
+def _preparar(falhas: List[str]) -> Optional[SupabaseLoader]:
+    """Confere as credenciais e devolve com quem gravar. `None` = nem começa.
+
+    Sem chave do Supabase não há carga **nem** registro: o desfecho de "faltou
+    credencial" só existe no log da máquina.
+    """
     s = get_settings()
     if not s.sap_ready():
         logger.error('[VENDAS_BI] credenciais SAP ausentes')
-        return False
+        falhas.append('credenciais SAP ausentes')
+        return None
     if not s.supabase_ready():
         logger.error('[VENDAS_BI] credenciais Supabase ausentes')
-        return False
+        falhas.append('credenciais Supabase ausentes')
+        return None
+    return SupabaseLoader(s.supabase_url, s.supabase_write_key)
 
+
+def _carga(loader: SupabaseLoader, hoje: Optional[date], falhas: List[str]) -> bool:
+    """A carga em si. Acrescenta a `falhas` o nome do que não entrou."""
+    s = get_settings()
     hoje = hoje or date.today()
     ex = SAPExtractor(s.sap_host, s.sap_port, s.sap_user, s.sap_password, s.sap_database)
     logger.info('[VENDAS_BI] carga de %s', hoje.isoformat())
     if not ex.connect():
         logger.error('[VENDAS_BI] não conectou no HANA')
+        falhas.append('não conectou no HANA')
         return False
 
     try:
@@ -490,7 +551,6 @@ def main(hoje: Optional[date] = None) -> bool:
     finally:
         ex.close()
 
-    loader = SupabaseLoader(s.supabase_url, s.supabase_write_key)
     ok = True
     for tabela, chaves in (
         (TABELA_SERIE, 'metrica,vendedor,ano,mes'),
@@ -501,14 +561,26 @@ def main(hoje: Optional[date] = None) -> bool:
         if not linhas:
             logger.warning('[VENDAS_BI] %s: nada a gravar', tabela)
             continue
-        ok = loader.upsert_data(tabela, linhas, on_conflict=chaves) and ok
+        if not loader.upsert_data(tabela, linhas, on_conflict=chaves):
+            # O NOME da tabela no desfecho é o que faltou em 21/08: o incidente
+            # foi um lote da série recusado por CHECK, e a mensagem gravada teria
+            # apontado direto para `bi_vendas_serie_mensal`.
+            falhas.append(f'upsert falhou em {tabela}')
+            ok = False
 
     # A poda vem DEPOIS da escrita, e só se ela deu certo: assim a tela nunca
     # fica sem dado — no pior caso mostra o anterior.
     if ok:
         carimbo = payload[TABELA_KPI][0]['atualizado_em'] if payload[TABELA_KPI] else None
         if carimbo:
-            ok = _podar(loader, carimbo, ano_inicial(hoje)) and ok
+            if not _podar(loader, carimbo, ano_inicial(hoje)):
+                falhas.append('poda falhou')
+                ok = False
+    else:
+        # Vale registrar: a poda ser PULADA é o que faz o ranking de "hoje"
+        # amanhecer com cliente de ontem. Sem esta linha, o desfecho contaria só
+        # metade da história.
+        falhas.append('poda não executada (escrita incompleta)')
     return ok
 
 

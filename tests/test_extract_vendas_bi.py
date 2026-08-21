@@ -423,3 +423,175 @@ class TestSql:
             sql_pedidos_mensal('SBO"; DROP TABLE x; --', 2024)
         with pytest.raises(ValueError):
             sql_detalhe_recente('SBO OUTRO', date(2026, 8, 1), date(2026, 8, 2))
+
+
+class TestRegistroDaExecucao:
+    """O desfecho da rotina vai para `rotinas_execucao` — com o NOME do que falhou.
+
+    Nasceu do incidente de 21/08/2026: o CHECK de `metrica` em produção não
+    aceitava `'orcamentos'`, o upsert do lote com essas linhas era recusado, `ok`
+    virava False e a poda nunca rodava — o ranking de "hoje" amanheceu com os
+    clientes de ontem. A rotina devolvia `False` e **ninguém lia esse False**:
+    passou 20 horas assim, e quem percebeu foi um selo amarelo na tela do celular.
+
+    As 9 rotinas do `.90` já gravavam nesta tabela; nenhuma da `.11` gravava.
+    """
+
+    class LoaderFake:
+        def __init__(self, falhar_upsert_em=None):
+            self.falhar_upsert_em = falhar_upsert_em
+            self.registros = []
+            self.podas = []
+
+        def upsert_data(self, tabela, linhas, on_conflict=None):
+            return tabela != self.falhar_upsert_em
+
+        def delete_nao_carimbadas(self, tabela, coluna, carimbo):
+            self.podas.append(tabela)
+            return True
+
+        def delete_menor_que(self, tabela, coluna, limite):
+            self.podas.append(tabela)
+            return True
+
+        def registrar_rotina(self, nome, rotulo, *, inicio, fim, sucesso, erro=None):
+            self.registros.append(
+                {'nome': nome, 'rotulo': rotulo, 'sucesso': sucesso, 'erro': erro}
+            )
+            return True
+
+    def _rodar(self, monkeypatch, loader, ok_carga=True):
+        """Roda `main` com a carga trocada por um retorno controlado."""
+        import extract_vendas_bi as mod
+
+        monkeypatch.setattr(mod, '_preparar', lambda falhas: loader)
+        monkeypatch.setattr(mod, '_carga', lambda ld, hoje, falhas: ok_carga)
+        return mod.main()
+
+    def test_sucesso_registra_sucesso(self, monkeypatch):
+        loader = self.LoaderFake()
+        assert self._rodar(monkeypatch, loader) is True
+        assert loader.registros == [
+            {
+                'nome': 'VENDAS_BI',
+                'rotulo': 'Agregados do dashboard Vendas',
+                'sucesso': True,
+                'erro': None,
+            }
+        ]
+
+    def test_falha_da_carga_registra_erro(self, monkeypatch):
+        loader = self.LoaderFake()
+        assert self._rodar(monkeypatch, loader, ok_carga=False) is False
+        assert loader.registros[0]['sucesso'] is False
+
+    def test_excecao_no_meio_da_carga_e_registrada_E_relancada(self, monkeypatch):
+        """O caso mais provável de todos: a consulta ao HANA estoura no meio.
+
+        Guarda contra a versão anterior deste código, em que o loader nascia
+        DENTRO de `_carga` — a exceção o levava junto e a rotina morria sem
+        gravar desfecho nenhum, exatamente o silêncio que este registro existe
+        para acabar.
+        """
+        import extract_vendas_bi as mod
+
+        loader = self.LoaderFake()
+
+        def explode(ld, hoje, falhas):
+            raise RuntimeError('HANA caiu')
+
+        monkeypatch.setattr(mod, '_preparar', lambda falhas: loader)
+        monkeypatch.setattr(mod, '_carga', explode)
+
+        # Relançar é obrigatório: o agendador só sabe que deu errado pelo código
+        # de saída do processo.
+        with pytest.raises(RuntimeError):
+            mod.main()
+
+        assert loader.registros[0]['sucesso'] is False
+        assert 'HANA caiu' in loader.registros[0]['erro']
+
+    def test_sem_credencial_nao_ha_com_quem_registrar(self, monkeypatch):
+        import extract_vendas_bi as mod
+
+        monkeypatch.setattr(mod, '_preparar', lambda falhas: None)
+        assert mod.main() is False  # e não explode por falta de loader
+
+    def test_a_falha_diz_QUAL_tabela_e_que_a_poda_nao_rodou(self, monkeypatch):
+        """Reproduz o incidente: o upsert da série recusado, e o desfecho contando.
+
+        É este texto que teria apontado para `bi_vendas_serie_mensal` em 20/08 em
+        vez de a gente descobrir um dia depois pelo carimbo das linhas.
+        """
+        import extract_vendas_bi as mod
+
+        loader = self.LoaderFake(falhar_upsert_em=mod.TABELA_SERIE)
+        monkeypatch.setattr(mod, 'SupabaseLoader', lambda *a, **k: loader)
+        monkeypatch.setattr(mod, 'SAPExtractor', lambda *a, **k: _ExtratorFake())
+        monkeypatch.setattr(
+            mod,
+            'montar_payload',
+            lambda ex, schema, hoje: {
+                mod.TABELA_SERIE: [{'x': 1}],
+                mod.TABELA_KPI: [{'atualizado_em': QUANDO}],
+                mod.TABELA_RANKING: [{'x': 1}],
+            },
+        )
+        monkeypatch.setattr(mod, 'get_settings', lambda: _SettingsFake())
+
+        assert mod.main() is False
+
+        erro = loader.registros[0]['erro']
+        assert loader.registros[0]['sucesso'] is False
+        assert 'bi_vendas_serie_mensal' in erro
+        # A poda PULADA é metade da história: é ela que deixa o ranking de "hoje"
+        # com cliente de ontem. O desfecho tem de dizer as duas coisas.
+        assert 'poda não executada' in erro
+        assert loader.podas == []
+
+    def test_carga_boa_poda_e_registra_sucesso(self, monkeypatch):
+        import extract_vendas_bi as mod
+
+        loader = self.LoaderFake()
+        monkeypatch.setattr(mod, 'SupabaseLoader', lambda *a, **k: loader)
+        monkeypatch.setattr(mod, 'SAPExtractor', lambda *a, **k: _ExtratorFake())
+        monkeypatch.setattr(
+            mod,
+            'montar_payload',
+            lambda ex, schema, hoje: {
+                mod.TABELA_SERIE: [{'x': 1}],
+                mod.TABELA_KPI: [{'atualizado_em': QUANDO}],
+                mod.TABELA_RANKING: [{'x': 1}],
+            },
+        )
+        monkeypatch.setattr(mod, 'get_settings', lambda: _SettingsFake())
+
+        assert mod.main() is True
+        assert loader.registros[0]['sucesso'] is True
+        assert loader.registros[0]['erro'] is None
+        assert loader.podas  # a poda rodou
+
+
+class _ExtratorFake:
+    def connect(self):
+        return True
+
+    def close(self):
+        pass
+
+
+class _SettingsFake:
+    sap_host = 'h'
+    sap_port = 30015
+    sap_user = 'u'
+    sap_password = 'p'
+    sap_database = 'd'
+    sap_schema = 'S'
+    supabase_url = 'https://x.supabase.co'
+    supabase_write_key = 'k'
+
+    def sap_ready(self):
+        return True
+
+    def supabase_ready(self):
+        return True

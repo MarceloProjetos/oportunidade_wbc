@@ -3,6 +3,33 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-08-21] — vendas BI: a rotina grava o próprio desfecho
+
+### Adicionado
+
+- `SupabaseLoader.registrar_rotina()` — grava início/fim/duração/desfecho/erro em
+  `rotinas_execucao`, mesma tabela e mesmas colunas das 9 rotinas do `.90`
+  (`upsert on_conflict=nome`, `origem` = hostname). **Fail-soft**: a escrita
+  acontece depois de o trabalho estar feito, então falha de rede aqui não pode
+  transformar carga boa em erro.
+- `extract_vendas_bi.main()` registra o desfecho — inclusive o **nome da tabela**
+  cujo upsert foi recusado e o aviso de `poda não executada`.
+- Flag `ROTINAS_ESTADO_SUPABASE` (default **`false`**). ⚠️ Ligar **só no
+  servidor**: a máquina de desenvolvimento roda o mesmo pipeline e sobrescreveria
+  a linha de produção.
+
+### Por quê
+
+Em 20/08 o pipeline passou **20 horas** gravando pela metade: o CHECK de `metrica`
+em produção não aceitava `'orcamentos'`, o upsert do lote era recusado, `ok` virava
+`False` e a poda nunca rodava — o ranking de "hoje" amanheceu com cliente de ontem.
+Um `False` que ninguém lê não é alerta: quem percebeu foi um selo amarelo na tela do
+celular, um dia depois.
+
+⚠️ **A linha ainda não aparece em tela.** O painel do `.90` (`/admin/rotinas`) monta
+a lista dos agendadores **do próprio processo**; rotina de outra máquina grava e
+ninguém lê. Falta o lado da leitura.
+
 ## [2026-08-20] — vendas BI: série de orçamentos emitidos (metrica='orcamentos')
 
 ### Adicionado

@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import socket
 import uuid
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -358,6 +359,85 @@ class SupabaseLoader:
         if colunas is None:
             return []
         return [col for col in data[0] if col not in colunas]
+
+    def registrar_rotina(
+        self,
+        nome: str,
+        rotulo: str,
+        *,
+        inicio: datetime,
+        fim: datetime,
+        sucesso: bool,
+        erro: Optional[str] = None,
+    ) -> bool:
+        """Grava a última execução de uma rotina em ``rotinas_execucao``. **Nunca levanta.**
+
+        Por que existe: em 21/08/2026 o pipeline de Vendas passou **20 horas** gravando
+        pela metade — o CHECK de ``metrica`` em produção não aceitava ``'orcamentos'``,
+        o upsert do lote com essas linhas era recusado, ``ok`` virava ``False`` e a poda
+        nunca rodava (o ranking de "hoje" amanhecia com cliente de ontem). Nada disso
+        acendeu: um ``False`` que ninguém lê não é alerta. Quem percebeu foi um selo
+        amarelo na tela do celular, um dia depois.
+
+        As 9 rotinas do ``.90`` já gravam nesta tabela; as da ``.11`` não gravavam
+        nenhuma. Com a linha aqui, "a rotina falhou às 14:31 com este erro" fica
+        legível no mesmo lugar das outras.
+
+        **Fail-soft por princípio:** a gravação acontece DEPOIS de o trabalho ter sido
+        feito. Uma falha de rede aqui não pode transformar carga boa em erro — por isso
+        o ``except`` largo e o retorno ``False`` em vez de exceção.
+
+        Args:
+            nome: chave da linha (ex.: ``'VENDAS_BI'``).
+            rotulo: nome legível, para a tela de status.
+            inicio: quando a execução começou.
+            fim: quando terminou.
+            sucesso: desfecho.
+            erro: o que falhou, quando ``sucesso`` é ``False``. Truncado em 500 chars.
+
+        Returns:
+            ``True`` se gravou; ``False`` se a trava está desligada ou a escrita falhou.
+        """
+        if not get_settings().rotinas_estado_supabase:
+            logger.debug('[ROTINAS] ROTINAS_ESTADO_SUPABASE desligada — %s não gravada.', nome)
+            return False
+
+        linha: Dict[str, Any] = {
+            'nome': nome,
+            'rotulo': rotulo,
+            'origem': socket.gethostname(),
+            'ultima_execucao': inicio.date().isoformat(),
+            'ultimo_inicio_em': inicio.isoformat(timespec='seconds'),
+            'ultimo_fim_em': fim.isoformat(timespec='seconds'),
+            'duracao_s': round((fim - inicio).total_seconds(), 2),
+            'ultimo_desfecho': 'sucesso' if sucesso else 'erro',
+            'atualizado_em': fim.isoformat(timespec='seconds'),
+        }
+        # Campos de sucesso/erro são mutuamente exclusivos: escrever os dois deixaria a
+        # linha dizendo que a rotina teve sucesso E falhou no mesmo instante.
+        if sucesso:
+            linha['ultimo_sucesso_em'] = fim.isoformat(timespec='seconds')
+            linha['ultimo_erro'] = None
+            linha['ultimo_erro_em'] = None
+        else:
+            linha['ultimo_erro'] = (erro or 'falha sem detalhe')[:500]
+            linha['ultimo_erro_em'] = fim.isoformat(timespec='seconds')
+
+        try:
+            with_retries(
+                lambda: self.client.table('rotinas_execucao')
+                .upsert(linha, on_conflict='nome')
+                .execute(),
+                what=f"registro da rotina '{nome}'",
+            )
+            return True
+        except Exception as exc:
+            logger.warning(
+                '[ROTINAS] não consegui registrar %s (%s) — a rotina em si JÁ RODOU.',
+                nome,
+                exc,
+            )
+            return False
 
     def upsert_data(
         self,
