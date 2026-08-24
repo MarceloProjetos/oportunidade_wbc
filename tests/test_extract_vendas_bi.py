@@ -411,12 +411,34 @@ class TestSql:
 
     def test_orcamentos_vem_da_view_de_cotacoes_por_data_da_cotacao(self):
         sql = sql_orcamentos_mensal('SBOALTAMIRAPROD', 2024)
-        assert '"VW_ORCAMENTO_ALT"' in sql
         assert '"DataCotacao"' in sql and '"Representante"' in sql
         assert 'YEAR("DataCotacao") >= 2024' in sql
         # Mesmo teto do resto da serie: cotacao digitada com ano errado nao
-        # pode escorregar o eixo do grafico.
-        assert 'ADD_DAYS(CURRENT_DATE, 1)' in sql
+        # pode escorregar o eixo do grafico. Nas DUAS pernas da uniao.
+        assert sql.count('ADD_DAYS(CURRENT_DATE, 1)') == 2
+
+    def test_orcamentos_une_as_duas_views_porque_cada_uma_tem_o_que_falta(self):
+        # Medido em 24/08/2026, janela de 3 anos: a VW_ORCAMENTO_ALT nao tem
+        # NENHUMA cotacao cancelada (+607, +7,4% faltando no grafico), e a
+        # VW_EVOL_ORCAMENTO_ALT nao tem 25 cotacoes antigas do "Administracao".
+        # Trocar uma pela outra apagaria historico dos dois jeitos; a uniao
+        # preserva as duas pontas (medido: zero meses perdem cotacao).
+        sql = sql_orcamentos_mensal('SBOALTAMIRAPROD', 2024)
+        assert '"VW_EVOL_ORCAMENTO_ALT"' in sql
+        assert '"VW_ORCAMENTO_ALT"' in sql
+        assert 'UNION ALL' in sql
+
+    def test_orcamentos_deduplica_por_cotacao(self):
+        # As DUAS views repetem a mesma cotacao quando ela muda de status (64097
+        # aparece com 40 e com 60; 5151 com 0 e com 60). Sem o grupo interno por
+        # COTACAO, o COUNT(*) conta a cotacao duas vezes e o SUM soma o valor em
+        # dobro -- erro que ja existia antes da uniao e que so ficou visivel
+        # quando o eixo do grafico virou QUANTIDADE (web V117.834).
+        sql = sql_orcamentos_mensal('SBOALTAMIRAPROD', 2024)
+        assert 'GROUP BY ANO, MES, VENDEDOR, COTACAO' in sql
+        assert 'MAX(VALOR)' in sql
+        # E o de fora conta LINHAS do grupo deduplicado, nao linhas da view.
+        assert 'COUNT(*) AS QTD' in sql and 'GROUP BY ANO, MES, VENDEDOR' in sql
 
     def test_schema_invalido_e_recusado_antes_de_virar_consulta(self):
         with pytest.raises(ValueError):

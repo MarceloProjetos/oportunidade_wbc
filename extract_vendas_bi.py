@@ -166,20 +166,53 @@ def sql_faturamento_mensal(schema: str, ano_inicial: int) -> str:
 def sql_orcamentos_mensal(schema: str, ano_inicial: int) -> str:
     """Orçamentos (cotações) emitidos por ano/mês/vendedor.
 
-    ``VW_ORCAMENTO_ALT`` é a view de COTAÇÕES do PBI (probe 20/08): 1 linha por
-    cotação na última versão (8148 linhas / 8146 distintas — as 2 repetidas são
-    idênticas, lixo de join da view; não vale dedupe). ``Representante`` está no
-    mesmo espaço de nomes do ``CodVend`` da VW_PEDIDO_ALTA.
+    UNIÃO das duas views de cotação, deduplicada por ``Cotacao``. As duas, e não
+    uma, porque cada uma tem o que falta na outra (medido em 24/08/2026, janela
+    de 3 anos):
+
+    - ``VW_EVOL_ORCAMENTO_ALT`` traz as **canceladas** (``StatusWBC`` 99), que a
+      ``VW_ORCAMENTO_ALT`` **não tem nenhuma**: eram **+607 cotações (+7,4%)**
+      faltando no gráfico, 4 a 92 por mês. Cotação cancelada não deixa de ter
+      sido emitida (regra do Marcelo, 24/08) -- e desde que o eixo virou
+      QUANTIDADE (web V117.834) essa ausência aparece direto na barra;
+    - ``VW_ORCAMENTO_ALT`` tem **25 cotações antigas** (todas do "Administração",
+      numeração baixa) que **não existem** na de evolução. Trocar uma view pela
+      outra as apagaria do histórico; a união preserva as duas pontas -- medido:
+      **zero meses perdem cotação**.
+
+    A deduplicação por ``Cotacao`` conserta um terceiro erro, que existia antes
+    desta mudança: **as duas views repetem a mesma cotação quando ela muda de
+    status** (64097 aparece com 40 e com 60; 5151 com 0 e com 60). O ``COUNT(*)``
+    anterior contava essas duas vezes e o ``SUM`` somava o valor em dobro -- o
+    docstring antigo dizia "não vale dedupe" porque só o VALOR importava; com o
+    eixo em quantidade, vale.
+
+    ``MAX(VALOR)`` no grupo interno é seguro: nenhuma cotação tem valor diferente
+    entre as views (conferido, 0 divergências em 3 anos).
+
+    ``Representante`` está no mesmo espaço de nomes do ``CodVend`` da
+    VW_PEDIDO_ALTA nas DUAS views.
     """
     validate_sql_identifier(schema)
+    janela = (
+        f'WHERE YEAR("DataCotacao") >= {int(ano_inicial)} '
+        f'AND "DataCotacao" < ADD_DAYS(CURRENT_DATE, 1)'
+    )
     return f'''
-        SELECT YEAR("DataCotacao") AS ANO, MONTH("DataCotacao") AS MES,
-               "Representante" AS VENDEDOR,
-               SUM("Valor") AS VALOR, COUNT(*) AS QTD
-          FROM "{schema}"."VW_ORCAMENTO_ALT"
-         WHERE YEAR("DataCotacao") >= {int(ano_inicial)}
-           AND "DataCotacao" < ADD_DAYS(CURRENT_DATE, 1)
-         GROUP BY YEAR("DataCotacao"), MONTH("DataCotacao"), "Representante"
+        SELECT ANO, MES, VENDEDOR, SUM(VALOR) AS VALOR, COUNT(*) AS QTD
+          FROM (SELECT ANO, MES, VENDEDOR, COTACAO, MAX(VALOR) AS VALOR
+                  FROM (SELECT YEAR("DataCotacao") AS ANO, MONTH("DataCotacao") AS MES,
+                               "Representante" AS VENDEDOR, "Cotacao" AS COTACAO,
+                               "Valor" AS VALOR
+                          FROM "{schema}"."VW_EVOL_ORCAMENTO_ALT"
+                         {janela}
+                         UNION ALL
+                        SELECT YEAR("DataCotacao"), MONTH("DataCotacao"),
+                               "Representante", "Cotacao", "Valor"
+                          FROM "{schema}"."VW_ORCAMENTO_ALT"
+                         {janela})
+                 GROUP BY ANO, MES, VENDEDOR, COTACAO)
+         GROUP BY ANO, MES, VENDEDOR
     '''
 
 
