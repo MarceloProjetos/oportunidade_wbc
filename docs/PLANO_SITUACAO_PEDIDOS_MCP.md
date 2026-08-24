@@ -1,7 +1,7 @@
 # PLANO — Situação dos Pedidos na API 8077 + fachada MCP (.11)
 
-**Status (2026-08-24):** nada codado. F0 (decisões) aguarda o Marcelo — as 6 decisões
-abertas estão no §6, todas com recomendação.
+**Status (2026-08-24):** **F0 fechada** — as 6 decisões estão decididas (§6) e o
+contrato do §5 está congelado no `mcp/README.md`. Nada codado ainda: F1 é a próxima.
 
 Levar a **Situação dos Pedidos** (a mesma view que desenha a tela do `.90`) para o
 servidor de integração `192.168.7.11`, como **2 rotas** na API 8077 e **3 tools** na
@@ -37,7 +37,7 @@ linguagem natural, sem abrir o navegador nem entrar no SAP.
 ```mermaid
 flowchart LR
   subgraph cliente["Cliente MCP"]
-    A["Claude Desktop / Code / Mira"]
+    A["Claude Desktop / Code"]
   end
   subgraph s11["192.168.7.11 — ServidorIntegracaoSAP"]
     B["Fachada MCP :8078<br/>Bearer SIS_MCP_TOKEN"]
@@ -103,14 +103,15 @@ Cada um destes já custou caro em algum lugar do projeto. Nenhum é negociável.
 
 ## 4. Fases
 
-### F0 — Contrato congelado
+### F0 — Contrato congelado ✅ **concluída (2026-08-24)**
 
 **Objetivo:** ninguém escreve código antes dos nomes de campo, rota e tool estarem
 fechados — mudar contrato depois de publicado é o que quebra cliente MCP.
 
-- Fechar as 6 decisões do §6.
-- Congelar o contrato do §5 no `mcp/README.md` (tabela de tools).
-- **Dono:** Marcelo (decisões) + eu (redação).
+- ✅ As 6 decisões do §6 estão fechadas.
+- ✅ Contrato do §5 congelado em `mcp/README.md`, seção *"Tools — Situação dos Pedidos"*,
+  marcada como **planejada** (as tools ainda não existem; o README não pode dar a
+  entender que existem).
 
 ### F1 — Núcleo portado (puro, testável sem HANA)
 
@@ -267,7 +268,10 @@ O JSON entrega o canônico (`"Liberado"` / `"Bloqueado"`). O rótulo por coluna
 
 ## 6. Decisões
 
-### D1 — Onde mora a lógica de normalização · **aberta**
+Todas fechadas em **2026-08-24**. Reabrir qualquer uma antes de F4 é barato; depois de
+F5, quebra cliente MCP.
+
+### D1 — Onde mora a lógica de normalização · ✅ **C: portar o módulo puro**
 
 | Opção | Prós | Contras |
 |---|---|---|
@@ -275,47 +279,49 @@ O JSON entrega o canônico (`"Liberado"` / `"Bloqueado"`). O rótulo por coluna
 | **B** — a `.11` chama o `.90` | zero duplicação | rota é gated por sessão (cookie); rota de serviço em router gated já deu **401 calado** neste projeto; acopla a `.11` ao `.90` |
 | **C** — portar o módulo puro + teste de diffabilidade | uma verdade, freio automático, sem acoplamento | exige o teste, que só roda na máquina de dev |
 
-> **Recomendação: C.** É o padrão que este repo já adotou para
-> `ordens_producao_sl.py` ↔ `compras_sap_service.py`, e o núcleo é 100% puro (sem I/O),
-> o que torna o porte mecânico. B parece mais limpo e não é: a memória do projeto
-> registra que rota de serviço dentro de router com gate de sessão devolve 401 sem
-> avisar.
+**Consequência:** F1 tem entregável obrigatório —
+`tests/test_situacao_pedidos_diffavel.py`. Sem ele, a decisão vira a opção A por
+omissão em três meses.
 
-### D2 — O texto e a regra dos 10 dias · **aberta**
+### D2 — O texto e a regra dos 10 dias · ✅ **regra mantida, rótulo "financeiro"**
 
-Você escreveu *"preso no comercial"*. A regra que já existe em produção mede
-**`Financeiro = Bloqueado` há mais de 10 dias da data do pedido**, e pedido fechado
-nunca alarma. São a mesma coisa?
+A regra continua sendo **`Financeiro = Bloqueado` há mais de 10 dias da data do
+pedido**, e pedido fechado nunca alarma — a mesma do alerta financeiro do V117. Uma
+regra, uma implementação.
 
-> **Recomendação:** manter a regra (é a mesma do alerta financeiro do V117 — uma regra,
-> uma implementação) e usar o texto **"Mais de 10 dias preso no financeiro (N dias)"**.
-> Se você quiser o rótulo "comercial", o campo é só texto e muda em uma linha — mas aí
-> tela e MCP passam a chamar a mesma coisa por nomes diferentes.
+**Consequência:** `alerta_liberacao = "Mais de 10 dias preso no financeiro (N dias)"`.
+Tela, e-mail de alerta e MCP passam a chamar a mesma coisa pelo mesmo nome.
 
-### D3 — Default de `status` em `pedidos_bloqueados` · **aberta**
+### D3 — Default de `status` em `pedidos_bloqueados` · ✅ **`aberto`**
 
-> **Recomendação: `aberto`.** Pedido fechado que esteve bloqueado é história; quem
-> pergunta "o que está travado?" quer o que trava **hoje**. A tela usa `todos` porque
-> espelha o Power BI — aqui o uso é outro. `status="todos"` continua disponível.
+Quem pergunta "o que está travado?" quer o que trava **hoje**; pedido fechado que esteve
+bloqueado é história. A tela usa `todos` porque espelha o Power BI — o uso aqui é outro.
 
-### D4 — Tamanho do payload · **aberta**
+**Consequência:** `pedidos_bloqueados()` sem argumento devolve só pedidos em aberto.
+`status="todos"` e `status="fechado"` continuam disponíveis, e a divergência com a tela é
+**deliberada** — não é bug, e há de estar escrito na docstring da tool.
 
-236 pedidos × ~40 campos ≈ resposta grande demais para um cliente MCP.
+### D4 — Tamanho do payload · ✅ **`resumo` na lista, `completo` no pedido único**
 
-> **Recomendação:** `campos=resumo` como default na lista (as 10 colunas do print) e
-> `completo` como default no pedido único. Alinha com o plano de economia de tokens
-> deste repo.
+**Consequência:** a lista devolve as 10 colunas do print + `alerta_liberacao`;
+`campos=completo` traz os ~40. O pedido único já nasce completo (é 1 registro).
 
-### D5 — Chave de API para a nova rota · **aberta**
+### D5 — Chave de API na rota nova · ✅ **`@requer_chave`**
 
-> **Recomendação:** `@requer_chave`, como todas as rotas de leitura. A fachada MCP
-> injeta a chave server-side; ela nunca chega ao LLM.
+Como todas as rotas de leitura. A fachada MCP injeta a `X-API-Key` server-side — ela
+nunca chega ao LLM.
 
-### D6 — Quem consome · **sua**
+**Consequência:** as rotas caem **abertas** se a `OS_API_KEY` não estiver configurada
+(o padrão das rotas de leitura deste repo). O *fail-closed* é exclusividade da escrita
+de Ordem de Produção e não se aplica aqui.
 
-Claude Desktop/Code (via 8078, já no ar) ou também a **Mira**? Se a Mira entrar, há um
-passo a mais: uma branch determinística no roteador dela — do jeito que já existe a
-branch de rotinas e a de SAP/OS —, senão a pergunta cai no RAG e volta errada.
+### D6 — Quem consome · ✅ **só Claude Desktop/Code, via 8078**
+
+Decisão do Marcelo em 24/08/2026: **a Mira não assume isso por enquanto.**
+
+**Consequência:** nada a fazer no roteador da Mira — **não** criar branch determinística
+de pedidos lá. Se um dia entrar, é fase nova: sem branch própria a pergunta cai no RAG e
+volta errada.
 
 ---
 

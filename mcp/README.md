@@ -1,8 +1,8 @@
 # Fachada MCP — ServidorIntegracaoSAP
 
 Camada **fina e read-only** que expõe, como *tools* MCP, os endpoints que a API REST
-(porta 8077) já oferece. Um cliente MCP (Claude Desktop, Claude Code, o assistente Mira)
-passa a operar/consultar o servidor de integração **em linguagem natural**.
+(porta 8077) já oferece. Um cliente MCP (Claude Desktop, Claude Code) passa a
+operar/consultar o servidor de integração **em linguagem natural**.
 
 > **Não altera nada do que roda hoje.** Não fala com SAP/SQL/Supabase direto, não roda
 > agendador — só chama a API existente (que continua sendo a única a tocar o banco).
@@ -19,6 +19,44 @@ passa a operar/consultar o servidor de integração **em linguagem natural**.
 | `detalhe_pedido_os(nped, incluir_linhas?)` | `GET /ordens-servico/<nped>` | sim | 1 |
 | `estado_tarefa_wbc()` | `GET /status?checks=scheduled_task` | não (aberto) | 1 |
 | `ultimos_erros(limit?)` | `GET /historico` (filtra falhas) | sim | 1 |
+
+## Tools — Situação dos Pedidos ⏳ **PLANEJADAS, ainda não existem**
+
+> **Nada aqui está implementado.** Contrato congelado em **2026-08-24** (F0 do plano
+> `docs/PLANO_SITUACAO_PEDIDOS_MCP.md`) justamente para que o código nasça obedecendo a
+> esta tabela. Enquanto este aviso estiver aqui, chamar qualquer uma delas dá erro de
+> tool inexistente.
+
+Leem a view `VW_STATUS_PEDIDO_DDP` (a mesma que desenha a tela **Situação dos Pedidos**
+do OrçaView), com montador, valor e vendedor vindos de `ORDR` / `@INO_MONTADOR` / `OSLP`.
+Todas **read-only**, todas com `X-API-Key` injetada server-side.
+
+| Tool | Endpoint | Chave? | Fase |
+|---|---|---|---|
+| `situacao_pedido(pedido, chave?)` | `GET /pedidos/<numero>/situacao` | sim | ⏳ |
+| `pedidos_bloqueados(bloqueio?, status?)` | `GET /pedidos/situacao?bloqueio=…` | sim | ⏳ |
+| `panorama_pedidos(campos?)` | `GET /pedidos/situacao` | sim | ⏳ |
+
+**Defaults congelados** (mudá-los depois de publicado quebra quem já usa):
+
+| Parâmetro | Valores | Default | Por quê |
+|---|---|---|---|
+| `chave` | `docnum` \| `docentry` | `docnum` | é o número que aparece na tela (84260). `DocEntry ≠ DocNum` |
+| `bloqueio` | `qualquer` \| `financeiro` \| `producao` \| `entrega` \| `nenhum` | `qualquer` | — |
+| `status` | `todos` \| `aberto` \| `fechado` | **`aberto`** em `pedidos_bloqueados` | quem pergunta "o que está travado?" quer o que trava hoje. **Diverge da tela de propósito** (ela usa `todos` porque espelha o Power BI) |
+| `campos` | `resumo` \| `completo` | `resumo` na lista, `completo` no pedido único | 236 pedidos × ~40 campos não cabe no contexto |
+
+**Campos do `resumo`** (as 10 colunas da tela + o alerta): `data_pedido` · `card_name` ·
+`doc_num` · `sinal` · `financeiro` · `producao` · `entrega` · `prazo_entrega` ·
+`atrasado` · `pymnt_group` · `alerta_liberacao`.
+
+**`alerta_liberacao`** é `null` ou o texto `"Mais de 10 dias preso no financeiro (N
+dias)"` — a mesma regra do alerta financeiro do V117 (`Financeiro = Bloqueado` há mais de
+10 dias da data do pedido; pedido fechado nunca alarma).
+
+**Respostas de erro:** `404` = pedido fora do recorte da view (ela só tem os correntes —
+**não** é "sem bloqueio"); `409` = DocNum casando com mais de um pedido; `503` = HANA
+indisponível.
 
 ## Resources (Fase 1 — contexto anexável)
 
