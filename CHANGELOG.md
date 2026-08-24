@@ -3,6 +3,41 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-08-24] — Situação dos Pedidos: núcleo portado do V117 (F1)
+
+### Adicionado
+
+- `situacao_pedidos.py` — **porte** do núcleo puro de
+  `web_orcaview_V117/backend/services/situacao_pedidos_service.py` (D1 do plano):
+  `normalizar`, `filtrar`, `prazo_fim`, KPIs e `montadores_do_recorte`. Nada de
+  I/O — HANA é F2, HTTP é F3, tool MCP é F4.
+- `sap_montagem_labels.py` — porte do rótulo oficial do Tipo de Montagem. Uma
+  divergência deliberada: a busca no SAP virou **gancho** (`registrar_fonte`) que
+  a F2 liga; até lá vale o `FALLBACK_LABELS` medido em produção.
+- Exclusivo da `.11`, **fora** do trecho portado de propósito (é o que mantém o
+  núcleo diffável): `alerta_liberacao`/`com_alerta` (o texto legível da regra dos
+  10 dias, D2), `filtrar_bloqueio` (o corte "travado em QUALQUER etapa", que o
+  `filtrar` do V117 não tem) e `resumir` (o perfil `campos=resumo`, D4).
+- `tests/test_situacao_pedidos_diffavel.py` — **o freio da D1**: compara o
+  código-fonte, função por função, com o original do V117; só linha de `import` é
+  divergência perdoada. Roda onde os dois repos estão lado a lado e faz `skip` na
+  `.11`. Verificado nos dois modos: 19 comparações passam aqui, 19 pulam numa
+  cópia sem o V117 ao lado.
+- `tests/test_situacao_pedidos.py` — 23 testes de comportamento (gênero do status,
+  virada de ano do prazo, pedido fechado que não conta como atrasado, os quatro
+  acréscimos da `.11`).
+
+### Por quê
+
+Sem o teste de diffabilidade, a decisão de **portar** vira **reimplementar** por
+omissão: alguém corrige um caso no V117, ninguém lembra da cópia, e a `.11` passa a
+responder diferente da tela **sem erro nenhum aparecer**. É o mesmo par que já existe
+entre `ordens_producao_sl.py` e `compras_sap_service.py` — agora com teste em vez de
+comentário.
+
+⚠️ **Nada disso está acessível ainda.** Não há rota nem tool: `mcp/README.md` marca
+as três tools como PLANEJADAS. A próxima fase é a leitura HANA (F2).
+
 ## [2026-08-21] — vendas BI: a rotina grava o próprio desfecho
 
 ### Adicionado

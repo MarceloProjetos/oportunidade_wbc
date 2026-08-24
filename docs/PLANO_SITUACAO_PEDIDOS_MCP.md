@@ -1,7 +1,8 @@
 # PLANO — Situação dos Pedidos na API 8077 + fachada MCP (.11)
 
-**Status (2026-08-24):** **F0 fechada** — as 6 decisões estão decididas (§6) e o
-contrato do §5 está congelado no `mcp/README.md`. Nada codado ainda: F1 é a próxima.
+**Status (2026-08-24):** **F0 e F1 fechadas.** O núcleo está portado e testado
+(42 testes, suíte do repo em 469). Nada acessível ainda: sem rota e sem tool — a
+próxima é F2 (leitura HANA).
 
 Levar a **Situação dos Pedidos** (a mesma view que desenha a tela do `.90`) para o
 servidor de integração `192.168.7.11`, como **2 rotas** na API 8077 e **3 tools** na
@@ -28,6 +29,8 @@ linguagem natural, sem abrir o navegador nem entrar no SAP.
 | Núcleo puro (`normalizar`, `filtrar`, KPIs, regra dos 10 dias) | ✅ em produção no V117, com testes |
 | API 8077 (`.11`) | ✅ no ar — mas **nenhuma rota dela lê o HANA ao vivo** |
 | Fachada MCP (8078, serviço NSSM, Bearer) | ✅ no ar, 12 tools read-only |
+| Núcleo portado na `.11` (`situacao_pedidos.py`) | ✅ F1 — 42 testes, ruff limpo |
+| Leitura HANA na `.11` | ❌ F2, próxima |
 | Consulta de situação de pedido pelo MCP | ❌ não existe |
 
 ---
@@ -113,7 +116,7 @@ fechados — mudar contrato depois de publicado é o que quebra cliente MCP.
   marcada como **planejada** (as tools ainda não existem; o README não pode dar a
   entender que existem).
 
-### F1 — Núcleo portado (puro, testável sem HANA)
+### F1 — Núcleo portado (puro, testável sem HANA) ✅ **concluída (2026-08-24)**
 
 **Objetivo:** a `.11` sabe transformar linha crua da view em contrato, com exatamente a
 mesma semântica da tela.
@@ -130,6 +133,28 @@ mesma semântica da tela.
   original quando `../../web_orcaview_V117` existe (máquina de dev); `pytest.skip` na
   `.11`, que não tem o outro repo. É o único freio contra a divergência silenciosa.
 - Portar os casos de `tests/test_situacao_pedidos_service.py` que cobrem o recorte.
+
+**Entregue:** `situacao_pedidos.py` (502 linhas), `sap_montagem_labels.py`,
+`tests/test_situacao_pedidos_diffavel.py` (19 comparações) e
+`tests/test_situacao_pedidos.py` (23 testes de comportamento). Ruff limpo; suíte do
+repo em **469 testes**.
+
+> **O freio foi exercitado, não só escrito.** Trocar `startswith("liberad")` por
+> `startswith("liberado")` no arquivo portado faz `test_..._diffavel[_status]` falhar —
+> conferido. E numa cópia do repo **sem** o V117 ao lado, as 19 comparações fazem
+> `skip` e os 23 testes de comportamento continuam rodando: é o que vai acontecer na
+> `.11`.
+
+> ⚠️ **O arquivo portado foi gerado, não digitado.** Transcrever 300 linhas à mão
+> introduz erro silencioso — justamente o que este porte não pode ter. O script que
+> extraiu os blocos do original é descartável (ficou no scratchpad); o que vale é o
+> arquivo gerado, e o teste que o vigia.
+
+> **Uma divergência a mais do que o previsto:** `sap_montagem_labels.get_labels()`
+> consulta o SAP direto no V117. Aqui a busca virou um **gancho**
+> (`registrar_fonte`) que a F2 liga; até lá vale o `FALLBACK_LABELS` medido em
+> produção. `rotulo()` e o mapa de fallback continuam comparados pelo teste — só o
+> I/O ficou de fora.
 
 > ⚠️ **Não "melhorar" nada durante o porte.** Toda esquisitice do núcleo (o gênero do
 > status, o `atrasado` histórico, o ano do prazo) é uma decisão de negócio com teste
