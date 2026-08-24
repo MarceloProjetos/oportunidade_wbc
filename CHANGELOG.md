@@ -3,6 +3,24 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-08-24] — Situação dos Pedidos: documento para quem consome
+
+`API_SITUACAO_PEDIDOS.md` — manual de consumo da REST (8077) e do MCP (8078), escrito
+para uma equipe externa que **não tem acesso a nós**: precisa se sustentar sozinho.
+
+Traz as cinco armadilhas primeiro (DocNum≠DocEntry · 404 NÃO é "sem bloqueio" ·
+`status=aberto` da tool diverge da tela de propósito · status canonizado ·
+`prazo_entrega` é texto sem ano), o dicionário dos 35 campos, os 7 códigos de erro,
+exemplos em curl/PowerShell/Python, o registro do MCP no cliente, os limites (cache
+de 120 s, ~74 KB no `resumo` contra ~237 KB no `completo`) e um combinado de
+compatibilidade.
+
+**Sem chave nem token no documento** — a seção 4 diz o que pedir para nós.
+
+Todas as afirmações foram conferidas contra a `.11` antes de publicar: `Bearer`
+aceito, `campos=resumo` no pedido único (11 campos), `recarregar=1`, filtros somados,
+`montador=__sem__` (86 pedidos), e o corpo real do 404.
+
 ## [2026-08-24] — Situação dos Pedidos: NO AR de ponta a ponta (F5)
 
 A fachada da `.11` foi reiniciada e passou a servir as três tools. Conferido por um
