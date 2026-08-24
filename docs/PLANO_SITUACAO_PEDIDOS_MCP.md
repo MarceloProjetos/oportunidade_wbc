@@ -1,8 +1,8 @@
 # PLANO — Situação dos Pedidos na API 8077 + fachada MCP (.11)
 
-**Status (2026-08-24):** **F0, F1 e F2 fechadas.** O núcleo está portado e a `.11` já
-lê a view — conferido contra o HANA de produção (236 linhas, nenhum alias errado).
-Nada acessível ainda: sem rota e sem tool. A próxima é F3.
+**Status (2026-08-24):** **F0 a F3 fechadas.** As 3 consultas já respondem por HTTP —
+exercitadas ponta a ponta contra o HANA de produção. Falta a F4 (as tools) e a F5
+(deploy na `.11`). **Nada disso está na `.11` ainda.**
 
 Levar a **Situação dos Pedidos** (a mesma view que desenha a tela do `.90`) para o
 servidor de integração `192.168.7.11`, como **2 rotas** na API 8077 e **3 tools** na
@@ -30,8 +30,10 @@ linguagem natural, sem abrir o navegador nem entrar no SAP.
 | API 8077 (`.11`) | ✅ no ar — mas **nenhuma rota dela lê o HANA ao vivo** |
 | Fachada MCP (8078, serviço NSSM, Bearer) | ✅ no ar, 12 tools read-only |
 | Núcleo portado na `.11` (`situacao_pedidos.py`) | ✅ F1 — 42 testes, ruff limpo |
-| Leitura HANA na `.11` (`situacao_pedidos_hana.py`) | ✅ F2 — 236 linhas lidas de PROD |
-| Rota na API 8077 · tool MCP | ❌ F3/F4, próximas |
+| Leitura HANA na `.11` (`situacao_pedidos_hana.py`) | ✅ F2 — 237 linhas lidas de PROD |
+| As 2 rotas na API 8077 | ✅ F3 — smoke ponta a ponta contra PROD |
+| As 3 tools MCP | ❌ F4, próxima |
+| Implantado na `.11` | ❌ F5 — **nada disso está lá ainda** |
 | Consulta de situação de pedido pelo MCP | ❌ não existe |
 
 ---
@@ -209,7 +211,7 @@ contrato do V117:
 > thread-safe e o waitress atende em várias threads; compartilhar uma pediria lock e
 > reconexão. Com o cache, isso dá no pior caso **uma** conexão a cada 2 minutos.
 
-### F3 — API 8077: 2 rotas
+### F3 — API 8077: 2 rotas ✅ **concluída (2026-08-24)**
 
 **Objetivo:** as 3 consultas existem em HTTP, com `X-API-Key`, e dá para testar com
 `curl` antes de qualquer tool.
@@ -218,7 +220,36 @@ Detalhe do contrato no §5.
 
 - `GET /pedidos/<numero>/situacao` — consulta 1
 - `GET /pedidos/situacao` — consultas 2 e 3 (é o mesmo recorte; o que muda é o filtro)
-- Testes em `tests/test_api.py`, com o HANA stubado.
+- Testes em `tests/test_api_situacao_pedidos.py` (24), com o HANA dublado no
+  `fetch_status_pedidos` — dali para dentro roda o código de verdade.
+
+**Entregue** com três decisões que ficam visíveis na resposta:
+
+- **KPIs e montadores são sempre do recorte INTEIRO**, nunca do filtrado — igual à tela,
+  onde o card diz quantos existem e o filtro diz quais aparecem. Quantos voltaram está em
+  `total_filtrado`.
+- **Filtro que não casa com nada é 200 com lista vazia**, nunca 404. "Não há nada
+  bloqueado" é resposta legítima; 404 fica reservado a pedido fora do recorte — e a
+  mensagem dele diz, com essas palavras, que **não** significa "sem bloqueio".
+- **503 e 422 não se misturam:** HANA fora é 503 (tentar de novo adianta), parâmetro fora
+  do domínio é 422 (não adianta). A mensagem vai inteira no corpo — é ela que o modelo lê.
+
+> **Smoke ponta a ponta contra o HANA de produção, sem subir processo nenhum.** Pelo test
+> client do Flask a rota roda inteira (auth, params, filtros, serialização), só não há
+> socket — nada de porta ocupada nem serviço reiniciado. Resultado: **237** no recorte ·
+> **10** bloqueados (4 financeiro · 10 produção · 10 entrega · 227 nenhum — 10+227 fecha
+> em 237) · 8 montadores · **1** com alerta: `84260 — "Mais de 10 dias preso no financeiro
+> (12 dias)"`, o pedido de 12/08 do print. DocEntry 16586 → DocNum 83832. Os quatro erros
+> (400/404/422/503) com a mensagem certa.
+
+> ⚠️ **Uma request = uma leitura.** KPIs, lista e montadores saem do mesmo retrato. É fácil
+> escrever isso errado (dois `fetch` seguidos passariam despercebidos, porque o cache
+> esconderia a segunda ida) — por isso há teste contando as idas, não só conferindo o
+> corpo.
+
+> ⚠️ **`ligar_rotulos_do_sap()` vai no `main()`, não no import** — mesmo motivo do
+> `windows_update.iniciar_coletor` logo acima: no import, a suíte de testes acabaria
+> falando com o HANA de verdade.
 
 ### F4 — Fachada MCP: 3 tools
 

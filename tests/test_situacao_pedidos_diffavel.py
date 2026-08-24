@@ -56,12 +56,14 @@ CONSTANTES_NUCLEO = (
 #:   HANA diferente dos dois lados;
 #: - ``ValidationError``/``now_br``: as duas dependencias que o porte teve de trocar
 #:   (no V117 vem de ``exceptions`` e ``utils``);
-#: - ``alerta_liberacao``/``com_alerta``/``filtrar_bloqueio``/``resumir``/
+#: - ``alerta_liberacao``/``com_alerta``/``filtrar_bloqueio``/
+#:   ``filtrar_liberacao_atrasada``/``resumir``/
 #:   ``BLOQUEIO_FILTROS``/``CAMPOS_RESUMO``: exclusivos da .11, nao existem no V117.
 FORA_DA_COMPARACAO = frozenset({
     "fetch_pedidos", "limpar_cache", "_fetch_sync",
     "ValidationError", "now_br",
-    "alerta_liberacao", "com_alerta", "filtrar_bloqueio", "resumir",
+    "alerta_liberacao", "com_alerta", "filtrar_bloqueio",
+    "filtrar_liberacao_atrasada", "resumir",
     "BLOQUEIO_FILTROS", "CAMPOS_RESUMO",
 })
 

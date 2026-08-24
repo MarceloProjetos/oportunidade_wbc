@@ -47,6 +47,7 @@ __all__ = [
     "com_alerta",
     "filtrar",
     "filtrar_bloqueio",
+    "filtrar_liberacao_atrasada",
     "montadores_do_recorte",
     "montar_dashboard",
     "normalizar",
@@ -491,6 +492,17 @@ def filtrar_bloqueio(
         return [p for p in pedidos
                 if not any(travado(p, e) for e in ("financeiro", "producao", "entrega"))]
     return [p for p in pedidos if travado(p, bloqueio)]
+
+
+def filtrar_liberacao_atrasada(pedidos: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """So os pedidos que estouraram o limite dos 10 dias no financeiro.
+
+    A REGRA continua no nucleo portado (``fin_liberacao_atrasada``); aqui e' so o corte,
+    para a rota nao precisar saber o nome do campo. Um pedido de cada vez nao interessa a
+    quem pergunta "o que esta parado ha tempo demais?" -- essa e' a pergunta que este
+    filtro responde.
+    """
+    return [p for p in pedidos if p.get("fin_liberacao_atrasada")]
 
 
 def resumir(pedidos: list[dict[str, Any]]) -> list[dict[str, Any]]:

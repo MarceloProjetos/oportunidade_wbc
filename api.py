@@ -13,6 +13,8 @@ Endpoints
 - ``POST /sync/ordens-servico``             → body ``{"nped": N}`` or ``{"npeds": [...]}``
 - ``GET  /ordens-producao/<numero>``        → one Production Order (status + transitions)
 - ``POST /ordens-producao/<numero>/status`` → **writes into SAP**: Liberada / Encerrada
+- ``GET  /pedidos/situacao``                → order-status cut (blocked / everything)
+- ``GET  /pedidos/<numero>/situacao``       → status of ONE order
 
 Authentication (optional, **recommended in production**)
 --------------------------------------------------------
@@ -50,6 +52,8 @@ from typing import Any, List, Optional, Tuple
 from flask import Flask, jsonify, request, send_from_directory
 
 import ordens_producao_sl as op_sl
+import situacao_pedidos as sit_ped
+import situacao_pedidos_hana as sit_ped_hana
 import windows_update
 from config import get_settings
 from extract_ordens_servico_engenharia import (
@@ -961,6 +965,171 @@ def op_status(numero: str):
     return jsonify(ok=True, **resultado)
 
 
+# --------------------- Situacao dos Pedidos (VW_STATUS_PEDIDO_DDP) ---------------------
+# A MESMA view que desenha a tela do OrcaView, com o MESMO nucleo de normalizacao
+# (`situacao_pedidos.py` e' porte, e um teste compara os dois fontes). O que muda e' o
+# consumidor: aqui e' a fachada MCP, nao um navegador.
+#
+# Estas sao as duas UNICAS rotas deste servico que leem o HANA ao vivo -- todas as outras
+# leituras batem no Supabase. O que segura o SAP e' o cache de 120s do
+# `situacao_pedidos_hana`, nao um rate-limit: dois clientes MCP conversando ao mesmo
+# tempo compartilham o mesmo retrato.
+#
+# Contrato congelado em 2026-08-24: docs/PLANO_SITUACAO_PEDIDOS_MCP.md secao 5.
+
+
+def _resposta_situacao_erro(exc: Exception) -> Tuple[Any, int]:
+    """Erro de dominio -> resposta HTTP. **503 e 422 nao se misturam.**
+
+    ``SAPIndisponivel`` e' 503 (nao e' culpa de quem chamou, e vale tentar de novo);
+    ``ValidationError`` e' 422 (parametro fora do dominio -- tentar de novo nao adianta).
+    A mensagem vai inteira no corpo: e' ela que a fachada MCP mostra ao modelo, em vez de
+    um "HTTP 503" generico.
+    """
+    if isinstance(exc, sit_ped_hana.SAPIndisponivel):
+        logger.warning("[SIT_PED] indisponivel: %s", exc)
+        return jsonify(ok=False, error=str(exc)), 503
+    logger.info("[SIT_PED] parametro recusado: %s", exc)
+    return jsonify(ok=False, error=str(exc)), 422
+
+
+def _situacao_recorte() -> Tuple[dict, list]:
+    """Recorte inteiro da view: ``(dashboard, pedidos_com_alerta)``.
+
+    Uma unica ida ao :func:`fetch_status_pedidos` alimenta os dois -- e ela mesma passa
+    pelo cache, entao as tres consultas do plano respondem sobre o MESMO retrato.
+    """
+    linhas = sit_ped_hana.fetch_status_pedidos(recarregar=_flag_query('recarregar'))
+    dashboard = sit_ped.montar_dashboard(linhas)
+    return dashboard, sit_ped.com_alerta(dashboard['pedidos'])
+
+
+def _campos_resumo(padrao_resumo: bool) -> bool:
+    """``?campos=resumo|completo``. O default e' por rota -- ver a D4 do plano."""
+    pedido = (request.args.get('campos') or '').strip().lower()
+    if pedido == 'resumo':
+        return True
+    if pedido in ('completo', 'full'):
+        return False
+    return padrao_resumo
+
+
+@app.get('/pedidos/situacao')
+@requer_chave
+def situacao_pedidos_lista():
+    """Recorte da Situacao dos Pedidos -- as consultas 2 e 3 do plano. Requer X-API-Key.
+
+    Sem parametro nenhum devolve o recorte inteiro da view (**consulta 3**: "todos os
+    dados, incluindo montadores"). Com ``?bloqueio=qualquer`` devolve so o que esta
+    travado em pelo menos uma etapa (**consulta 2**).
+
+    **Parametros:** ``bloqueio`` (``qualquer`` | ``financeiro`` | ``producao`` |
+    ``entrega`` | ``nenhum``), ``status`` (``todos`` | ``aberto`` | ``fechado``),
+    ``montador`` (CNPJ ou ``__sem__``), ``busca`` (cliente, codigo, numero do pedido ou
+    cotacao WBC), ``so_atrasados_fin=1`` (so quem passou dos 10 dias no financeiro),
+    ``campos`` (``resumo`` -- o default AQUI -- ou ``completo``) e ``recarregar=1``.
+
+    **Os KPIs e a lista de montadores sao sempre do recorte INTEIRO**, nunca do
+    filtrado: e' assim na tela (o card diz quantos existem, o filtro diz quais aparecem),
+    e trocar isso faria o mesmo numero significar coisas diferentes nos dois lugares.
+    Quantos voltaram esta em ``total_filtrado``.
+
+    **404 nao existe aqui:** filtro que nao casa com nada devolve **200** com a lista
+    vazia. E' resposta legitima ("nao ha nada bloqueado"), nao pedido inexistente.
+    """
+    try:
+        recorte, pedidos = _situacao_recorte()
+        filtrados = sit_ped.filtrar(
+            pedidos,
+            status=(request.args.get('status') or None),
+            montador=(request.args.get('montador') or None),
+            busca=(request.args.get('busca') or None),
+        )
+        filtrados = sit_ped.filtrar_bloqueio(filtrados, request.args.get('bloqueio'))
+        if _flag_query('so_atrasados_fin'):
+            filtrados = sit_ped.filtrar_liberacao_atrasada(filtrados)
+    except (sit_ped_hana.SAPIndisponivel, sit_ped.ValidationError) as exc:
+        return _resposta_situacao_erro(exc)
+    except Exception as exc:  # nunca deixar a request virar um 500 mudo
+        logger.error("[SIT_PED] falha inesperada na lista: %s", exc)
+        return jsonify(ok=False, error='falha ao montar a situacao dos pedidos'), 502
+
+    itens = sit_ped.resumir(filtrados) if _campos_resumo(True) else filtrados
+    logger.info("[SIT_PED] lista: %d de %d (bloqueio=%s status=%s montador=%s busca=%s).",
+                len(itens), recorte['kpis']['total'], request.args.get('bloqueio'),
+                request.args.get('status'), request.args.get('montador'),
+                bool(request.args.get('busca')))
+    return jsonify(
+        ok=True,
+        gerado_em=recorte['gerado_em'],
+        cache_idade_s=sit_ped_hana.idade_do_cache_s(),
+        kpis=recorte['kpis'],
+        total_no_recorte=recorte['kpis']['total'],
+        total_filtrado=len(itens),
+        pedidos=itens,
+        montadores=recorte['montadores'],
+    )
+
+
+@app.get('/pedidos/<numero>/situacao')
+@requer_chave
+def situacao_pedido_unico(numero: str):
+    """Situacao de UM pedido -- a consulta 1 do plano. Requer X-API-Key.
+
+    ``<numero>`` e' o **DocNum** (o numero que aparece na tela, ex.: 84260);
+    ``?chave=docentry`` procura pelo DocEntry. Os dois **nao** sao o mesmo numero, e
+    confundi-los devolveria outro pedido calado -- a mesma armadilha das rotas de Ordem
+    de Producao.
+
+    **404 quer dizer "fora do recorte da view", nao "sem bloqueio".** A view carrega so
+    os pedidos correntes; um pedido de 2024 simplesmente nao esta la. Responder "sem
+    bloqueio" nesse caso seria mentira -- dai a mensagem ser explicita.
+
+    **409** quando o numero casa com mais de um pedido: recusa, nunca resolve por
+    ``[0]``. Nao deve acontecer (a view e' por DocEntry), e e' justamente por isso que
+    merece resposta propria em vez de "o primeiro que achar".
+
+    Aqui o default e' ``campos=completo`` (e' um registro so, cabe); ``?campos=resumo``
+    corta para as 10 colunas da tela.
+    """
+    try:
+        n = coerce_positive_int(numero, what='numero do pedido')
+    except ValueError as exc:
+        return jsonify(ok=False, error=str(exc)), 400
+
+    campo = 'doc_entry' if _chave_docentry() else 'doc_num'
+    try:
+        _, pedidos = _situacao_recorte()
+    except (sit_ped_hana.SAPIndisponivel, sit_ped.ValidationError) as exc:
+        return _resposta_situacao_erro(exc)
+    except Exception as exc:
+        logger.error("[SIT_PED] falha inesperada no pedido %s: %s", n, exc)
+        return jsonify(ok=False, error='falha ao consultar a situacao do pedido'), 502
+
+    achados = [p for p in pedidos if p.get(campo) == n]
+    if not achados:
+        logger.info("[SIT_PED] pedido %s (%s) fora do recorte da view.", n, campo)
+        return jsonify(
+            ok=False,
+            error=(f'pedido {n} fora do recorte da view (ela carrega so os pedidos '
+                   f'correntes) - isto NAO quer dizer que ele esteja sem bloqueio'),
+            pedido=n, chave=campo,
+        ), 404
+    if len(achados) > 1:
+        logger.warning("[SIT_PED] %s %s casa com %d pedidos.", campo, n, len(achados))
+        return jsonify(
+            ok=False,
+            error=f'{campo} {n} casa com {len(achados)} pedidos - consulte por DocEntry',
+            pedido=n, chave=campo, total=len(achados),
+        ), 409
+
+    pedido = sit_ped.resumir(achados)[0] if _campos_resumo(False) else achados[0]
+    return jsonify(ok=True,
+                   gerado_em=sit_ped.now_br().isoformat(timespec='seconds'),
+                   cache_idade_s=sit_ped_hana.idade_do_cache_s(),
+                   pedido=pedido)
+
+
 def main() -> None:
     """Start the server (waitress in production; Flask dev as fallback)."""
     _configure_logging()
@@ -984,6 +1153,10 @@ def main() -> None:
     # Here in the entrypoint and NOT on import: otherwise the test suite would fire
     # PowerShell.
     windows_update.iniciar_coletor(s)
+    # Rotulo do Tipo de Montagem passa a vir do SAP (UFD1) em vez do fallback
+    # embutido. Aqui e NAO no import, pelo mesmo motivo da linha acima: no import, a
+    # suite de testes acabaria falando com o HANA de verdade.
+    sit_ped_hana.ligar_rotulos_do_sap()
     host, port = s.os_api_host, s.os_api_port
     try:
         from waitress import serve

@@ -22,20 +22,27 @@ operar/consultar o servidor de integração **em linguagem natural**.
 
 ## Tools — Situação dos Pedidos ⏳ **PLANEJADAS, ainda não existem**
 
-> **Nada aqui está implementado.** Contrato congelado em **2026-08-24** (F0 do plano
-> `docs/PLANO_SITUACAO_PEDIDOS_MCP.md`) justamente para que o código nasça obedecendo a
-> esta tabela. Enquanto este aviso estiver aqui, chamar qualquer uma delas dá erro de
-> tool inexistente.
+> **As tools ainda não existem — as ROTAS que elas vão chamar, sim.** A F3 entregou
+> `GET /pedidos/situacao` e `GET /pedidos/<numero>/situacao` na API 8077 (commitadas,
+> **ainda não implantadas na .11**); falta a F4 ligar as três tools a elas. Enquanto
+> este aviso estiver aqui, chamar qualquer uma delas dá erro de tool inexistente.
+> Contrato congelado em **2026-08-24** (F0 do plano
+> `docs/PLANO_SITUACAO_PEDIDOS_MCP.md`).
 
 Leem a view `VW_STATUS_PEDIDO_DDP` (a mesma que desenha a tela **Situação dos Pedidos**
 do OrçaView), com montador, valor e vendedor vindos de `ORDR` / `@INO_MONTADOR` / `OSLP`.
 Todas **read-only**, todas com `X-API-Key` injetada server-side.
 
-| Tool | Endpoint | Chave? | Fase |
-|---|---|---|---|
-| `situacao_pedido(pedido, chave?)` | `GET /pedidos/<numero>/situacao` | sim | ⏳ |
-| `pedidos_bloqueados(bloqueio?, status?)` | `GET /pedidos/situacao?bloqueio=…` | sim | ⏳ |
-| `panorama_pedidos(campos?)` | `GET /pedidos/situacao` | sim | ⏳ |
+| Tool | Endpoint | Chave? | Rota | Tool |
+|---|---|---|---|---|
+| `situacao_pedido(pedido, chave?)` | `GET /pedidos/<numero>/situacao` | sim | ✅ F3 | ⏳ F4 |
+| `pedidos_bloqueados(bloqueio?, status?)` | `GET /pedidos/situacao?bloqueio=…` | sim | ✅ F3 | ⏳ F4 |
+| `panorama_pedidos(campos?)` | `GET /pedidos/situacao` | sim | ✅ F3 | ⏳ F4 |
+
+**Parâmetros da rota de lista** — além dos defaults congelados abaixo: `montador`
+(CNPJ ou `__sem__`), `busca` (cliente, código, número do pedido ou cotação WBC),
+`so_atrasados_fin=1` (só quem passou dos 10 dias no financeiro) e `recarregar=1`
+(ignora o cache de 120 s).
 
 **Defaults congelados** (mudá-los depois de publicado quebra quem já usa):
 
@@ -54,9 +61,19 @@ Todas **read-only**, todas com `X-API-Key` injetada server-side.
 dias)"` — a mesma regra do alerta financeiro do V117 (`Financeiro = Bloqueado` há mais de
 10 dias da data do pedido; pedido fechado nunca alarma).
 
-**Respostas de erro:** `404` = pedido fora do recorte da view (ela só tem os correntes —
-**não** é "sem bloqueio"); `409` = DocNum casando com mais de um pedido; `503` = HANA
-indisponível.
+**Respostas de erro:** `400` = número não é inteiro positivo; `404` = pedido fora do
+recorte da view (ela só tem os correntes — **não** é "sem bloqueio"); `409` = DocNum
+casando com mais de um pedido; `422` = parâmetro fora do domínio (tentar de novo não
+adianta); `503` = HANA indisponível (tentar de novo adianta). A mensagem vai inteira no
+corpo — é ela que o modelo lê, em vez de um "HTTP 503" genérico.
+
+**Na lista, filtro que não casa com nada é `200` com a lista vazia**, nunca 404: "não há
+nada bloqueado" é resposta legítima.
+
+**Os KPIs e a lista de montadores são sempre do recorte inteiro**, nunca do filtrado —
+igual à tela, onde o card diz quantos existem e o filtro diz quais aparecem. Quantos
+voltaram está em `total_filtrado`. Além do contrato congelado, as respostas trazem
+`cache_idade_s`: há quantos segundos o retrato foi tirado.
 
 ## Resources (Fase 1 — contexto anexável)
 

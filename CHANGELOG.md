@@ -3,6 +3,51 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-08-24] — Situação dos Pedidos: as 2 rotas na API 8077 (F3)
+
+### Adicionado
+
+- `GET /pedidos/situacao` — as **consultas 2 e 3** do plano no mesmo endpoint (é o
+  mesmo recorte; o que muda é o filtro). Params: `bloqueio`, `status`, `montador`,
+  `busca`, `so_atrasados_fin`, `campos`, `recarregar`. Default `campos=resumo`.
+- `GET /pedidos/<numero>/situacao` — a **consulta 1**. `<numero>` é o DocNum (o da
+  tela); `?chave=docentry` troca. Default `campos=completo` (é um registro só).
+- `_resposta_situacao_erro()` — **503 e 422 não se misturam**: HANA fora é 503
+  (tentar de novo adianta), parâmetro fora do domínio é 422 (não adianta). A
+  mensagem vai inteira no corpo: é ela que o modelo lê, não um "HTTP 503".
+- `situacao_pedidos.filtrar_liberacao_atrasada()` — o corte dos 10 dias, para a
+  rota não precisar saber o nome do campo do núcleo.
+- `main()` chama `ligar_rotulos_do_sap()`. **No entrypoint e não no import**, pelo
+  mesmo motivo do `windows_update.iniciar_coletor`: no import, a suíte de testes
+  acabaria falando com o HANA de verdade.
+- 24 testes de borda HTTP (`tests/test_api_situacao_pedidos.py`).
+
+### Decisões que ficam visíveis na resposta
+
+- **Os KPIs e os montadores são sempre do recorte inteiro**, nunca do filtrado —
+  igual à tela, onde o card diz quantos existem e o filtro diz quais aparecem.
+  Trocar isso faria o mesmo número significar coisas diferentes nos dois lugares.
+  Quantos voltaram está em `total_filtrado`.
+- **Filtro que não casa com nada é 200 com lista vazia**, nunca 404. "Não há nada
+  bloqueado" é resposta legítima; 404 é reservado a pedido fora do recorte da view.
+- **404 diz explicitamente que NÃO significa "sem bloqueio"** — a view só carrega os
+  pedidos correntes, e um pedido de 2024 simplesmente não está lá.
+- **Uma request = uma leitura.** KPIs, lista e montadores saem do mesmo retrato;
+  há teste cravando que não são duas idas ao HANA.
+- Uma adição ao contrato congelado, aditiva: `cache_idade_s` — há quantos segundos
+  o retrato foi tirado. Quem lê "bloqueado" precisa saber se o dado é de agora.
+
+### Smoke contra o HANA de produção (read-only, sem subir processo)
+
+Via test client do Flask — a rota roda inteira, só não há socket. 237 pedidos no
+recorte · 10 bloqueados (4 financeiro, 10 produção, 10 entrega, 227 nenhum; 10+227
+fecha em 237) · 8 montadores · 1 pedido com o alerta: **84260, "Mais de 10 dias preso
+no financeiro (12 dias)"** — pedido de 12/08, exatamente o do print. Consulta por
+DocEntry 16586 devolve o DocNum 83832. Os quatro erros (400/404/422/503) com a
+mensagem certa.
+
+⚠️ **Ainda não implantado na .11** e ainda sem tool MCP — a F4 liga as três.
+
 ## [2026-08-24] — Situação dos Pedidos: leitura HANA + cache (F2)
 
 ### Adicionado
