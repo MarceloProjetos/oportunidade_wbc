@@ -22,11 +22,10 @@ operar/consultar o servidor de integração **em linguagem natural**.
 
 ## Tools — Situação dos Pedidos
 
-> ⚠️ **Escritas e conferidas contra a `.11`, mas a fachada de lá ainda serve o código
-> antigo.** As rotas da API 8077 já estão em produção; o serviço `OrcaView-MCP` (porta
-> 8078) é **outro processo** e só passa a expor estas três depois do próximo
-> `git pull` + restart dele. Contrato congelado em **2026-08-24** (F0 do plano
-> `docs/PLANO_SITUACAO_PEDIDOS_MCP.md`).
+> ✅ **No ar na `.11` desde 24/08/2026** — conferidas por um cliente MCP de verdade
+> (handshake Streamable HTTP + Bearer contra `192.168.7.11:8078`): 14 tools servidas, as
+> três presentes com `readOnlyHint=True`. Contrato congelado em **2026-08-24** (F0 do
+> plano `docs/PLANO_SITUACAO_PEDIDOS_MCP.md`).
 
 Leem a view `VW_STATUS_PEDIDO_DDP` (a mesma que desenha a tela **Situação dos Pedidos**
 do OrçaView), com montador, valor e vendedor vindos de `ORDR` / `@INO_MONTADOR` / `OSLP`.

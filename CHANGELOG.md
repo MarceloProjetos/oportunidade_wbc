@@ -3,6 +3,27 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-08-24] — Situação dos Pedidos: NO AR de ponta a ponta (F5)
+
+A fachada da `.11` foi reiniciada e passou a servir as três tools. Conferido por um
+**cliente MCP de verdade** — handshake Streamable HTTP + Bearer contra
+`192.168.7.11:8078`, não um curl na API por baixo:
+
+- **14 tools** servidas; `situacao_pedido`, `pedidos_bloqueados` e `panorama_pedidos`
+  presentes, as três com `readOnlyHint=True`.
+- `situacao_pedido(84260)` → FLOW X INTERNATIONAL, bloqueado nas três etapas, prazo
+  21/09 A 25/09, *"Mais de 10 dias preso no financeiro (12 dias)"*.
+- `pedidos_bloqueados()` → 10 de 237. As cinco primeiras linhas: 83832 FUNDAÇÃO
+  BRADESCO, 84260 FLOW X, 84281 SANTACOLOMA, 84293 CIA DE CIMENTO CAMPEÃO, 84295 R4A.
+- `pedidos_bloqueados(bloqueio="financeiro")` → **84260, 84293, 84304** — o **mesmo
+  conjunto** que aparece na tela do OrçaView, na mesma ordem.
+- `panorama_pedidos()` → 237 pedidos, 8 montadores, KPIs 42/3/10/10.
+- 404 e 422 chegam ao cliente com a mensagem inteira.
+
+Fecha o plano `docs/PLANO_SITUACAO_PEDIDOS_MCP.md`: as três consultas pedidas
+(por pedido · só bloqueados · panorama com montadores) respondem em linguagem natural,
+e o campo dos 10 dias veio junto.
+
 ## [2026-08-24] — Situação dos Pedidos: as 3 tools MCP (F4)
 
 ### Adicionado
