@@ -4,7 +4,7 @@ O que é: um servidor MCP (stdio) que expõe, como *tools*, os endpoints que a A
 REST do servidor de integração (porta 8077) já oferece. Um cliente MCP (Claude
 Desktop, Claude Code, o assistente Mira) pode então consultar o servidor em
 linguagem natural: "o servidor de integração está saudável?", "últimas
-sincronizações?", "pedidos com OS disponíveis?".
+sincronizações?", "pedidos com OS disponíveis?", "o pedido 84260 está preso onde?".
 
 O que NÃO é: não reimplementa lógica, não fala com SAP/SQL/Supabase direto, não
 roda agendador. Cada tool apenas chama um endpoint HTTP existente. Quem fala com o
@@ -279,6 +279,102 @@ def ultimos_erros(limit: int = 10) -> Dict[str, Any]:
     falhas = [i for i in itens
               if str(i.get("status", "")).strip().lower() not in ("sucesso", "ok", "success")]
     return {"ok": True, "examinados": len(itens), "qtd_falhas": len(falhas), "falhas": falhas}
+
+
+# ────────────────── Situação dos Pedidos (F4) — a view DDP do SAP ──────────────────
+# As três consultas de docs/PLANO_SITUACAO_PEDIDOS_MCP.md, sobre a MESMA view que
+# desenha a tela "Situação dos Pedidos" do OrçaView. Continuam finas: quem lê o HANA é
+# a API 8077, e a normalização é um porte do núcleo do V117 (com teste comparando os
+# dois fontes) — por isso a resposta aqui e a tela não divergem.
+#
+# `readOnlyHint` explícito nestas três: o cliente MCP mostra ao usuário que são consulta,
+# não ação. As 12 tools de leitura anteriores não o declaram — retrofitá-las é mexer em
+# coisa que funciona, e fica para quando houver motivo.
+
+_ANOTACAO_LEITURA = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
+
+
+@mcp.tool(annotations=_ANOTACAO_LEITURA)
+def situacao_pedido(pedido: int, chave: str = "docnum") -> Dict[str, Any]:
+    """Situação de UM pedido no SAP: liberado ou bloqueado em Financeiro, Produção e
+    Entrega, com prazo de entrega, sinal, condição de pagamento, montador, vendedor,
+    valor e cotação WBC. Requer a SIS_API_KEY.
+
+    Use para "o pedido 84260 está preso onde?", "o 84293 já liberou no financeiro?",
+    "qual o prazo do 83832?".
+
+    ``pedido`` é o **número que aparece na tela** (DocNum, ex.: 84260). O DocEntry é
+    outro número, interno — só passe ``chave="docentry"`` se souber que o número em mãos
+    é esse; confundir os dois traz o pedido errado sem erro nenhum.
+
+    Devolve ``{"ok": false, ...}`` com **404** quando o pedido está **fora do recorte da
+    view** — ela carrega só os pedidos correntes. Isso **NÃO** quer dizer que o pedido
+    esteja sem bloqueio: quer dizer que não dá para responder por aqui. Não invente
+    "está liberado" nesse caso.
+
+    O campo ``alerta_liberacao`` traz o texto "Mais de 10 dias preso no financeiro (N
+    dias)" quando o pedido estourou o limite, e ``null`` quando não estourou.
+
+    Args:
+        pedido: número do pedido (DocNum, ex.: 84260).
+        chave: ``"docnum"`` (default) ou ``"docentry"``.
+    """
+    params = {"chave": "docentry"} if str(chave).strip().lower() == "docentry" else None
+    return _get(f"/pedidos/{int(pedido)}/situacao", params)
+
+
+@mcp.tool(annotations=_ANOTACAO_LEITURA)
+def pedidos_bloqueados(bloqueio: str = "qualquer", status: str = "aberto") -> Dict[str, Any]:
+    """Pedidos TRAVADOS no SAP: os que estão bloqueados em Financeiro, Produção ou
+    Entrega. Requer a SIS_API_KEY.
+
+    Use para "o que está travado?", "quais pedidos estão bloqueados no financeiro?",
+    "tem alguma coisa presa na produção?".
+
+    **Para "o que está preso há tempo demais": chame com ``bloqueio="financeiro"`` e
+    olhe o campo ``alerta_liberacao``** de cada pedido — ele traz "Mais de 10 dias preso
+    no financeiro (N dias)" ou ``null``.
+
+    ⚠️ **O default é ``status="aberto"``, e isso DIVERGE da tela de propósito.** A tela
+    mostra ``todos`` porque espelha o Power BI; aqui, quem pergunta "o que está travado?"
+    quer o que trava **hoje** — pedido fechado que esteve bloqueado é história. Se o
+    número tiver de bater com a tela, passe ``status="todos"``.
+
+    Os ``kpis`` e a lista de ``montadores`` da resposta são sempre do **recorte inteiro**,
+    não do filtro — quantos pedidos voltaram está em ``total_filtrado``.
+
+    Args:
+        bloqueio: ``qualquer`` (default, travado em pelo menos uma etapa), ``financeiro``,
+            ``producao``, ``entrega``, ou ``nenhum`` (as três liberadas).
+        status: ``aberto`` (default), ``todos`` ou ``fechado``.
+    """
+    return _get("/pedidos/situacao", {"bloqueio": bloqueio, "status": status})
+
+
+@mcp.tool(annotations=_ANOTACAO_LEITURA)
+def panorama_pedidos(campos: str = "resumo") -> Dict[str, Any]:
+    """Panorama da carteira: TODOS os pedidos do recorte da view + os 5 indicadores + a
+    lista de montadores, numa chamada só. Requer a SIS_API_KEY.
+
+    Use para "como está a carteira?", "quantos pedidos estão atrasados?", "quais
+    montadores têm pedido em aberto?". Para uma pergunta sobre um pedido específico
+    prefira `situacao_pedido`; para "o que está travado", `pedidos_bloqueados` — este
+    aqui traz a carteira inteira (centenas de pedidos) e é o mais caro dos três.
+
+    ``kpis`` = ``{total, atrasados, financeiro_bloqueado, producao_bloqueada,
+    entrega_bloqueada}``. ``atrasados`` conta só pedido **em aberto**: um pedido fechado
+    que foi entregue com atraso não aparece aí (mas guarda ``atrasado_sap=true``).
+
+    ``cache_idade_s`` diz há quantos segundos o retrato foi tirado (o serviço guarda a
+    consulta por 2 minutos). Se precisar de dado do instante, diga isso ao usuário em vez
+    de fingir que é tempo real.
+
+    Args:
+        campos: ``resumo`` (default — as 10 colunas da tela + o alerta dos 10 dias) ou
+            ``completo`` (~40 campos por pedido; **use só se realmente precisar**, a
+            resposta fica grande).
+    """
+    return _get("/pedidos/situacao", {"campos": campos})
 
 
 # ── Resources: contexto de LEITURA que o cliente anexa sem gastar uma tool-call por vez ──

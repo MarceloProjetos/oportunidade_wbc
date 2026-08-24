@@ -20,24 +20,35 @@ operar/consultar o servidor de integração **em linguagem natural**.
 | `estado_tarefa_wbc()` | `GET /status?checks=scheduled_task` | não (aberto) | 1 |
 | `ultimos_erros(limit?)` | `GET /historico` (filtra falhas) | sim | 1 |
 
-## Tools — Situação dos Pedidos ⏳ **PLANEJADAS, ainda não existem**
+## Tools — Situação dos Pedidos
 
-> **As tools ainda não existem — as ROTAS que elas vão chamar, sim.** A F3 entregou
-> `GET /pedidos/situacao` e `GET /pedidos/<numero>/situacao` na API 8077 (commitadas,
-> **ainda não implantadas na .11**); falta a F4 ligar as três tools a elas. Enquanto
-> este aviso estiver aqui, chamar qualquer uma delas dá erro de tool inexistente.
-> Contrato congelado em **2026-08-24** (F0 do plano
+> ⚠️ **Escritas e conferidas contra a `.11`, mas a fachada de lá ainda serve o código
+> antigo.** As rotas da API 8077 já estão em produção; o serviço `OrcaView-MCP` (porta
+> 8078) é **outro processo** e só passa a expor estas três depois do próximo
+> `git pull` + restart dele. Contrato congelado em **2026-08-24** (F0 do plano
 > `docs/PLANO_SITUACAO_PEDIDOS_MCP.md`).
 
 Leem a view `VW_STATUS_PEDIDO_DDP` (a mesma que desenha a tela **Situação dos Pedidos**
 do OrçaView), com montador, valor e vendedor vindos de `ORDR` / `@INO_MONTADOR` / `OSLP`.
 Todas **read-only**, todas com `X-API-Key` injetada server-side.
 
-| Tool | Endpoint | Chave? | Rota | Tool |
-|---|---|---|---|---|
-| `situacao_pedido(pedido, chave?)` | `GET /pedidos/<numero>/situacao` | sim | ✅ F3 | ⏳ F4 |
-| `pedidos_bloqueados(bloqueio?, status?)` | `GET /pedidos/situacao?bloqueio=…` | sim | ✅ F3 | ⏳ F4 |
-| `panorama_pedidos(campos?)` | `GET /pedidos/situacao` | sim | ✅ F3 | ⏳ F4 |
+| Tool | Endpoint | Chave? | Responde a |
+|---|---|---|---|
+| `situacao_pedido(pedido, chave?)` | `GET /pedidos/<numero>/situacao` | sim | "o pedido 84260 está preso onde?" |
+| `pedidos_bloqueados(bloqueio?, status?)` | `GET /pedidos/situacao?bloqueio=…` | sim | "o que está travado?" |
+| `panorama_pedidos(campos?)` | `GET /pedidos/situacao` | sim | "como está a carteira?" |
+
+As três declaram `readOnlyHint=True` — o cliente MCP mostra ao usuário que são consulta,
+não ação. (As 9 tools de leitura anteriores não declaram; retrofitá-las é mexer no que
+funciona e fica para quando houver motivo.)
+
+**Para "o que está preso há tempo demais"** não há tool própria: chame
+`pedidos_bloqueados(bloqueio="financeiro")` e leia o campo `alerta_liberacao` de cada
+pedido. São poucos, e a regra fica num lugar só.
+
+**Custo medido (2026-08-24, 237 pedidos):** `panorama_pedidos()` devolve ~**74 KB** de
+JSON no `resumo` e ~**237 KB** no `completo` — 3,2×. Daí o default, e daí a orientação,
+na própria descrição da tool, de preferir as outras duas quando a pergunta é específica.
 
 **Parâmetros da rota de lista** — além dos defaults congelados abaixo: `montador`
 (CNPJ ou `__sem__`), `busca` (cliente, código, número do pedido ou cotação WBC),

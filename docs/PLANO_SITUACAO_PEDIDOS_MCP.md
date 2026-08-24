@@ -1,9 +1,9 @@
 # PLANO — Situação dos Pedidos na API 8077 + fachada MCP (.11)
 
-**Status (2026-08-24):** **F0 a F3 fechadas e NO AR na `.11`.** As 3 consultas já
-respondem por HTTP em `192.168.7.11:8077` — conferidas contra o servidor de produção.
-Falta a **F4** (as 3 tools MCP), que vai exigir um segundo deploy: a fachada é outro
-processo (`OrcaView-MCP`).
+**Status (2026-08-24):** **F0 a F4 fechadas.** As rotas estão no ar na `.11`; as 3
+tools estão escritas e conferidas contra ela. **Falta um `git pull` + restart do serviço
+`OrcaView-MCP`** (porta 8078, outro processo) para as tools aparecerem no cliente — e a
+conferência no mesmo minuto contra a tela do `.90`.
 
 Levar a **Situação dos Pedidos** (a mesma view que desenha a tela do `.90`) para o
 servidor de integração `192.168.7.11`, como **2 rotas** na API 8077 e **3 tools** na
@@ -29,12 +29,12 @@ linguagem natural, sem abrir o navegador nem entrar no SAP.
 | View `VW_STATUS_PEDIDO_DDP` + joins (ORDR, @INO_MONTADOR, OSLP) | ✅ em produção, servindo a tela do `.90` |
 | Núcleo puro (`normalizar`, `filtrar`, KPIs, regra dos 10 dias) | ✅ em produção no V117, com testes |
 | API 8077 (`.11`) | ✅ no ar — e agora com **as 2 únicas rotas dela que leem o HANA ao vivo** |
-| Fachada MCP (8078, serviço NSSM, Bearer) | ✅ no ar, 12 tools read-only |
+| Fachada MCP (8078, serviço NSSM, Bearer) | ✅ no ar — servindo ainda as 11 tools antigas |
 | Núcleo portado na `.11` (`situacao_pedidos.py`) | ✅ F1 — 42 testes, ruff limpo |
 | Leitura HANA na `.11` (`situacao_pedidos_hana.py`) | ✅ F2 — 237 linhas lidas de PROD |
 | As 2 rotas na API 8077 | ✅ F3 — **no ar na `.11`**, conferidas em produção |
-| As 3 tools MCP | ❌ F4, próxima |
-| Deploy da fachada MCP (2º processo) | ❌ junto com a F4 |
+| As 3 tools MCP | ✅ F4 — escritas e conferidas contra a `.11` |
+| Deploy da fachada MCP (2º processo) | ❌ **falta** — `git pull` + restart do `OrcaView-MCP` |
 | Consulta de situação de pedido pelo MCP | ❌ não existe |
 
 ---
@@ -252,7 +252,7 @@ Detalhe do contrato no §5.
 > `windows_update.iniciar_coletor` logo acima: no import, a suíte de testes acabaria
 > falando com o HANA de verdade.
 
-### F4 — Fachada MCP: 3 tools
+### F4 — Fachada MCP: 3 tools ✅ **concluída (2026-08-24)**
 
 **Objetivo:** perguntar em linguagem natural, com resposta enxuta o bastante para não
 comer o contexto.
@@ -264,6 +264,32 @@ comer o contexto.
 Todas read-only (`ToolAnnotations(readOnlyHint=True)`), todas passando pelo `_get` que
 já injeta a `X-API-Key` server-side. **Nenhuma toca banco** — a fachada continua fina,
 como o `mcp/README.md` promete.
+
+**Entregue** + `tests/test_mcp_situacao_pedidos.py` (16), **os primeiros testes da
+fachada**. Carregam `mcp/mcp_server.py` por caminho, com nome próprio: `mcp/` não é
+pacote e o nome `mcp` já pertence ao SDK instalado.
+
+> **As descrições são código.** É a docstring que o modelo lê para decidir quando chamar
+> e como interpretar a resposta. Duas delas têm **teste cravando o texto**, porque a
+> ausência custa resposta errada: `situacao_pedido` avisa que **404 = "fora do recorte da
+> view", não "sem bloqueio"** (sem isso o modelo diria "está tudo liberado" para um pedido
+> que ele simplesmente não enxerga); `pedidos_bloqueados` avisa que o default
+> `status="aberto"` **diverge da tela de propósito** e diz como fazer o número bater.
+
+> **A D4 ganhou número.** Com 237 pedidos, `panorama_pedidos()` devolve **73.795**
+> caracteres de JSON no `resumo` e **236.889** no `completo` — 3,2×. Por isso o default, e
+> por isso a própria descrição da tool orienta a preferir as outras duas quando a pergunta
+> é sobre um pedido ou sobre o que está travado.
+
+> **Não criei tool para "o que está preso há mais de 10 dias".** `pedidos_bloqueados(
+> bloqueio="financeiro")` devolve poucos pedidos, cada um já com `alerta_liberacao`
+> preenchido — uma tool a mais só espalharia a mesma regra por outro lugar.
+
+> ⚠️ **Conferidas contra a `.11` ao vivo, mas a fachada de lá ainda serve o código
+> antigo.** O `OrcaView-MCP` (8078) é outro processo: precisa de `git pull` + restart.
+> `situacao_pedido(84260)` → FLOW X, bloqueado nas três etapas, *"Mais de 10 dias preso no
+> financeiro (12 dias)"* · `pedidos_bloqueados()` → 10 de 237 · `panorama_pedidos()` → 237
+> pedidos, 11 campos, 8 montadores · 404 e 422 com a mensagem inteira.
 
 ### F5 — Deploy e smoke na .11 · **parcialmente feita (2026-08-24)**
 

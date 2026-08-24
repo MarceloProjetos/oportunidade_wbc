@@ -3,6 +3,48 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-08-24] — Situação dos Pedidos: as 3 tools MCP (F4)
+
+### Adicionado
+
+- `situacao_pedido(pedido, chave?)`, `pedidos_bloqueados(bloqueio?, status?)` e
+  `panorama_pedidos(campos?)` em `mcp/mcp_server.py` — finas, como o resto da
+  fachada: cada uma monta um GET na API 8077 e nada mais.
+- `_ANOTACAO_LEITURA` (`readOnlyHint=True`) nas três. As 9 tools de leitura
+  anteriores não declaram; retrofitá-las é mexer no que funciona.
+- `tests/test_mcp_situacao_pedidos.py` (16) — **os primeiros testes da fachada**.
+  Carregam `mcp/mcp_server.py` por caminho, com nome próprio: `mcp/` não é pacote e
+  o nome `mcp` já pertence ao SDK instalado.
+
+### As descrições são código
+
+É a docstring que o modelo lê para decidir quando chamar e como interpretar. Duas
+delas têm teste cravando o texto, porque a ausência custa resposta errada:
+
+- `situacao_pedido` avisa que **404 = "fora do recorte da view", não "sem
+  bloqueio"**. Sem isso, o modelo diria "está tudo liberado" para um pedido que ele
+  simplesmente não consegue ver.
+- `pedidos_bloqueados` avisa que o default `status="aberto"` **diverge da tela de
+  propósito** (D3) e diz como fazer o número bater (`status="todos"`).
+
+### Custo medido (237 pedidos)
+
+`panorama_pedidos()` devolve **73.795** caracteres de JSON no `resumo` e **236.889**
+no `completo` — 3,2×. É o que sustenta a D4, e a descrição da tool orienta a preferir
+as outras duas quando a pergunta é sobre um pedido ou sobre o que está travado.
+
+### Conferido contra a `.11` ao vivo
+
+As três tools locais apontadas para `192.168.7.11:8077`: `situacao_pedido(84260)` →
+FLOW X, bloqueado nas três etapas, *"Mais de 10 dias preso no financeiro (12 dias)"*;
+por DocEntry devolve o mesmo pedido; `pedidos_bloqueados()` → 10 de 237;
+`panorama_pedidos()` → 237 pedidos, 11 campos, 8 montadores. Os erros 404 e 422
+chegam com a mensagem inteira.
+
+⚠️ **A fachada da `.11` ainda serve o código antigo.** O serviço `OrcaView-MCP`
+(porta 8078) é **outro processo**: as tools só aparecem lá depois do `git pull` +
+restart dele.
+
 ## [2026-08-24] — Situação dos Pedidos: as 2 rotas NO AR na .11
 
 O Marcelo atualizou a `.11` — antes da F5, que era onde o plano previa o deploy. O
