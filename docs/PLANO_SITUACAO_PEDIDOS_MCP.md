@@ -406,6 +406,18 @@ F5, quebra cliente MCP.
 `tests/test_situacao_pedidos_diffavel.py`. Sem ele, a decisão vira a opção A por
 omissão em três meses.
 
+**Furo assumido, e o que foi feito contra ele (2026-08-24).** O teste só roda onde os
+dois repos estão lado a lado; nada no V117 percebe a divergência, e não há CI ligando os
+dois. Como o freio depende de alguém lembrar, o aviso foi para os **quatro** lugares que
+uma pessoa prestes a mexer nisso abre — no repo do V117:
+`backend/services/situacao_pedidos_service.py` (docstring do módulo),
+`sap_hana_client.STATUS_PEDIDO_COLS` (comentário acima), `docs/PLANO_SITUACAO_PEDIDOS.md`
+(cabeçalho) e `.cursorrules` (regra sempre-ligada, seção INVARIANTS).
+
+Isso **mitiga, não elimina**: continua sendo possível editar o V117 e não rodar a suíte
+daqui. Eliminar de verdade exigiria CI cruzado ou um único repo — nenhum dos dois se
+justifica hoje.
+
 ### D2 — O texto e a regra dos 10 dias · ✅ **regra mantida, rótulo "financeiro"**
 
 A regra continua sendo **`Financeiro = Bloqueado` há mais de 10 dias da data do
