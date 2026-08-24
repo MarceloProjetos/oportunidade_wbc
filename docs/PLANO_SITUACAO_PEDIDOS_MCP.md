@@ -1,8 +1,9 @@
 # PLANO — Situação dos Pedidos na API 8077 + fachada MCP (.11)
 
-**Status (2026-08-24):** **F0 a F3 fechadas.** As 3 consultas já respondem por HTTP —
-exercitadas ponta a ponta contra o HANA de produção. Falta a F4 (as tools) e a F5
-(deploy na `.11`). **Nada disso está na `.11` ainda.**
+**Status (2026-08-24):** **F0 a F3 fechadas e NO AR na `.11`.** As 3 consultas já
+respondem por HTTP em `192.168.7.11:8077` — conferidas contra o servidor de produção.
+Falta a **F4** (as 3 tools MCP), que vai exigir um segundo deploy: a fachada é outro
+processo (`OrcaView-MCP`).
 
 Levar a **Situação dos Pedidos** (a mesma view que desenha a tela do `.90`) para o
 servidor de integração `192.168.7.11`, como **2 rotas** na API 8077 e **3 tools** na
@@ -27,13 +28,13 @@ linguagem natural, sem abrir o navegador nem entrar no SAP.
 |---|---|
 | View `VW_STATUS_PEDIDO_DDP` + joins (ORDR, @INO_MONTADOR, OSLP) | ✅ em produção, servindo a tela do `.90` |
 | Núcleo puro (`normalizar`, `filtrar`, KPIs, regra dos 10 dias) | ✅ em produção no V117, com testes |
-| API 8077 (`.11`) | ✅ no ar — mas **nenhuma rota dela lê o HANA ao vivo** |
+| API 8077 (`.11`) | ✅ no ar — e agora com **as 2 únicas rotas dela que leem o HANA ao vivo** |
 | Fachada MCP (8078, serviço NSSM, Bearer) | ✅ no ar, 12 tools read-only |
 | Núcleo portado na `.11` (`situacao_pedidos.py`) | ✅ F1 — 42 testes, ruff limpo |
 | Leitura HANA na `.11` (`situacao_pedidos_hana.py`) | ✅ F2 — 237 linhas lidas de PROD |
-| As 2 rotas na API 8077 | ✅ F3 — smoke ponta a ponta contra PROD |
+| As 2 rotas na API 8077 | ✅ F3 — **no ar na `.11`**, conferidas em produção |
 | As 3 tools MCP | ❌ F4, próxima |
-| Implantado na `.11` | ❌ F5 — **nada disso está lá ainda** |
+| Deploy da fachada MCP (2º processo) | ❌ junto com a F4 |
 | Consulta de situação de pedido pelo MCP | ❌ não existe |
 
 ---
@@ -264,7 +265,17 @@ Todas read-only (`ToolAnnotations(readOnlyHint=True)`), todas passando pelo `_ge
 já injeta a `X-API-Key` server-side. **Nenhuma toca banco** — a fachada continua fina,
 como o `mcp/README.md` promete.
 
-### F5 — Deploy e smoke na .11
+### F5 — Deploy e smoke na .11 · **parcialmente feita (2026-08-24)**
+
+> **O deploy das rotas aconteceu antes da hora** — o Marcelo atualizou a `.11` logo
+> depois da F3, e o serviço reiniciou junto (a rota nova responde, logo não é o processo
+> antigo em memória). Conferido em `192.168.7.11:8077`, read-only: 237 no recorte · 10
+> bloqueados · 8 montadores · KPIs 42/4/10/10 · o alerta em **84260 (12 dias)** · 400,
+> 404 e 422 com a mensagem certa · **401 sem a chave**. As quatro primeiras linhas de
+> `bloqueio=qualquer` são as mesmas da tela: 83832, 84260, 84281, 84293.
+>
+> **Falta desta fase:** o deploy da fachada MCP (outro processo, `OrcaView-MCP`) depois
+> da F4, e a conferência **no mesmo minuto** contra a tela do `.90`.
 
 **Objetivo:** funcionando em produção, com prova.
 

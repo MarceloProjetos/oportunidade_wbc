@@ -3,6 +3,26 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-08-24] — Situação dos Pedidos: as 2 rotas NO AR na .11
+
+O Marcelo atualizou a `.11` — antes da F5, que era onde o plano previa o deploy. O
+serviço reiniciou junto (a rota nova responde, então não é o processo antigo em
+memória). Conferido contra `http://192.168.7.11:8077`, tudo read-only:
+
+- `/pedidos/situacao?bloqueio=qualquer` → **237** no recorte, **10** bloqueados,
+  8 montadores; KPIs 42 atrasados / 4 financeiro / 10 produção / 10 entrega.
+- `/pedidos/situacao?so_atrasados_fin=1` → **84260, "Mais de 10 dias preso no
+  financeiro (12 dias)"**.
+- `/pedidos/83832/situacao` → 35 campos, vendedor, cotação WBC e o rótulo de
+  montagem. `?chave=docentry` com 16586 devolve o mesmo pedido.
+- 400 / 404 / 422 com a mensagem certa, e **401 sem a chave** — a guarda está lá.
+
+As quatro primeiras linhas de `bloqueio=qualquer` são as mesmas da tela: 83832
+FUNDACAO BRADESCO, 84260 FLOW X, 84281 SANTACOLOMA, 84293 CIA DE CIMENTO CAMPEÃO.
+
+⚠️ **Ainda sem tool MCP.** A F4 liga as três; ela vai exigir um segundo deploy (o
+serviço da fachada, `OrcaView-MCP`, é outro processo).
+
 ## [2026-08-24] — Situação dos Pedidos: as 2 rotas na API 8077 (F3)
 
 ### Adicionado
