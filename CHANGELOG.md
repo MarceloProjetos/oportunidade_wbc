@@ -3,6 +3,44 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-08-24] — Situação dos Pedidos: leitura HANA + cache (F2)
+
+### Adicionado
+
+- `situacao_pedidos_hana.py` — a camada de I/O que faltava: o SELECT das 23 colunas
+  da `VW_STATUS_PEDIDO_DDP` + 3 `LEFT JOIN` (ORDR, @INO_MONTADOR, OSLP), cache de
+  **120 s** de entrada única, guarda de volume (`COUNT(*)` antes) e conversão de
+  tipos (`Decimal` → float, timestamp → `YYYY-MM-DD`, `CHAR` sem o padding).
+- `SAPIndisponivel` — HANA fora do ar vira **mensagem legível**, que a F3 traduz
+  para 503. Separada da `ValidationError` porque as duas viram HTTP diferente:
+  parâmetro errado é 422, HANA fora não é culpa de quem chamou.
+- `ligar_rotulos_do_sap()` fecha o gancho que a F1 deixou: o rótulo do Tipo de
+  Montagem passa a vir do `UFD1` em vez do `FALLBACK_LABELS`.
+- 21 testes com um HANA de mentira + 1 comparação de SQL no teste de
+  diffabilidade. Dois deles são guardas de contrato que a conexão falsa **não**
+  pegaria sozinha: um confere que o SELECT entrega todas as colunas que o núcleo
+  lê (alias com erro de digitação vira campo vazio em produção, sem erro nenhum), o
+  outro compara a lista de colunas com a do V117.
+
+### ⚠️ Primeira leitura HANA síncrona servida por request neste repo
+
+Todas as outras rotas de leitura batem no Supabase; o `sap_connection` só era usado
+pelos pipelines (que rodam sozinhos) e pelo *ping* do `/status`. Daí três escolhas
+deliberadas: **uma conexão por leitura**, aberta e fechada na hora (`hdbcli` não é
+thread-safe e o waitress atende em várias threads; com o cache isso dá, no pior caso,
+uma conexão a cada 2 min); **guarda de volume** antes do SELECT; e **erro legível**,
+nunca 500 cru.
+
+### Conferido contra o HANA de produção (read-only)
+
+236 linhas · 34 colunas · **nenhuma coluna 100% nula** (é o que denuncia alias
+errado) · 6 valores válidos lidos da UDF · KPIs 42 atrasados / 3 financeiro / 9
+produção / 9 entrega · 8 montadores · 1 pedido com o alerta dos 10 dias. A conferência
+**no mesmo minuto** contra a tela do `.90` continua sendo a F5.
+
+⚠️ **Ainda não há rota nem tool.** `mcp/README.md` segue marcando as três como
+PLANEJADAS.
+
 ## [2026-08-24] — Situação dos Pedidos: núcleo portado do V117 (F1)
 
 ### Adicionado

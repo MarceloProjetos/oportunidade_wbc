@@ -1,8 +1,8 @@
 # PLANO — Situação dos Pedidos na API 8077 + fachada MCP (.11)
 
-**Status (2026-08-24):** **F0 e F1 fechadas.** O núcleo está portado e testado
-(42 testes, suíte do repo em 469). Nada acessível ainda: sem rota e sem tool — a
-próxima é F2 (leitura HANA).
+**Status (2026-08-24):** **F0, F1 e F2 fechadas.** O núcleo está portado e a `.11` já
+lê a view — conferido contra o HANA de produção (236 linhas, nenhum alias errado).
+Nada acessível ainda: sem rota e sem tool. A próxima é F3.
 
 Levar a **Situação dos Pedidos** (a mesma view que desenha a tela do `.90`) para o
 servidor de integração `192.168.7.11`, como **2 rotas** na API 8077 e **3 tools** na
@@ -30,7 +30,8 @@ linguagem natural, sem abrir o navegador nem entrar no SAP.
 | API 8077 (`.11`) | ✅ no ar — mas **nenhuma rota dela lê o HANA ao vivo** |
 | Fachada MCP (8078, serviço NSSM, Bearer) | ✅ no ar, 12 tools read-only |
 | Núcleo portado na `.11` (`situacao_pedidos.py`) | ✅ F1 — 42 testes, ruff limpo |
-| Leitura HANA na `.11` | ❌ F2, próxima |
+| Leitura HANA na `.11` (`situacao_pedidos_hana.py`) | ✅ F2 — 236 linhas lidas de PROD |
+| Rota na API 8077 · tool MCP | ❌ F3/F4, próximas |
 | Consulta de situação de pedido pelo MCP | ❌ não existe |
 
 ---
@@ -173,7 +174,7 @@ contrato do V117:
 `null` quando não há alerta — para o LLM, ausência de texto é sinal mais claro que
 `false`.
 
-### F2 — Leitura HANA + cache
+### F2 — Leitura HANA + cache ✅ **concluída (2026-08-24)**
 
 **Objetivo:** uma chamada à API 8077 devolve o recorte da view sem derrubar o HANA.
 
@@ -187,6 +188,26 @@ contrato do V117:
   martele o HANA.
 - HANA fora do ar → `503 {"ok": false, "erro": "..."}` (o padrão de erro que o `_get`
   da fachada já repassa legível ao modelo).
+
+**Entregue:** `situacao_pedidos_hana.py` + `tests/test_situacao_pedidos_hana.py`
+(21 testes) + 1 comparação de SQL no teste de diffabilidade. Suíte do repo em **491**.
+
+> **Dois guardas que a conexão de mentira NÃO pegaria** — e são os que evitam o erro
+> caro: um confere que o SELECT entrega todas as colunas que o núcleo lê (um alias com
+> erro de digitação vira campo vazio em produção, sem erro nenhum aparecer); o outro
+> compara a lista de colunas com a do V117. Exercitei o primeiro trocando
+> `MontadorCnpj` por `MontadorCNPJ`: falha como devia.
+
+> **O SQL não estreou na F5.** Rodei um SELECT read-only contra o HANA de produção — a
+> mesma view que o `.90` consulta a cada 2 min: **236 linhas**, 34 colunas, **nenhuma
+> 100% nula** (é isso que denuncia alias errado), 6 valores válidos lidos da UDF,
+> KPIs 42/3/9/9, 8 montadores, 1 pedido com o alerta dos 10 dias. A conferência **no
+> mesmo minuto** contra a tela continua sendo a F5 — este número foi medido no dia, não
+> lado a lado com a tela.
+
+> ⚠️ **Uma conexão por leitura, aberta e fechada na hora.** Conexão `hdbcli` não é
+> thread-safe e o waitress atende em várias threads; compartilhar uma pediria lock e
+> reconexão. Com o cache, isso dá no pior caso **uma** conexão a cada 2 minutos.
 
 ### F3 — API 8077: 2 rotas
 

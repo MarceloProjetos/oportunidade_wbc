@@ -211,3 +211,32 @@ def test_fallback_de_montagem_e_identico_ao_v117():
     fim = fonte.index("}", ini) + 1
     exec(fonte[ini:fim], {"dict": dict, "str": str}, espaco)  # noqa: S102 - literal do próprio repo
     assert sap_montagem_labels.FALLBACK_LABELS == espaco["FALLBACK_LABELS"]
+
+
+def test_o_select_da_view_e_o_mesmo_do_v117():
+    """O SQL também é contrato: é ele que faz a .11 e a tela lerem os mesmos campos.
+
+    Compara só a LISTA DE COLUNAS. Os JOINs divergem no texto de propósito — lá o schema
+    é interpolado direto, aqui vem de ``{schema}.format()`` — e por isso são conferidos
+    por forma (3 ``LEFT JOIN``, nenhum ``INNER``) em ``test_situacao_pedidos_hana``.
+    """
+    caminho = _caminho_v117()
+    if not caminho:
+        pytest.skip("repo do web_orcaview_V117 não está ao lado — teste só roda em dev")
+    cliente = os.path.join(os.path.dirname(caminho), "sap_hana_client.py")
+    if not os.path.isfile(cliente):
+        pytest.skip("sap_hana_client.py não encontrado no V117")
+
+    import re
+
+    import situacao_pedidos_hana as hana
+
+    fonte = open(cliente, encoding="utf-8").read()
+    ini = fonte.index("STATUS_PEDIDO_COLS = (")
+    fim = fonte.index("\n    )", ini)
+    colunas = lambda t: re.findall(r'"([A-Za-z_@][\w]*)"', t)  # noqa: E731
+
+    assert colunas(hana.STATUS_PEDIDO_COLS) == colunas(fonte[ini:fim]), (
+        "a lista de colunas divergiu do V117 — uma das duas telas vai ficar com campo "
+        "vazio sem erro nenhum aparecer."
+    )
