@@ -205,6 +205,28 @@ def test_windows_update_nunca_gera_alerta(monkeypatch):
     assert data['windows_update']['pendentes'] == 47
 
 
+def test_api_auth_informativo_nunca_gera_alerta(monkeypatch):
+    """`api_auth.api_key_configurada` é INFORMAÇÃO, não saúde (Marcelo, 2026-08-31).
+
+    Sem OS_API_KEY a API cai aberta (fail-open) e só o log do boot avisa; este campo
+    torna isso visível no /status. Mas NUNCA vira alerta: alerta derruba `healthy` e faz
+    o ?strict=1 responder 503 — acordaria o vigia por um problema de config que não
+    afeta a integração. Mesmo desenho do bloco windows_update.
+    """
+    _stub_all_ok(monkeypatch)
+    monkeypatch.delenv('OS_API_KEY', raising=False)
+    reset_settings()
+    data = monitoring.collect_status()
+    assert data['api_auth'] == {'api_key_configurada': False}
+    assert data['alerts'] == [], 'API sem chave não pode gerar alerta'
+    assert data['healthy'] is True, 'API sem chave não pode degradar a integração'
+
+    monkeypatch.setenv('OS_API_KEY', 'k')
+    reset_settings()
+    data = monitoring.collect_status()
+    assert data['api_auth'] == {'api_key_configurada': True}
+
+
 def test_windows_update_signal_junta_reboot_e_updates(monkeypatch):
     """O bloco publicado = reboot (winreg, fresco) + estado do cache, num objeto só."""
     monkeypatch.setattr(monitoring.windows_update, 'reboot_pendente',

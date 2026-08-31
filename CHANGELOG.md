@@ -3,6 +3,20 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-08-31] — /status: bloco informativo `api_auth` (chave configurada?)
+
+Saído da auditoria de segurança de 31/08: sem `OS_API_KEY` a API cai **aberta**
+(fail-open, decisão de desenho) e só o log do boot avisa — uma linha perdida no `.env`
+abriria as rotas de escrita em silêncio. Agora o `/status` publica
+`api_auth.api_key_configurada` (true/false), sempre presente, custo zero (lê o
+settings em memória, nenhuma conexão nova).
+
+**Informação, não saúde** — mesmo desenho do bloco `windows_update`: NUNCA vira
+alerta, não mexe em `healthy` nem no `?strict=1` (teste cravando:
+`test_api_auth_informativo_nunca_gera_alerta`). O vigia não acorda por config.
+
+Deploy: `git pull` na .11 + `nssm restart OrcaView-OS-API`.
+
 ## [2026-08-24] — Situação dos Pedidos: documento para quem consome
 
 `API_SITUACAO_PEDIDOS.md` — manual de consumo da REST (8077) e do MCP (8078), escrito

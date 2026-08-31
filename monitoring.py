@@ -393,9 +393,10 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
         Dict with ``ok`` (every connection that ran is green), ``healthy`` (``ok`` and no
         alerts), ``checks`` (connectivity), ``scheduler`` (indirect signal),
         ``scheduled_task`` (state of the "Integração WBC" task, read from the monitor),
-        ``windows_update`` (pending reboot + pending updates + last patch), ``system`` and
-        ``alerts`` (list of readable warnings: low disk, scheduler stopped, task stuck,
-        pending reboot…).
+        ``windows_update`` (pending reboot + pending updates + last patch), ``system``,
+        ``api_auth`` (whether OS_API_KEY is configured — information only, never an
+        alert) and ``alerts`` (list of readable warnings: low disk, scheduler stopped,
+        task stuck, pending reboot…).
 
         ``ok``/``healthy`` reflect ONLY the checks that ran — asking for a subset is the
         caller's explicit choice, and says nothing about the rest.
@@ -432,6 +433,13 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
     scheduled_task = _scheduled_task_signal() if 'scheduled_task' in sel else None
     wu_estado = _windows_update_signal() if 'windows_update' in sel else None
     system = _system_info()
+    # Whether the API requires X-API-Key. Without OS_API_KEY every route except the SAP
+    # write falls OPEN (api.py fail-open) and only the boot log warns — this field makes
+    # a lost .env line visible to whoever reads /status. Like `system`, it is always
+    # included (local, zero cost). INFORMATION, not health (Marcelo, 2026-08-31): it must
+    # NEVER become an alert — an alert drops `healthy` and turns ?strict=1 into 503,
+    # paging the watchdog over a config issue that does not affect the integration.
+    api_auth = {'api_key_configurada': bool(get_settings().os_api_key)}
 
     alerts = []
     if scheduler and scheduler.get('stale'):
@@ -462,6 +470,7 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
         'uptime_s': round(time.time() - _PROC_START),
         'checks': checks,
         'system': system,
+        'api_auth': api_auth,
         'alerts': alerts,
     }
     if scheduler is not None:
