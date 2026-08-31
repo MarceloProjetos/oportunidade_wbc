@@ -26,7 +26,8 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, Optional
+import unicodedata
+from typing import Any, Dict, List, Optional
 
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -377,6 +378,190 @@ def panorama_pedidos(campos: str = "resumo") -> Dict[str, Any]:
     return _get("/pedidos/situacao", {"campos": campos})
 
 
+# ──────────── Colaboradores (F5) — o espelho do quadro do Kairos ────────────
+# O espelho é gravado pelo web_orcaview_V117 (.90) às 12:40 em dias úteis; a API 8077
+# só lê, e estas tools só chamam a API. O filtro por setor e o teto de pessoas moram
+# AQUI, não no endpoint: são cuidados de conversa (caber no contexto do modelo, dar
+# ao usuário o setor certo quando ele erra o nome), não regra de negócio.
+
+_COLAB_LIMITE_PADRAO = 200
+
+
+def _norm(texto: Any) -> str:
+    """Minúsculas e sem acento — "producao" casa com "PRODUÇÃO"."""
+    bruto = unicodedata.normalize("NFD", str(texto or ""))
+    return "".join(c for c in bruto if not unicodedata.combining(c)).casefold().strip()
+
+
+def _colab_dica_404(resposta: Dict[str, Any]) -> Dict[str, Any]:
+    """Traduz o 404 de rota inexistente: a .11 ainda não foi atualizada.
+
+    Sem isto o modelo recebe "HTTP 404 em /rh/colaboradores" e conclui que não há
+    colaboradores — que é o contrário do que aconteceu.
+    """
+    if not resposta.get("ok", True) and "HTTP 404" in str(resposta.get("erro", "")):
+        return {**resposta, "dica": (
+            "a rota /rh/colaboradores não existe nesta API: o servidor de integração "
+            "ainda não foi atualizado (git pull na .11 + restart do serviço "
+            "OrcaView-OS-API). Isto NÃO quer dizer que não há colaboradores."
+        )}
+    return resposta
+
+
+def _colab_setores(payload: Dict[str, Any]) -> List[str]:
+    """Todos os setores presentes na resposta, ordenados."""
+    return sorted({
+        s.get("setor") for e in payload.get("empresas", [])
+        for s in e.get("setores", []) if s.get("setor")
+    })
+
+
+def _colab_filtrar_setor(payload: Dict[str, Any], setor: str) -> Dict[str, Any]:
+    """Mantém só os setores cujo nome CONTÉM ``setor`` (sem acento, sem caixa)."""
+    alvo = _norm(setor)
+    empresas = []
+    for emp in payload.get("empresas", []):
+        setores = [s for s in emp.get("setores", []) if alvo in _norm(s.get("setor"))]
+        if setores:
+            empresas.append({
+                **emp,
+                "total": sum(s.get("total", 0) for s in setores),
+                "setores": setores,
+            })
+    return {
+        **payload,
+        "empresas": empresas,
+        "total": sum(e["total"] for e in empresas),
+        "filtro_setor": setor,
+    }
+
+
+def _colab_buscar(empresa: str, somente_ativos: bool) -> Dict[str, Any]:
+    """A única chamada HTTP das duas tools (e do resource) de colaboradores."""
+    params: Dict[str, Any] = {}
+    if str(empresa).strip():
+        params["empresa"] = str(empresa).strip().lower()
+    if somente_ativos:
+        params["somente_ativos"] = 1
+    return _colab_dica_404(_get("/rh/colaboradores", params or None))
+
+
+def _colab_resumir(resposta: Dict[str, Any]) -> Dict[str, Any]:
+    """Troca as listas de pessoas por ``{setor: quantidade}``."""
+    if not resposta.get("ok", False):
+        return resposta
+    return {
+        **resposta,
+        "empresas": [
+            {
+                "empresa": emp.get("empresa"),
+                "total": emp.get("total"),
+                "setores": {s.get("setor"): s.get("total") for s in emp.get("setores", [])},
+            }
+            for emp in resposta.get("empresas", [])
+        ],
+    }
+
+
+def _colab_aplicar_teto(payload: Dict[str, Any], limite: int) -> Dict[str, Any]:
+    """Corta a lista de PESSOAS no teto — dizendo que cortou e como ver o resto.
+
+    As contagens (``total`` de cada empresa/setor) ficam intactas: o modelo continua
+    sabendo o tamanho real do quadro mesmo quando não recebe todos os nomes.
+    """
+    total = payload.get("total", 0)
+    if limite <= 0 or total <= limite:
+        return payload
+    restante = limite
+    empresas = []
+    for emp in payload.get("empresas", []):
+        setores = []
+        for s in emp.get("setores", []):
+            pessoas = s.get("colaboradores", [])
+            cabe = pessoas[:restante] if restante > 0 else []
+            restante -= len(cabe)
+            setores.append({**s, "colaboradores": cabe, "omitidos": len(pessoas) - len(cabe)})
+        empresas.append({**emp, "setores": setores})
+    return {
+        **payload, "empresas": empresas, "truncado": True,
+        "mostrando": limite, "total": total,
+        "aviso": ("lista de nomes cortada no teto: filtre por empresa/setor, aumente o "
+                  "limite, ou use resumo_colaboradores para o quadro inteiro em contagens."),
+    }
+
+
+@mcp.tool(annotations=_ANOTACAO_LEITURA)
+def listar_colaboradores(empresa: str = "", setor: str = "", somente_ativos: bool = True,
+                         limite: int = _COLAB_LIMITE_PADRAO) -> Dict[str, Any]:
+    """Quem trabalha nas 3 empresas (Altamira, Tecnequip, Proalta), agrupado por
+    empresa e setor, com cargo, matrícula e situação. Requer a SIS_API_KEY.
+
+    Use para "quem está na produção da Tecnequip?", "lista dos funcionários por
+    setor", "fulano ainda trabalha aqui?", "quem entrou este ano?". Para só contar
+    gente ("quantos na expedição?") prefira `resumo_colaboradores` — é a mesma
+    consulta sem os nomes, e cabe muito melhor na conversa.
+
+    **O default é ``somente_ativos=True``** (quem está na ativa). Passe
+    ``somente_ativos=False`` para ver também quem saiu: a linha do desligado **nunca
+    some** do espelho — ela muda de ``status`` (``ativo`` / ``desligado`` / ``ausente``,
+    este último = sumiu do Kairos sem registro de desligamento).
+
+    ``em_ferias_ou_afastado=true`` quer dizer **sem expediente** há pelo menos 3 dias
+    úteis processados. O Kairos **não distingue férias de afastamento/atestado** — não
+    diga "está de férias", diga "está sem expediente". ``sem_expediente_desde=null``
+    com a flag ligada quer dizer que começou antes da janela de 30 dias e não se sabe
+    desde quando.
+
+    ⚠️ O dado vem de uma carga diária (12:40, dias úteis), não do Kairos ao vivo: uma
+    admissão de hoje de manhã só aparece depois disso. Se ``desatualizado`` vier
+    ``true``, a carga do dia não chegou — o dado ainda é o último bom conhecido, mas
+    avise o usuário em vez de apresentá-lo como de hoje.
+
+    Errar o nome do setor não devolve lista vazia calada: a resposta traz
+    ``setores_disponiveis`` para você tentar de novo com o nome certo.
+
+    Args:
+        empresa: ``altamira``, ``tecnequip`` ou ``proalta``. Vazio = as três.
+        setor: filtra pelo nome do setor, sem acento e sem caixa, por pedaço
+            ("producao" acha "PRODUÇÃO"). Vazio = todos.
+        somente_ativos: ``True`` (default) traz só quem está na ativa.
+        limite: teto de PESSOAS na resposta (default 200). As contagens continuam
+            certas mesmo quando a lista de nomes é cortada.
+    """
+    resposta = _colab_buscar(empresa, somente_ativos)
+    if not resposta.get("ok", False):
+        return resposta
+
+    if str(setor).strip():
+        disponiveis = _colab_setores(resposta)
+        resposta = _colab_filtrar_setor(resposta, str(setor).strip())
+        if not resposta["empresas"]:
+            return {**resposta, "setores_disponiveis": disponiveis,
+                    "aviso": (f"nenhum setor casa com {setor!r} — tente um dos "
+                              f"listados em setores_disponiveis.")}
+    return _colab_aplicar_teto(resposta, int(limite))
+
+
+@mcp.tool(annotations=_ANOTACAO_LEITURA)
+def resumo_colaboradores(empresa: str = "", somente_ativos: bool = True) -> Dict[str, Any]:
+    """Quantas pessoas por empresa e por setor — o mesmo quadro do Kairos, só em
+    contagens, sem os nomes. Requer a SIS_API_KEY.
+
+    Use para "quantos funcionários tem a Tecnequip?", "quantos na produção?", "como o
+    quadro está distribuído entre os setores?". É a versão barata de
+    `listar_colaboradores`: cabe na conversa mesmo com o quadro inteiro.
+
+    Mesmas ressalvas da outra tool: ``somente_ativos=True`` por default (passe
+    ``False`` para contar também desligados e ausentes), o dado é da carga das 12:40
+    e ``desatualizado=true`` significa que a carga do dia não chegou.
+
+    Args:
+        empresa: ``altamira``, ``tecnequip`` ou ``proalta``. Vazio = as três.
+        somente_ativos: ``True`` (default) conta só quem está na ativa.
+    """
+    return _colab_resumir(_colab_buscar(empresa, somente_ativos))
+
+
 # ── Resources: contexto de LEITURA que o cliente anexa sem gastar uma tool-call por vez ──
 
 @mcp.resource("sap-integracao://status", mime_type="application/json")
@@ -389,6 +574,18 @@ def recurso_status() -> str:
 def recurso_historico_os() -> str:
     """Snapshot das últimas 20 sincronizações de OS (/historico). Requer a SIS_API_KEY."""
     return json.dumps(_get("/historico", {"limit": 20}), ensure_ascii=False, indent=2)
+
+
+@mcp.resource("sap-integracao://colaboradores", mime_type="application/json")
+def recurso_colaboradores() -> str:
+    """Quadro ATIVO das 3 empresas em contagens por setor (sem nomes). Requer a SIS_API_KEY.
+
+    De propósito o resumo, não a lista: como contexto anexado, 251 pessoas custariam caro
+    em toda conversa. Para os nomes existe a tool `listar_colaboradores`.
+    """
+    return json.dumps(
+        _colab_resumir(_colab_buscar("", somente_ativos=True)), ensure_ascii=False, indent=2
+    )
 
 
 # ─────────────────── Fase 4 — ESCRITA (com confirmação humana) ───────────────────

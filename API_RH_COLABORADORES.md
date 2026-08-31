@@ -8,6 +8,10 @@ qual empresa e em qual setor, com cargo, matrícula e situação (ativo, desliga
 expediente):
 
 - **API REST** (`192.168.7.11:8077`) — `GET /rh/colaboradores`, para código.
+- **MCP** (`192.168.7.11:8078`) — para assistente de IA (Claude Desktop, Claude Code)
+  responder em linguagem natural (§10).
+
+As duas leem exatamente a mesma coisa; a MCP é uma camada fina sobre a REST.
 
 > Os endpoints de **Ordens de Serviço**, **Ordens de Produção** e **Situação dos
 > Pedidos** são outra coisa e estão em `API_OS_INTEGRACAO.md`,
@@ -147,7 +151,27 @@ certo — a carga só roda em dia útil. A conta considera feriados nacionais.
 4. **`total` conta linhas, não pessoas ativas.** Sem `?somente_ativos=1` ele inclui
    desligados e ausentes.
 
-## 9. Por dentro (para quem mantém)
+## 9. MCP — para o assistente responder em linguagem natural
+
+Duas *tools*, ambas somente leitura, sobre o mesmo endpoint:
+
+| Tool | Para quê |
+| --- | --- |
+| `listar_colaboradores(empresa, setor, somente_ativos, limite)` | Os nomes. "Quem está na produção da Tecnequip?", "fulano ainda trabalha aqui?" |
+| `resumo_colaboradores(empresa, somente_ativos)` | Só as contagens por setor. "Quantos na expedição?" — cabe na conversa mesmo com o quadro inteiro. |
+
+Detalhes que valem saber:
+
+- **O default das tools é `somente_ativos=True`** (diferente da REST, que traz todos):
+  a pergunta comum é sobre quem está na ativa. Passe `False` para ver os desligados.
+- **`setor` casa sem acento e por pedaço** — `"producao"` acha `"PRODUÇÃO"`. Errar o
+  nome não devolve lista vazia calada: a resposta traz `setores_disponiveis`.
+- **`limite` (default 200)** corta a lista de nomes, nunca as contagens: a resposta vem
+  com `truncado`, `mostrando` e `omitidos` por setor.
+- Recurso anexável `sap-integracao://colaboradores` — o quadro ativo em contagens
+  (de propósito sem nomes: como contexto fixo, 251 pessoas custariam caro).
+
+## 10. Por dentro (para quem mantém)
 
 - Tabela: `kairos_colaboradores` no Supabase (chave `empresa` + `person_id`), escrita
   **só** pelo `web_orcaview_V117` com a service key; esta API lê com a mesma chave.

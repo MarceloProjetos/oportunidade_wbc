@@ -3,6 +3,35 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-08-31] — MCP: `listar_colaboradores` e `resumo_colaboradores`
+
+As duas tools de leitura sobre o `GET /rh/colaboradores` da entrada anterior, para o
+assistente responder "quem está na produção da Tecnequip?" e "quantos na expedição?"
+em linguagem natural. Finas como as demais: uma chamada HTTP, zero lógica de negócio.
+
+O que tem de cuidado — e é o que os 9 testes novos cravam:
+
+- **`somente_ativos=True` por default nas tools** (a REST traz todos): a pergunta comum
+  é sobre quem está na ativa. `False` traz também desligado/ausente.
+- **`setor` casa sem acento e por pedaço** (`"producao"` → `"PRODUÇÃO"`), e errar o nome
+  **não** devolve lista vazia calada: vem `setores_disponiveis` para tentar de novo.
+- **Teto de nomes (`limite`, default 200) que não esconde as contagens** — `truncado`,
+  `mostrando` e `omitidos` por setor; os `total` continuam certos. Sem isso, "liste os
+  colaboradores" jogaria 251 registros no contexto do modelo.
+- **404 de rota inexistente vira dica de deploy**: um cliente MCP apontado para uma .11
+  ainda sem o endpoint receberia "HTTP 404" e concluiria que **não há colaboradores** —
+  agora a resposta diz que falta `git pull` + restart do `OrcaView-OS-API`.
+- **`resumo_colaboradores` não deixa nome nenhum atravessar** (tem teste) e é o que
+  alimenta o recurso anexável `sap-integracao://colaboradores`.
+
+Provado ponta a ponta antes do commit, sem subir servidor: `_get` da fachada apontado
+para o test client do Flask → 16 tools registradas (as 2 novas com `readOnlyHint`),
+3 resources, e o resumo real das 3 empresas (85 ativos: altamira 14, proalta 15,
+tecnequip 56). Doc: `API_RH_COLABORADORES.md` §9. Suíte 547 verde, ruff limpo.
+
+**Deploy:** `git pull` na `.11` + restart de **`OrcaView-OS-API`** (endpoint) **e**
+**`OrcaView-MCP`** (tools).
+
 ## [2026-08-31] — `GET /rh/colaboradores`: quadro das 3 empresas do Kairos
 
 Endpoint novo, **somente leitura**, sobre o espelho `kairos_colaboradores` no Supabase
