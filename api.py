@@ -15,6 +15,7 @@ Endpoints
 - ``POST /ordens-producao/<numero>/status`` → **writes into SAP**: Liberada / Encerrada
 - ``GET  /pedidos/situacao``                → order-status cut (blocked / everything)
 - ``GET  /pedidos/<numero>/situacao``       → status of ONE order
+- ``GET  /rh/colaboradores``                → Kairos roster mirror (company → sector → people)
 
 Authentication (optional, **recommended in production**)
 --------------------------------------------------------
@@ -51,6 +52,7 @@ from typing import Any, List, Optional, Tuple
 
 from flask import Flask, jsonify, request, send_from_directory
 
+import feriados_br
 import ordens_producao_sl as op_sl
 import situacao_pedidos as sit_ped
 import situacao_pedidos_hana as sit_ped_hana
@@ -1128,6 +1130,178 @@ def situacao_pedido_unico(numero: str):
                    gerado_em=sit_ped.now_br().isoformat(timespec='seconds'),
                    cache_idade_s=sit_ped_hana.idade_do_cache_s(),
                    pedido=pedido)
+
+
+# ---------------------------------------------------------------------------
+# RH — espelho de colaboradores do Kairos (LEITURA)
+# ---------------------------------------------------------------------------
+# Quem escreve a tabela é o web_orcaview_V117 (.90), 12:40 em dias úteis. Este
+# repo NÃO tem credencial do Kairos e não deve ganhar uma: aqui só se lê o
+# espelho, como no GET /ordens-servico/<nped>.
+
+#: As três empresas do Kairos. Chave fora desta lista é RECUSADA (400): o
+#: cliente Kairos do V117 cai calado na 'altamira' quando não reconhece a
+#: chave, e repetir isso aqui devolveria o quadro da empresa errada com 200.
+COLAB_EMPRESAS = ('altamira', 'tecnequip', 'proalta')
+
+#: Projeção: tudo o que o contrato publica, nada do que é interno
+#: (primeira_vista_em, atualizado_em — carimbos do banco).
+_COLAB_COLS = (
+    'empresa,person_id,nome,matricula,setor,cargo,status,'
+    'em_ferias_ou_afastado,sem_expediente_desde,'
+    'data_admissao,data_desligamento,ultima_vista_em'
+)
+_COLAB_PAGINA = 1000        # o PostgREST corta em 1000 com HTTP 200 — paginar é obrigatório
+_COLAB_MAX_LINHAS = 20000   # teto de sanidade do laço de paginação
+_COLAB_SLOT = (12, 40)      # horário da carga no .90
+_COLAB_TOLERANCIA_H = 2     # atraso aceitável (o agendador retenta 4x a cada 3 min)
+_COLAB_SEM_SETOR = 'SEM SETOR'
+
+
+def _fetch_colaboradores(empresa: Optional[str] = None,
+                         somente_ativos: bool = False) -> List[dict]:
+    """Rows of the roster mirror, paginated (the table only grows: rows are never
+    deleted — who leaves becomes ``status='desligado'``/``'ausente'``)."""
+    tabela = get_settings().colab_table_name
+    linhas: List[dict] = []
+    for inicio in range(0, _COLAB_MAX_LINHAS, _COLAB_PAGINA):
+        q = _supabase().table(tabela).select(_COLAB_COLS)
+        if empresa:
+            q = q.eq('empresa', empresa)
+        if somente_ativos:
+            q = q.eq('status', 'ativo')
+        pagina = q.order('empresa').order('nome').range(
+            inicio, inicio + _COLAB_PAGINA - 1
+        ).execute().data or []
+        linhas.extend(pagina)
+        if len(pagina) < _COLAB_PAGINA:
+            break
+    return linhas
+
+
+def _colab_carimbo(linhas: List[dict]) -> Optional[str]:
+    """Newest ``ultima_vista_em`` — the stamp of the last load that saw anybody.
+
+    ISO strings with the same offset sort as text; the collector always writes UTC.
+    """
+    carimbos = [l.get('ultima_vista_em') for l in linhas if l.get('ultima_vista_em')]
+    return max(carimbos) if carimbos else None
+
+
+def _colab_desatualizado(carimbo_iso: Optional[str]) -> bool:
+    """Did the mirror miss the last business-day slot that should have run?
+
+    Not a fixed "older than N hours": on Monday morning the data IS from Friday
+    and that is correct (the load only runs on business days). The question is
+    whether the most recent 12:40 that already passed produced a load.
+    """
+    # Import local: o módulo `time` (stdlib) já é importado no topo com esse nome.
+    from datetime import datetime, timedelta
+    from datetime import time as _time
+
+    if not carimbo_iso:
+        return True
+    try:
+        carimbo = datetime.fromisoformat(str(carimbo_iso).replace('Z', '+00:00'))
+    except ValueError:
+        return True
+    agora = sit_ped.now_br()
+    if carimbo.tzinfo is None:
+        carimbo = carimbo.replace(tzinfo=agora.tzinfo)
+    limite = agora - timedelta(hours=_COLAB_TOLERANCIA_H)
+    dia = limite.date()
+    for _ in range(30):  # ~1 mês de folga cobre qualquer feriadão
+        if feriados_br.is_business_day(dia):
+            slot = datetime.combine(dia, _time(*_COLAB_SLOT), tzinfo=agora.tzinfo)
+            if slot <= limite:
+                return carimbo < slot
+        dia -= timedelta(days=1)
+    return False
+
+
+def _agrupar_colaboradores(linhas: List[dict]) -> List[dict]:
+    """Empresa → Setor → colaboradores, ordenado e com contagens.
+
+    ``cargo`` é CAMPO do colaborador, não um nível: aninhar por cargo criaria um
+    nível de uma pessoa só na maioria dos casos (decisão 4 do plano).
+    """
+    por_empresa: dict = {}
+    for linha in linhas:
+        setores = por_empresa.setdefault(linha.get('empresa') or '?', {})
+        setor = (linha.get('setor') or '').strip() or _COLAB_SEM_SETOR
+        setores.setdefault(setor, []).append({
+            'person_id': linha.get('person_id'),
+            'nome': linha.get('nome'),
+            'matricula': linha.get('matricula'),
+            'cargo': linha.get('cargo'),
+            'status': linha.get('status'),
+            'em_ferias_ou_afastado': bool(linha.get('em_ferias_ou_afastado')),
+            'sem_expediente_desde': linha.get('sem_expediente_desde'),
+            'data_admissao': linha.get('data_admissao'),
+            'data_desligamento': linha.get('data_desligamento'),
+        })
+    return [
+        {
+            'empresa': empresa,
+            'total': sum(len(pessoas) for pessoas in setores.values()),
+            'setores': [
+                {
+                    'setor': setor,
+                    'total': len(pessoas),
+                    'colaboradores': sorted(
+                        pessoas, key=lambda c: (c.get('nome') or '').upper()
+                    ),
+                }
+                for setor, pessoas in sorted(setores.items())
+            ],
+        }
+        for empresa, setores in sorted(por_empresa.items())
+    ]
+
+
+@app.get('/rh/colaboradores')
+@requer_chave
+def rh_colaboradores():
+    """Quadro de colaboradores das 3 empresas do Kairos. Requer X-API-Key.
+
+    Devolve ``empresas[] → setores[] → colaboradores[]``, cada pessoa com
+    ``status`` (``ativo``/``desligado``/``ausente``), cargo, matrícula e o sinal
+    ``em_ferias_ou_afastado``. **A linha do desligado nunca some** — é isso que
+    impede o programa de quem consome de quebrar quando alguém sai; use
+    ``?somente_ativos=1`` para receber só quem está na ativa.
+
+    ``?empresa=`` restringe a uma empresa e **recusa (400)** chave desconhecida,
+    de propósito: cair no default devolveria o quadro de outra empresa com 200.
+
+    ``desatualizado=true`` diz que a carga do último 12:40 de dia útil não
+    chegou — o dado ainda é servido (é o último bom conhecido), mas quem
+    consome fica sabendo. Fonte: espelho ``kairos_colaboradores`` no Supabase,
+    escrito pelo web_orcaview_V117; esta API só lê.
+    """
+    empresa = (request.args.get('empresa') or '').strip().lower()
+    if empresa and empresa not in COLAB_EMPRESAS:
+        return jsonify(
+            ok=False,
+            error=f"empresa invalida: use uma de {', '.join(COLAB_EMPRESAS)}",
+            empresas_validas=list(COLAB_EMPRESAS),
+        ), 400
+
+    somente_ativos = _flag_query('somente_ativos')
+    try:
+        linhas = _fetch_colaboradores(empresa or None, somente_ativos)
+    except Exception as exc:
+        logger.error("[RH] falha ao ler o espelho de colaboradores: %s", exc)
+        return jsonify(ok=False, error='falha ao ler o espelho de colaboradores'), 502
+
+    carimbo = _colab_carimbo(linhas)
+    return jsonify(
+        ok=True,
+        atualizado_em=carimbo,
+        desatualizado=_colab_desatualizado(carimbo),
+        total=len(linhas),
+        somente_ativos=somente_ativos,
+        empresas=_agrupar_colaboradores(linhas),
+    )
 
 
 def main() -> None:

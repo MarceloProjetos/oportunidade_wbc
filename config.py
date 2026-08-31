@@ -50,6 +50,10 @@ EXECUTION_MODES = ('snapshot', 'insert')
 # underscore) — unlike the older "NPED".
 OS_SAP_VIEW_NAME_DEFAULT = 'VW_OS_INTEGRACAO'
 OS_TABLE_NAME_DEFAULT = 'vw_os_integracao'
+# Espelho do quadro de colaboradores do Kairos. Quem ESCREVE é o web_orcaview_V117
+# (.90, 12:40 em dias úteis); aqui a tabela é só LIDA — este repo não tem, e não deve
+# ganhar, credencial do Kairos.
+COLAB_TABLE_NAME_DEFAULT = 'kairos_colaboradores'
 OS_SYNC_LOG_TABLE_DEFAULT = 'sincronizacao_log_os_integracao'
 OS_EXECUTION_MODE_DEFAULT = 'replace_nped'
 OS_EXECUTION_MODES = ('replace_nped', 'insert')
@@ -251,6 +255,7 @@ class Settings:
     # Ordens de Serviço (consolidated view VW_OS_INTEGRACAO)
     os_sap_view_name: str
     os_table_name: str
+    colab_table_name: str
     os_sync_log_table: str
     os_execution_mode: str
     os_insert_batch_size: int
@@ -317,6 +322,7 @@ class Settings:
             sql_enrichment_view=os.getenv('SQL_ENRICHMENT_VIEW', SQL_ENRICHMENT_VIEW_DEFAULT),
             os_sap_view_name=os.getenv('OS_SAP_VIEW_NAME', OS_SAP_VIEW_NAME_DEFAULT),
             os_table_name=os.getenv('OS_TABLE_NAME', OS_TABLE_NAME_DEFAULT),
+            colab_table_name=os.getenv('COLAB_TABLE_NAME', COLAB_TABLE_NAME_DEFAULT),
             os_sync_log_table=os.getenv('OS_SYNC_LOG_TABLE_NAME', OS_SYNC_LOG_TABLE_DEFAULT),
             os_execution_mode=os.getenv('OS_EXECUTION_MODE', OS_EXECUTION_MODE_DEFAULT),
             os_insert_batch_size=int(

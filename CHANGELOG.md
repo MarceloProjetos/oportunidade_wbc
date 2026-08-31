@@ -3,6 +3,29 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-08-31] — `GET /rh/colaboradores`: quadro das 3 empresas do Kairos
+
+Endpoint novo, **somente leitura**, sobre o espelho `kairos_colaboradores` no Supabase
+(escrito pelo `web_orcaview_V117` às 12:40 em dias úteis — este repo **não** ganha
+credencial do Kairos). Devolve **empresa → setor → colaboradores**, com cargo, matrícula
+e `status`; `?empresa=` restringe e `?somente_ativos=1` corta para o quadro atual.
+
+- **A linha do desligado nunca some** (`status` = `ativo`/`desligado`/`ausente`) — é o
+  ponto do contrato: quem consome não quebra no dia em que alguém é desligado.
+- **`empresa` desconhecida é 400**, não fallback: o cliente Kairos do V117 cai calado na
+  `altamira` quando não reconhece a chave, e repetir isso aqui devolveria o quadro da
+  empresa errada com HTTP 200.
+- **`desatualizado`** avisa que a carga do último 12:40 de dia útil não chegou — usando
+  `feriados_br`, não "mais velho que N horas": na segunda de manhã o dado É de sexta e
+  isso está certo.
+- Leitura **paginada** de 1000 em 1000 (o PostgREST corta em 1000 com HTTP 200 e a tabela
+  só cresce). Config nova: `COLAB_TABLE_NAME` (default `kairos_colaboradores`).
+- Provado contra o Supabase de produção antes do commit: 251 linhas, e os 7 setores da
+  Tecnequip com as mesmas contagens da tela do Absenteísmo (7/8/6/1/32/1/1).
+- Documento para quem consome: `API_RH_COLABORADORES.md`. Testes: +6 em `tests/test_api.py`.
+
+**Deploy:** `git pull` na `.11` + restart do serviço NSSM `OrcaView-OS-API`.
+
 ## [2026-08-31] — /status: bloco informativo `api_auth` (chave configurada?)
 
 Saído da auditoria de segurança de 31/08: sem `OS_API_KEY` a API cai **aberta**

@@ -1027,3 +1027,108 @@ def test_op_kill_switch_desligado_fecha_as_duas_rotas(client, monkeypatch):
     r = client.post('/ordens-producao/129850/status', json={'status': 'encerrada'}, headers=auth)
     assert r.status_code == 503
     assert r.get_json()['tipo'] == 'desativado'
+
+
+# ===== GET /rh/colaboradores (espelho do quadro do Kairos) =====
+
+_FAKE_COLAB = [
+    {'empresa': 'tecnequip', 'person_id': 2, 'nome': 'Bruno', 'matricula': '2',
+     'setor': 'PRODUÇÃO', 'cargo': 'Soldador', 'status': 'ativo',
+     'em_ferias_ou_afastado': True, 'sem_expediente_desde': None,
+     'data_admissao': '2020-02-02', 'data_desligamento': None,
+     'ultima_vista_em': '2026-08-31T15:40:00+00:00'},
+    {'empresa': 'tecnequip', 'person_id': 1, 'nome': 'Ana', 'matricula': '1',
+     'setor': 'PRODUÇÃO', 'cargo': 'Operadora', 'status': 'ativo',
+     'em_ferias_ou_afastado': False, 'sem_expediente_desde': None,
+     'data_admissao': '2021-01-01', 'data_desligamento': None,
+     'ultima_vista_em': '2026-08-31T15:40:00+00:00'},
+    {'empresa': 'tecnequip', 'person_id': 3, 'nome': 'Carlos', 'matricula': '3',
+     'setor': None, 'cargo': None, 'status': 'desligado',
+     'em_ferias_ou_afastado': False, 'sem_expediente_desde': None,
+     'data_admissao': '2019-03-03', 'data_desligamento': '2026-07-10',
+     'ultima_vista_em': '2026-08-31T15:40:00+00:00'},
+]
+
+
+def test_colaboradores_aninha_empresa_setor_e_cargo_e_campo(client, monkeypatch):
+    """Cargo é CAMPO da pessoa, não nível: aninhar por cargo daria grupos de 1."""
+    monkeypatch.setattr(apimod, '_fetch_colaboradores', lambda *a, **kw: list(_FAKE_COLAB))
+    body = client.get('/rh/colaboradores').get_json()
+    assert body['ok'] is True and body['total'] == 3
+    (empresa,) = body['empresas']
+    assert empresa['empresa'] == 'tecnequip' and empresa['total'] == 3
+    setores = {s['setor']: s for s in empresa['setores']}
+    assert set(setores) == {'PRODUÇÃO', 'SEM SETOR'}   # setor nulo não some
+    producao = setores['PRODUÇÃO']
+    assert producao['total'] == 2
+    assert [c['nome'] for c in producao['colaboradores']] == ['Ana', 'Bruno']  # ordenado
+    assert producao['colaboradores'][0]['cargo'] == 'Operadora'
+
+
+def test_colaboradores_desligado_vem_com_status_e_nao_some(client, monkeypatch):
+    """O contrato existe para isto: quem sai vira status, não desaparece."""
+    monkeypatch.setattr(apimod, '_fetch_colaboradores', lambda *a, **kw: list(_FAKE_COLAB))
+    body = client.get('/rh/colaboradores').get_json()
+    pessoas = [c for e in body['empresas'] for s in e['setores'] for c in s['colaboradores']]
+    carlos = next(c for c in pessoas if c['nome'] == 'Carlos')
+    assert carlos['status'] == 'desligado' and carlos['data_desligamento'] == '2026-07-10'
+    assert next(c for c in pessoas if c['nome'] == 'Bruno')['em_ferias_ou_afastado'] is True
+
+
+def test_colaboradores_empresa_desconhecida_e_recusada(client, monkeypatch):
+    """Cair no default devolveria o quadro de OUTRA empresa com HTTP 200 — o
+    cliente Kairos do V117 faz isso calado; aqui é 400."""
+    chamou = []
+    monkeypatch.setattr(apimod, '_fetch_colaboradores',
+                        lambda *a, **kw: chamou.append(1) or [])
+    r = client.get('/rh/colaboradores?empresa=tecnequipe')
+    assert r.status_code == 400 and chamou == []
+    assert 'tecnequip' in r.get_json()['empresas_validas']
+
+
+def test_colaboradores_repassa_filtros(client, monkeypatch):
+    recebido = {}
+
+    def _fake(empresa=None, somente_ativos=False):
+        recebido.update(empresa=empresa, somente_ativos=somente_ativos)
+        return []
+
+    monkeypatch.setattr(apimod, '_fetch_colaboradores', _fake)
+    client.get('/rh/colaboradores?empresa=proalta&somente_ativos=1')
+    assert recebido == {'empresa': 'proalta', 'somente_ativos': True}
+
+
+def test_colaboradores_pagina_a_leitura(monkeypatch):
+    """O PostgREST corta em 1000 com HTTP 200: sem paginar, some gente em silêncio."""
+    paginas = [[{'person_id': i} for i in range(apimod._COLAB_PAGINA)], [{'person_id': 9}]]
+    faixas = []
+
+    class _Q:
+        def select(self, *a): return self
+        def eq(self, *a): return self
+        def order(self, *a): return self
+        def range(self, ini, fim):
+            faixas.append((ini, fim))
+            return self
+        def execute(self):
+            return type('R', (), {'data': paginas.pop(0)})()
+
+    monkeypatch.setattr(apimod, '_supabase',
+                        lambda: type('C', (), {'table': lambda _s, _n: _Q()})())
+    assert len(apimod._fetch_colaboradores()) == apimod._COLAB_PAGINA + 1
+    assert faixas[0] == (0, apimod._COLAB_PAGINA - 1)
+
+
+def test_colaboradores_desatualizado_respeita_dia_util(client, monkeypatch):
+    """Segunda de manhã com carga de sexta NÃO é atraso: a carga só roda em dia
+    útil às 12:40. Atraso é ter perdido o último slot que já passou."""
+    from datetime import datetime, timezone
+
+    # Segunda-feira, 09:00 BRT.
+    monkeypatch.setattr(apimod.sit_ped, 'now_br',
+                        lambda: datetime(2026, 8, 31, 9, 0, tzinfo=timezone.utc))
+    sexta = '2026-08-28T15:40:00+00:00'          # sexta 12:40 BRT
+    assert apimod._colab_desatualizado(sexta) is False
+    quinta = '2026-08-27T15:40:00+00:00'         # pulou a sexta
+    assert apimod._colab_desatualizado(quinta) is True
+    assert apimod._colab_desatualizado(None) is True
