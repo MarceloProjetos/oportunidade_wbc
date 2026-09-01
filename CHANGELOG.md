@@ -3,6 +3,26 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-01] — Documentação: "você não precisa de acesso ao Supabase"
+
+A equipe que vai consumir pediu à organização o **conector do Supabase** do diretório da
+Anthropic para usar este endpoint. Não precisa — e o pedido é caro: aquele conector abre
+**SQL no banco**, que é um só para os três aplicativos (122 tabelas), e as tabelas de
+espelho têm RLS forçado sem policy nenhuma, então ele **só funcionaria com a service_role**,
+a chave que ignora toda a proteção. Ou é inútil, ou é acesso total.
+
+O `API_RH_COLABORADORES.md` foi reescrito para responder isso antes de a pergunta nascer:
+
+- Caixa nova na §1: **a única credencial necessária é a `X-API-Key` da 8077** (ou o token
+  do MCP). Quem lê o banco é esta API — é para isso que ela existe.
+- §9 ganhou **como registrar o MCP de verdade**: é um *conector personalizado* apontando
+  para a `.11`, não o conector "Supabase" do diretório. E o aviso que faltava: **o MCP só
+  responde de dentro da rede** — `192.168.7.11` é interno, o Claude na web não alcança;
+  pelo navegador, o caminho é a REST chamada pelo código de quem consome.
+- De quebra, o documento ficou mais didático: fluxo em **mermaid** (o GitHub renderiza),
+  caixas de destaque `[!IMPORTANT]`/`[!CAUTION]`, tabela de campos com tipos, índice
+  navegável e as receitas em curl/Python/JavaScript separadas por caso de uso.
+
 ## [2026-09-01] — /rh/colaboradores: frescor auditavel (`carga_esperada_em`, `atualizado_em_br`)
 
 Saido do smoke de producao do espelho de colaboradores (endpoint e MCP no ar desde
