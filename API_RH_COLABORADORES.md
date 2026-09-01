@@ -2,23 +2,26 @@
 
 > **Quem trabalha nas três empresas, por empresa e por setor, com cargo, matrícula e
 > situação.** Uma chamada HTTP — ou uma pergunta em português, pelo assistente.
-> Este documento foi escrito para você integrar **sem precisar perguntar nada**.
+> Escrito para você integrar **sem precisar perguntar nada**.
 
 | | |
 |---|---|
 | **Endpoint** | `GET http://192.168.7.11:8077/rh/colaboradores` |
 | **Autenticação** | `X-API-Key` (a mesma dos outros endpoints da 8077) |
 | **Atualização** | 1× por dia útil, às **12:40** |
-| **Hoje** | 85 pessoas ativas · 3 empresas · 251 linhas com histórico |
+| **Volume hoje** | 251 linhas = **85 ativos + 166 desligados** · 3 empresas |
+| **Resposta** | 13–58 KB · ~0,2 s (medido, §8) |
 | **Escreve algo?** | Não. Somente leitura. |
 
 **Índice** · [1. O que é](#1-o-que-é-e-o-que-não-é) · [2. Comece por aqui](#2-comece-por-aqui-30-segundos)
 · [3. A chamada](#3-a-chamada) · [4. A resposta](#4-a-resposta)
 · [5. Status](#5-o-contrato-do-status-a-linha-do-desligado-não-some)
 · [6. Sem expediente](#6-sem-expediente--leia-antes-de-usar) · [7. Frescor](#7-frescor-saber-de-quando-é-o-dado)
-· [8. Receitas](#8-receitas-prontas) · [9. MCP](#9-mcp--perguntar-em-português)
-· [10. Erros](#10-erros-e-o-que-fazer) · [11. Armadilhas](#11-armadilhas)
-· [12. Por dentro](#12-por-dentro-para-quem-mantém)
+· [8. Custo e cache](#8-custo-e-cache-com-que-frequência-chamar) · [9. Setores de hoje](#9-os-setores-que-existem-hoje)
+· [10. Receitas](#10-receitas-prontas) · [11. MCP](#11-mcp--perguntar-em-português)
+· [12. Erros](#12-erros-e-o-que-fazer) · [13. Armadilhas](#13-armadilhas)
+· [14. Perguntas frequentes](#14-perguntas-frequentes) · [15. Uso do dado](#15-uso-do-dado-são-pessoas)
+· [16. Estabilidade](#16-estabilidade-do-contrato) · [17. Por dentro](#17-por-dentro-para-quem-mantém)
 
 > Os endpoints de **Ordens de Serviço**, **Ordens de Produção** e **Situação dos Pedidos**
 > são outra coisa: `API_OS_INTEGRACAO.md`, `API_ORDENS_PRODUCAO.md` e
@@ -67,8 +70,8 @@ curl -s "http://192.168.7.11:8077/rh/colaboradores?empresa=tecnequip&somente_ati
      -H "X-API-Key: SUA_CHAVE"
 ```
 
-Se voltou um JSON com `"ok": true`, acabou a configuração — o resto deste documento é
-sobre o que vem dentro.
+Voltou um JSON com `"ok": true`? Acabou a configuração — o resto deste documento é sobre
+o que vem dentro.
 
 > [!TIP]
 > No navegador (que não envia cabeçalho), use `?key=SUA_CHAVE` na URL.
@@ -83,10 +86,23 @@ sobre o que vem dentro.
 | `empresa` | `altamira` · `tecnequip` · `proalta` | Restringe a uma empresa. Ausente = as três. |
 | `somente_ativos` | `1` | Só quem está na ativa. **Ausente = todos**, cada um com seu `status`. |
 
+Os dois são opcionais e combinam. Não há paginação: a resposta vem inteira (§8).
+
 > [!WARNING]
 > **Empresa desconhecida é recusada com `400`** — de propósito. Um erro de digitação
-> devolveria o quadro de **outra empresa** com HTTP 200, e ninguém perceberia. A resposta
-> do 400 traz `empresas_validas`.
+> devolveria o quadro de **outra empresa** com HTTP 200, e ninguém perceberia.
+
+```jsonc
+// GET /rh/colaboradores?empresa=xyz   → HTTP 400
+{
+  "ok": false,
+  "error": "empresa invalida: use uma de altamira, tecnequip, proalta",
+  "empresas_validas": ["altamira", "tecnequip", "proalta"]
+}
+
+// GET /rh/colaboradores   (sem a chave)   → HTTP 401
+{ "ok": false, "error": "unauthorized" }
+```
 
 ---
 
@@ -102,7 +118,7 @@ nível: aninhar por cargo criaria grupos de uma pessoa só na maioria dos casos.
   "atualizado_em_br":  "2026-09-01T07:41:43-03:00",         // Brasília — use para mostrar
   "desatualizado":     false,
   "carga_esperada_em": "2026-08-31T12:40-03:00",            // slot usado na conta
-  "total": 56,
+  "total": 56,                                              // linhas nesta resposta
   "somente_ativos": true,
   "empresas": [
     {
@@ -132,17 +148,49 @@ nível: aninhar por cargo criaria grupos de uma pessoa só na maioria dos casos.
 }
 ```
 
+### Os campos
+
 | Campo | Tipo | O que é |
 |---|---|---|
-| `person_id` | inteiro | Id no Kairos. **Use como chave.** |
+| `person_id` | inteiro | Id no Kairos. **Use como chave** (junto com `empresa`). |
 | `nome` | texto | Como está no cadastro. Há homônimos — não use como chave. |
 | `matricula` | texto \| null | Número do crachá. É o que casa com os eventos de ponto. |
-| `cargo` | texto \| null | Descrição do cargo. |
+| `cargo` | texto \| null | Descrição do cargo. **Nulo é comum entre desligados** — veja abaixo. |
 | `status` | texto | `ativo` · `desligado` · `ausente` — veja a §5. |
 | `em_ferias_ou_afastado` | booleano | Sem expediente. **Leia a §6 antes de usar.** |
 | `sem_expediente_desde` | data \| null | Início da ausência; `null` com a flag ligada = começou antes da janela. |
 | `data_admissao` | data \| null | Admissão. |
 | `data_desligamento` | data \| null | Preenchida quando o desligamento tem registro. |
+
+### O que os dados realmente parecem (medido em 01/09/2026, nas 251 linhas)
+
+| Observação | Número |
+|---|---|
+| `matricula` nula | **0** — todo mundo tem crachá |
+| `data_admissao` nula | **0** |
+| `cargo` nulo | **120**, e **todos são desligados** (entre ativos: zero) |
+| `data_desligamento` nula em quem está `desligado` | **0** — sempre vem preenchida |
+| `sem_expediente_desde` preenchida | **0** — hoje as 3 ausências começaram antes da janela (§6) |
+
+Ou seja: **para quem está ativo, você pode contar com nome, matrícula, setor, cargo e
+admissão preenchidos.** Nos desligados, cargo costuma faltar — o Kairos não guarda o
+cargo de quem saiu com a mesma disciplina.
+
+### Uma linha de quem saiu
+
+```jsonc
+{
+  "person_id": 987,
+  "nome": "Ciclana de Souza",
+  "matricula": "100150",
+  "cargo": "Supervisor de Expedição",
+  "status": "desligado",
+  "em_ferias_ou_afastado": false,
+  "sem_expediente_desde": null,
+  "data_admissao": "2016-03-02",
+  "data_desligamento": "2026-07-22"      // ← o que muda em relação a um ativo
+}
+```
 
 Quem está sem setor no Kairos entra no grupo `"SEM SETOR"` — ninguém é escondido por
 causa de um campo em branco. Os `total` de empresa e setor são **contagens prontas**: não
@@ -154,11 +202,11 @@ precisa somar o array.
 
 Esta é a regra mais importante daqui, e a razão de o campo existir.
 
-| `status` | Significa | Quando aparece |
-|---|---|---|
-| ✅ `ativo` | Está no quadro. | Veio na carga e não tem desligamento. |
-| ⬜ `desligado` | Saiu, com registro. | Desligamento conhecido — veja `data_desligamento`. |
-| 🟠 `ausente` | Sumiu do cadastro. | Deixou de vir na carga sem registro de desligamento. |
+| `status` | Significa | Quando aparece | Hoje |
+|---|---|---|---|
+| ✅ `ativo` | Está no quadro. | Veio na carga e não tem desligamento. | 85 |
+| ⬜ `desligado` | Saiu, com registro. | Desligamento conhecido — veja `data_desligamento`. | 166 |
+| 🟠 `ausente` | Sumiu do cadastro. | Deixou de vir na carga sem registro de desligamento. | 0 |
 
 > [!NOTE]
 > **Por que isso importa para você:** se as linhas sumissem, todo programa que guarda
@@ -167,6 +215,10 @@ Esta é a regra mais importante daqui, e a razão de o campo existir.
 >
 > Para o quadro atual, filtre por `status == "ativo"` ou peça `?somente_ativos=1`;
 > para histórico, peça tudo.
+
+**`ausente` é o caso raro e vale entender:** a pessoa deixou de aparecer no Kairos sem
+que houvesse registro de desligamento. Não é erro seu nem nosso — é o cadastro de origem
+que mudou sem explicar. Trate como "não está mais no quadro", mas sem data.
 
 ---
 
@@ -185,7 +237,7 @@ Esta é a regra mais importante daqui, e a razão de o campo existir.
 - Liga com **3 ou mais dias úteis processados** sem expediente — feriado ou dia que o
   Kairos ainda não fechou **não** conta.
 - `sem_expediente_desde: null` **com a flag ligada** = a ausência começou antes da janela
-  de 30 dias: sabemos que está fora, não desde quando.
+  de 30 dias: sabemos que está fora, não desde quando. **É o caso de todos hoje.**
 - Quem **nunca** bate ponto (isento de relógio) **não** é marcado.
 - Hoje são **3 pessoas em 85 ativas** — é sinal raro, não estado comum.
 
@@ -205,13 +257,58 @@ Esta é a regra mais importante daqui, e a razão de o campo existir.
 > está certo — a carga só roda em dia útil, e a conta considera feriados nacionais. A
 > pergunta que `desatualizado` responde é *"o último horário que já deveria ter rodado
 > produziu carga?"*.
->
-> Quando vier `true`, o dado continua sendo servido — é o último bom conhecido. **Avise a
-> pessoa** em vez de apresentá-lo como de hoje.
+
+**O que fazer quando vier `true`:** continue usando o dado — ele é o último bom conhecido
+e não está corrompido. Só **não o apresente como de hoje**: mostre o `atualizado_em_br` ao
+lado. Não trave o seu fluxo por causa disso; se persistir por mais de um dia útil, avise.
 
 ---
 
-## 8. Receitas prontas
+## 8. Custo e cache: com que frequência chamar
+
+Medido em 01/09/2026, da rede interna:
+
+| Chamada | Tamanho | Tempo |
+|---|---:|---:|
+| `?empresa=tecnequip&somente_ativos=1` | 13,6 KB | 0,25 s |
+| `?somente_ativos=1` (as 3 empresas) | 21,0 KB | 0,18 s |
+| sem filtro (tudo, com histórico) | 58,2 KB | 0,20 s |
+
+> [!TIP]
+> **O dado muda uma vez por dia. Cacheie.** Chamar a cada requisição do seu sistema é
+> desperdício dos dois lados. O padrão recomendado:
+>
+> - guarde a resposta e o `atualizado_em` junto;
+> - reconsulte a cada **30–60 minutos** (ou quando o usuário pedir "atualizar");
+> - se o `atualizado_em` não mudou, nada mudou — pode reaproveitar o que já tem.
+>
+> Não há paginação nem `If-Modified-Since`: a resposta vem inteira, e ela é pequena.
+
+---
+
+## 9. Os setores que existem hoje
+
+Referência para quem precisa mapear setores. **Isto muda** — quem manda é o Kairos, e a
+lista abaixo é de 01/09/2026, contando **só ativos**:
+
+| Empresa | Ativos | Setores |
+|---|---:|---|
+| **altamira** | 14 | EXPEDIÇÃO 1 · FERRAMENTARIA 1 · PINTURA 4 · PRODUÇÃO 8 |
+| **proalta** | 15 | ADM FINANCEIRO 6 · COMERCIAL 2 · LIMPEZA 1 · OPERACIONAL 1 · RECURSOS HUMANOS 2 · SUPRIMENTOS 3 |
+| **tecnequip** | 56 | DESENVOLVIMENTO DE PROJETOS 7 · EXPEDIÇÃO 8 · FERRAMENTARIA 6 · LIMPEZA 1 · PRODUÇÃO 32 · QUALIDADE 1 · T.I 1 |
+
+> [!WARNING]
+> **Sem `?somente_ativos=1` aparece um setor `"Principal"` que não existe na prática.**
+> São **121 pessoas, todas desligadas** (nenhum ativo) — é onde o Kairos deixa quem saiu.
+> Se você for montar uma lista de setores para uma tela ou um filtro, use
+> `?somente_ativos=1`, ou vai oferecer "Principal" ao usuário.
+
+Note que os setores são escritos em MAIÚSCULAS no Kairos (menos o tal `"Principal"`), e
+que `T.I` tem ponto. Compare sem depender de caixa nem de acento.
+
+---
+
+## 10. Receitas prontas
 
 ### Quantas pessoas por setor, no terminal
 
@@ -229,6 +326,16 @@ curl -s "http://192.168.7.11:8077/rh/colaboradores?empresa=tecnequip&somente_ati
 32  PRODUÇÃO
 1   QUALIDADE
 1   T.I
+```
+
+### Quem saiu nos últimos 90 dias
+
+```bash
+curl -s "http://192.168.7.11:8077/rh/colaboradores" -H "X-API-Key: SUA_CHAVE" \
+| jq -r --arg corte "$(date -d '-90 days' +%Y-%m-%d)" '
+    .empresas[].setores[].colaboradores[]
+    | select(.status == "desligado" and .data_desligamento >= $corte)
+    | "\(.data_desligamento)  \(.matricula)  \(.nome)"' | sort
 ```
 
 ### Python — quem está na produção
@@ -257,6 +364,26 @@ for empresa in dados["empresas"]:
                 print(p["matricula"], p["nome"], "—", p["cargo"])
 ```
 
+### Python — sincronizar com o seu cadastro (o caso do `status`)
+
+```python
+# A linha de quem saiu CONTINUA vindo: é assim que você descobre o desligamento
+# sem precisar comparar duas fotos do quadro.
+dados = requests.get(f"{BASE}/rh/colaboradores",
+                     headers={"X-API-Key": CHAVE}, timeout=30).json()
+
+for empresa in dados["empresas"]:
+    for setor in empresa["setores"]:
+        for p in setor["colaboradores"]:
+            chave = (empresa["empresa"], p["person_id"])       # a chave real
+            if p["status"] == "ativo":
+                cadastro.ativar(chave, nome=p["nome"], setor=setor["setor"],
+                                cargo=p["cargo"], matricula=p["matricula"])
+            else:
+                cadastro.desativar(chave, quando=p["data_desligamento"],
+                                   motivo=p["status"])          # desligado | ausente
+```
+
 ### JavaScript — índice por `person_id`
 
 ```javascript
@@ -270,7 +397,7 @@ const porId = new Map();
 for (const e of dados.empresas)
   for (const s of e.setores)
     for (const p of s.colaboradores)
-      porId.set(p.person_id, { ...p, empresa: e.empresa, setor: s.setor });
+      porId.set(`${e.empresa}:${p.person_id}`, { ...p, empresa: e.empresa, setor: s.setor });
 
 // quem saiu continua aqui, com status — é isso que evita quebrar o seu cadastro
 const desligados = [...porId.values()].filter(p => p.status !== "ativo");
@@ -278,7 +405,7 @@ const desligados = [...porId.values()].filter(p => p.status !== "ativo");
 
 ---
 
-## 9. MCP — perguntar em português
+## 11. MCP — perguntar em português
 
 Duas *tools*, ambas somente leitura, sobre o mesmo endpoint:
 
@@ -319,35 +446,97 @@ O token do MCP é **diferente** da `X-API-Key` da REST — peça os dois ao Marc
 
 ---
 
-## 10. Erros e o que fazer
+## 12. Erros e o que fazer
 
 | Código | Quando | O que fazer |
 |---|---|---|
-| `200` | Sucesso — inclusive lista vazia. | Lista vazia é resposta válida. |
+| `200` | Sucesso — inclusive lista vazia. | Lista vazia é resposta válida (ex.: filtro que não casa ninguém). |
 | `400` | `empresa` desconhecida. | A resposta traz `empresas_validas`. Corrija o valor. |
 | `401` | Sem chave, ou chave errada. | Confira o cabeçalho `X-API-Key`. |
 | `404` | Rota não encontrada. | O servidor está numa versão anterior ao endpoint. Avise — é `git pull` + restart na `.11`. |
-| `502` | Falha ao ler o espelho. | Problema no Supabase. Tente de novo; se persistir, avise. |
+| `502` | Falha ao ler o espelho. | Problema no Supabase. Tente de novo em alguns minutos; se persistir, avise. |
+
+Todo erro vem com `"ok": false` e um `error` em texto — **cheque o `ok` antes do conteúdo**,
+não o código HTTP sozinho.
 
 ---
 
-## 11. Armadilhas
+## 13. Armadilhas
 
 1. **`matricula` não é `person_id`.** O `person_id` é o Id do cadastro; a matrícula é o
-   crachá (e pode vir `null`). Use `person_id` como chave.
-2. **Nome não é chave.** Há homônimos, e a grafia muda com o tempo.
-3. **A mesma pessoa pode aparecer em duas empresas.** A chave real é o par
-   `empresa` + `person_id`.
+   crachá. Use `person_id` como chave.
+2. **A chave real é o par `empresa` + `person_id`.** A mesma pessoa pode aparecer em duas
+   empresas, com Ids diferentes.
+3. **Nome não é chave.** Há homônimos, e a grafia muda com o tempo.
 4. **`total` conta linhas, não pessoas ativas.** Sem `?somente_ativos=1` ele inclui
    desligados e ausentes.
-5. **Setor vem do Kairos.** Mudança de setor lá aparece aqui na carga seguinte — não há
+5. **O setor `"Principal"` é só de desligados** (§9) — não ofereça num filtro de tela.
+6. **`cargo` costuma faltar em desligados** (§4) — não use como obrigatório no histórico.
+7. **Setor vem do Kairos.** Mudança de setor lá aparece aqui na carga seguinte — não há
    como forçar antes das 12:40.
-6. **Não guarde cópia sem carimbo.** Se for armazenar do seu lado, guarde junto o
+8. **Não guarde cópia sem carimbo.** Se for armazenar do seu lado, guarde junto o
    `atualizado_em` — senão ninguém sabe de quando é.
 
 ---
 
-## 12. Por dentro (para quem mantém)
+## 14. Perguntas frequentes
+
+**Como eu descubro que alguém foi desligado?**
+A linha dele continua vindo, com `status: "desligado"` e `data_desligamento`. Você não
+precisa comparar a foto de hoje com a de ontem — veja a receita de sincronização na §10.
+
+**Posso usar a matrícula como chave no meu banco?**
+Prefira `empresa` + `person_id`. A matrícula é estável na prática, mas é um número de
+crachá: quem reingressa pode receber outro.
+
+**E se a pessoa mudar de empresa dentro do grupo?**
+Ela aparece nas duas: desligada numa, ativa na outra. Como a chave inclui a empresa, os
+dois registros convivem sem conflito.
+
+**Com que frequência devo chamar?**
+No máximo de hora em hora — o dado muda uma vez por dia (§8).
+
+**Preciso tratar paginação?**
+Não. A resposta vem inteira, e são dezenas de KB (§8).
+
+**O `em_ferias_ou_afastado` serve para calcular férias?**
+Não. Ele diz "sem expediente", e não distingue férias de atestado ou afastamento (§6).
+Para férias formais, a fonte é o RH, não esta API.
+
+**Posso pedir campos novos (e-mail, telefone, centro de custo)?**
+Fale com o Marcelo. Alguns existem no Kairos e podem ser espelhados; outros são dado
+sensível e não entram sem decisão.
+
+---
+
+## 15. Uso do dado: são pessoas
+
+Isto é cadastro de colaboradores — nome, cargo, setor, quem está afastado. Duas regras de
+bom senso, e uma consequência prática:
+
+- **Uso interno.** Não republique em sistema aberto, não mande para fora da empresa, não
+  exponha numa tela pública.
+- **A chave é sua responsabilidade.** A `X-API-Key` dá acesso a todo o endpoint. Não a
+  coloque em repositório, front-end ou aplicativo distribuído — ela vive no servidor de
+  vocês.
+- **Se for guardar do seu lado**, guarde só o que usa, e trate o desligamento: o
+  `status` existe para você saber quando parar de exibir alguém.
+
+---
+
+## 16. Estabilidade do contrato
+
+- **Campos podem ser acrescentados** sem aviso — `atualizado_em_br` e `carga_esperada_em`
+  nasceram assim, em 01/09/2026. Escreva o seu parser tolerante a chaves novas.
+- **Campos existentes não são renomeados nem mudam de sentido** sem falar com quem
+  consome. Se precisar acontecer, o aviso vem antes.
+- **Valores de `status` são um conjunto fechado** (`ativo`, `desligado`, `ausente`).
+  Ainda assim, trate o inesperado como "não ativo" em vez de quebrar.
+- Mudanças ficam registradas no `CHANGELOG.md` deste repositório.
+
+---
+
+## 17. Por dentro (para quem mantém)
 
 - **Tabela:** `kairos_colaboradores` no Supabase (chave `empresa` + `person_id`), escrita
   **só** pelo `web_orcaview_V117` com a service key; esta API lê com a mesma chave.
@@ -358,3 +547,7 @@ O token do MCP é **diferente** da `X-API-Key` da REST — peça os dois ao Marc
 - **Plano e decisões:** `web_orcaview_V117/docs/PLANO_ESPELHO_COLABORADORES_KAIROS.md`.
 - **Código:** rotas em `api.py` (`/rh/colaboradores`), tools em `mcp/mcp_server.py`,
   testes em `tests/test_api.py` e `tests/test_mcp_colaboradores.py`.
+
+---
+
+*Dúvidas, chave de acesso ou pedido de campo novo: Marcelo.*

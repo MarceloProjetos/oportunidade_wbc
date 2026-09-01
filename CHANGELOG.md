@@ -3,6 +3,37 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-01] — Guia de colaboradores completo (o .md é a entrega)
+
+O documento é a UNICA coisa que a equipe consumidora recebe, entao ele deixou de ser um
+resumo e passou a responder o que faltava. O que entrou saiu de MEDICAO no endpoint em
+producao, nao de suposicao:
+
+- **Custo e cache** (§8): 13,6 KB / 0,25 s com filtro de empresa; 21 KB com as tres; 58 KB
+  sem filtro. Com isso, a recomendacao explicita de **cachear e reconsultar a cada 30-60
+  min** — o dado muda 1x/dia, e chamar por requisicao e desperdicio dos dois lados.
+- **Como os dados realmente parecem** (§4): das 251 linhas, `matricula` e `data_admissao`
+  nunca vem nulas; **`cargo` vem nulo em 120 — todas de desligados** (entre ativos, zero);
+  e todo `desligado` tem `data_desligamento`. Mais uma linha de exemplo de quem saiu.
+- ⚠️ **O setor "Principal"** (§9): sem `?somente_ativos=1` aparece um setor com **121
+  pessoas, todas desligadas** — e ninguem tinha avisado. Quem montasse um filtro de tela
+  a partir da resposta crua ofereceria "Principal" ao usuario. Agora esta documentado, com
+  a lista dos setores REAIS por empresa.
+- **Corpo dos erros** (§3) com o JSON de verdade do 400 e do 401, e a regra "cheque o `ok`
+  antes do conteudo".
+- **FAQ** (§14) com as 7 perguntas que a equipe faria: chave estavel, pessoa que troca de
+  empresa, paginacao, ferias, campos novos.
+- **Uso do dado** (§15): sao pessoas — uso interno, a chave nao vai para front-end, e o
+  `status` existe para parar de exibir quem saiu.
+- **Estabilidade do contrato** (§16): campos podem ser ACRESCENTADOS sem aviso (foi o que
+  aconteceu hoje com `atualizado_em_br` e `carga_esperada_em`); os existentes nao mudam de
+  sentido sem falar com quem consome.
+- Duas receitas novas: quem saiu nos ultimos 90 dias (jq) e sincronizar com o cadastro do
+  lado deles — que e o caso de uso real do campo `status`.
+
+553 linhas, indice conferido (17 ancoras, nenhuma quebrada), fluxo em mermaid e alertas do
+GitHub. **Nao ha versao publicada em pagina: o .md e a entrega.**
+
 ## [2026-09-01] — Documentação: "você não precisa de acesso ao Supabase"
 
 A equipe que vai consumir pediu à organização o **conector do Supabase** do diretório da
