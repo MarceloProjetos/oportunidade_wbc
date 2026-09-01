@@ -1119,16 +1119,34 @@ def test_colaboradores_pagina_a_leitura(monkeypatch):
     assert faixas[0] == (0, apimod._COLAB_PAGINA - 1)
 
 
-def test_colaboradores_desatualizado_respeita_dia_util(client, monkeypatch):
-    """Segunda de manhã com carga de sexta NÃO é atraso: a carga só roda em dia
-    útil às 12:40. Atraso é ter perdido o último slot que já passou."""
+def test_colaboradores_frescor_respeita_dia_util(client, monkeypatch):
+    """Segunda de manha com carga de sexta NAO e' atraso: a carga so roda em dia
+    util as 12:40. Atraso e' ter perdido o ultimo slot que ja passou."""
     from datetime import datetime, timezone
 
-    # Segunda-feira, 09:00 BRT.
+    # Segunda-feira, 09:00.
     monkeypatch.setattr(apimod.sit_ped, 'now_br',
                         lambda: datetime(2026, 8, 31, 9, 0, tzinfo=timezone.utc))
-    sexta = '2026-08-28T15:40:00+00:00'          # sexta 12:40 BRT
-    assert apimod._colab_desatualizado(sexta) is False
-    quinta = '2026-08-27T15:40:00+00:00'         # pulou a sexta
-    assert apimod._colab_desatualizado(quinta) is True
-    assert apimod._colab_desatualizado(None) is True
+
+    sexta = apimod._colab_frescor('2026-08-28T15:40:00+00:00')   # carga de sexta
+    assert sexta['desatualizado'] is False
+    # O slot da comparacao vai na resposta: sem ele, "desatualizado" e' magico.
+    assert sexta['carga_esperada_em'].startswith('2026-08-28T12:40')
+    assert sexta['atualizado_em_br'] is not None
+
+    quinta = apimod._colab_frescor('2026-08-27T15:40:00+00:00')  # pulou a sexta
+    assert quinta['desatualizado'] is True
+
+    vazio = apimod._colab_frescor(None)
+    assert vazio['desatualizado'] is True and vazio['atualizado_em_br'] is None
+
+
+def test_colaboradores_publica_o_carimbo_em_brasilia(client, monkeypatch):
+    """O carimbo cru e' UTC: "19:31" seria lido como hora local por quem bate o
+    olho no JSON (e pelo modelo, na fachada MCP)."""
+    monkeypatch.setattr(apimod, '_fetch_colaboradores', lambda *a, **kw: [
+        {'empresa': 'altamira', 'person_id': 1, 'nome': 'Ana', 'setor': 'T.I',
+         'status': 'ativo', 'ultima_vista_em': '2026-08-31T19:31:51+00:00'}])
+    body = client.get('/rh/colaboradores').get_json()
+    assert body['atualizado_em'] == '2026-08-31T19:31:51+00:00'
+    assert body['atualizado_em_br'].startswith('2026-08-31T16:31:51')

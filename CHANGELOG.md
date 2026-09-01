@@ -3,6 +3,26 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-01] — /rh/colaboradores: frescor auditavel (`carga_esperada_em`, `atualizado_em_br`)
+
+Saido do smoke de producao do espelho de colaboradores (endpoint e MCP no ar desde
+31/08). Duas asperezas que apareceram lendo a resposta real, as duas ADITIVAS — nenhum
+campo mudou de nome ou de significado:
+
+- **`atualizado_em` e UTC, e "19:31" e lido como hora local por quem bate o olho no
+  JSON** (e pelo modelo, na fachada MCP, que repassaria o horario errado ao usuario).
+  Agora vai junto `atualizado_em_br`, o mesmo instante em horario de Brasilia.
+- **`desatualizado` era um booleano magico**: dizia que a carga atrasou, sem dizer
+  contra o que comparou. Agora vai `carga_esperada_em` — o slot 12:40 de dia util que
+  a conta usou. Quem for depurar "por que isso esta true?" ve a resposta na propria
+  resposta, sem abrir codigo.
+
+`_colab_desatualizado` virou `_colab_frescor` (uma passada, tres campos). Doc §6
+atualizada; +1 teste (131 no arquivo da API; suite 548 verde), ruff limpo.
+
+**Deploy:** `git pull` na `.11` + restart do **`OrcaView-OS-API`**. O `OrcaView-MCP`
+NAO precisa de restart: a fachada repassa o JSON da API como vem.
+
 ## [2026-08-31] — MCP: `listar_colaboradores` e `resumo_colaboradores`
 
 As duas tools de leitura sobre o `GET /rh/colaboradores` da entrada anterior, para o

@@ -56,7 +56,9 @@ devolveria o quadro de outra empresa com HTTP 200, e ninguém perceberia.
 {
   "ok": true,
   "atualizado_em": "2026-08-31T15:40:12.254268+00:00",
+  "atualizado_em_br": "2026-08-31T12:40:12-03:00",
   "desatualizado": false,
+  "carga_esperada_em": "2026-08-31T12:40-03:00",
   "total": 56,
   "somente_ativos": true,
   "empresas": [
@@ -129,6 +131,13 @@ sendo servido (é o último bom conhecido), mas você fica sabendo que ele envel
 
 Não é "mais velho que N horas": na segunda de manhã o dado **é** de sexta e isso está
 certo — a carga só roda em dia útil. A conta considera feriados nacionais.
+
+**`carga_esperada_em`** mostra contra qual slot a comparação foi feita, para você não ter
+de adivinhar o critério: se `atualizado_em` for anterior a ele, `desatualizado` é `true`.
+
+**`atualizado_em_br`** é o mesmo instante de `atualizado_em`, em horário de Brasília. Os
+dois estão sempre lá: o cru é UTC (`+00:00`) e quem bate o olho no JSON lê "15:40" como se
+fosse hora local — foi para evitar exatamente esse erro que o campo em BRT existe.
 
 ## 7. Códigos de resposta
 

@@ -1188,35 +1188,49 @@ def _colab_carimbo(linhas: List[dict]) -> Optional[str]:
     return max(carimbos) if carimbos else None
 
 
-def _colab_desatualizado(carimbo_iso: Optional[str]) -> bool:
-    """Did the mirror miss the last business-day slot that should have run?
+def _colab_frescor(carimbo_iso: Optional[str]) -> dict:
+    """Frescor do espelho: perdeu o último slot? contra qual slot comparou?
 
-    Not a fixed "older than N hours": on Monday morning the data IS from Friday
-    and that is correct (the load only runs on business days). The question is
-    whether the most recent 12:40 that already passed produced a load.
+    Não é um "mais velho que N horas": na segunda de manhã o dado É de sexta e
+    isso está certo (a carga só roda em dia útil). A pergunta é se o 12:40 mais
+    recente que já passou produziu carga.
+
+    Devolve também ``carga_esperada_em`` (o slot da comparação, que torna o
+    ``desatualizado`` auditável em vez de mágico) e ``atualizado_em_br`` — o mesmo
+    instante em horário de Brasília, porque o carimbo cru é UTC e "19:31" já é
+    lido como se fosse hora local por quem bate o olho no JSON.
     """
     # Import local: o módulo `time` (stdlib) já é importado no topo com esse nome.
     from datetime import datetime, timedelta
     from datetime import time as _time
 
-    if not carimbo_iso:
-        return True
-    try:
-        carimbo = datetime.fromisoformat(str(carimbo_iso).replace('Z', '+00:00'))
-    except ValueError:
-        return True
     agora = sit_ped.now_br()
-    if carimbo.tzinfo is None:
-        carimbo = carimbo.replace(tzinfo=agora.tzinfo)
     limite = agora - timedelta(hours=_COLAB_TOLERANCIA_H)
+    esperado = None
     dia = limite.date()
     for _ in range(30):  # ~1 mês de folga cobre qualquer feriadão
         if feriados_br.is_business_day(dia):
             slot = datetime.combine(dia, _time(*_COLAB_SLOT), tzinfo=agora.tzinfo)
             if slot <= limite:
-                return carimbo < slot
+                esperado = slot
+                break
         dia -= timedelta(days=1)
-    return False
+
+    carimbo = None
+    if carimbo_iso:
+        try:
+            carimbo = datetime.fromisoformat(str(carimbo_iso).replace('Z', '+00:00'))
+        except ValueError:
+            carimbo = None
+        if carimbo is not None and carimbo.tzinfo is None:
+            carimbo = carimbo.replace(tzinfo=agora.tzinfo)
+
+    return {
+        'desatualizado': carimbo is None or (esperado is not None and carimbo < esperado),
+        'carga_esperada_em': esperado.isoformat(timespec='minutes') if esperado else None,
+        'atualizado_em_br': (carimbo.astimezone(agora.tzinfo).isoformat(timespec='seconds')
+                             if carimbo else None),
+    }
 
 
 def _agrupar_colaboradores(linhas: List[dict]) -> List[dict]:
@@ -1294,11 +1308,12 @@ def rh_colaboradores():
         return jsonify(ok=False, error='falha ao ler o espelho de colaboradores'), 502
 
     carimbo = _colab_carimbo(linhas)
+    frescor = _colab_frescor(carimbo)
     return jsonify(
         ok=True,
         atualizado_em=carimbo,
-        desatualizado=_colab_desatualizado(carimbo),
         total=len(linhas),
+        **frescor,
         somente_ativos=somente_ativos,
         empresas=_agrupar_colaboradores(linhas),
     )
