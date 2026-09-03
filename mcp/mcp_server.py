@@ -178,6 +178,12 @@ def listar_pedidos_com_os(limit: int = 30) -> Dict[str, Any]:
     (endpoint /ordens-servico/disponiveis). Requer a SIS_API_KEY. Use para descobrir quais
     pedidos podem ser sincronizados.
 
+    Cada item traz ``status_pedido`` (``Aberto`` | ``Cancelado`` | ``Fechado``) e
+    ``pedido_cancelado`` (bool). **Pedido cancelado no SAP continua na lista** quando as
+    OPs dele ainda estão vivas — ele NÃO é escondido de propósito, para que dê para agir
+    (cancelar as OPs, parar de oferecer "Liberar"). Filtre por ``pedido_cancelado`` se a
+    pergunta for "o que dá para produzir". ``null`` nos dois = OS sem pedido na ORDR.
+
     Args:
         limit: quantos pedidos trazer (1–50). Default 30.
     """
@@ -200,6 +206,13 @@ def detalhe_pedido_os(nped: int, incluir_linhas: bool = False) -> Dict[str, Any]
 
     Devolve ``{"ok": false, "error": "pedido sem OS sincronizada"}`` se o pedido ainda não
     foi sincronizado (use `listar_pedidos_com_os` p/ ver os disponíveis, ou peça a sincronização).
+
+    **Olhe ``pedido_cancelado`` antes de responder sobre a OS.** ``status_pedido`` e
+    ``pedido_cancelado`` (nível de topo) vêm da ORDR ao vivo; a OS sincronizada de um
+    pedido cancelado continua existindo, com OPs e ``exped_disponivel: true``. Quando
+    cancelado, vem também ``aviso: {"tipo": "pedido_cancelado", "motivo": ...}`` — diga
+    que o pedido está cancelado, não que "vai para solda". ``null`` nos dois = SAP não
+    respondeu; não conclua nada sobre cancelamento nesse caso.
 
     Args:
         nped: número do pedido (ex.: 84080).

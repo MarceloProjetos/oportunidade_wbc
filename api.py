@@ -59,6 +59,7 @@ import situacao_pedidos_hana as sit_ped_hana
 import windows_update
 from config import get_settings
 from extract_ordens_servico_engenharia import (
+    consultar_status_pedido,
     diagnosticar_nped,
     listar_pedidos_com_os,
 )
@@ -625,6 +626,14 @@ def os_detalhe(nped: str):
     has no place in the summary, so asking for it alone would just make the query heavier
     for nothing.
 
+    **The pedido's own status comes from ORDR, live** (``status_pedido`` +
+    ``pedido_cancelado`` at the top level). The synced rows never say "cancelled": a
+    pedido cancelled in SAP keeps its OS rows, its OPs and ``exped_disponivel: true``, so
+    without this the consumer sees a cancelled pedido as a normal one (pedidos
+    84282/84305/84314, 2026-09-03). When it IS cancelled the payload also carries
+    ``aviso: {tipo: 'pedido_cancelado', ...}``, the same ``tipo`` the sync route uses.
+    Best-effort: SAP down → both keys ``null``, the detail still answers.
+
     Note: the static route ``/ordens-servico/disponiveis`` has priority in Werkzeug's
     router, so it is not captured by this ``<nped>``.
     """
@@ -643,9 +652,31 @@ def os_detalhe(nped: str):
     if not linhas:
         return jsonify(ok=False, error='pedido sem OS sincronizada', nped=n), 404
     payload = {'ok': True, 'nped': n, 'resumo': _resumo_os(linhas)}
+    payload.update(_status_pedido_ordr(n))
     if quer_linhas:
         payload['linhas'] = linhas
     return jsonify(payload)
+
+
+def _status_pedido_ordr(nped: int) -> dict:
+    """``status_pedido``/``pedido_cancelado`` (+ ``aviso`` when cancelled) from ORDR.
+
+    Never raises: the OS detail must answer even with SAP down (keys come ``None``).
+    """
+    try:
+        info = consultar_status_pedido(nped)
+    except Exception as exc:
+        logger.error("Erro ao consultar o status do pedido %s na ORDR: %s", nped, exc)
+        info = None
+    if info is None:
+        return {'status_pedido': None, 'pedido_cancelado': None}
+    out = {'status_pedido': info.get('pedido_status'),
+           'pedido_cancelado': info.get('pedido_cancelado')}
+    if info.get('pedido_cancelado'):
+        out['aviso'] = {'tipo': 'pedido_cancelado',
+                        'motivo': 'Pedido cancelado no SAP - a OS sincronizada e historico, '
+                                  'nao libere nem produza por ela.'}
+    return out
 
 
 @app.post('/ordens-servico/<nped>/sincronizar')

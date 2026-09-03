@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 import sys
 import time
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Tuple
 
 import pandas as pd
 
@@ -170,19 +170,77 @@ def diagnosticar_nped(nped: object) -> dict:
         pedido_cancelado = False
         if pedido_existe:
             row = df_ped.iloc[0]
-            # CANCELED: 'Y' = cancelled, 'C' = reversal document (cancellation);
-            # DocStatus 'C' without cancellation = pedido closed.
-            pedido_cancelado = str(row.get('CANCELED', '')).strip() in ('Y', 'C')
-            if pedido_cancelado:
-                pedido_status = 'Cancelado'
-            elif str(row.get('DocStatus', '')).strip() == 'C':
-                pedido_status = 'Fechado'
-            else:
-                pedido_status = 'Aberto'
+            pedido_cancelado, pedido_status = classificar_pedido(
+                row.get('CANCELED'), row.get('DocStatus'))
 
     return {'tem_os': tem_os, 'cancelada': cancelada, 'status': statuses,
             'pedido_existe': pedido_existe, 'pedido_cancelado': pedido_cancelado,
             'pedido_status': pedido_status}
+
+
+def classificar_pedido(canceled: object, doc_status: object) -> Tuple[bool, str]:
+    """``ORDR.CANCELED`` + ``ORDR.DocStatus`` → ``(pedido_cancelado, pedido_status)``.
+
+    SAP B1: ``CANCELED`` = ``'Y'`` cancelled, ``'C'`` reversal document (cancellation);
+    ``DocStatus = 'C'`` without cancellation = pedido closed (fully delivered/invoiced).
+    Single source for the three readers (``diagnosticar_nped``, ``listar_pedidos_com_os``
+    and ``consultar_status_pedido``) so they never disagree on what "cancelled" means.
+
+    Incident 2026-09-03: pedidos 84282/84305/84314 were cancelled in SAP but still had
+    live OPs, so they showed up in the OS list/detail with no hint of cancellation, while
+    ``VW_STATUS_PEDIDO_DDP`` (which drops cancelled pedidos) answered 404 for them — the
+    consumer read "sem situação". This flag is what lets the consumer tell the two apart.
+    """
+    cancelado = str(canceled or '').strip() in ('Y', 'C')
+    if cancelado:
+        return True, 'Cancelado'
+    if str(doc_status or '').strip() == 'C':
+        return False, 'Fechado'
+    return False, 'Aberto'
+
+
+def consultar_status_pedido(nped: object) -> Optional[dict]:
+    """Pedido status straight from ``ORDR`` (one row, own connection, no OWOR).
+
+    The light read behind ``GET /ordens-servico/<nped>``: the detail comes from Supabase
+    and knows nothing about cancellation, and the cancelled pedido keeps its synced OS
+    rows forever. Best-effort by contract — the caller must survive ``None``.
+
+    Returns:
+        ``{'pedido_existe': bool, 'pedido_cancelado': bool, 'pedido_status': str|None}``
+        (``pedido_status`` is ``None`` when the pedido is not in ORDR), or ``None`` when
+        SAP is not configured/reachable or the query fails.
+
+    Raises:
+        ValueError: if ``nped`` is not a positive integer.
+    """
+    settings = get_settings()
+    nped_int = coerce_positive_int(nped, what='NPED')
+
+    if not settings.sap_ready():
+        return None
+
+    sap = SAPExtractor(
+        settings.sap_host, settings.sap_port, settings.sap_user,
+        settings.sap_password, settings.sap_database,
+    )
+    if not sap.connect():
+        return None
+
+    ordr = build_view_query('ORDR', settings.sap_schema)  # "SCHEMA"."ORDR"
+    df_ped = sap.execute_query(
+        f'SELECT "CANCELED", "DocStatus" FROM {ordr} WHERE "DocNum" = {nped_int}'
+    )
+    sap.close()
+    if df_ped is None:
+        logger.error("Falha ao consultar o status do pedido %s na ORDR", nped_int)
+        return None
+
+    if len(df_ped) == 0:
+        return {'pedido_existe': False, 'pedido_cancelado': False, 'pedido_status': None}
+    row = df_ped.iloc[0]
+    cancelado, status = classificar_pedido(row.get('CANCELED'), row.get('DocStatus'))
+    return {'pedido_existe': True, 'pedido_cancelado': cancelado, 'pedido_status': status}
 
 
 def listar_pedidos_com_os(limit: int = 30) -> Optional[List[dict]]:
@@ -192,14 +250,21 @@ def listar_pedidos_com_os(limit: int = 30) -> Optional[List[dict]]:
     with ``OriginNum`` = the pedido number. Pedidos whose OS is **fully cancelled** (every
     row with ``Status = 'C'``) are excluded — we filter ``Status <> 'C'`` before grouping.
     LEFT JOINs ``OWOR`` with ``ORDR`` (pedido) to bring in the customer name
-    (``CardName``).
+    (``CardName``) and the pedido's own status (``CANCELED``/``DocStatus``).
+
+    A **cancelled pedido with live OPs stays in the list, flagged** — it is not dropped,
+    because the OS really exists in SAP and the consumer may need to see it to act
+    (cancel the OPs, stop showing "Liberar"). Dropping it would hide the problem; the flag
+    exposes it. See ``classificar_pedido`` for the incident.
 
     Args:
         limit: maximum number of pedidos to return.
 
     Returns:
-        List of ``{'nped': int, 'cliente': str|None, 'os': int|None, 'data': str|None}``
-        sorted newest to oldest, or ``None`` on failure.
+        List of ``{'nped': int, 'cliente': str|None, 'os': int|None, 'data': str|None,
+        'status_pedido': 'Aberto'|'Cancelado'|'Fechado'|None, 'pedido_cancelado':
+        bool|None}`` sorted newest to oldest, or ``None`` on failure. The two status keys
+        are ``None`` when the pedido is not in ORDR (OS orphaned from its pedido).
     """
     settings = get_settings()
     limit_int = coerce_positive_int(limit, what='limit')
@@ -221,7 +286,9 @@ def listar_pedidos_com_os(limit: int = 30) -> Optional[List[dict]]:
     # manual OPs (no originating pedido). MAX(DocEntry) sorts by the newest OS.
     query = (
         f'SELECT T0."OriginNum" AS "NPED", MAX(T1."CardName") AS "Cliente", '
-        f'MAX(T0."DocNum") AS "OS", MAX(T0."PostDate") AS "Data" '
+        f'MAX(T0."DocNum") AS "OS", MAX(T0."PostDate") AS "Data", '
+        f'MAX(T1."CANCELED") AS "Canceled", MAX(T1."DocStatus") AS "DocStatus", '
+        f'COUNT(T1."DocEntry") AS "PedidoExiste" '
         f'FROM {owor} T0 LEFT JOIN {ordr} T1 ON T1."DocNum" = T0."OriginNum" '
         f"WHERE T0.\"OriginNum\" > 0 AND T0.\"Status\" <> 'C' "
         f'GROUP BY T0."OriginNum" '
@@ -242,12 +309,20 @@ def listar_pedidos_com_os(limit: int = 30) -> Optional[List[dict]]:
         data = row.get('Data')
         cliente = row.get('Cliente')
         os_num = row.get('OS')
+        # COUNT of the LEFT JOIN side: 0 = OS without a pedido in ORDR → status unknown.
+        existe = row.get('PedidoExiste')
+        if pd.notna(existe) and int(existe) > 0:
+            cancelado, status_ped = classificar_pedido(row.get('Canceled'), row.get('DocStatus'))
+        else:
+            cancelado, status_ped = None, None
         pedidos.append({
             'nped': int(row['NPED']),
             'cliente': str(cliente).strip() if pd.notna(cliente) else None,
             'os': int(os_num) if pd.notna(os_num) else None,
             'data': data.isoformat() if hasattr(data, 'isoformat') else (
                 str(data) if pd.notna(data) else None),
+            'status_pedido': status_ped,
+            'pedido_cancelado': cancelado,
         })
     logger.info("Pedidos com OS listados do SAP: %s", len(pedidos))
     return pedidos

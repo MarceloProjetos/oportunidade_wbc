@@ -1150,3 +1150,51 @@ def test_colaboradores_publica_o_carimbo_em_brasilia(client, monkeypatch):
     body = client.get('/rh/colaboradores').get_json()
     assert body['atualizado_em'] == '2026-08-31T19:31:51+00:00'
     assert body['atualizado_em_br'].startswith('2026-08-31T16:31:51')
+
+
+# ----- pedido cancelado no SAP com OS sincronizada (incidente 2026-09-03) -----
+
+def test_os_detalhe_pedido_cancelado_vem_sinalizado(client, monkeypatch):
+    """A OS sincronizada de um pedido cancelado continua la; o detalhe tem de AVISAR."""
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, 'consultar_status_pedido', lambda n: {
+        'pedido_existe': True, 'pedido_cancelado': True, 'pedido_status': 'Cancelado'})
+    body = client.get('/ordens-servico/84314').get_json()
+    assert body['ok'] is True
+    assert body['status_pedido'] == 'Cancelado' and body['pedido_cancelado'] is True
+    assert body['aviso']['tipo'] == 'pedido_cancelado'
+    assert body['resumo']['num_ops'] == 2  # a OS nao some: e historico
+
+
+def test_os_detalhe_pedido_aberto_sem_aviso(client, monkeypatch):
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, 'consultar_status_pedido', lambda n: {
+        'pedido_existe': True, 'pedido_cancelado': False, 'pedido_status': 'Aberto'})
+    body = client.get('/ordens-servico/84080').get_json()
+    assert body['status_pedido'] == 'Aberto' and body['pedido_cancelado'] is False
+    assert 'aviso' not in body
+
+
+def test_os_detalhe_sap_fora_nao_derruba_o_detalhe(client, monkeypatch):
+    """ORDR indisponivel (None ou excecao) → chaves null, detalhe responde 200 igual."""
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, 'consultar_status_pedido', lambda n: None)
+    body = client.get('/ordens-servico/84080').get_json()
+    assert body['ok'] is True
+    assert body['status_pedido'] is None and body['pedido_cancelado'] is None
+    assert 'aviso' not in body
+
+    def _boom(n):
+        raise RuntimeError('hana caiu')
+    monkeypatch.setattr(apimod, 'consultar_status_pedido', _boom)
+    r = client.get('/ordens-servico/84080')
+    assert r.status_code == 200 and r.get_json()['pedido_cancelado'] is None
+
+
+def test_os_disponiveis_repassa_status_do_pedido(client, monkeypatch):
+    monkeypatch.setattr(apimod, 'listar_pedidos_com_os', lambda limit: [
+        {'nped': 84314, 'cliente': 'EXPIN', 'os': 154213, 'data': '2026-08-31T00:00:00',
+         'status_pedido': 'Cancelado', 'pedido_cancelado': True}])
+    body = client.get('/ordens-servico/disponiveis').get_json()
+    assert body['items'][0]['pedido_cancelado'] is True
+    assert body['items'][0]['status_pedido'] == 'Cancelado'

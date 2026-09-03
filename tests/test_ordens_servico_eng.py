@@ -336,3 +336,79 @@ def test_env_com_modo_invalido_falha_claro(monkeypatch):
     monkeypatch.setenv('OS_EXECUTION_MODE', 'snapshot')   # modo de oportunidades, não de OS
     reset_settings()
     assert mod.main(84080) is False
+
+
+# ============ Pedido cancelado com OS viva (incidente 2026-09-03) ============
+
+def test_classificar_pedido():
+    assert mod.classificar_pedido('Y', 'C') == (True, 'Cancelado')
+    assert mod.classificar_pedido('C', 'C') == (True, 'Cancelado')   # documento de estorno
+    assert mod.classificar_pedido('N', 'C') == (False, 'Fechado')
+    assert mod.classificar_pedido('N', 'O') == (False, 'Aberto')
+    assert mod.classificar_pedido(None, None) == (False, 'Aberto')
+
+
+def test_consultar_status_pedido_cancelado(monkeypatch):
+    _set_sap_env(monkeypatch)
+    monkeypatch.setattr(mod, 'SAPExtractor',
+                        _fake_sap_diag([], [{'CANCELED': 'Y', 'DocStatus': 'C'}]))
+    assert mod.consultar_status_pedido(84314) == {
+        'pedido_existe': True, 'pedido_cancelado': True, 'pedido_status': 'Cancelado'}
+
+
+def test_consultar_status_pedido_inexistente(monkeypatch):
+    _set_sap_env(monkeypatch)
+    monkeypatch.setattr(mod, 'SAPExtractor', _fake_sap_diag([], []))
+    assert mod.consultar_status_pedido(99999) == {
+        'pedido_existe': False, 'pedido_cancelado': False, 'pedido_status': None}
+
+
+def test_consultar_status_pedido_sap_falha_devolve_none(monkeypatch):
+    _set_sap_env(monkeypatch)
+    monkeypatch.setattr(mod, 'SAPExtractor', _fake_sap_diag([], None))
+    assert mod.consultar_status_pedido(84314) is None
+
+
+def test_consultar_status_pedido_sem_config_devolve_none(monkeypatch):
+    monkeypatch.delenv('SAP_HOST', raising=False)
+    reset_settings()
+    assert mod.consultar_status_pedido(84314) is None
+
+
+def _fake_sap_lista(rows):
+    class _FS:
+        def __init__(self, *a, **k):
+            pass
+
+        def connect(self):
+            return True
+
+        def execute_query(self, query):
+            assert 'MAX(T1."CANCELED")' in query and 'COUNT(T1."DocEntry")' in query
+            return pd.DataFrame(rows)
+
+        def close(self):
+            pass
+    return _FS
+
+
+def test_listar_pedidos_com_os_marca_cancelado_sem_esconder(monkeypatch):
+    """Pedido cancelado com OP viva CONTINUA na lista, mas sinalizado."""
+    _set_sap_env(monkeypatch)
+    monkeypatch.setattr(mod, 'SAPExtractor', _fake_sap_lista([
+        {'NPED': 84314, 'Cliente': 'EXPIN', 'OS': 154213, 'Data': None,
+         'Canceled': 'Y', 'DocStatus': 'C', 'PedidoExiste': 1},
+        {'NPED': 84313, 'Cliente': 'NSA', 'OS': 154200, 'Data': None,
+         'Canceled': 'N', 'DocStatus': 'O', 'PedidoExiste': 1},
+        {'NPED': 70000, 'Cliente': None, 'OS': 100, 'Data': None,
+         'Canceled': None, 'DocStatus': None, 'PedidoExiste': 0},
+    ]))
+    lista = mod.listar_pedidos_com_os(30)
+    por_nped = {p['nped']: p for p in lista}
+    assert por_nped[84314]['pedido_cancelado'] is True
+    assert por_nped[84314]['status_pedido'] == 'Cancelado'
+    assert por_nped[84313] == {'nped': 84313, 'cliente': 'NSA', 'os': 154200, 'data': None,
+                               'status_pedido': 'Aberto', 'pedido_cancelado': False}
+    # OS órfã (pedido fora da ORDR): não inventa status.
+    assert por_nped[70000]['status_pedido'] is None
+    assert por_nped[70000]['pedido_cancelado'] is None

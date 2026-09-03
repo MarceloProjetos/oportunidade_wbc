@@ -159,6 +159,43 @@ Ele é **agregado** de propósito: como as flags são por item (§2.1), um boole
 **Respostas de negócio** do `GET /ordens-servico/{nped}`:
 - `404` + `"pedido sem OS sincronizada"` → o pedido ainda não foi sincronizado. Dispare o `POST .../sincronizar` ou use `/ordens-servico/disponiveis`.
 
+### 3.5 ⚠️ Pedido **cancelado** no SAP com OS viva (desde 03/09/2026)
+
+A OS sincronizada **não some** quando o pedido é cancelado no SAP: as OPs continuam na
+OWOR, o `resumo` continua vindo com `num_ops`, `processos` e `exped_disponivel: true`.
+Até 03/09 nada na API dizia "cancelado" — e a `Situação dos Pedidos`
+(`GET /pedidos/{n}/situacao`) responde **404** para pedido cancelado, porque a view
+de origem os exclui. Resultado visto em produção: 84282, 84305 e 84314 apareciam na
+lista de OS como pedidos normais e "sem situação" na tela de quem consome.
+
+Agora os dois endpoints leem `ORDR.CANCELED` ao vivo:
+
+| Endpoint | Campos novos |
+| --- | --- |
+| `GET /ordens-servico/disponiveis` | em cada item: `status_pedido` (`"Aberto"` \| `"Cancelado"` \| `"Fechado"` \| `null`) e `pedido_cancelado` (`true` \| `false` \| `null`) |
+| `GET /ordens-servico/{nped}` | no nível de topo: os mesmos dois, e **quando cancelado** também `aviso: {"tipo": "pedido_cancelado", "motivo": "..."}` |
+
+```json
+{
+  "ok": true,
+  "nped": 84314,
+  "status_pedido": "Cancelado",
+  "pedido_cancelado": true,
+  "aviso": {"tipo": "pedido_cancelado", "motivo": "Pedido cancelado no SAP - a OS sincronizada e historico, nao libere nem produza por ela."},
+  "resumo": { "...": "inalterado" }
+}
+```
+
+Regras para quem consome:
+
+- **Cheque `pedido_cancelado` antes de oferecer "Liberar"** ou de mostrar a OS como
+  produzível. O pedido cancelado **continua na lista de propósito**: esconder faria o
+  problema (OPs vivas de pedido morto) sumir da vista de quem precisa cancelá-las.
+- `null` nos dois campos = a API não conseguiu perguntar ao SAP naquele instante (ou a OS
+  não tem pedido na ORDR). Não conclua "não cancelado" a partir de `null`.
+- O `tipo` `pedido_cancelado` é o **mesmo** que o `POST .../sincronizar` já devolvia.
+- Nada foi removido nem renomeado; quem ignora os campos novos continua funcionando.
+
 **Ao sincronizar**, a resposta pode trazer avisos em vez de erro (todos `HTTP 200`): `sem_os` (OS ainda não gerada), `pedido_cancelado`, `pedido_nao_encontrado`, `cancelada`. O `502` é falha real de sincronização.
 
 > ⏱️ A sincronização de um pedido grande leva **~10 s**. Se seu cliente HTTP tiver timeout curto, ele pode estourar **mesmo com a sincronização dando certo** no servidor — confira com `GET /ordens-servico/{nped}` antes de concluir que falhou.

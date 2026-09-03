@@ -3,6 +3,32 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-03] — OS de pedido cancelado passa a vir sinalizada (lista + detalhe)
+
+Incidente reportado pela equipe consumidora: pedidos 84282, 84305 e 84314 apareciam na
+lista de OS como pedidos normais e "sem situacao" na tela deles. Causa provada no HANA: os
+tres estao **cancelados na ORDR** (`CANCELED='Y'`) mas com OPs vivas na OWOR. A
+`VW_STATUS_PEDIDO_DDP` exclui cancelados → `GET /pedidos/<n>/situacao` responde 404 (por
+desenho); ja a lista/detalhe de OS so filtrava OP cancelada, nunca pedido cancelado, e o
+ramo `pedido_cancelado` da sincronizacao so dispara sem OS nenhuma. Ninguem mentia, mas
+ninguem dizia "cancelado".
+
+- **`GET /ordens-servico/disponiveis`**: cada item ganha `status_pedido`
+  (Aberto|Cancelado|Fechado|null) e `pedido_cancelado` (bool|null), lidos da ORDR no mesmo
+  SELECT (`MAX(CANCELED)`, `MAX(DocStatus)`, `COUNT(DocEntry)`). **Cancelado continua na
+  lista, sinalizado** — esconder faria as OPs vivas de pedido morto sumirem da vista.
+- **`GET /ordens-servico/<nped>`**: os mesmos dois campos no topo, via leitura leve so da
+  ORDR (`consultar_status_pedido`, conexao propria), e `aviso: {tipo: 'pedido_cancelado'}`
+  quando cancelado — mesmo `tipo` do `POST .../sincronizar`. Best-effort: SAP fora → `null`
+  nos dois e o detalhe responde 200 igual.
+- `classificar_pedido(canceled, doc_status)` vira a fonte unica da regra (`'Y'`/`'C'` =
+  cancelado; `DocStatus='C'` sem cancelamento = fechado); `diagnosticar_nped` passa a usa-la.
+- MCP: docstrings de `listar_pedidos_com_os` e `detalhe_pedido_os` instruem a olhar
+  `pedido_cancelado` antes de responder sobre a OS; `null` nao e "nao cancelado".
+- Doc `API_OS_INTEGRACAO.md` §3.5 com as regras para quem consome. Provado contra o HANA
+  de producao a partir do checkout local: 84282/84305/84314 → Cancelado, 84313 → Aberto,
+  lista de 30 com 2 cancelados (84314, 84305). 558 testes.
+
 ## [2026-09-01] — Guia de colaboradores completo (o .md é a entrega)
 
 O documento é a UNICA coisa que a equipe consumidora recebe, entao ele deixou de ser um
