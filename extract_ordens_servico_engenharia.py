@@ -206,10 +206,17 @@ def consultar_status_pedido(nped: object) -> Optional[dict]:
     and knows nothing about cancellation, and the cancelled pedido keeps its synced OS
     rows forever. Best-effort by contract — the caller must survive ``None``.
 
+    It also brings the pedido's **identity** (customer, date, value): a cancelled pedido
+    is not in ``VW_STATUS_PEDIDO_DDP``, so ``GET /pedidos/<n>/situacao`` has no other
+    place to read the customer name from when it answers "Cancelado" (2026-09-03). Same
+    row, same connection — the extra columns cost nothing.
+
     Returns:
-        ``{'pedido_existe': bool, 'pedido_cancelado': bool, 'pedido_status': str|None}``
-        (``pedido_status`` is ``None`` when the pedido is not in ORDR), or ``None`` when
-        SAP is not configured/reachable or the query fails.
+        ``{'pedido_existe': bool, 'pedido_cancelado': bool, 'pedido_status': str|None,
+        'card_code': str, 'card_name': str, 'data_pedido': str|None (ISO),
+        'valor_total': float, 'moeda': str}`` (``pedido_status`` is ``None`` when the
+        pedido is not in ORDR, and the identity keys come empty), or ``None`` when SAP is
+        not configured/reachable or the query fails.
 
     Raises:
         ValueError: if ``nped`` is not a positive integer.
@@ -229,18 +236,42 @@ def consultar_status_pedido(nped: object) -> Optional[dict]:
 
     ordr = build_view_query('ORDR', settings.sap_schema)  # "SCHEMA"."ORDR"
     df_ped = sap.execute_query(
-        f'SELECT "CANCELED", "DocStatus" FROM {ordr} WHERE "DocNum" = {nped_int}'
+        f'SELECT "CANCELED", "DocStatus", "CardCode", "CardName", "DocDate", '
+        f'"DocTotal", "DocCur" FROM {ordr} WHERE "DocNum" = {nped_int}'
     )
     sap.close()
     if df_ped is None:
         logger.error("Falha ao consultar o status do pedido %s na ORDR", nped_int)
         return None
 
+    vazio = {'card_code': '', 'card_name': '', 'data_pedido': None,
+             'valor_total': 0.0, 'moeda': ''}
     if len(df_ped) == 0:
-        return {'pedido_existe': False, 'pedido_cancelado': False, 'pedido_status': None}
+        return {'pedido_existe': False, 'pedido_cancelado': False, 'pedido_status': None,
+                **vazio}
     row = df_ped.iloc[0]
     cancelado, status = classificar_pedido(row.get('CANCELED'), row.get('DocStatus'))
-    return {'pedido_existe': True, 'pedido_cancelado': cancelado, 'pedido_status': status}
+    return {'pedido_existe': True, 'pedido_cancelado': cancelado, 'pedido_status': status,
+            'card_code': str(row.get('CardCode') or '').strip(),
+            'card_name': str(row.get('CardName') or '').strip(),
+            'data_pedido': _data_iso(row.get('DocDate')),
+            'valor_total': float(row.get('DocTotal') or 0.0),
+            'moeda': str(row.get('DocCur') or '').strip()}
+
+
+def _data_iso(valor: object) -> Optional[str]:
+    """``ORDR.DocDate`` (datetime/date/str) → ``'YYYY-MM-DD'``, ou ``None``.
+
+    A view ja entrega data ISO; a ORDR crua vem como ``Timestamp`` do pandas. Quem
+    consome os dois caminhos nao pode receber formatos diferentes no mesmo campo.
+    """
+    if valor is None or valor != valor:  # NaT/NaN nunca e' igual a si mesmo
+        return None
+    data = getattr(valor, 'date', None)
+    if callable(data):
+        return data().isoformat()
+    texto = str(valor).strip()
+    return texto[:10] or None
 
 
 def listar_pedidos_com_os(limit: int = 30) -> Optional[List[dict]]:

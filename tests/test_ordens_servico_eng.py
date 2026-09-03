@@ -1,5 +1,6 @@
 """Testes do pipeline de Ordens de Serviço (Engenharia) — sem credenciais reais."""
 
+from datetime import date, datetime
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -349,18 +350,35 @@ def test_classificar_pedido():
 
 
 def test_consultar_status_pedido_cancelado(monkeypatch):
+    """Status + IDENTIDADE: cancelado não está na view, e a situação sai daqui."""
     _set_sap_env(monkeypatch)
-    monkeypatch.setattr(mod, 'SAPExtractor',
-                        _fake_sap_diag([], [{'CANCELED': 'Y', 'DocStatus': 'C'}]))
+    monkeypatch.setattr(mod, 'SAPExtractor', _fake_sap_diag([], [{
+        'CANCELED': 'Y', 'DocStatus': 'C', 'CardCode': ' C011388 ',
+        'CardName': 'DIVENA AUTOMOVEIS LTDA', 'DocDate': datetime(2026, 8, 18),
+        'DocTotal': 12345.67, 'DocCur': 'R$'}]))
     assert mod.consultar_status_pedido(84314) == {
-        'pedido_existe': True, 'pedido_cancelado': True, 'pedido_status': 'Cancelado'}
+        'pedido_existe': True, 'pedido_cancelado': True, 'pedido_status': 'Cancelado',
+        'card_code': 'C011388', 'card_name': 'DIVENA AUTOMOVEIS LTDA',
+        'data_pedido': '2026-08-18', 'valor_total': 12345.67, 'moeda': 'R$'}
 
 
 def test_consultar_status_pedido_inexistente(monkeypatch):
     _set_sap_env(monkeypatch)
     monkeypatch.setattr(mod, 'SAPExtractor', _fake_sap_diag([], []))
     assert mod.consultar_status_pedido(99999) == {
-        'pedido_existe': False, 'pedido_cancelado': False, 'pedido_status': None}
+        'pedido_existe': False, 'pedido_cancelado': False, 'pedido_status': None,
+        'card_code': '', 'card_name': '', 'data_pedido': None,
+        'valor_total': 0.0, 'moeda': ''}
+
+
+def test_data_iso_normaliza_o_que_a_ordr_devolve():
+    """A view entrega ISO; a ORDR crua vem Timestamp. Mesmo campo, mesmo formato."""
+    assert mod._data_iso(pd.Timestamp('2026-08-18 00:00:00')) == '2026-08-18'
+    assert mod._data_iso(datetime(2026, 8, 18, 13, 5)) == '2026-08-18'
+    assert mod._data_iso(date(2026, 8, 18)) == '2026-08-18'
+    assert mod._data_iso('2026-08-18T00:00:00') == '2026-08-18'
+    assert mod._data_iso(None) is None
+    assert mod._data_iso(pd.NaT) is None
 
 
 def test_consultar_status_pedido_sap_falha_devolve_none(monkeypatch):

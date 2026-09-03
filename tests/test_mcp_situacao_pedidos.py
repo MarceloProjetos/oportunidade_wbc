@@ -75,6 +75,13 @@ def test_a_descricao_avisa_que_404_nao_e_sem_bloqueio(fachada):
     assert 'NÃO' in d and 'sem bloqueio' in d
 
 
+def test_a_descricao_manda_dizer_cancelado(fachada):
+    """Cancelado chega como 200 — sem isto o modelo lê "Cancelado" e responde "liberado"."""
+    tools = {t.name: t for t in asyncio.run(fachada.mcp.list_tools())}
+    d = tools['situacao_pedido'].description
+    assert 'Cancelado' in d and 'pedido_cancelado' in d
+
+
 def test_a_descricao_avisa_a_divergencia_do_status_com_a_tela(fachada):
     """D3: o default diverge da tela DE PROPÓSITO — quem lê o número precisa saber."""
     tools = {t.name: t for t in asyncio.run(fachada.mcp.list_tools())}

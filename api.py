@@ -1114,9 +1114,19 @@ def situacao_pedido_unico(numero: str):
     confundi-los devolveria outro pedido calado -- a mesma armadilha das rotas de Ordem
     de Producao.
 
-    **404 quer dizer "fora do recorte da view", nao "sem bloqueio".** A view carrega so
-    os pedidos correntes; um pedido de 2024 simplesmente nao esta la. Responder "sem
-    bloqueio" nesse caso seria mentira -- dai a mensagem ser explicita.
+    **Pedido cancelado no SAP responde 200 dizendo "Cancelado"** (desde 2026-09-03). A
+    view exclui cancelado, entao a resposta vem da ORDR ao vivo, no MESMO formato: as
+    tres etapas viram ``"Cancelado"``, com ``fonte: "ordr"``, ``pedido_cancelado: true``
+    e ``aviso``. Quem consome nao precisa de outra chamada nem de outro `if`.
+
+    **404 quer dizer "nao da' para afirmar a situacao", nao "sem bloqueio"** -- e nunca
+    vem mudo: ``motivo`` diz qual dos tres casos e' (``fora_do_recorte``, o pedido de
+    2024 que a view nao carrega; ``pedido_nao_encontrado``, DocNum que nao existe na
+    ORDR; ``indeterminado``, o SAP nao respondeu agora) e ``status_pedido`` traz o que a
+    ORDR disser. Responder "sem bloqueio" em qualquer um deles seria mentira.
+
+    Em toda resposta, ``status_pedido`` + ``pedido_cancelado`` no topo -- o MESMO par de
+    ``GET /ordens-servico/<nped>``, com o mesmo sentido (``null`` = nao se sabe).
 
     **409** quando o numero casa com mais de um pedido: recusa, nunca resolve por
     ``[0]``. Nao deve acontecer (a view e' por DocEntry), e e' justamente por isso que
@@ -1141,13 +1151,7 @@ def situacao_pedido_unico(numero: str):
 
     achados = [p for p in pedidos if p.get(campo) == n]
     if not achados:
-        logger.info("[SIT_PED] pedido %s (%s) fora do recorte da view.", n, campo)
-        return jsonify(
-            ok=False,
-            error=(f'pedido {n} fora do recorte da view (ela carrega so os pedidos '
-                   f'correntes) - isto NAO quer dizer que ele esteja sem bloqueio'),
-            pedido=n, chave=campo,
-        ), 404
+        return _situacao_fora_da_view(n, campo)
     if len(achados) > 1:
         logger.warning("[SIT_PED] %s %s casa com %d pedidos.", campo, n, len(achados))
         return jsonify(
@@ -1160,7 +1164,99 @@ def situacao_pedido_unico(numero: str):
     return jsonify(ok=True,
                    gerado_em=sit_ped.now_br().isoformat(timespec='seconds'),
                    cache_idade_s=sit_ped_hana.idade_do_cache_s(),
+                   fonte='view',
+                   status_pedido=achados[0].get('status_pedido'),
+                   pedido_cancelado=False,  # a view exclui cancelado: se esta aqui, nao e'
                    pedido=pedido)
+
+
+#: Motivo publicado quando a situacao nao pode ser afirmada. Chave estavel (o texto do
+#: ``error`` e' para gente; isto e' para o `if` de quem consome).
+SIT_PED_MOTIVOS = {
+    'fora_do_recorte': 'pedido {n} fora do recorte da view (ela carrega so os pedidos '
+                       'correntes) - isto NAO quer dizer que ele esteja sem bloqueio',
+    'pedido_nao_encontrado': 'pedido {n} nao existe no SAP (nao ha DocNum {n} na ORDR)',
+    'indeterminado': 'pedido {n} nao esta no recorte da view e o SAP nao respondeu agora '
+                     '- situacao INDETERMINADA, nao conclua que ele esta liberado',
+}
+
+#: Frase unica do pedido cancelado — a MESMA de ``/ordens-servico/<nped>``.
+SIT_PED_AVISO_CANCELADO = ('Pedido cancelado no SAP - nao ha etapa a liberar; '
+                           'nao produza nem entregue por ele.')
+
+
+def _situacao_fora_da_view(n: int, campo: str):
+    """Pedido que a ``VW_STATUS_PEDIDO_DDP`` nao carrega -> pergunta ao SAP (ORDR).
+
+    **Cancelado responde 200 dizendo "Cancelado"** (decisao do dono, 2026-09-03). Ate
+    aqui a rota devolvia um 404 mudo, identico ao de um pedido de 2024, e a tela de quem
+    consome mostrava "sem situacao" para pedido que o usuario tinha cancelado no SAP
+    (84282, 84305, 84314) — reclamacao real de quem consome. Cancelado **e'** uma
+    situacao, e a ORDR sabe dize-la.
+
+    O payload sai com o **mesmo formato** do caminho da view (passa pelo
+    :func:`situacao_pedidos.normalizar`, entao nenhuma chave falta e nada muda de tipo):
+    as tres etapas vem ``"Cancelado"`` em vez de Liberado/Bloqueado. Quem ja desenha o
+    chip da etapa passa a escrever "Cancelado" sem mudar uma linha.
+
+    Os demais casos continuam **404** — mas nunca mudos: ``motivo`` diz qual e'
+    (``fora_do_recorte`` / ``pedido_nao_encontrado`` / ``indeterminado``) e
+    ``status_pedido`` traz o que a ORDR disser. SAP fora e' ``indeterminado``, jamais
+    "sem bloqueio".
+    """
+    # A ORDR so' sabe procurar por DocNum: com ?chave=docentry nao ha o que perguntar,
+    # e inventar uma traducao devolveria a situacao de OUTRO pedido, calada.
+    info = None
+    if campo == 'doc_num':
+        try:
+            info = consultar_status_pedido(n)
+        except Exception as exc:  # ORDR fora nunca vira 500 nesta rota
+            logger.error("[SIT_PED] falha ao consultar a ORDR do pedido %s: %s", n, exc)
+
+    if info and info.get('pedido_cancelado'):
+        logger.info("[SIT_PED] pedido %s cancelado no SAP (fora da view).", n)
+        pedido = _pedido_cancelado_ordr(n, info)
+        if _campos_resumo(False):
+            pedido = sit_ped.resumir([pedido])[0]
+        return jsonify(ok=True,
+                       gerado_em=sit_ped.now_br().isoformat(timespec='seconds'),
+                       cache_idade_s=sit_ped_hana.idade_do_cache_s(),
+                       fonte='ordr',
+                       status_pedido='Cancelado',
+                       pedido_cancelado=True,
+                       aviso={'tipo': 'pedido_cancelado',
+                              'motivo': SIT_PED_AVISO_CANCELADO},
+                       pedido=pedido)
+
+    if info is None:
+        # Por DocEntry nem se perguntou: o pedido pode existir, so nao esta na view.
+        motivo = 'fora_do_recorte' if campo != 'doc_num' else 'indeterminado'
+        status, cancelado = None, None
+    elif info.get('pedido_existe'):
+        motivo, status, cancelado = 'fora_do_recorte', info.get('pedido_status'), False
+    else:
+        motivo, status, cancelado = 'pedido_nao_encontrado', None, False
+    logger.info("[SIT_PED] pedido %s (%s) sem situacao na view: %s.", n, campo, motivo)
+    return jsonify(
+        ok=False, motivo=motivo, error=SIT_PED_MOTIVOS[motivo].format(n=n),
+        pedido=n, chave=campo, status_pedido=status, pedido_cancelado=cancelado,
+    ), 404
+
+
+def _pedido_cancelado_ordr(n: int, info: dict) -> dict:
+    """Linha da ORDR -> o MESMO dict que a view produz, com as etapas ``"Cancelado"``.
+
+    Monta uma linha crua (PascalCase) e a entrega ao ``normalizar`` do nucleo portado,
+    em vez de escrever o dict a mao: assim o formato **nao consegue** divergir do
+    caminho da view quando alguem acrescentar um campo la. ``com_alerta`` fecha o
+    ``alerta_liberacao`` (sempre ``None`` aqui — cancelado nao alarma os 10 dias).
+    """
+    crua = {'DocNum': n, 'CardCode': info.get('card_code'),
+            'CardName': info.get('card_name'), 'Data_Pedido': info.get('data_pedido'),
+            'DocTotal': info.get('valor_total'), 'DocCur': info.get('moeda'),
+            'Financeiro': 'Cancelado', 'Producao': 'Cancelado', 'Entrega': 'Cancelado',
+            'StatusPedido': 'Cancelado'}
+    return sit_ped.com_alerta(sit_ped.normalizar([crua]))[0]
 
 
 # ---------------------------------------------------------------------------

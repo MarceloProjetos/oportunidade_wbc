@@ -163,10 +163,13 @@ Ele é **agregado** de propósito: como as flags são por item (§2.1), um boole
 
 A OS sincronizada **não some** quando o pedido é cancelado no SAP: as OPs continuam na
 OWOR, o `resumo` continua vindo com `num_ops`, `processos` e `exped_disponivel: true`.
-Até 03/09 nada na API dizia "cancelado" — e a `Situação dos Pedidos`
-(`GET /pedidos/{n}/situacao`) responde **404** para pedido cancelado, porque a view
+Até 03/09 nada na API dizia "cancelado", e a `Situação dos Pedidos`
+(`GET /pedidos/{n}/situacao`) respondia **404** para pedido cancelado, porque a view
 de origem os exclui. Resultado visto em produção: 84282, 84305 e 84314 apareciam na
-lista de OS como pedidos normais e "sem situação" na tela de quem consome.
+lista de OS como pedidos normais e "sem situação" na tela de quem consome. **As duas
+pontas foram fechadas no mesmo dia**: os endpoints de OS ganharam os campos abaixo, e a
+`GET /pedidos/{n}/situacao` passou a responder **200 dizendo `"Cancelado"`** (lendo a
+ORDR ao vivo) em vez do 404 — ver `API_SITUACAO_PEDIDOS.md` §2.2.
 
 Agora os dois endpoints leem `ORDR.CANCELED` ao vivo:
 

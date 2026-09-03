@@ -3,6 +3,40 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-03] — Situacao do Pedido: cancelado responde 200 dizendo "Cancelado"
+
+Segunda metade do incidente do mesmo dia. A lista de OS ja sinalizava o cancelamento
+(entrada abaixo), mas a tela de quem consome le a **Situacao dos Pedidos**, e ali 84282,
+84305 e 84314 continuavam dando **404 mudo** — identico ao de um pedido de 2024 — e o
+chip da tela escrevia "sem situacao". Medido na .11 antes de mexer: dos numeros fora da
+view que a equipe reclamou, TODOS estavam cancelados na ORDR (84200 e 83500 tambem).
+Cancelado **e** uma situacao; quem sabia dize-la era a ORDR, e ninguem perguntava.
+
+- **`GET /pedidos/<n>/situacao` responde `200` para pedido cancelado** (decisao do dono):
+  quando o numero nao esta na view, a rota le a ORDR ao vivo e devolve o **mesmo formato**
+  de sempre — as tres etapas em `"Cancelado"`, mais `fonte: "ordr"`, `status_pedido`,
+  `pedido_cancelado: true` e `aviso` (o mesmo `tipo` dos endpoints de OS). Quem ja desenha
+  o chip da etapa passa a escrever "Cancelado" **sem mudar uma linha**.
+- O payload sai do proprio `situacao_pedidos.normalizar` (linha crua sintetica), e nao de
+  um dict escrito a mao: um teste compara as chaves dos dois caminhos, entao campo novo na
+  view nao consegue faltar aqui.
+- **O `404` sobrou para o que nao da' para afirmar — e nunca vem mudo:** `motivo` =
+  `fora_do_recorte` (existe no SAP, fora do periodo da view; vem com `status_pedido`),
+  `pedido_nao_encontrado` (nao ha DocNum assim na ORDR) ou `indeterminado` (SAP nao
+  respondeu; `pedido_cancelado` = `null`, que NAO e "nao cancelado").
+- Toda resposta da rota traz `status_pedido` + `pedido_cancelado` no topo — o **mesmo
+  par**, com o mesmo sentido, de `GET /ordens-servico/<nped>`.
+- `?chave=docentry` **nao** pergunta a ORDR (ela so' procura por DocNum): traduzir na
+  marra devolveria a situacao de outro pedido, calada.
+- `consultar_status_pedido` passa a trazer tambem a identidade do pedido (cliente, data,
+  valor, moeda) na MESMA linha da ORDR — sem ela a resposta do cancelado sairia anonima.
+- MCP: a docstring de `situacao_pedido` manda dizer **cancelado** (200) e decidir o 404
+  pelo `motivo`; teste cravando. Doc `API_SITUACAO_PEDIDOS.md` reescrito nos 7 pontos que
+  falavam de 404 (§2.2 e §2.3 novas, tabela de `motivo`, exemplos, FAQ).
+- Provado contra o HANA de producao: 84282/84305/84314/84200/83500 → 200 "Cancelado";
+  84313/84250 → 200 pela view; 83000/82000 → 404 `fora_do_recorte` com
+  `status_pedido: "Fechado"`; 999999 → 404 `pedido_nao_encontrado`. 565 testes, ruff limpo.
+
 ## [2026-09-03] — OS de pedido cancelado passa a vir sinalizada (lista + detalhe)
 
 Incidente reportado pela equipe consumidora: pedidos 84282, 84305 e 84314 apareciam na

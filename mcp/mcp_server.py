@@ -321,10 +321,18 @@ def situacao_pedido(pedido: int, chave: str = "docnum") -> Dict[str, Any]:
     outro número, interno — só passe ``chave="docentry"`` se souber que o número em mãos
     é esse; confundir os dois traz o pedido errado sem erro nenhum.
 
-    Devolve ``{"ok": false, ...}`` com **404** quando o pedido está **fora do recorte da
-    view** — ela carrega só os pedidos correntes. Isso **NÃO** quer dizer que o pedido
-    esteja sem bloqueio: quer dizer que não dá para responder por aqui. Não invente
-    "está liberado" nesse caso.
+    **Pedido cancelado no SAP responde 200 com ``status_pedido: "Cancelado"``**,
+    ``pedido_cancelado: true`` e as três etapas em ``"Cancelado"`` (a situação vem da
+    ORDR, ``fonte: "ordr"``). Diga que o pedido foi **cancelado** — não "está liberado"
+    nem "não achei": não há etapa a liberar, e ele não deve ser produzido nem entregue.
+
+    Devolve ``{"ok": false, ...}`` com **404** quando não dá para afirmar a situação. O
+    campo ``motivo`` diz qual caso é: ``fora_do_recorte`` (o pedido existe no SAP, mas
+    está fora do recorte da view — ela carrega só os pedidos correntes; veja
+    ``status_pedido``), ``pedido_nao_encontrado`` (não existe DocNum assim) ou
+    ``indeterminado`` (o SAP não respondeu agora). Nenhum dos três quer dizer que o
+    pedido esteja sem bloqueio: quer dizer que **NÃO** dá para responder por aqui. Não
+    invente "está liberado" nesses casos.
 
     O campo ``alerta_liberacao`` traz o texto "Mais de 10 dias preso no financeiro (N
     dias)" quando o pedido estourou o limite, e ``null`` quando não estourou.

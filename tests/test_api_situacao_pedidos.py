@@ -74,6 +74,17 @@ LOTE = [
 ]
 
 
+def _ordr(**over: Any) -> dict[str, Any]:
+    """Resposta do ``consultar_status_pedido`` (ORDR), como a rota a recebe."""
+    base: dict[str, Any] = {
+        'pedido_existe': True, 'pedido_cancelado': False, 'pedido_status': 'Fechado',
+        'card_code': 'C011388', 'card_name': 'DIVENA AUTOMOVEIS LTDA',
+        'data_pedido': '2026-08-18', 'valor_total': 12345.67, 'moeda': 'R$',
+    }
+    base.update(over)
+    return base
+
+
 @pytest.fixture
 def client(monkeypatch):
     """API aberta (sem OS_API_KEY) + HANA dublado no ``fetch_status_pedidos``."""
@@ -90,6 +101,10 @@ def client(monkeypatch):
 
     monkeypatch.setattr(apimod.sit_ped_hana, 'fetch_status_pedidos', _fake)
     monkeypatch.setattr(apimod.sit_ped_hana, 'idade_do_cache_s', lambda: 12.3)
+    # ORDR dublada em TODOS os testes: o fallback do 404 le o SAP de verdade, e uma
+    # suite que abre conexao HANA passa a depender do ambiente, nao do codigo.
+    # O default e' o caso comum -- pedido antigo, existe e nao esta cancelado.
+    monkeypatch.setattr(apimod, 'consultar_status_pedido', lambda n: _ordr())
     apimod.app.config.update(TESTING=True)
     c = apimod.app.test_client()
     c._idas = idas
@@ -224,6 +239,9 @@ def test_pedido_por_docnum(client):
     assert b['pedido']['producao'] == 'Bloqueado'      # "Bloqueada" canonizado
     assert b['pedido']['valor_total'] == 41250.0       # default aqui é completo
     assert b['cache_idade_s'] == 12.3
+    # o mesmo par de GET /ordens-servico/<nped>, em TODA resposta desta rota
+    assert b['fonte'] == 'view'
+    assert b['status_pedido'] == 'Aberto' and b['pedido_cancelado'] is False
 
 
 def test_pedido_por_docentry(client):
@@ -249,6 +267,78 @@ def test_pedido_fora_do_recorte_e_404_que_nao_mente(client):
     assert b['pedido'] == 70000
     assert 'fora do recorte' in b['error']
     assert 'NAO quer dizer que ele esteja sem bloqueio' in b['error']
+    # e nunca mudo: quem consome decide pelo `motivo`, não pelo texto
+    assert b['motivo'] == 'fora_do_recorte'
+    assert b['status_pedido'] == 'Fechado' and b['pedido_cancelado'] is False
+
+
+# --- pedido cancelado no SAP (incidente 84282/84305/84314, 2026-09-03) -------
+# A view exclui cancelado; até 03/09 a rota devolvia 404 mudo e a tela de quem consome
+# escrevia "sem situação" para pedido que o usuário tinha cancelado. Cancelado É uma
+# situação — e o formato tem de ser o MESMO, senão o consumidor precisa de outro `if`.
+
+def test_pedido_cancelado_responde_200_dizendo_cancelado(client, monkeypatch):
+    monkeypatch.setattr(apimod, 'consultar_status_pedido',
+                        lambda n: _ordr(pedido_cancelado=True, pedido_status='Cancelado'))
+    r = client.get('/pedidos/84282/situacao')
+    assert r.status_code == 200
+    b = r.get_json()
+    assert b['ok'] is True
+    assert b['fonte'] == 'ordr'
+    assert b['status_pedido'] == 'Cancelado' and b['pedido_cancelado'] is True
+    assert b['aviso']['tipo'] == 'pedido_cancelado'
+    p = b['pedido']
+    assert p['doc_num'] == 84282
+    assert p['status_pedido'] == 'Cancelado'
+    # as 3 etapas dizem Cancelado: o chip da tela passa a escrever isso sem mudar nada
+    assert (p['financeiro'], p['producao'], p['entrega']) == ('Cancelado',) * 3
+    # identidade vem da ORDR — a linha não fica anônima
+    assert p['card_name'] == 'DIVENA AUTOMOVEIS LTDA'
+    assert p['data_pedido'] == '2026-08-18' and p['valor_total'] == 12345.67
+    # cancelado NUNCA alarma os 10 dias do financeiro
+    assert p['alerta_liberacao'] is None and p['fin_liberacao_atrasada'] is False
+
+
+def test_pedido_cancelado_tem_o_mesmo_formato_do_caminho_da_view(client, monkeypatch):
+    """Formato idêntico ao da view — quem acrescentar campo lá não pode esquecer aqui."""
+    da_view = client.get('/pedidos/84260/situacao').get_json()['pedido']
+    monkeypatch.setattr(apimod, 'consultar_status_pedido',
+                        lambda n: _ordr(pedido_cancelado=True, pedido_status='Cancelado'))
+    cancelado = client.get('/pedidos/84282/situacao').get_json()['pedido']
+    assert set(cancelado) == set(da_view)
+    assert set(client.get('/pedidos/84282/situacao?campos=resumo')
+               .get_json()['pedido']) == set(sit_ped.CAMPOS_RESUMO)
+
+
+def test_pedido_nao_encontrado_na_ordr_e_404_com_motivo(client, monkeypatch):
+    monkeypatch.setattr(apimod, 'consultar_status_pedido',
+                        lambda n: _ordr(pedido_existe=False, pedido_status=None))
+    b = client.get('/pedidos/99999/situacao').get_json()
+    assert b['motivo'] == 'pedido_nao_encontrado'
+    assert b['status_pedido'] is None and b['pedido_cancelado'] is False
+
+
+def test_sap_fora_e_indeterminado_e_nunca_vira_sem_bloqueio(client, monkeypatch):
+    """SAP mudo → ``indeterminado``. Nem 200, nem "não está cancelado"."""
+    for falha in (lambda n: None, _boom):
+        monkeypatch.setattr(apimod, 'consultar_status_pedido', falha)
+        r = client.get('/pedidos/70000/situacao')
+        assert r.status_code == 404
+        b = r.get_json()
+        assert b['motivo'] == 'indeterminado'
+        assert b['pedido_cancelado'] is None    # null = não se sabe, não "não"
+        assert 'INDETERMINADA' in b['error']
+
+
+def test_por_docentry_nao_pergunta_a_ordr(client, monkeypatch):
+    """A ORDR só procura por DocNum: traduzir na marra devolveria OUTRO pedido."""
+    monkeypatch.setattr(apimod, 'consultar_status_pedido', _boom)
+    b = client.get('/pedidos/70000/situacao?chave=docentry').get_json()
+    assert b['motivo'] == 'fora_do_recorte' and b['chave'] == 'doc_entry'
+
+
+def _boom(_n):
+    raise RuntimeError('hana caiu')
 
 
 def test_numero_invalido_e_400(client):

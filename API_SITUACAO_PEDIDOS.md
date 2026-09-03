@@ -34,7 +34,7 @@ normalização — não é um espelho, não é uma fila, não passa por banco in
 
 ---
 
-## 2. Antes de tudo: as cinco armadilhas
+## 2. Antes de tudo: as seis armadilhas
 
 Leia esta seção inteira. Cada item aqui já custou caro para alguém.
 
@@ -52,15 +52,46 @@ A resposta sempre traz os dois (`doc_num` e `doc_entry`), então dá para confer
 
 Trocar um pelo outro **não dá erro** — devolve outro pedido, ou um 404.
 
-### 2.2 `404` quer dizer "não está no recorte", **nunca** "está liberado"
+### 2.2 Pedido **cancelado** responde `200` dizendo `"Cancelado"`
 
-Se você pedir um pedido que não está na view, a resposta é `404`. Isso significa **"não
-consigo responder sobre esse pedido"**, e não "esse pedido está sem bloqueio".
+Pedido cancelado no SAP **não está na view** — e mesmo assim você recebe a situação dele,
+lida da ORDR na hora:
+
+```json
+{
+  "ok": true,
+  "fonte": "ordr",
+  "status_pedido": "Cancelado",
+  "pedido_cancelado": true,
+  "aviso": {"tipo": "pedido_cancelado", "motivo": "Pedido cancelado no SAP - nao ha etapa a liberar; nao produza nem entregue por ele."},
+  "pedido": {"doc_num": 84282, "card_name": "DIVENA AUTOMOVEIS LTDA",
+             "financeiro": "Cancelado", "producao": "Cancelado", "entrega": "Cancelado", "...": "..."}
+}
+```
+
+**Formato idêntico ao de qualquer outro pedido** — nenhuma chave falta, nada muda de
+tipo. As três etapas dizem `"Cancelado"` em vez de `Liberado`/`Bloqueado`, então quem já
+desenha a etapa na tela escreve "Cancelado" **sem mudar uma linha**.
+
+> Até 03/09/2026 esses pedidos davam `404` seco e apareciam como "sem situação" na tela
+> de quem consome — foi o caso dos pedidos 84282, 84305 e 84314, cancelados no SAP com
+> as Ordens de Produção ainda vivas. Cancelado **é** uma situação, e agora ela vem.
+
+### 2.3 `404` quer dizer "não sei", **nunca** "está liberado"
+
+Sobrou `404` para o que realmente não dá para afirmar — e ele **nunca vem mudo**: o campo
+`motivo` diz qual dos três casos é. É por ele que seu código decide, não pelo texto.
+
+| `motivo` | O que é | O que mostrar |
+| --- | --- | --- |
+| `fora_do_recorte` | O pedido **existe** no SAP, mas a view carrega só os correntes (um pedido de 2024 não está lá). Vem com `status_pedido` (`"Aberto"` \| `"Fechado"`) | "fora do período" — e, se quiser, o `status_pedido` |
+| `pedido_nao_encontrado` | Não existe DocNum assim na ORDR. Quase sempre é DocEntry mandado sem `chave=docentry` (2.1) | "pedido não encontrado" |
+| `indeterminado` | O SAP não respondeu agora. `pedido_cancelado` vem `null` = **não se sabe** | "indisponível, tente de novo" |
 
 A diferença importa: tratar 404 como "liberado" faz um sistema afirmar que um pedido está
 livre quando ninguém sabe. A própria mensagem de erro diz isso, com essas palavras.
 
-### 2.3 Bloqueado hoje ≠ bloqueado algum dia
+### 2.4 Bloqueado hoje ≠ bloqueado algum dia
 
 Pedido **fechado** que já esteve bloqueado continua no recorte. Se você quer "o que está
 travado **agora**", filtre por `status=aberto`.
@@ -75,7 +106,7 @@ travado **agora**", filtre por `status=aberto`.
 Se um número seu não bate com a tela, **é quase sempre isto**. Passe `status=todos` para
 igualar.
 
-### 2.4 O status vem canonizado
+### 2.5 O status vem canonizado
 
 No SAP o gênero muda por coluna: "Liberad**o**" no Financeiro, "Liberad**a**" na Produção
 e na Entrega. **A API entrega sempre `"Liberado"` ou `"Bloqueado"`**, nas três.
@@ -84,7 +115,7 @@ Se um dia aparecer um terceiro valor (o SAP mudou), ele passa **como veio**, sem
 traduzido — é proposital, para o valor estranho ficar visível em vez de virar "Liberado"
 por descuido. Não assuma que só existem dois valores; trate o desconhecido.
 
-### 2.5 `prazo_entrega` é texto e **não tem ano**
+### 2.6 `prazo_entrega` é texto e **não tem ano**
 
 Vem do SAP assim: `"21/09 A 25/09"`. Não dá para subtrair data disso.
 
@@ -144,9 +175,24 @@ Resposta `200`:
   "ok": true,
   "gerado_em": "2026-08-24T15:12:07-03:00",
   "cache_idade_s": 34.2,
+  "fonte": "view",
+  "status_pedido": "Aberto",
+  "pedido_cancelado": false,
   "pedido": { "...": "os campos do §6" }
 }
 ```
+
+Os três campos do topo respondem "que pedido é esse?" antes de você olhar as etapas —
+são **o mesmo par** de `GET /ordens-servico/<nped>`, com o mesmo sentido:
+
+| Campo | Valores | Para quê |
+| --- | --- | --- |
+| `status_pedido` | `"Aberto"` \| `"Fechado"` \| `"Cancelado"` \| `null` | O estado do pedido no SAP. `null` = não se sabe |
+| `pedido_cancelado` | `true` \| `false` \| `null` | **Cheque antes de oferecer "Liberar"**. `null` **não** é "não cancelado" |
+| `fonte` | `"view"` \| `"ordr"` | De onde veio a situação. `"ordr"` = pedido cancelado, lido ao vivo (2.2) |
+
+Quando `pedido_cancelado` é `true`, vem também `aviso` (`{"tipo": "pedido_cancelado",
+"motivo": "..."}`) — o mesmo `tipo` que os endpoints de OS já usam.
 
 ### 5.2 `GET /pedidos/situacao` — lista
 
@@ -155,7 +201,7 @@ Um endpoint só, porque é o mesmo recorte; o que muda é o filtro.
 | Parâmetro | Valores | Default | Para quê |
 | --- | --- | --- | --- |
 | `bloqueio` | `qualquer` \| `financeiro` \| `producao` \| `entrega` \| `nenhum` | *(sem filtro)* | `qualquer` = travado em **pelo menos uma** etapa |
-| `status` | `todos` \| `aberto` \| `fechado` | `todos` | ver armadilha 2.3 |
+| `status` | `todos` \| `aberto` \| `fechado` | `todos` | ver armadilha 2.4 |
 | `montador` | CNPJ, ou `__sem__` | *(todos)* | `__sem__` = pedidos **sem** montador definido |
 | `busca` | texto livre | — | casa com cliente, código do cliente, nº do pedido e cotação WBC |
 | `so_atrasados_fin` | `1` | — | só os que passaram dos 10 dias no Financeiro (§7) |
@@ -206,6 +252,9 @@ São as colunas da tela, mais o alerta. É o default da lista, e serve para quas
 `data_pedido` · `card_name` · `doc_num` · `sinal` · `financeiro` · `producao` ·
 `entrega` · `prazo_entrega` · `atrasado` · `pymnt_group` · `alerta_liberacao`
 
+As três etapas (`financeiro`, `producao`, `entrega`) trazem `"Liberado"`, `"Bloqueado"`
+ou — em pedido cancelado no SAP — `"Cancelado"` (2.2).
+
 ### 6.2 Perfil `completo` — 35 campos
 
 | Campo | Tipo | O que é |
@@ -223,7 +272,7 @@ São as colunas da tela, mais o alerta. É o default da lista, e serve para quas
 | `sinal` | bool | O pedido exige sinal |
 | `ddo` | bool | Condição 100% DDP, **sem** sinal |
 | `integrar` | bool | Marcado para integração |
-| `status_pedido` | str | `"Aberto"` \| `"Fechado"` (como o SAP escreve) |
+| `status_pedido` | str | `"Aberto"` \| `"Fechado"` (como o SAP escreve) \| `"Cancelado"` (2.2) |
 | `prazo_entrega` | str | **TEXTO, sem ano.** Ex.: `"21/09 A 25/09"` — ver 2.5 |
 | `prazo_fim` | str \| null | Fim da janela, ISO. **Use este para conta** |
 | `data_entrega` | str \| null | Data de entrega registrada, ISO |
@@ -359,7 +408,7 @@ mais rápido que isso.
 | --- | --- | --- |
 | **400** | O número não é inteiro positivo | Corrija o valor |
 | **401** | Chave ausente ou errada | Confira o cabeçalho `X-API-Key` |
-| **404** | Pedido **fora do recorte da view** | **Não é "sem bloqueio"** (2.2). Confira se é DocNum mesmo |
+| **404** | Não dá para afirmar a situação: veja o campo **`motivo`** | **Não é "sem bloqueio"** (2.3). Pedido cancelado NÃO cai aqui — ele vem `200` (2.2) |
 | **409** | O número casa com mais de um pedido | Consulte por `chave=docentry`. Não deve acontecer — se acontecer, **avise-nos** |
 | **422** | Parâmetro fora do domínio (ex.: `bloqueio=comercial`) | A mensagem lista os valores aceitos. Tentar de novo não adianta |
 | **502** | Falha inesperada do nosso lado | Tente de novo; se persistir, avise-nos |
@@ -370,11 +419,17 @@ Todo erro vem com corpo JSON e **mensagem em português explicando o caso**:
 ```json
 {
   "ok": false,
+  "motivo": "fora_do_recorte",
   "error": "pedido 70000 fora do recorte da view (ela carrega so os pedidos correntes) - isto NAO quer dizer que ele esteja sem bloqueio",
   "pedido": 70000,
-  "chave": "doc_num"
+  "chave": "doc_num",
+  "status_pedido": "Fechado",
+  "pedido_cancelado": false
 }
 ```
+
+No `404` desta rota, decida pelo **`motivo`** (chave estável, tabela em 2.3); o `error` é
+texto para gente ler.
 
 Sempre teste `ok` antes de ler o resto. **Não trate erro por código HTTP só** — a
 mensagem carrega a informação que evita a conclusão errada.
@@ -422,12 +477,14 @@ SESSAO.headers["X-API-Key"] = os.environ["SAP_API_KEY"]
 
 
 def situacao_do_pedido(doc_num: int) -> dict | None:
-    """Situação de um pedido — None quando ele não está no recorte da view.
+    """Situação de um pedido — None quando não dá para afirmar nada sobre ele.
 
-    None significa "não sei", NUNCA "está liberado" (ver §2.2 do documento).
+    None significa "não sei", NUNCA "está liberado" (ver §2.3 do documento).
+    Pedido CANCELADO não cai aqui: vem 200, com as etapas em "Cancelado" (§2.2).
     """
     r = SESSAO.get(f"{BASE}/pedidos/{doc_num}/situacao", timeout=45)
     if r.status_code == 404:
+        print(f"  {doc_num}: {r.json()['motivo']}")   # fora_do_recorte | ... | indeterminado
         return None
     r.raise_for_status()
     return r.json()["pedido"]
@@ -443,9 +500,10 @@ def travados_agora() -> list[dict]:
 
 p = situacao_do_pedido(84260)
 if p is None:
-    print("84260 não está no recorte da view — não dá para afirmar nada sobre ele")
+    print("84260: não dá para afirmar nada sobre ele")
 else:
-    print(f"{p['doc_num']} {p['card_name']}")
+    print(f"{p['doc_num']} {p['card_name']} [{p['status_pedido']}]")
+    # as 3 etapas dizem "Liberado", "Bloqueado" ou "Cancelado" — imprimir já basta
     print(f"  financeiro={p['financeiro']} producao={p['producao']} entrega={p['entrega']}")
     if p["alerta_liberacao"]:
         print(f"  ⚠ {p['alerta_liberacao']}")
@@ -464,6 +522,9 @@ Estrutura real; **valores ilustrativos**.
   "ok": true,
   "gerado_em": "2026-08-24T15:12:07-03:00",
   "cache_idade_s": 34.2,
+  "fonte": "view",
+  "status_pedido": "Aberto",
+  "pedido_cancelado": false,
   "pedido": {
     "doc_num": 84260,
     "doc_entry": 19244,
@@ -529,8 +590,9 @@ Estrutura real; **valores ilustrativos**.
 
 | Sintoma | Quase sempre é |
 | --- | --- |
-| "Meu número não bate com a tela" | O `status` (armadilha 2.3). Tente `status=todos` |
-| "Esse pedido existe, mas dá 404" | Ele não está no recorte da view (só os correntes), **ou** você mandou DocEntry sem `chave=docentry` |
+| "Meu número não bate com a tela" | O `status` (armadilha 2.4). Tente `status=todos` |
+| "Esse pedido existe, mas dá 404" | Veja o `motivo` (2.3): ele não está no recorte da view (só os correntes), **ou** você mandou DocEntry sem `chave=docentry` |
+| "A tela mostra 'sem situação'" | Pedido **cancelado** no SAP responde `200` com `status_pedido: "Cancelado"` desde 03/09/2026 (2.2). Se ainda vier vazio, é o `404` — leia o `motivo` |
 | "O dado está velho" | Cache de 120 s. Veja `cache_idade_s` |
 | "Deu 401" | Cabeçalho `X-API-Key` ausente, com espaço, ou chave errada |
 | "Deu 503" | O SAP HANA está fora. Espere e tente de novo |
@@ -541,5 +603,5 @@ mudou de tipo, ou qualquer número que divirja da tela do OrçaView de forma con
 
 ---
 
-*Servidor de Integração SAP · `192.168.7.11` · atualizado em 2026-08-24.*
+*Servidor de Integração SAP · `192.168.7.11` · atualizado em 2026-09-03.*
 *Runbook interno: `docs/PLANO_SITUACAO_PEDIDOS_MCP.md`.*
