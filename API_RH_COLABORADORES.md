@@ -544,7 +544,7 @@ bom senso, e uma consequência prática:
   o Kairos é o `.90`, onde já vive o cliente com todas as armadilhas de tenant tratadas.
 - **Leitura paginada** de 1000 em 1000 — o PostgREST corta em 1000 linhas com HTTP 200, e
   a tabela só cresce (linha nunca é deletada).
-- **Plano e decisões:** `web_orcaview_V117/docs/PLANO_ESPELHO_COLABORADORES_KAIROS.md`.
+- **Plano e decisões:** `PLANO_ESPELHO_COLABORADORES_KAIROS` do web_orcaview_V117 (entregue na V117.1028; apagado de docs/ em 05/09/2026, texto no git daquele repo).
 - **Código:** rotas em `api.py` (`/rh/colaboradores`), tools em `mcp/mcp_server.py`,
   testes em `tests/test_api.py` e `tests/test_mcp_colaboradores.py`.
 

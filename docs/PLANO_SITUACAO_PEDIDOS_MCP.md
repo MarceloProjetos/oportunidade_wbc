@@ -411,8 +411,7 @@ dois repos estão lado a lado; nada no V117 percebe a divergência, e não há C
 dois. Como o freio depende de alguém lembrar, o aviso foi para os **quatro** lugares que
 uma pessoa prestes a mexer nisso abre — no repo do V117:
 `backend/services/situacao_pedidos_service.py` (docstring do módulo),
-`sap_hana_client.STATUS_PEDIDO_COLS` (comentário acima), `docs/PLANO_SITUACAO_PEDIDOS.md`
-(cabeçalho) e `.cursorrules` (regra sempre-ligada, seção INVARIANTS).
+`sap_hana_client.STATUS_PEDIDO_COLS` (comentário acima) e `.cursorrules` (regra sempre-ligada, seção INVARIANTS).
 
 Isso **mitiga, não elimina**: continua sendo possível editar o V117 e não rodar a suíte
 daqui. Eliminar de verdade exigiria CI cruzado ou um único repo — nenhum dos dois se
@@ -471,5 +470,6 @@ volta errada.
 ---
 
 **Fonte da verdade:** este arquivo. Origem da lógica:
-`web_orcaview_V117/docs/PLANO_SITUACAO_PEDIDOS.md` e
+o plano `PLANO_SITUACAO_PEDIDOS` do web_orcaview_V117 (entregue na V117.925; apagado de docs/ em
+05/09/2026, texto no git daquele repo) e
 `web_orcaview_V117/backend/services/situacao_pedidos_service.py`.

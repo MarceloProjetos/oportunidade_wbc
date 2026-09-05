@@ -1,7 +1,8 @@
 -- ============================================================================
 -- MIGRAÇÃO: bi_vendas_ranking aceita tipo='uf' (fase 2 do card Clientes por UF)
 -- Pedido do Marcelo em 20/08/2026 — plano em
--- web_orcaview_V117/docs/PLANO_VENDAS_RESULTADOS.md (decisão 3, fase 2).
+-- PLANO_VENDAS_RESULTADOS do web_orcaview_V117, decisão 3, fase 2 (entregue na V117.834;
+-- apagado de docs/ em 05/09/2026, texto no git daquele repo).
 --
 -- Como usar: cole e execute no SQL Editor do Supabase (projeto de produção).
 -- Idempotente: DROP CONSTRAINT IF EXISTS + ADD.
