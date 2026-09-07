@@ -3,6 +3,19 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-07] — Plano: experiencia do usuario na fachada MCP (docs)
+
+Prompt-audit das 15 docstrings + medicao do que quem pergunta no Claude sente, contra a
+.11. Dois achados bloqueantes que nao estavam em lugar nenhum: a fachada **stdio local
+nao sobe** (o `mcp` global e 2.1.1; `mcp/requirements.txt` pede `>=1.2.0` sem teto e o
+2.x renomeou `FastMCP`), e o registro stdio (escopo de projeto) tem o mesmo nome do HTTP
+(escopo de usuario) e vence — o morto esconde o vivo. `panorama_pedidos` devolve 259
+pedidos = ~18,7 k tokens no resumo e ~59,6 k no completo, numa chamada.
+
+- `docs/PLANO_UX_FACHADA_MCP.md`: F0 pin `mcp<2` + escolher HTTP; F1 teto de 40 no
+  panorama + filtros; F2 `instructions` no servidor + 404 traduzido em todo `_get`;
+  F3 diff do prompt-audit; F4 log de ms/bytes por tool. Nada aplicado ainda.
+
 ## [2026-09-03] — Situacao do Pedido: cancelado responde 200 dizendo "Cancelado"
 
 Segunda metade do incidente do mesmo dia. A lista de OS ja sinalizava o cancelamento
