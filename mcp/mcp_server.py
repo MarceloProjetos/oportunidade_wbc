@@ -45,7 +45,64 @@ API_BASE = os.environ.get("SIS_API_BASE", "http://192.168.7.11:8077").rstrip("/"
 API_KEY = os.environ.get("SIS_API_KEY", "").strip()
 HTTP_TIMEOUT = float(os.environ.get("SIS_HTTP_TIMEOUT", "12"))
 
-mcp = FastMCP("ServidorIntegracaoSAP")
+_INSTRUCOES = """\
+Servidor de integração SAP B1 → Supabase da Altamira, na máquina 192.168.7.11 (API 8077).
+Responde sobre: saúde do servidor e da tarefa WBC, sincronizações de Ordens de Serviço,
+situação de pedidos no SAP (liberado/bloqueado em Financeiro, Produção e Entrega) e o
+quadro de colaboradores das 3 empresas (Altamira, Tecnequip, Proalta).
+
+Não é o servidor RDP do SAP (192.168.7.12): esse é o servidor MCP `sap-rdp`, com tools
+próprias. Não confunda as respostas de Windows Update das duas máquinas.
+
+Tudo é leitura, exceto `sincronizar_pedido_os` e `forcar_carga_oportunidades`: essas
+devolvem um preview com `confirmar=False` e só executam com `confirmar=True`, depois do
+"sim" explícito do usuário.
+
+Frescor dos dados: situação de pedidos tem cache de 2 minutos (`cache_idade_s` diz a
+idade); colaboradores é uma carga diária das 12:40 em dias úteis (`desatualizado=true`
+quando a do dia não chegou). Quando um campo vier `null`, é "não foi possível saber",
+não zero nem falso.
+"""
+
+mcp = FastMCP("ServidorIntegracaoSAP", instructions=_INSTRUCOES)
+
+_DICA_ROTA_INEXISTENTE = (
+    "esta rota não existe na API do servidor de integração: ele ainda não foi atualizado "
+    "(git pull na .11 + restart do serviço OrcaView-OS-API). O erro é de versão, não "
+    "significa que o dado não existe."
+)
+
+
+def _headers() -> Dict[str, str]:
+    return {"X-API-Key": API_KEY} if API_KEY else {}
+
+
+def _tratar_resposta(path: str, resp: httpx.Response) -> Dict[str, Any]:
+    """Traduz uma resposta HTTP da API num dict que o modelo consegue ler.
+
+    Nunca estoura exceção. Em erro, prefere o JSON estruturado da própria API (ex.: 404
+    ``{"ok": false, "error": "pedido sem OS sincronizada"}``, 409 ``{"tipo": "ocupado"}``),
+    para o modelo receber a mensagem real em vez de um "HTTP 404" genérico. Um 404 **sem**
+    JSON é o HTML do Flask para rota inexistente — servidor ainda sem o endpoint — e vem
+    com ``dica`` dizendo isso, senão o modelo conclui que "não há dado".
+    """
+    if resp.status_code == 401:
+        return {"ok": False, "erro": "não autorizado (401) — SIS_API_KEY ausente ou incorreta"}
+    if resp.status_code >= 400:
+        try:
+            body = resp.json()
+            if isinstance(body, dict):
+                return body
+        except ValueError:
+            pass
+        erro = {"ok": False, "erro": f"HTTP {resp.status_code} em {path}", "corpo": resp.text[:300]}
+        if resp.status_code == 404:
+            erro["dica"] = _DICA_ROTA_INEXISTENTE
+        return erro
+    try:
+        return resp.json()
+    except ValueError:
+        return {"ok": False, "erro": f"resposta não-JSON de {path}", "corpo": resp.text[:300]}
 
 
 def _get(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -55,67 +112,29 @@ def _get(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     JSON) devolve ``{"ok": False, "erro": "..."}`` — a tool nunca estoura exceção
     para o cliente MCP, para o modelo receber um erro legível em vez de um crash.
     """
-    url = f"{API_BASE}{path}"
-    headers = {"X-API-Key": API_KEY} if API_KEY else {}
     try:
         # trust_env=False: NÃO honra proxy do ambiente (HTTP_PROXY/ALL_PROXY/etc). A fachada
         # só fala com a API interna (loopback/LAN); um proxy corporativo herdado pelo serviço
         # (LocalSystem) rotearia até a chamada de 127.0.0.1 pelo proxy → WinError 10061
         # (connection refused) mesmo com a API no ar. Um shell interativo sem proxy funciona.
-        resp = httpx.get(url, params=params, headers=headers, timeout=HTTP_TIMEOUT,
-                         trust_env=False)
+        resp = httpx.get(f"{API_BASE}{path}", params=params, headers=_headers(),
+                         timeout=HTTP_TIMEOUT, trust_env=False)
     except httpx.RequestError as exc:
         return {"ok": False, "erro": f"servidor de integração inacessível ({API_BASE}): {exc}"}
-
-    if resp.status_code == 401:
-        return {"ok": False, "erro": "não autorizado (401) — SIS_API_KEY ausente ou incorreta"}
-    if resp.status_code >= 400:
-        # Se a API devolveu um JSON estruturado (ex.: 404 {"ok": false, "error": "pedido sem OS
-        # sincronizada"}), repassa-o — o modelo recebe a mensagem real em vez de um "HTTP 404"
-        # genérico. Fallback: erro genérico (ex.: 404 HTML do Flask = rota inexistente = servidor
-        # de integração ainda não atualizado com o endpoint).
-        try:
-            body = resp.json()
-            if isinstance(body, dict):
-                return body
-        except ValueError:
-            pass
-        return {"ok": False, "erro": f"HTTP {resp.status_code} em {path}", "corpo": resp.text[:300]}
-
-    try:
-        return resp.json()
-    except ValueError:
-        return {"ok": False, "erro": f"resposta não-JSON de {path}", "corpo": resp.text[:300]}
+    return _tratar_resposta(path, resp)
 
 
 def _post(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """POST num endpoint da API (ESCRITA), injetando a X-API-Key server-side.
 
-    Mesmo tratamento de erro do ``_get`` (nunca estoura exceção; repassa corpo JSON de erro,
-    ex.: 409 ``{"ok": false, "tipo": "ocupado"}`` da carga de oportunidades).
+    Mesmo tratamento de erro do ``_get`` (``_tratar_resposta``).
     """
-    url = f"{API_BASE}{path}"
-    headers = {"X-API-Key": API_KEY} if API_KEY else {}
     try:
-        resp = httpx.post(url, params=params, headers=headers, timeout=HTTP_TIMEOUT, trust_env=False)
+        resp = httpx.post(f"{API_BASE}{path}", params=params, headers=_headers(),
+                          timeout=HTTP_TIMEOUT, trust_env=False)
     except httpx.RequestError as exc:
         return {"ok": False, "erro": f"servidor de integração inacessível ({API_BASE}): {exc}"}
-
-    if resp.status_code == 401:
-        return {"ok": False, "erro": "não autorizado (401) — SIS_API_KEY ausente ou incorreta"}
-    if resp.status_code >= 400:
-        try:
-            body = resp.json()
-            if isinstance(body, dict):
-                return body
-        except ValueError:
-            pass
-        return {"ok": False, "erro": f"HTTP {resp.status_code} em {path}", "corpo": resp.text[:300]}
-
-    try:
-        return resp.json()
-    except ValueError:
-        return {"ok": False, "erro": f"resposta não-JSON de {path}", "corpo": resp.text[:300]}
+    return _tratar_resposta(path, resp)
 
 
 @mcp.tool()
@@ -380,19 +399,78 @@ def pedidos_bloqueados(bloqueio: str = "qualquer", status: str = "aberto") -> Di
     return _get("/pedidos/situacao", {"bloqueio": bloqueio, "status": status})
 
 
+def _norm(texto: Any) -> str:
+    """Minúsculas e sem acento — "producao" casa com "PRODUÇÃO"."""
+    bruto = unicodedata.normalize("NFD", str(texto or ""))
+    return "".join(c for c in bruto if not unicodedata.combining(c)).casefold().strip()
+
+
+_PANORAMA_LIMITE_PADRAO = 40
+# As 10 colunas da tela + o alerta dos 10 dias: é o que `campos=resumo` da API devolve.
+_PANORAMA_CAMPOS_RESUMO = (
+    "data_pedido", "card_name", "doc_num", "sinal", "financeiro", "producao", "entrega",
+    "prazo_entrega", "atrasado", "pymnt_group", "alerta_liberacao",
+)
+_BLOQUEADO = "bloqueado"
+
+
+def _panorama_bloqueios(p: Dict[str, Any]) -> int:
+    return sum(1 for e in ("financeiro", "producao", "entrega") if _norm(p.get(e)) == _BLOQUEADO)
+
+
+def _panorama_ordenar(pedidos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Quem importa primeiro: atrasados, depois quem tem mais etapas bloqueadas, depois
+    o pedido mais antigo. Estável — empate mantém a ordem da API."""
+    return sorted(pedidos, key=lambda p: (not bool(p.get("atrasado")),
+                                          -_panorama_bloqueios(p),
+                                          str(p.get("data_pedido") or "")))
+
+
+def _panorama_filtrar(pedidos: List[Dict[str, Any]], montador: str, vendedor: str,
+                      so_atrasados: bool) -> List[Dict[str, Any]]:
+    """Filtros de conversa (substring, sem acento nem caixa) sobre os campos do completo."""
+    m, v = _norm(montador), _norm(vendedor)
+    saida = []
+    for p in pedidos:
+        if m and m not in _norm(p.get("montagem")):
+            continue
+        if v and v not in _norm(p.get("vendedor")):
+            continue
+        if so_atrasados and not p.get("atrasado"):
+            continue
+        saida.append(p)
+    return saida
+
+
+def _panorama_projetar(pedidos: List[Dict[str, Any]], extras: tuple) -> List[Dict[str, Any]]:
+    """Reduz cada pedido do completo às colunas do resumo (+ os campos filtrados)."""
+    chaves = _PANORAMA_CAMPOS_RESUMO + extras
+    return [{k: p.get(k) for k in chaves if k in p} for p in pedidos]
+
+
 @mcp.tool(annotations=_ANOTACAO_LEITURA)
-def panorama_pedidos(campos: str = "resumo") -> Dict[str, Any]:
-    """Panorama da carteira: TODOS os pedidos do recorte da view + os 5 indicadores + a
-    lista de montadores, numa chamada só. Requer a SIS_API_KEY.
+def panorama_pedidos(campos: str = "resumo", limite: int = _PANORAMA_LIMITE_PADRAO,
+                     montador: str = "", vendedor: str = "",
+                     so_atrasados: bool = False) -> Dict[str, Any]:
+    """Panorama da carteira: os 5 indicadores + a lista de montadores do recorte inteiro,
+    mais os pedidos que importam primeiro (atrasados, depois os com mais etapas
+    bloqueadas, depois os mais antigos), até um teto. Requer a SIS_API_KEY.
 
     Use para "como está a carteira?", "quantos pedidos estão atrasados?", "quais
-    montadores têm pedido em aberto?". Para uma pergunta sobre um pedido específico
-    prefira `situacao_pedido`; para "o que está travado", `pedidos_bloqueados` — este
-    aqui traz a carteira inteira (centenas de pedidos) e é o mais caro dos três.
+    montadores têm pedido em aberto?", "o que a Barros Montagens tem em aberto?". Para um
+    pedido específico prefira `situacao_pedido`; para "o que está travado",
+    `pedidos_bloqueados`.
 
     ``kpis`` = ``{total, atrasados, financeiro_bloqueado, producao_bloqueada,
-    entrega_bloqueada}``. ``atrasados`` conta só pedido **em aberto**: um pedido fechado
-    que foi entregue com atraso não aparece aí (mas guarda ``atrasado_sap=true``).
+    entrega_bloqueada}`` e ``montadores`` são sempre do **recorte inteiro** (centenas de
+    pedidos), independentemente de filtro ou teto. ``atrasados`` conta só pedido **em
+    aberto**: um pedido fechado que foi entregue com atraso não aparece aí (mas guarda
+    ``atrasado_sap=true``).
+
+    A lista ``pedidos`` respeita ``limite`` (default 40). Quando cortou, vem ``truncado:
+    true``, ``mostrando`` e ``total_filtrado`` (quantos casaram com o filtro) — diga que
+    a lista é parcial e ofereça filtrar por montador/vendedor ou só atrasados. Os
+    indicadores continuam certos mesmo com a lista cortada.
 
     ``cache_idade_s`` diz há quantos segundos o retrato foi tirado (o serviço guarda a
     consulta por 2 minutos). Se precisar de dado do instante, diga isso ao usuário em vez
@@ -400,10 +478,45 @@ def panorama_pedidos(campos: str = "resumo") -> Dict[str, Any]:
 
     Args:
         campos: ``resumo`` (default — as 10 colunas da tela + o alerta dos 10 dias) ou
-            ``completo`` (~40 campos por pedido; **use só se realmente precisar**, a
-            resposta fica grande).
+            ``completo`` (~40 campos por pedido, ~4× maior; pede o teto baixo ou um filtro).
+        limite: teto de pedidos na lista (default 40; 0 = sem teto, só com filtro).
+        montador: filtra pelo nome do montador (pedaço, sem acento). Vazio = todos.
+        vendedor: filtra pelo nome do vendedor (pedaço, sem acento). Vazio = todos.
+        so_atrasados: ``True`` traz só pedidos atrasados.
     """
-    return _get("/pedidos/situacao", {"campos": campos})
+    completo = str(campos).strip().lower() == "completo"
+    filtra_por_nome = bool(str(montador).strip() or str(vendedor).strip())
+    # montador/vendedor só existem no `completo`; se o usuário pediu `resumo` com um desses
+    # filtros, busca-se o completo e a resposta é projetada de volta às colunas do resumo.
+    pede_completo = completo or filtra_por_nome
+    data = _get("/pedidos/situacao", {"campos": "completo" if pede_completo else "resumo"})
+    if not isinstance(data, dict) or not isinstance(data.get("pedidos"), list):
+        return data  # erro do _get (rede, 401, versão da API) passa inteiro
+
+    pedidos = _panorama_filtrar(data["pedidos"], str(montador), str(vendedor), bool(so_atrasados))
+    total_filtrado = len(pedidos)
+    pedidos = _panorama_ordenar(pedidos)
+    if pede_completo and not completo:
+        pedidos = _panorama_projetar(pedidos, ("montagem", "vendedor"))
+
+    limite = int(limite)
+    tem_filtro = filtra_por_nome or bool(so_atrasados)
+    if limite <= 0 and not tem_filtro:
+        limite = _PANORAMA_LIMITE_PADRAO  # sem teto só com filtro: a carteira inteira não cabe
+    saida = {**data, "pedidos": pedidos[:limite] if limite > 0 else pedidos,
+             "total_filtrado": total_filtrado}
+    if montador or vendedor or so_atrasados:
+        saida["filtro"] = {"montador": montador or None, "vendedor": vendedor or None,
+                           "so_atrasados": bool(so_atrasados)}
+    if limite > 0 and total_filtrado > limite:
+        saida.update({
+            "truncado": True, "mostrando": limite,
+            "aviso": (f"lista cortada em {limite} de {total_filtrado} pedidos (atrasados e "
+                      "bloqueados primeiro); kpis e montadores são do recorte inteiro. Para "
+                      "ver o resto, filtre por montador/vendedor, use so_atrasados=True ou "
+                      "aumente o limite."),
+        })
+    return saida
 
 
 # ──────────── Colaboradores (F5) — o espelho do quadro do Kairos ────────────
@@ -413,12 +526,6 @@ def panorama_pedidos(campos: str = "resumo") -> Dict[str, Any]:
 # ao usuário o setor certo quando ele erra o nome), não regra de negócio.
 
 _COLAB_LIMITE_PADRAO = 200
-
-
-def _norm(texto: Any) -> str:
-    """Minúsculas e sem acento — "producao" casa com "PRODUÇÃO"."""
-    bruto = unicodedata.normalize("NFD", str(texto or ""))
-    return "".join(c for c in bruto if not unicodedata.combining(c)).casefold().strip()
 
 
 def _colab_dica_404(resposta: Dict[str, Any]) -> Dict[str, Any]:
@@ -553,8 +660,10 @@ def listar_colaboradores(empresa: str = "", setor: str = "", somente_ativos: boo
         setor: filtra pelo nome do setor, sem acento e sem caixa, por pedaço
             ("producao" acha "PRODUÇÃO"). Vazio = todos.
         somente_ativos: ``True`` (default) traz só quem está na ativa.
-        limite: teto de PESSOAS na resposta (default 200). As contagens continuam
-            certas mesmo quando a lista de nomes é cortada.
+        limite: teto de PESSOAS na resposta (default 200). O quadro ativo das 3 empresas
+            já passa de 200, então sem filtro a lista vem cortada (``truncado: true``);
+            as contagens continuam certas mesmo assim. Para "quantos", use
+            `resumo_colaboradores`.
     """
     resposta = _colab_buscar(empresa, somente_ativos)
     if not resposta.get("ok", False):

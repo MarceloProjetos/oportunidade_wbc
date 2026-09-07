@@ -3,6 +3,30 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-07] — Fachada MCP: panorama com teto e filtros (F1) + o servidor se apresenta (F2)
+
+F1 e F2 do `docs/PLANO_UX_FACHADA_MCP.md`. So' a fachada muda; a API 8077 e a view
+continuam iguais.
+
+- **`panorama_pedidos` ganha `limite` (default 40), `montador`, `vendedor` e
+  `so_atrasados`.** A lista vem ordenada por atrasado -> mais etapas bloqueadas -> mais
+  antigo; `kpis` e `montadores` seguem do recorte inteiro; quando corta, vem `truncado`,
+  `mostrando`, `total_filtrado` e `aviso`. `limite=0` (sem teto) so' vale com filtro.
+  Medido contra a .11 (259 pedidos): default **13 KB / ~3,4 k tokens** em vez de 73 KB /
+  ~18,7 k; `completo` com `limite=10` = 11 KB em vez de 233 KB.
+- `montador`/`vendedor` so' existem no `completo` da rota: com esses filtros a fachada
+  busca o completo e **projeta de volta** as 11 colunas do resumo (+ `montagem`,
+  `vendedor`). Sem filtro, a chamada a API e' a mesma de antes (`campos=resumo`).
+- **`FastMCP(..., instructions=...)`**: o servidor se apresenta ao cliente — que maquina
+  e' (.11, nao o RDP .12 do `sap-rdp`), o que e' leitura e o que exige `confirmar=True`,
+  e o frescor de cada dado (cache de 2 min, carga das 12:40, `null` = nao se sabe).
+- **404 HTML de rota inexistente traz `dica` em qualquer tool** (`_tratar_resposta`,
+  comum a `_get` e `_post`): antes so' colaboradores traduzia "HTTP 404" em "a .11 esta
+  desatualizada"; as outras deixavam o modelo concluir que o dado nao existe.
+- 12 testes novos (carteira sintetica de 300 pedidos; `instructions`; 404/500 via
+  `httpx` falso). Suite: 403 passed. **Producao:** `git pull` na .11 + restart do
+  `OrcaView-MCP`.
+
 ## [2026-09-07] — Fachada MCP: pin `mcp<2` (F0) e descricoes afinadas (F3)
 
 F0 e F3 do `docs/PLANO_UX_FACHADA_MCP.md`. Nada muda de comportamento na API; muda o

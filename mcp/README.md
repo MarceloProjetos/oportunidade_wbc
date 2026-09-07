@@ -35,7 +35,7 @@ Todas **read-only**, todas com `X-API-Key` injetada server-side.
 |---|---|---|---|
 | `situacao_pedido(pedido, chave?)` | `GET /pedidos/<numero>/situacao` | sim | "o pedido 84260 está preso onde?" |
 | `pedidos_bloqueados(bloqueio?, status?)` | `GET /pedidos/situacao?bloqueio=…` | sim | "o que está travado?" |
-| `panorama_pedidos(campos?)` | `GET /pedidos/situacao` | sim | "como está a carteira?" |
+| `panorama_pedidos(campos?, limite?, montador?, vendedor?, so_atrasados?)` | `GET /pedidos/situacao` | sim | "como está a carteira?", "o que a Barros tem em aberto?" |
 
 As três declaram `readOnlyHint=True` — o cliente MCP mostra ao usuário que são consulta,
 não ação. (As 9 tools de leitura anteriores não declaram; retrofitá-las é mexer no que
@@ -45,9 +45,15 @@ funciona e fica para quando houver motivo.)
 `pedidos_bloqueados(bloqueio="financeiro")` e leia o campo `alerta_liberacao` de cada
 pedido. São poucos, e a regra fica num lugar só.
 
-**Custo medido (2026-08-24, 237 pedidos):** `panorama_pedidos()` devolve ~**74 KB** de
-JSON no `resumo` e ~**237 KB** no `completo` — 3,2×. Daí o default, e daí a orientação,
-na própria descrição da tool, de preferir as outras duas quando a pergunta é específica.
+**Custo medido (2026-08-24, 237 pedidos):** a rota devolve ~**74 KB** de JSON no
+`resumo` e ~**237 KB** no `completo` — 3,2×. Por isso, desde **2026-09-07**,
+`panorama_pedidos` aplica um **teto na fachada** (`limite`, default 40; a lista vem
+ordenada por atrasado → mais etapas bloqueadas → mais antigo) e filtros de conversa
+(`montador`, `vendedor`, `so_atrasados`, substring sem acento). `kpis` e `montadores`
+continuam do recorte inteiro; quando corta, a resposta traz `truncado`, `mostrando`,
+`total_filtrado` e `aviso`. Medido contra a `.11` com 259 pedidos: default **13 KB
+(~3,4 k tokens)** em vez de 73 KB (~18,7 k). `montador`/`vendedor` só existem no
+`completo`, então a fachada busca o completo e projeta de volta às colunas do resumo.
 
 **Parâmetros da rota de lista** — além dos defaults congelados abaixo: `montador`
 (CNPJ ou `__sem__`), `busca` (cliente, código, número do pedido ou cotação WBC),

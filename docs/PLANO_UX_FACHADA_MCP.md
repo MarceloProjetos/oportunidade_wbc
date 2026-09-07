@@ -1,9 +1,10 @@
 # Plano — Experiência do usuário na Fachada MCP
 
-**Status (2026-09-07, 3ª atualização):** F0 e F3 **no ar na .11** (5a025ac; pull + restart do
-`OrcaView-MCP` feitos pelo Marcelo). Verificado por handshake MCP em 8078: 16 tools, descrições
-novas presentes, `verificar_saude` healthy em 1,9 s, `situacao_pedido(84260)` correto em 0,4 s.
-**Pende só o local:** reinstalar `mcp<2` ou trocar para o registro HTTP. F1, F2 e F4 abertas.
+**Status (2026-09-07, 4ª atualização):** F0 e F3 **no ar na .11** (5a025ac, verificado por
+handshake MCP). **F1 e F2 codadas e commitadas** — panorama com teto 40 + filtros (13 KB /
+~3,4 k tokens em vez de 73 KB / ~18,7 k, medido contra a .11), `instructions` no servidor,
+`dica` de 404 em todo `_get`/`_post`; 403 testes verdes. **Pendem:** pull + restart do
+`OrcaView-MCP` na .11 (dele) e o local (reinstalar `mcp<2` ou trocar para HTTP). F4 aberta.
 
 Estado em que o plano nasceu: nada no ar. A fachada **stdio local está morta**
 (o `mcp` instalado no Python global é 2.1.1 e o código importa `FastMCP` do 1.x); a
@@ -73,7 +74,7 @@ pip rodou por último.
   do escopo de projeto e ficar só no HTTP da .11 (ver Decisão 1).
 - Critério de pronto: `pytest tests/test_mcp_*` verde local; cliente lista 16 tools.
 
-### F1 — Respostas que cabem na conversa `[aberta]`
+### F1 — Respostas que cabem na conversa `[codada · pende deploy .11]`
 **Meta:** "como está a carteira?" volta em um bloco que o modelo lê inteiro, com os
 indicadores certos e os pedidos que importam primeiro.
 
@@ -86,9 +87,13 @@ indicadores certos e os pedidos que importam primeiro.
   resumo e avisa. Hoje ele produz ~59,6 k tokens numa chamada.
 - `listar_colaboradores`: manter o teto 200; documentar na docstring que o quadro ativo
   já passa de 200 e que `resumo_colaboradores` é o caminho para "quantos".
-- Teste: resposta sintética com 300 pedidos → 40 na lista, `kpis.total == 300`.
+- Teste: resposta sintética com 300 pedidos → 40 na lista, `kpis.total == 300`. ✅
+- **Medido ao vivo (259 pedidos):** default 13,2 KB (~3,4 k tok); `montador="barros"` 26
+  pedidos, 13,6 KB; `so_atrasados` 25 pedidos, 8,4 KB; `completo, limite=10` 10,9 KB.
+- **Decidido na execução:** `campos="completo"` não exige filtro — o `limite` (default 40)
+  já o segura; a regra "≤ 60" virou desnecessária. `limite=0` sem filtro volta ao default.
 
-### F2 — O servidor se apresenta `[aberta]`
+### F2 — O servidor se apresenta `[codada · pende deploy .11]`
 **Meta:** o modelo sabe, antes de escolher tool, de que máquina se trata, o que é
 consulta e o que é escrita, e o que fazer quando a API está desatualizada.
 
@@ -100,7 +105,7 @@ consulta e o que é escrita, e o que fazer quando a API está desatualizada.
 - Generalizar `_colab_dica_404` para o `_get`: qualquer 404 HTML de rota inexistente
   vira "a .11 ainda não tem esta rota (git pull + restart)", não só em colaboradores.
 - Teste: `list_tools` continua 16; `instructions` presente; 404 HTML em `/historico`
-  traz `dica`.
+  traz `dica`. ✅ (e 500 HTML **não** ganha dica — é outro problema)
 
 ### F3 — Descrições afinadas `[concluída · no ar na .11 · 5a025ac]`
 **Meta:** o modelo responde no tom da pergunta, e usa `info_oportunidades` e
@@ -145,9 +150,8 @@ consulta e o que é escrita, e o que fazer quando a API está desatualizada.
 2. **Pin `mcp<2` × migrar para `MCPServer` (2.x) — aberta.** Recomendado: **pin agora**.
    A .11 já roda 1.28.1 e o `serve_http.py` foi escrito contra ele. A migração vira plano
    próprio quando a .11 for atualizada, com teste.
-3. **Teto default do panorama — aberta.** Recomendado: **40 pedidos**, atrasados e
-   bloqueados primeiro; `completo` exige filtro ou limite. 40 × ~70 tokens ≈ 2,8 k, do
-   tamanho de `pedidos_bloqueados` hoje.
+3. **Teto default do panorama — ✅ 40 pedidos**, atrasados e bloqueados primeiro. Medido:
+   ~3,4 k tokens no default. `completo` fica sob o mesmo teto, sem exigir filtro.
 4. **Aplicar o diff do prompt-audit — aberta.** Recomendado: **sim**, dentro da F3, com
    os testes ajustados no mesmo commit.
 5. **Quem instala `mcp<2` na máquina local — dele.** Regra do projeto: eu não mexo no

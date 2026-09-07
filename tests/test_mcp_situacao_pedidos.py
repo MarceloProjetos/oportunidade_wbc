@@ -165,3 +165,123 @@ def test_panorama_nao_manda_filtro_nenhum(fachada, chamadas):
     """É o recorte inteiro: qualquer filtro aqui seria a tool errada."""
     fachada.panorama_pedidos()
     assert set(chamadas[0][1]) == {'campos'}
+
+
+# --- panorama_pedidos: teto, ordenação e filtros (F1 do PLANO_UX_FACHADA_MCP) ------------
+
+def _carteira(n: int = 300) -> dict:
+    """Carteira sintética: i % 10 == 0 atrasado; i % 3 == 0 com 2 bloqueios; 2 montadores."""
+    pedidos = []
+    for i in range(n):
+        pedidos.append({
+            'doc_num': 80000 + i, 'card_name': f'CLIENTE {i}', 'data_pedido': f'2026-{1 + i % 9:02d}-01',
+            'atrasado': i % 10 == 0,
+            'financeiro': 'Bloqueado' if i % 3 == 0 else 'Liberado',
+            'producao': 'Bloqueado' if i % 3 == 0 else 'Liberado',
+            'entrega': 'Liberado', 'sinal': True, 'prazo_entrega': '', 'pymnt_group': '',
+            'alerta_liberacao': None,
+            'montagem': 'BARROS MONTAGENS' if i % 2 == 0 else 'DAPPER CROSS',
+            'vendedor': 'JOÃO' if i % 4 == 0 else 'MARIA',
+        })
+    return {'ok': True, 'pedidos': pedidos, 'total_filtrado': n, 'total_no_recorte': n,
+            'kpis': {'total': n, 'atrasados': n // 10}, 'montadores': [{'nome': 'X', 'qtd': n}],
+            'cache_idade_s': 1.0}
+
+
+@pytest.fixture
+def carteira(fachada, monkeypatch):
+    registro: list[tuple[str, dict | None]] = []
+
+    def _fake(path, params=None):
+        registro.append((path, params))
+        return _carteira()
+
+    monkeypatch.setattr(fachada, '_get', _fake)
+    return registro
+
+
+def test_panorama_corta_em_40_e_avisa(fachada, carteira):
+    """300 pedidos → 40 na lista; kpis e montadores intactos; truncado dito com todas as letras."""
+    r = fachada.panorama_pedidos()
+    assert len(r['pedidos']) == 40
+    assert r['truncado'] is True and r['mostrando'] == 40 and r['total_filtrado'] == 300
+    assert r['kpis']['total'] == 300 and r['montadores'][0]['qtd'] == 300
+    assert 'limite' in r['aviso']
+
+
+def test_panorama_atrasados_e_bloqueados_vem_primeiro(fachada, carteira):
+    r = fachada.panorama_pedidos()
+    primeiros = r['pedidos']
+    assert all(p['atrasado'] for p in primeiros[:30])          # os 30 atrasados da carteira
+    # entre os não atrasados, quem tem 2 bloqueios vem antes de quem tem 0
+    resto = primeiros[30:]
+    assert all(p['financeiro'] == 'Bloqueado' for p in resto)
+
+
+def test_panorama_limite_0_sem_filtro_volta_ao_default(fachada, carteira):
+    """Sem teto só com filtro: a carteira inteira não cabe na conversa."""
+    r = fachada.panorama_pedidos(limite=0)
+    assert len(r['pedidos']) == 40 and r['truncado'] is True
+
+
+def test_panorama_filtro_montador_busca_completo_e_projeta_resumo(fachada, carteira):
+    r = fachada.panorama_pedidos(montador='barros')
+    assert carteira == [('/pedidos/situacao', {'campos': 'completo'})]
+    assert r['total_filtrado'] == 150 and len(r['pedidos']) == 40
+    assert all('BARROS' in p['montagem'] for p in r['pedidos'])
+    assert 'valor_total' not in r['pedidos'][0]        # projetado de volta ao resumo
+    assert r['filtro']['montador'] == 'barros'
+
+
+def test_panorama_filtro_vendedor_sem_acento(fachada, carteira):
+    r = fachada.panorama_pedidos(vendedor='joao', limite=0)
+    assert r['total_filtrado'] == 75 and len(r['pedidos']) == 75 and 'truncado' not in r
+
+
+def test_panorama_so_atrasados(fachada, carteira):
+    r = fachada.panorama_pedidos(so_atrasados=True)
+    assert carteira == [('/pedidos/situacao', {'campos': 'resumo'})]   # atrasado existe no resumo
+    assert r['total_filtrado'] == 30 and len(r['pedidos']) == 30 and 'truncado' not in r
+
+
+def test_panorama_completo_respeita_o_teto(fachada, carteira):
+    r = fachada.panorama_pedidos(campos='completo', limite=5)
+    assert len(r['pedidos']) == 5 and 'montagem' in r['pedidos'][0]
+
+
+def test_panorama_erro_do_get_passa_inteiro(fachada, monkeypatch):
+    monkeypatch.setattr(fachada, '_get', lambda *a, **k: {'ok': False, 'erro': 'HTTP 503'})
+    assert fachada.panorama_pedidos() == {'ok': False, 'erro': 'HTTP 503'}
+
+
+# --- F2: o servidor se apresenta; 404 de rota inexistente vira dica em qualquer tool ------
+
+def test_servidor_tem_instructions_com_a_maquina_certa(fachada):
+    ins = fachada.mcp.instructions
+    assert '192.168.7.11' in ins and 'sap-rdp' in ins and 'confirmar=True' in ins
+
+
+class _Resp:
+    def __init__(self, status, text='<html>Not Found</html>'):
+        self.status_code, self.text = status, text
+
+    def json(self):
+        raise ValueError('não é JSON')
+
+
+def test_404_html_em_qualquer_rota_traz_dica_de_versao(fachada, monkeypatch):
+    monkeypatch.setattr(fachada.httpx, 'get', lambda *a, **k: _Resp(404))
+    r = fachada._get('/historico')
+    assert r['ok'] is False and 'OrcaView-OS-API' in r['dica'] and 'HTTP 404' in r['erro']
+
+
+def test_500_html_nao_ganha_dica_de_versao(fachada, monkeypatch):
+    monkeypatch.setattr(fachada.httpx, 'get', lambda *a, **k: _Resp(500, 'boom'))
+    r = fachada._get('/historico')
+    assert r['ok'] is False and 'dica' not in r and r['corpo'] == 'boom'
+
+
+def test_post_usa_o_mesmo_tratamento(fachada, monkeypatch):
+    monkeypatch.setattr(fachada.httpx, 'post', lambda *a, **k: _Resp(404))
+    r = fachada._post('/ordens-servico/1/sincronizar')
+    assert 'dica' in r
