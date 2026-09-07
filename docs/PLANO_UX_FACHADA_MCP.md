@@ -1,9 +1,9 @@
 # Plano — Experiência do usuário na Fachada MCP
 
-**Status (2026-09-07, 2ª atualização):** F0 e F3 codadas e commitadas (pin `mcp<2`, README,
-5 hunks do audit, testes por semântica; 391 testes verdes com um `mcp` 1.30 isolado). **Ainda
-não valem no ar:** local depende de você reinstalar `mcp<2` ou trocar para o registro HTTP;
-a .11 depende de `git pull` + restart do `OrcaView-MCP`. F1, F2 e F4 abertas.
+**Status (2026-09-07, 3ª atualização):** F0 e F3 **no ar na .11** (5a025ac; pull + restart do
+`OrcaView-MCP` feitos pelo Marcelo). Verificado por handshake MCP em 8078: 16 tools, descrições
+novas presentes, `verificar_saude` healthy em 1,9 s, `situacao_pedido(84260)` correto em 0,4 s.
+**Pende só o local:** reinstalar `mcp<2` ou trocar para o registro HTTP. F1, F2 e F4 abertas.
 
 Estado em que o plano nasceu: nada no ar. A fachada **stdio local está morta**
 (o `mcp` instalado no Python global é 2.1.1 e o código importa `FastMCP` do 1.x); a
@@ -63,7 +63,7 @@ flowchart LR
 
 ## Fases
 
-### F0 — Voltar a conectar `[codada · c2a9ede+1 · pende instalar/deploy]`
+### F0 — Voltar a conectar `[no ar na .11 · 5a025ac · pende só o local]`
 **Meta:** a pessoa abre o Claude e as 16 tools aparecem, todo dia, sem depender de qual
 pip rodou por último.
 
@@ -102,7 +102,7 @@ consulta e o que é escrita, e o que fazer quando a API está desatualizada.
 - Teste: `list_tools` continua 16; `instructions` presente; 404 HTML em `/historico`
   traz `dica`.
 
-### F3 — Descrições afinadas `[concluída no código · pende deploy .11]`
+### F3 — Descrições afinadas `[concluída · no ar na .11 · 5a025ac]`
 **Meta:** o modelo responde no tom da pergunta, e usa `info_oportunidades` e
 `ultimos_erros` quando são a resposta.
 
