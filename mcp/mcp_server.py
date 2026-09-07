@@ -168,7 +168,13 @@ def listar_sincronizacoes_oportunidades(limit: int = 20) -> Dict[str, Any]:
 @mcp.tool()
 def info_oportunidades() -> Dict[str, Any]:
     """Contexto do pipeline de oportunidades (endpoint /oportunidades/info): total de
-    linhas na tabela + agenda (intervalo em minutos e janela comercial). Requer a SIS_API_KEY."""
+    linhas na tabela + agenda (intervalo em minutos e janela comercial). Requer a SIS_API_KEY.
+
+    Use para "de quanto em quanto tempo roda a carga?", "quantas oportunidades tem na
+    base?" ou antes de `forcar_carga_oportunidades`, para dimensionar o que será
+    recarregado. Não traz histórico de execuções — para isso,
+    `listar_sincronizacoes_oportunidades`.
+    """
     return _get("/oportunidades/info")
 
 
@@ -240,33 +246,29 @@ def estado_tarefa_wbc() -> Dict[str, Any]:
 
 @mcp.tool()
 def estado_windows_update() -> Dict[str, Any]:
-    """Windows Update do SERVIDOR DE INTEGRAÇÃO (192.168.7.11): updates pendentes, último
-    patch e se há REBOOT PENDENTE.
+    """Windows Update do servidor de integração (192.168.7.11): updates pendentes, último
+    patch e reboot pendente.
 
     Use para "o servidor de integração está atualizado?", "tem update pendente?", "quando
     foi o último patch?", "precisa reiniciar?". Endpoint aberto (não exige chave); é o
-    bloco ``windows_update`` do /status, pedido ISOLADO (não abre as conexões de teste
+    bloco ``windows_update`` do /status, pedido isolado (não abre as conexões de teste
     com SAP/SQL/Supabase).
 
-    Atenção: esta é a máquina da INTEGRAÇÃO (API 8077, agendador WBC). O servidor RDP do
-    SAP (192.168.7.12) é outra máquina, com tools próprias — não confunda as respostas.
+    Esta é a máquina da integração (API 8077, agendador WBC). O servidor RDP do SAP
+    (192.168.7.12) é outra máquina, com tools próprias.
 
-    LEIA O ``pendentes`` COM ATENÇÃO — ele pode ser ``null``, e ``null`` NÃO é zero:
+    Campos tri-estado — ``null`` significa "não foi possível saber", não zero nem falso:
 
-    - ``pendentes: null`` + ``pendentes_motivo`` = **não sabemos**. Acontece quando o
-      agente do Windows Update não varre há tempo demais: nesse caso a busca até responde,
-      mas responde 0 porque o cache dela está vazio — e esse 0 seria mentira. **Nunca
-      relate "0 updates pendentes" quando o valor vier null; diga que não é possível saber
-      e mostre o motivo.**
-    - ``reboot_pendente.pendente`` é tri-estado: ``true``/``false`` são fatos; **``null`` =
-      não foi possível ler** (aí ``erro`` explica). Nunca relate ``null`` como "sem reboot
-      pendente". ``motivos`` diz de onde veio o sinal (CBS, WindowsUpdate,
-      PendingFileRenameOperations).
-    - ``patching_automatico: false`` significa que o serviço de Windows Update está
-      DESABILITADO — a máquina não se atualiza sozinha. É contexto essencial: sem ele,
-      "0 pendentes" engana.
-    - ``dias_sem_patch`` é o dado mais útil quando o resto está indisponível.
-    - ``estado: "coletando"`` = a API subiu há pouco e a 1ª coleta (~3 s) ainda não
+    - ``pendentes``: vem ``null`` + ``pendentes_motivo`` quando o agente do Windows Update
+      não varre há tempo demais (a busca responderia 0 com o cache vazio, e esse 0 seria
+      falso). Nesse caso relate que não é possível saber e mostre o motivo.
+    - ``reboot_pendente.pendente``: ``true``/``false`` são fatos; ``null`` = não foi
+      possível ler (``erro`` explica). ``motivos`` diz de onde veio o sinal (CBS,
+      WindowsUpdate, PendingFileRenameOperations).
+    - ``patching_automatico: false``: o serviço de Windows Update está desabilitado e a
+      máquina não se atualiza sozinha — contexto necessário para interpretar "0 pendentes".
+    - ``dias_sem_patch``: o dado mais útil quando o resto está indisponível.
+    - ``estado: "coletando"``: a API subiu há pouco e a 1ª coleta (~3 s) ainda não
       terminou; ela roda em background para não travar as consultas.
     """
     data = _get("/status", {"checks": "windows_update"})
@@ -282,6 +284,11 @@ def estado_windows_update() -> Dict[str, Any]:
 def ultimos_erros(limit: int = 10) -> Dict[str, Any]:
     """Só as sincronizações de OS que FALHARAM, dentre as últimas execuções (filtra o /historico).
     Requer a SIS_API_KEY. Use para "teve falha de sync hoje?" sem ler o histórico inteiro.
+
+    Devolve ``{"ok": true, "examinados": N, "qtd_falhas": N, "falhas": [...]}``; "falha" é
+    qualquer registro cujo ``status`` não seja sucesso. ``qtd_falhas: 0`` só diz que não
+    houve falha nos últimos ``examinados`` registros, não necessariamente "hoje" — aumente
+    ``limit`` se a pergunta for sobre um período.
 
     Args:
         limit: quantos registros recentes do histórico examinar (1–100). Default 10.

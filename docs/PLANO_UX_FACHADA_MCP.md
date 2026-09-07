@@ -1,6 +1,11 @@
 # Plano — Experiência do usuário na Fachada MCP
 
-**Status (2026-09-07):** nada deste plano está no ar. A fachada **stdio local está morta**
+**Status (2026-09-07, 2ª atualização):** F0 e F3 codadas e commitadas (pin `mcp<2`, README,
+5 hunks do audit, testes por semântica; 391 testes verdes com um `mcp` 1.30 isolado). **Ainda
+não valem no ar:** local depende de você reinstalar `mcp<2` ou trocar para o registro HTTP;
+a .11 depende de `git pull` + restart do `OrcaView-MCP`. F1, F2 e F4 abertas.
+
+Estado em que o plano nasceu: nada no ar. A fachada **stdio local está morta**
 (o `mcp` instalado no Python global é 2.1.1 e o código importa `FastMCP` do 1.x); a
 fachada **HTTP da .11 está de pé** (8078 responde 401 sem token, como deve). F0 é
 pré-requisito de tudo: sem ela, qualquer melhoria de descrição é invisível.
@@ -58,15 +63,15 @@ flowchart LR
 
 ## Fases
 
-### F0 — Voltar a conectar `[aberta · bloqueia tudo]`
-**Meta:** a pessoa abre o Claude e as 15 tools aparecem, todo dia, sem depender de qual
+### F0 — Voltar a conectar `[codada · c2a9ede+1 · pende instalar/deploy]`
+**Meta:** a pessoa abre o Claude e as 16 tools aparecem, todo dia, sem depender de qual
 pip rodou por último.
 
 - `mcp/requirements.txt`: `mcp>=1.2,<2` (com o motivo em comentário). Rollback trivial.
 - `mcp/README.md`: seção "mcp 2.x quebra o import" + como conferir (`python -c "import mcp_server"`).
 - **Dele:** escolher entre reinstalar `mcp<2` localmente **ou** apagar o registro stdio
   do escopo de projeto e ficar só no HTTP da .11 (ver Decisão 1).
-- Critério de pronto: `pytest tests/test_mcp_*` verde local; cliente lista 15 tools.
+- Critério de pronto: `pytest tests/test_mcp_*` verde local; cliente lista 16 tools.
 
 ### F1 — Respostas que cabem na conversa `[aberta]`
 **Meta:** "como está a carteira?" volta em um bloco que o modelo lê inteiro, com os
@@ -94,10 +99,10 @@ consulta e o que é escrita, e o que fazer quando a API está desatualizada.
   das 12:40.
 - Generalizar `_colab_dica_404` para o `_get`: qualquer 404 HTML de rota inexistente
   vira "a .11 ainda não tem esta rota (git pull + restart)", não só em colaboradores.
-- Teste: `list_tools` continua 15; `instructions` presente; 404 HTML em `/historico`
+- Teste: `list_tools` continua 16; `instructions` presente; 404 HTML em `/historico`
   traz `dica`.
 
-### F3 — Descrições afinadas `[aberta]`
+### F3 — Descrições afinadas `[concluída no código · pende deploy .11]`
 **Meta:** o modelo responde no tom da pergunta, e usa `info_oportunidades` e
 `ultimos_erros` quando são a resposta.
 
@@ -107,6 +112,9 @@ consulta e o que é escrita, e o que fazer quando a API está desatualizada.
   455→ "histórico longo").
 - Testes de docstring passam a assertar **semântica** (`sem bloqueio`, `fora do recorte`,
   `status="todos"`), não caixa alta.
+- **O que mordeu:** `'Não invente' in d` falhou porque a docstring quebra linha entre as
+  duas palavras — a description preserva o `
+`. Assertar por trecho que não cruza linha.
 
 ### F4 — Medir o que a pessoa sente `[aberta]`
 **Meta:** saber, pelo log, qual tool está lenta ou gorda antes de alguém reclamar.

@@ -135,6 +135,21 @@ Teste rápido (o server fica aguardando no stdio; Ctrl+C para sair):
 python mcp_server.py
 ```
 
+### `mcp` 2.x quebra o import ("Connection closed" no cliente)
+
+O SDK `mcp` 2.x renomeou `FastMCP` para `MCPServer` e mudou a API. Este server importa
+`mcp.server.fastmcp`; com o 2.x instalado o processo morre no import e o cliente MCP só
+mostra **"Connection closed"**, sem stack trace. Por isso o `requirements.txt` pina
+`mcp>=1.2,<2` (a `.11` roda 1.28.1). Para conferir qual está ativo e se o server sobe:
+
+```bash
+python -c "import importlib.metadata as m; print(m.version('mcp'))"
+python -c "import mcp_server"        # dentro de mcp/: sem saída = ok
+```
+
+Se o import falhar, reinstale com `pip install "mcp<2"` — ou registre só o modo remoto
+HTTP da `.11` (abaixo), que não depende do Python da máquina cliente.
+
 ## Registrar no cliente MCP
 
 ### Claude Code (CLI)

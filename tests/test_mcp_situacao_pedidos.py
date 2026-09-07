@@ -72,7 +72,9 @@ def test_a_descricao_avisa_que_404_nao_e_sem_bloqueio(fachada):
     tools = {t.name: t for t in asyncio.run(fachada.mcp.list_tools())}
     d = tools['situacao_pedido'].description
     assert 'fora do recorte' in d
-    assert 'NÃO' in d and 'sem bloqueio' in d
+    # Semântica, não caixa alta: o aviso precisa dizer que 404 ≠ "sem bloqueio" e que
+    # não se inventa "liberado" — o tom da frase é livre.
+    assert 'sem bloqueio' in d and 'invente "está liberado"' in d
 
 
 def test_a_descricao_manda_dizer_cancelado(fachada):
@@ -86,7 +88,7 @@ def test_a_descricao_avisa_a_divergencia_do_status_com_a_tela(fachada):
     """D3: o default diverge da tela DE PROPÓSITO — quem lê o número precisa saber."""
     tools = {t.name: t for t in asyncio.run(fachada.mcp.list_tools())}
     d = tools['pedidos_bloqueados'].description
-    assert 'DIVERGE' in d
+    assert 'diverge' in d.lower()          # semântica, não caixa alta
     assert 'status="todos"' in d
 
 

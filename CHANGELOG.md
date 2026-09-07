@@ -3,6 +3,25 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-07] — Fachada MCP: pin `mcp<2` (F0) e descricoes afinadas (F3)
+
+F0 e F3 do `docs/PLANO_UX_FACHADA_MCP.md`. Nada muda de comportamento na API; muda o
+que o modelo le e o que impede o server de subir.
+
+- **`mcp/requirements.txt`: `mcp>=1.2,<2`.** O 2.x renomeou `FastMCP` -> `MCPServer`; com
+  ele instalado o `mcp_server.py` morre no import e o cliente so ve "Connection closed".
+  A .11 roda 1.28.1 e nao e afetada; o pin protege quem instala do zero. `mcp/README.md`
+  ganhou a secao de diagnostico (versao ativa, `import mcp_server`, alternativa HTTP).
+- **Docstrings** (o que o modelo le): `estado_windows_update` no mesmo contrato tri-estado
+  sem caixa alta/negrito; `info_oportunidades` diz quando usar e o que nao traz;
+  `ultimos_erros` documenta `examinados`/`qtd_falhas`/`falhas` e que `0` em 10 registros
+  nao e "sem falha hoje". `CLAUDE.md` perde as contagens que envelhecem (378 testes, 455
+  linhas — ja eram 391 e 1895).
+- Testes de docstring assertam **semantica** (`sem bloqueio`, `invente "está liberado"`,
+  `diverge`), nao caixa alta. Verificado com um `mcp` 1.30 isolado (PYTHONPATH): 391
+  passed, 2 skipped. O Python global desta maquina continua com o 2.1.1 — instalar e do
+  dono. **Producao:** `git pull` na .11 + restart do `OrcaView-MCP`.
+
 ## [2026-09-07] — Plano: experiencia do usuario na fachada MCP (docs)
 
 Prompt-audit das 15 docstrings + medicao do que quem pergunta no Claude sente, contra a

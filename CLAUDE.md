@@ -31,7 +31,7 @@ Serviço de integração SAP B1 → Supabase. Roda em produção no `192.168.7.1
 | `scripts/scheduled_execution.py` | Loop do agendador (APScheduler, janela 7-18, seg-sex) |
 | `mcp/` | Fachada MCP fina e read-only sobre a API 8077 — NÃO fala com banco |
 | `web/sincronizar.html` | Página única servida em `GET /` |
-| `tests/` | pytest, 378 testes; `test_<modulo>.py` espelha o módulo |
+| `tests/` | pytest; `test_<modulo>.py` espelha o módulo |
 
 Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api.py` orquestra e
 importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não importa nada da raiz).
@@ -52,7 +52,7 @@ importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não impor
 
 ## NÃO reler (não é fonte, ou raramente muda)
 
-- `CHANGELOG.md` (455 linhas de histórico) e `README.md` inteiro — no README, vá direto à seção pela busca do heading.
+- `CHANGELOG.md` (histórico longo) e `README.md` inteiro — no README, vá direto à seção pela busca do heading.
 - `exports/` (dados de cliente), `logs/`, `state/`, `.locks/` — runtime/gerados.
 - `install_*.bat/.ps1`, `run_*.bat`, `maintenance/` — só para tarefas de deploy/operação.
 

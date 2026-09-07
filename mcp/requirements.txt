@@ -1,4 +1,7 @@
-mcp>=1.2.0
+# <2 de propósito: o mcp 2.x renomeou FastMCP -> MCPServer e mudou a API; este server
+# (e o serve_http.py, escrito contra o 1.28.1 da .11) importa mcp.server.fastmcp. Com o
+# 2.x instalado o import morre e o cliente só vê "Connection closed". Migrar é plano à parte.
+mcp>=1.2,<2
 httpx>=0.27
 python-dotenv>=1.0
 # Fase 3 (modo remoto HTTP): serve_http.py sobe o FastMCP via uvicorn.
