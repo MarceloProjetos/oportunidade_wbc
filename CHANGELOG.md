@@ -3,6 +3,21 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-08] — parada limpa de verdade: deploy espera o worker parar; servico do worker roda `python.exe` direto
+
+No deploy das 15:52 o worker ficou PARADO: o `nssm stop` entrou em `STOP_PENDING` (o `cmd.exe` do
+`run_wbc_worker.bat` segura o Ctrl+C do NSSM no "Terminate batch job (Y/N)?" ate o NSSM matar a
+arvore no fim dos 60 s) e o `nssm start` do fim do script chegou durante o `STOP_PENDING` — recusado
+em silencio. Duas correcoes:
+
+- **`deploy_update.bat`**: `:esperar_parar` (loop em `sc query` ate `STOPPED`, max 90 s) depois do
+  stop do worker e antes do start; se o worker nao subir, avisa com o comando para subir a mao.
+- **`install_wbc_services.bat`**: o servico `OrcaView-WBC-Worker` passa a ter `Application` =
+  `python.exe` (venv ou o do PATH) e `AppParameters` = `-m wbcpython worker`, com `PYTHONUTF8=1`
+  via `AppEnvironmentExtra` — sem `.bat` no meio, o Ctrl+C chega ao Python, que termina o ciclo e
+  sai em segundos. `run_wbc_worker.bat` fica para uso manual. Vale no proximo start
+  (`nssm restart OrcaView-WBC-Worker`).
+
 ## [2026-09-08] — tarefa legada "Integracao WBC" aposentada: o check `scheduled_task` fica, mas nasce `retired` e nunca alarma
 
 Virada feita (F5 do plano): worker antigo parado (13:24), tarefa legada desabilitada (15:47),

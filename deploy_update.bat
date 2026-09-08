@@ -56,8 +56,9 @@ nssm stop OrcaView-OS-API     >nul 2>&1
 nssm stop OrcaView-Scheduler  >nul 2>&1
 nssm stop OrcaView-WBC-Painel >nul 2>&1
 if defined WORKER_ATIVO (
-  echo [nssm] parando o worker WBC ^(ate 60 s, termina o ciclo atual^)...
+  echo [nssm] parando o worker WBC ^(termina o ciclo atual; espera ate 90 s^)...
   nssm stop OrcaView-WBC-Worker >nul 2>&1
+  call :esperar_parar OrcaView-WBC-Worker 90
 )
 
 set "REQCHANGED="
@@ -118,7 +119,13 @@ nssm start OrcaView-MCP        >nul 2>&1
 nssm start OrcaView-Scheduler  >nul 2>&1
 nssm start OrcaView-WBC-Painel >nul 2>&1
 if defined WORKER_ATIVO (
+  REM Um "nssm start" durante STOP_PENDING e recusado em silencio (aconteceu em 08/09/2026:
+  REM o worker ficou parado depois do deploy). Por isso a espera acima e esta confirmacao.
+  call :esperar_parar OrcaView-WBC-Worker 30
   nssm start OrcaView-WBC-Worker >nul 2>&1
+  sc query OrcaView-WBC-Worker | find "RUNNING" >nul 2>&1 || (
+    echo [nssm] AVISO: OrcaView-WBC-Worker NAO subiu - rode: nssm start OrcaView-WBC-Worker
+  )
 ) else (
   echo [nssm] OrcaView-WBC-Worker segue parado ^(virada = nssm start OrcaView-WBC-Worker^).
 )
@@ -163,6 +170,23 @@ nssm start OrcaView-OS-API     >nul 2>&1
 nssm start OrcaView-MCP        >nul 2>&1
 nssm start OrcaView-Scheduler  >nul 2>&1
 nssm start OrcaView-WBC-Painel >nul 2>&1
-if defined WORKER_ATIVO nssm start OrcaView-WBC-Worker >nul 2>&1
+if defined WORKER_ATIVO (
+  call :esperar_parar OrcaView-WBC-Worker 30
+  nssm start OrcaView-WBC-Worker >nul 2>&1
+)
 pause
 exit /b 1
+
+REM --- espera o servico %1 chegar a STOPPED, no maximo %2 segundos (sc query e ANSI) ---
+:esperar_parar
+set /a _ESPERA=0
+:esperar_parar_loop
+sc query %1 2>nul | find "STOPPED" >nul 2>&1 && goto :eof
+sc query %1 >nul 2>&1 || goto :eof
+set /a _ESPERA+=1
+if %_ESPERA% geq %2 (
+  echo [nssm] AVISO: %1 nao chegou a STOPPED em %2 s ^(sc query^).
+  goto :eof
+)
+timeout /t 1 /nobreak >nul
+goto :esperar_parar_loop

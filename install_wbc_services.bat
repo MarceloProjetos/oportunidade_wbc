@@ -27,6 +27,22 @@ if errorlevel 1 (
 if not exist "%PROJ%\logs" mkdir "%PROJ%\logs"
 if not exist "%PROJ%\state" mkdir "%PROJ%\state"
 
+REM O WORKER roda o python.exe DIRETO (sem run_wbc_worker.bat no meio): com o .bat, o cmd.exe
+REM segura o Ctrl+C do NSSM no "Terminate batch job (Y/N)?" e a parada so termina quando o
+REM NSSM mata a arvore ao fim do AppStopMethodConsole - o "nssm start" do deploy chegava
+REM durante o STOP_PENDING e era recusado (08/09/2026). Direto, o python recebe o Ctrl+C,
+REM termina o ciclo e sai em segundos. venv se existir; senao o python do PATH.
+set "PYEXE=%PROJ%\venv\Scripts\python.exe"
+if not exist "%PYEXE%" (
+  set "PYEXE="
+  for /f "delims=" %%p in ('where python 2^>nul') do if not defined PYEXE set "PYEXE=%%p"
+)
+if not defined PYEXE (
+  echo ERRO: python nao encontrado ^(nem venv\ nem no PATH^).
+  exit /b 1
+)
+echo Python do worker: %PYEXE%
+
 echo === Painel da Integracao WBC (OrcaView-WBC-Painel) ===
 nssm install OrcaView-WBC-Painel "%PROJ%\run_wbc_painel.bat" >nul 2>&1 || echo   (ja existia - parametros serao regravados)
 nssm set OrcaView-WBC-Painel Application "%PROJ%\run_wbc_painel.bat"
@@ -39,10 +55,11 @@ nssm set OrcaView-WBC-Painel AppRotateFiles 1
 nssm set OrcaView-WBC-Painel AppRotateBytes 5000000
 
 echo === Worker da Integracao WBC (OrcaView-WBC-Worker) - MANUAL ate a virada ===
-nssm install OrcaView-WBC-Worker "%PROJ%\run_wbc_worker.bat" >nul 2>&1 || echo   (ja existia - parametros serao regravados)
-nssm set OrcaView-WBC-Worker Application "%PROJ%\run_wbc_worker.bat"
-nssm set OrcaView-WBC-Worker AppParameters ""
+nssm install OrcaView-WBC-Worker "%PYEXE%" -m wbcpython worker >nul 2>&1 || echo   (ja existia - parametros serao regravados)
+nssm set OrcaView-WBC-Worker Application "%PYEXE%"
+nssm set OrcaView-WBC-Worker AppParameters "-m wbcpython worker"
 nssm set OrcaView-WBC-Worker AppDirectory "%PROJ%"
+nssm set OrcaView-WBC-Worker AppEnvironmentExtra PYTHONUTF8=1 PYTHONIOENCODING=utf-8
 nssm set OrcaView-WBC-Worker Start SERVICE_DEMAND_START
 nssm set OrcaView-WBC-Worker AppStopMethodConsole 60000
 nssm set OrcaView-WBC-Worker AppStdout "%PROJ%\logs\wbc_worker_service.log"
@@ -53,7 +70,8 @@ nssm set OrcaView-WBC-Worker AppRotateBytes 5000000
 echo.
 echo Registrados com a pasta: %PROJ%
 echo   - OrcaView-WBC-Painel  -^> logs\wbc_painel_service.log   (nao iniciado aqui)
-echo   - OrcaView-WBC-Worker  -^> logs\wbc_worker_service.log   (MANUAL, parado)
+echo   - OrcaView-WBC-Worker  -^> logs\wbc_worker_service.log   (python.exe direto; MANUAL, parado)
+echo     ^(worker ja rodando? as mudancas valem no proximo start: nssm restart OrcaView-WBC-Worker^)
 echo Proximos passos:
 echo   1. bloco WBC no .env  (TRACKING_DB_URL=sqlite:///./state/wbc_tracking.db, LOG_FILE=logs/wbcpython.log,
 echo      PAINEL_HOST=0.0.0.0, PAINEL_PORTA=8079 + SL_*, WBC_SQL_*, HANA_*, WORKER_*)
