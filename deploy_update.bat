@@ -18,11 +18,25 @@ REM  NAO toca em venv\, .env, .env.*, logs\ nem state\ (todos no .gitignore).
 REM ============================================================================
 setlocal enabledelayedexpansion
 
+REM --- roda de uma COPIA em %TEMP%: o "git pull" abaixo reescreve ESTE .bat no meio da
+REM     execucao, e o cmd.exe le o .bat por posicao de byte - a partir dali executa linhas
+REM     da versao nova em posicoes da antiga (foi assim que "ja estava atualizado" apareceu
+REM     junto de um fast-forward em 08/09/2026). A copia nao muda durante o pull.
+if /i not "%~1"=="--copia" (
+  copy /y "%~f0" "%TEMP%\deploy_update_run.bat" >nul || (
+    echo ERRO: nao consegui copiar o script para %TEMP%.
+    pause & exit /b 1
+  )
+  call "%TEMP%\deploy_update_run.bat" --copia "%~dp0"
+  exit /b %errorlevel%
+)
+set "ROOT=%~2"
+
 set "REPO=https://github.com/MarceloProjetos/oportunidade_wbc.git"
 set "BRANCH=master"
 
-REM --- ir para a raiz do repo (a pasta deste .bat) ---
-cd /d "%~dp0"
+REM --- ir para a raiz do repo (a pasta do .bat original, recebida como argumento) ---
+cd /d "%ROOT%"
 echo [deploy] pasta: %CD%
 
 REM --- exige Administrador ---

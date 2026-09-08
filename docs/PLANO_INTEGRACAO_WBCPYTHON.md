@@ -6,10 +6,10 @@ Worker antigo parado (13:24), tarefa legada desabilitada (`Enabled=False` confer
 cada, 0 erros, ~25 s por ciclo; `/status` `healthy=true`). Commit `8ca58f0` aposenta o monitor
 da tarefa legada **sem tirar o bloco** `scheduled_task` (o card do `.90` e a tool
 `estado_tarefa_wbc` continuam lendo; vem `retired=true` e nunca alarma; `WBC_TASK_MONITOR=true`
-é o rollback). **Pende na .11:** `deploy_update.bat` para levar o `8ca58f0` (senão o próximo
-retrato do monitor legado, dizendo "desabilitada", vira alerta e `?strict=1` responde 503);
-remover `OrcaView-Monitor-WBC-Task` (opcional); apagar `MCPs\WBCPython` (dele); rotacionar as
-senhas que passaram pelo chat. F6 segue aberta (retenção de `eventos`, card do `.90` →
+é o rollback). **`8ca58f0` no ar na .11 às 15:52** (deploy dele; `/status`: `scheduled_task.retired=true`,
+`alerts=[]`, `healthy=true`; o deploy religou o worker). **Pende (dele, sem urgência):** remover
+`OrcaView-Monitor-WBC-Task`; apagar `MCPs\WBCPython`; rotacionar as senhas que passaram pelo
+chat. F6 segue aberta (retenção de `eventos`, card do `.90` →
 `wbc_worker`).
 
 **Status (2026-09-08, 6ª atualização, 15:45): F5 EM ANDAMENTO, com um passo errado no meio.**
@@ -275,7 +275,12 @@ se ele cair.
   previstas já tinham saído pelo legado às 15:40.
 
 ### F6 — Depois (sugestões; cada uma cabe num commit) `[abertas]`
-- **Retenção de `eventos`** (D8): 940.326 linhas em 6 dias ≈ 1 GB/mês.
+- ✅ **Retenção de `eventos`** (D8): feita — ver decisão 8.
+- **Deploy sem pausa do worker:** hoje o `deploy_update.bat` para o worker (parada limpa) e
+  religa; com o `python.exe` direto no serviço isso leva segundos. Um dia: só reiniciar o
+  worker quando `wbcpython/` mudou.
+- **Card do `.90`** (`status.js`, `renderWbcTask`): apontar para `wbc_worker` em vez do bloco
+  legado `scheduled_task` (que agora vem `retired`).
 - **TLS:** `SL_VERIFY_SSL=false` hoje; `SL_CA_BUNDLE` quando houver certificado.
 - Dois clientes de Service Layer no mesmo servidor (OP: `requests` + sessão TTL; WBC: `httpx` +
   Login/Logout por ciclo ≈ 260/dia): conviver está ok; unificar só se o SL reclamar.
@@ -344,8 +349,11 @@ se ele cair.
    Sincronização); o Painel de Sincronização passa a `/sincronizar`. Consumidores REST não
    mudam (`.90` usa só `/health` e `/status`).
 7. **Nome do pacote e dos serviços — ✅** `wbcpython` e `OrcaView-WBC-*`.
-8. **Retenção de eventos — aberta.** Recomendado: não gravar evento por avaliação sem ação +
-   faxina de 90 dias; medir antes qual `tipo` domina.
+8. **Retenção de eventos — ✅ feita em 08/09 (decisão dele: 6 dias).** Medido: 934.634 dos
+   940.326 eventos eram a mesma decisão regravada a cada ciclo (12.559 mudanças reais).
+   `registrar_evento` não repete decisão igual à última; `faxina_de_eventos` apaga decisão
+   mais velha que `EVENTOS_RETENCAO_DIAS` (6) e compacta; o worker faz 1×/dia; CLI `faxina`.
+   Ação, erro e reprocessamento nunca são apagados. 19 testes.
 9. **Instalação — ✅** `requirements.txt` + `python -m wbcpython`; sem uv/hatchling.
 10. **Worker externo — aberta.** Onde roda hoje? Precisa ser parado na F5.
 11. **Banco de acompanhamento — ✅ novo, criado pelo próprio serviço** (pedido dele em 08/09);

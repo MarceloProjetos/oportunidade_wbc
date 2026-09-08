@@ -3,6 +3,14 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-08] — `deploy_update.bat` roda de uma copia em `%TEMP%` (o pull reescrevia o proprio .bat no meio)
+
+O `cmd.exe` le um `.bat` por posicao de byte. Como o `git pull` do deploy reescreve o proprio
+`deploy_update.bat`, a partir dali o cmd executava linhas da versao nova em posicoes da antiga —
+e' a explicacao do "[git] ja estava atualizado" impresso junto de um fast-forward. Agora o script
+se copia para `%TEMP%\deploy_update_run.bat` e reexecuta a copia (`--copia <pasta>`), que nao
+muda durante o pull. Nada mais mudou no fluxo.
+
 ## [2026-09-08] — wbc: retencao do acompanhamento — decisao repetida nao grava; faxina de 6 dias (D8)
 
 Medido no banco do worker antigo (6 dias em producao, 1.682 oportunidades, ciclo de 3 min):
