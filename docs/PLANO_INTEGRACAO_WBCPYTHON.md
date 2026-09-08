@@ -1,5 +1,15 @@
 # Plano — Integração WBC (WBCPython) dentro do ServidorIntegracaoSAP
 
+**Status (2026-09-08, 5ª atualização, 16:10): F4 CONCLUÍDA.** Na .11: `doctor` em
+`PRODUÇÃO`/trava `DESATIVADA` com Service Layer, SQL Server e HANA configurados; `check-sap`
+OK com o usuário `orcaview` (o do `.90`); `pendentes --exportar` leu **1.682 oportunidades** a
+partir da .11 (HANA + WBC + SL, só leitura) e gravou o retrato — **2 escritas** aconteceriam num
+ciclo; painel na 8079 apresentando `SBOALTAMIRAPROD` com a tarja de produção; raiz da 8077 leva a
+ele; `/status?checks=worker` = `installed=true, last=null`, sem alerta. Worker registrado e
+**parado**. O bloco no `.env` só entrou colado do chat (a colagem por RDP caiu no
+`.env.example`, restaurado com `git checkout`). **Próximo: F5 (virada), inteira dele** — D1
+(legado) e D10 (parar o worker externo) antes do `nssm start OrcaView-WBC-Worker`.
+
 **Status (2026-09-08, 4ª atualização, 15:40):** **painel WBC no ar na .11** — `OrcaView-WBC-Painel`
 responde `200` em `http://192.168.7.11:8079/entrar` pela rede (firewall ok), a raiz da 8077 leva a
 ele, e o banco `state/wbc_tracking.db` foi **criado pelo próprio serviço** (`/status?checks=worker`:
