@@ -162,6 +162,13 @@ importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não impor
   monitores usam. O worker é `wbc_worker` (aliases `worker`, `integracao_wbc`). O check
   **não alarma** antes do primeiro ciclo registrado na máquina (`installed=false` /
   `last=null` são informação): na .11 antes da virada, `/status?strict=1` continua 200.
+- **A tarefa legada "Integração WBC" foi desativada em 2026-09-08** (virada para o worker).
+  O check `scheduled_task` **fica** — o card do `.90` (`status.js`) e a tool MCP
+  `estado_tarefa_wbc` leem o bloco — mas nasce `retired=true`, `available=false`, sem alerta
+  (`WBC_TASK_MONITOR_DEFAULT = False`). Não apague o bloco nem `monitor_wbc_task.ps1`:
+  `WBC_TASK_MONITOR=true` é o rollback. A tarefa `OrcaView-Monitor-WBC-Task` do Task
+  Scheduler pode ser removida (`Unregister-ScheduledTask`); com o monitor desligado o JSON
+  dela é ignorado.
 - **`tests/wbc/conftest.py` neutraliza o `.env`**: o `load_dotenv()` do `config` da raiz
   vaza o `.env` para o `os.environ` da sessão inteira; sem a fixture, `OS_API_KEY` do `.env`
   faria o painel exigir chave em todo teste. Teste que precisa de um valor faz `setenv` depois.

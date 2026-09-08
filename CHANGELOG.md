@@ -3,6 +3,25 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-08] — tarefa legada "Integracao WBC" aposentada: o check `scheduled_task` fica, mas nasce `retired` e nunca alarma
+
+Virada feita (F5 do plano): worker antigo parado (13:24), tarefa legada desabilitada (15:47),
+`OrcaView-WBC-Worker` na .11 com 3 ciclos limpos (15:41, 15:45, 15:48 — 1.682 avaliados cada, 0
+erros). Sem esta mudanca, o proximo retrato do monitor da tarefa diria "desabilitada" em
+`problems[]`, viraria alerta, derrubaria `healthy` e faria `?strict=1` responder 503 — para o
+watchdog da Mira e o card do `.90`.
+
+- `WBC_TASK_MONITOR` (default **false**): `_scheduled_task_signal` devolve `{available: false,
+  retired: true, healthy: null, error: "...desativada em 2026-09-08...", task_name}` e
+  `_scheduled_task_alerts` devolve `[]`. A FORMA do bloco nao muda: o card do `.90` (`status.js`,
+  `renderWbcTask`) mostra "Indisponivel" com o texto explicando, e a tool MCP `estado_tarefa_wbc`
+  segue respondendo (docstring e `instructions` avisam que e' legado e apontam
+  `estado_integracao_wbc`). `true` religa o monitor de verdade (rollback para o legado).
+- `monitor_wbc_task.ps1` / `install_monitor_task.ps1` ficam no repo (sao o rollback); a tarefa
+  `OrcaView-Monitor-WBC-Task` do Task Scheduler pode ser removida na .11 — com o monitor
+  desligado, o JSON dela e' ignorado.
+- 3 testes novos; os 3 que exercitam o monitor de verdade religam `WBC_TASK_MONITOR`.
+
 ## [2026-09-08] — `deploy_update.bat`: pip decide pelo HASH dos requirements, nao pelo pull
 
 Na .11 o `doctor` acusou `fastapi` e `pymssql` ausentes: o pip so rodava quando o `requirements.txt`

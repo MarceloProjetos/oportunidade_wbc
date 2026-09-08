@@ -53,8 +53,8 @@ quadro de colaboradores das 3 empresas (Altamira, Tecnequip, Proalta).
 
 A Integração WBC → SAP (cotações e pedidos criados no SAP a partir dos orçamentos do
 WBC; worker + painel na porta 8079) roda nesta mesma máquina: `estado_integracao_wbc`
-diz se o worker está ciclando. É outra coisa que a "tarefa WBC" de `estado_tarefa_wbc`
-(a tarefa agendada legada do Windows).
+diz se o worker está ciclando. A "tarefa WBC" de `estado_tarefa_wbc` é a tarefa agendada
+LEGADA do Windows, desativada em 2026-09-08: vem `retired=true`, e isso não é falha.
 
 Não é o servidor RDP do SAP (192.168.7.12): esse é o servidor MCP `sap-rdp`, com tools
 próprias. Não confunda as respostas de Windows Update das duas máquinas.
@@ -254,10 +254,14 @@ def detalhe_pedido_os(nped: int, incluir_linhas: bool = False) -> Dict[str, Any]
 
 @mcp.tool()
 def estado_tarefa_wbc() -> Dict[str, Any]:
-    """Estado só da tarefa agendada "Integração WBC" (bloco scheduled_task do /status).
+    """Estado da tarefa agendada LEGADA "Integração WBC" (bloco scheduled_task do /status).
 
-    Foca no monitor da tarefa do Windows: última execução, resultado e se rodou no prazo.
-    Endpoint aberto (não exige chave). Use para "a tarefa WBC rodou hoje?" / "deu erro?".
+    **Desde 2026-09-08 essa tarefa está desativada de propósito**: a integração WBC → SAP
+    passou a ser o worker do ServidorIntegracaoSAP nesta mesma máquina. Por isso o bloco
+    normalmente vem com ``retired=true`` e ``available=false`` — não é falha, é o desenho.
+    Para "a integração WBC está rodando?" use ``estado_integracao_wbc``. Esta tool só volta
+    a trazer o monitor de verdade se a .11 religar ``WBC_TASK_MONITOR=true`` (rollback).
+    Endpoint aberto (não exige chave).
     """
     data = _get("/status", {"checks": "scheduled_task"})
     # No /status, scheduled_task é chave de TOPO (irmã de `checks`/`alerts`), não fica dentro

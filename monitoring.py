@@ -266,6 +266,20 @@ def _scheduled_task_signal() -> Dict[str, Any]:
       running, last run errored, missed triggers).
     """
     s = get_settings()
+    if not s.wbc_task_monitor:
+        # The legacy task was disabled on 2026-09-08 (replaced by the worker in wbcpython/).
+        # The block keeps its shape for the consumers (.90 card renders ``available=False`` +
+        # ``error`` as "Indisponível" with the text; the MCP tool passes it through) and
+        # never alerts — a disabled task is the DESIGN now, not a problem.
+        return {
+            'available': False,
+            'retired': True,
+            'healthy': None,
+            'task_name': s.wbc_task_name,
+            'error': ('tarefa legada desativada em 2026-09-08 — a integração WBC → SAP agora é o '
+                      'worker do ServidorIntegracaoSAP (check wbc_worker / tool estado_integracao_wbc); '
+                      'monitor da tarefa desligado (WBC_TASK_MONITOR=true religa)'),
+        }
     path = _wbc_task_state_path()
 
     if not os.path.exists(path):
@@ -661,6 +675,8 @@ def _scheduled_task_alerts(task: Dict[str, Any]) -> list:
     problems as detected by the PowerShell script.
     """
     name = task.get('task_name', 'Integração WBC')
+    if task.get('retired'):
+        return []   # by design since 2026-09-08 — never an alert
     if not task.get('available'):
         return [f"monitor da tarefa '{name}': {task.get('error', 'estado indisponível')}"]
 

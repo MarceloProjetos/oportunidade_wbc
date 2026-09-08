@@ -716,7 +716,9 @@ Dois endpoints para checagem (exemplos no PowerShell):
 - **`GET /status`** — diagnóstico **sob demanda** (**aberto, sem chave** — pode abrir no
   navegador; roda só quando chamado, sem polling): conexões com **SAP**, **SQL Server (WBC)** e **Supabase** (com
   latência `ms`), **sinal indireto do agendador** (idade da última carga de oportunidades;
-  `stale` se > 35 min na janela comercial → `OrcaView-Scheduler` pode ter caído), **estado do
+  `stale` se > 35 min na janela comercial → `OrcaView-Scheduler` pode ter caído), **tarefa
+  legada "Integração WBC"** (`scheduled_task`: desativada em 08/09/2026, vem `retired=true` e
+  nunca alarma; `WBC_TASK_MONITOR=true` religa o monitor), **estado do
   worker WBC** (`wbc_worker`: lê `state/wbc_tracking.db`; `stale` se silenciou além de 2×
   `WORKER_INTERVAL_SECONDS` dentro do expediente **do worker** → `OrcaView-WBC-Worker` pode ter
   caído; não alarma antes do 1º ciclo registrado na máquina), **alerta de disco** e métricas

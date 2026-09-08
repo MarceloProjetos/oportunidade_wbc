@@ -98,6 +98,12 @@ OP_STATUS_PERMITIDOS_DEFAULT = 'boposReleased,boposClosed'
 WBC_TASK_NAME_DEFAULT = 'Integração WBC'
 WBC_TASK_STATE_FILE_DEFAULT = 'state/wbc_task_state.json'
 WBC_TASK_STALE_MIN_DEFAULT = 25
+# 2026-09-08: the legacy "Integração WBC" task was DISABLED — the WBC → SAP integration is now
+# the worker in ``wbcpython/`` (check ``wbc_worker``). The task monitor is therefore OFF by
+# default: the ``scheduled_task`` block stays in ``/status`` (the .90 card and the MCP tool
+# ``estado_tarefa_wbc`` still read it) but reports ``retired`` and never alerts. Set
+# ``WBC_TASK_MONITOR=true`` to bring the old behaviour back (e.g. rollback to the legacy).
+WBC_TASK_MONITOR_DEFAULT = False
 
 # Integração WBC → SAP (pacote ``wbcpython/``: worker + painel). The ``/status`` check
 # ``wbc_worker`` reads the worker's tracking DB (SQLite) and needs the worker's OWN
@@ -293,6 +299,7 @@ class Settings:
     wbc_task_name: str
     wbc_task_state_file: str
     wbc_task_stale_min: int
+    wbc_task_monitor: bool          # WBC_TASK_MONITOR — False since the legacy task retired
 
     # Integração WBC → SAP (``wbcpython/``): tracking DB + the worker's schedule, read
     # by the ``wbc_worker`` check, and where the painel lives (``GET /painel-wbc``).
@@ -377,6 +384,7 @@ class Settings:
             wbc_task_stale_min=max(
                 1, int(os.getenv('WBC_TASK_STALE_MIN', WBC_TASK_STALE_MIN_DEFAULT))
             ),
+            wbc_task_monitor=_env_bool('WBC_TASK_MONITOR', WBC_TASK_MONITOR_DEFAULT),
             wbc_tracking_db_url=os.getenv('TRACKING_DB_URL') or WBC_TRACKING_DB_URL_DEFAULT,
             wbc_worker_interval_s=max(
                 1, _env_int('WORKER_INTERVAL_SECONDS', WBC_WORKER_INTERVAL_S_DEFAULT)

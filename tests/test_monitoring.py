@@ -146,7 +146,14 @@ def test_scheduled_task_alerts_normalizes_scalar_problems():
     assert alerts == ["tarefa 'X': só um problema"]
 
 
+def _monitor_ligado(monkeypatch):
+    """Os testes do monitor de verdade precisam religa-lo: desde 08/09/2026 ele nasce desligado."""
+    monkeypatch.setenv('WBC_TASK_MONITOR', 'true')
+    reset_settings()
+
+
 def test_scheduled_task_signal_reads_fresh_file(monkeypatch, tmp_path):
+    _monitor_ligado(monkeypatch)
     p = tmp_path / 'wbc_task_state.json'
     p.write_text(json.dumps({
         'task_name': 'Integração WBC', 'found': True, 'healthy': True, 'problems': [],
@@ -160,6 +167,7 @@ def test_scheduled_task_signal_reads_fresh_file(monkeypatch, tmp_path):
 
 
 def test_scheduled_task_signal_marks_old_file_stale(monkeypatch, tmp_path):
+    _monitor_ligado(monkeypatch)
     p = tmp_path / 'wbc_task_state.json'
     old = (datetime.now() - timedelta(hours=2)).strftime('%Y-%m-%dT%H:%M:%S')
     p.write_text(json.dumps({'task_name': 'X', 'checked_at': old}), encoding='utf-8')
@@ -170,6 +178,7 @@ def test_scheduled_task_signal_marks_old_file_stale(monkeypatch, tmp_path):
 
 
 def test_scheduled_task_signal_missing_file(monkeypatch, tmp_path):
+    _monitor_ligado(monkeypatch)
     monkeypatch.setattr(monitoring, '_wbc_task_state_path', lambda: str(tmp_path / 'nope.json'))
     sig = monitoring._scheduled_task_signal()
     assert sig['available'] is False
@@ -567,3 +576,38 @@ def test_wbc_worker_threshold_dois_intervalos_nunca_abaixo_de_10(monkeypatch, in
     monkeypatch.setenv('WORKER_INTERVAL_SECONDS', intervalo)
     reset_settings()
     assert monitoring._wbc_worker_threshold_min() == limite
+
+
+# ================= tarefa legada aposentada (2026-09-08): bloco fica, alerta nao ==================
+
+def test_tarefa_legada_nasce_aposentada_e_nao_alerta(monkeypatch, tmp_path):
+    """Default novo: sem WBC_TASK_MONITOR o bloco diz `retired` e nunca vira alerta —
+    mesmo com um JSON do monitor dizendo que a tarefa esta desabilitada/parada (e' o desenho)."""
+    monkeypatch.delenv('WBC_TASK_MONITOR', raising=False)
+    reset_settings()
+    p = tmp_path / 'wbc_task_state.json'
+    p.write_text(json.dumps({'checked_at': '2020-01-01T00:00:00', 'enabled': False,
+                             'problems': ['tarefa desabilitada']}), encoding='utf-8')
+    monkeypatch.setattr(monitoring, '_wbc_task_state_path', lambda: str(p))
+    sig = monitoring._scheduled_task_signal()
+    assert sig['retired'] is True and sig['available'] is False and sig['healthy'] is None
+    assert 'wbc_worker' in sig['error']          # aponta o substituto
+    assert sig['task_name'] == 'Integração WBC'  # a forma que o card do .90 e a tool MCP leem
+    assert monitoring._scheduled_task_alerts(sig) == []
+
+
+def test_tarefa_aposentada_nao_derruba_o_healthy_do_status(monkeypatch):
+    _stub_all_ok(monkeypatch)
+    monkeypatch.setattr(monitoring, '_scheduled_task_signal',
+                        lambda: {'available': False, 'retired': True, 'healthy': None,
+                                 'task_name': 'Integração WBC', 'error': 'aposentada'})
+    data = monitoring.collect_status()
+    assert data['healthy'] is True and data['alerts'] == []
+    assert data['scheduled_task']['retired'] is True
+
+
+def test_wbc_task_monitor_true_religa_o_monitor(monkeypatch, tmp_path):
+    _monitor_ligado(monkeypatch)
+    monkeypatch.setattr(monitoring, '_wbc_task_state_path', lambda: str(tmp_path / 'nope.json'))
+    sig = monitoring._scheduled_task_signal()
+    assert 'retired' not in sig and sig['available'] is False and 'nunca rodou' in sig['error']
