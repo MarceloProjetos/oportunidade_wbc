@@ -1,5 +1,18 @@
 # Plano — Integração WBC (WBCPython) dentro do ServidorIntegracaoSAP
 
+**Status (2026-09-08, 4ª atualização, 15:40):** **painel WBC no ar na .11** — `OrcaView-WBC-Painel`
+responde `200` em `http://192.168.7.11:8079/entrar` pela rede (firewall ok), a raiz da 8077 leva a
+ele, e o banco `state/wbc_tracking.db` foi **criado pelo próprio serviço** (`/status?checks=worker`:
+`installed=true`, 4 tabelas, `last=null`). Deps instaladas (`pymssql 2.4.1`, `sqlalchemy 2.0.52`,
+`fastapi 0.141.1`), `deploy_update.bat` agora decide o pip pelo hash (`4a6f77a`). O que mordeu na
+subida: (1) comandos de cmd colados no PowerShell deixaram `%PROJ%` literal no NSSM →
+`install_wbc_services.bat` (`a0fff9d`); (2) a regra `_*.py` do `.gitignore` deixou os 17
+`__init__/__main__` fora do git (`8663080`); (3) o pip do deploy só olhava o pull. **Pende:** bloco
+WBC no `.env` da .11 (o painel ainda se apresenta como `SBOALTAMIRAHOMOLOG`; bloco pronto em
+`.env.wbc-para-a-11`, com o usuário `orcaview` do `.90` no Service Layer por decisão dele) +
+`nssm restart OrcaView-WBC-Painel` + `pendentes --exportar`. Depois, F5. Histórico das
+atualizações anteriores abaixo.
+
 **Status (2026-09-08, 3ª atualização):** **F1, F2 e F3 no repositório** (`8be8e69` + `4f5bcde`,
 master) e **F4 passo 1 feito às 14:56**: o Marcelo rodou o `deploy_update.bat` novo na .11 —
 API, MCP e agendador religaram com o código novo (`/status?checks=worker` responde o bloco
