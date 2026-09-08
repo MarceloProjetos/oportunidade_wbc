@@ -282,8 +282,9 @@ se ele cair.
 - **Card do `.90`** (`status.js`, `renderWbcTask`): apontar para `wbc_worker` em vez do bloco
   legado `scheduled_task` (que agora vem `retired`).
 - **TLS:** `SL_VERIFY_SSL=false` hoje; `SL_CA_BUNDLE` quando houver certificado.
-- Dois clientes de Service Layer no mesmo servidor (OP: `requests` + sessão TTL; WBC: `httpx` +
-  Login/Logout por ciclo ≈ 260/dia): conviver está ok; unificar só se o SL reclamar.
+- ✅ Dois clientes de Service Layer no mesmo servidor: convivem. Desde 08/09 (`1ebb507`, decisão
+  dele) o cliente do WBC só faz login **quando há escrita** — ciclo sem ação não toca o SL
+  (antes eram ~260 Login/Logout por dia à toa); `ordens_producao_sl.py` segue com sessão TTL.
 
 ## §3 Serviços e portas na .11 (depois do plano)
 
@@ -330,7 +331,7 @@ se ele cair.
 | Testes novos | 23 (entrada do painel) + 5 (API: `/painel-wbc`, alias) + 17 (check `wbc_worker`) + 4 (tool MCP) |
 | Ciclo do worker, 1.681 oportunidades, sem escrita | 9 s (13:24:49 → 13:24:58, log) |
 | Ciclo com 2 escritas | 14 s |
-| Login no Service Layer | 1 por ciclo ≈ 260/dia |
+| Login no Service Layer | só em ciclo com escrita (antes: 1 por ciclo ≈ 260/dia) |
 | Banco de acompanhamento antigo | 202,6 MB · `eventos` 940.326 · `execucoes` 725 (02/09 → 08/09) |
 | Disco C: da .11 | 84,6 % usado · 19,5 GB livres |
 

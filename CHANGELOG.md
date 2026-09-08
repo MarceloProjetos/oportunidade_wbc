@@ -3,6 +3,15 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-08] — wbc: Service Layer so quando ha escrita (login preguicoso; ciclo sem acao nao toca o SL)
+
+Pedido do Marcelo. O `with ServiceLayerClient(...)` fazia `Login` na entrada e `Logout` na saida
+em TODO ciclo — ~260 por dia — mesmo quando o ciclo terminava com 0 escritas (a leitura das
+oportunidades ja vinha do HANA; o de-para de grupos so e' lido ao montar linhas de documento).
+Agora `__enter__` nao autentica; o login acontece na primeira requisicao (`request()` ja fazia
+isso) e o `Logout` na saida so se houve login. Ciclo sem escrita = zero requisicoes ao SL.
+`check-sap` continua logando de proposito (`testar_conexao`). 2 testes.
+
 ## [2026-09-08] — `deploy_update.bat` roda de uma copia em `%TEMP%` (o pull reescrevia o proprio .bat no meio)
 
 O `cmd.exe` le um `.bat` por posicao de byte. Como o `git pull` do deploy reescreve o proprio
