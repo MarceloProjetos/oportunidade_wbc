@@ -1,5 +1,21 @@
 # Plano — Integração WBC (WBCPython) dentro do ServidorIntegracaoSAP
 
+**Status (2026-09-08, 6ª atualização, 15:45): F5 EM ANDAMENTO, com um passo errado no meio.**
+O worker antigo (Linux/SMB) está parado desde 13:24 (último ciclo #725 no banco antigo, sem
+trava). Às 15:41 o Marcelo ligou o `OrcaView-WBC-Worker` na .11: **1º ciclo limpo** (#1,
+15:41:46 → 15:42:14, 1.682 avaliados, 0 com ação, 0 escritas, 0 erros; `/status` `healthy=true`).
+**Mas a tarefa legada "Integração WBC" NÃO foi desabilitada**: o monitor da .11 às 15:42:28
+mostrou `enabled=true`, execução às 15:40:40 e próxima às 15:45:45 — ou seja, os dois
+integradores ficaram ativos ao mesmo tempo por alguns minutos (as 2 escritas que a prévia
+previa saíram pelo legado às 15:40, por isso o ciclo novo teve 0). Pedi a ele, uma linha por
+vez: `nssm stop OrcaView-WBC-Worker` → `Disable-ScheduledTask -TaskName "Integração WBC"` →
+conferir `Settings.Enabled = False` → só então `nssm start`. **15:47: feito** — `nssm stop`
+respondeu `STOP_PENDING` (parada limpa), `Disable-ScheduledTask` aplicado e conferido
+(`Enabled = False`; `State = Running` só até a instância em curso terminar). **Falta:** `State =
+Disabled` e então `nssm start OrcaView-WBC-Worker` — a partir daí, um integrador só.
+Depois: observar 3 ciclos, remover o monitor da tarefa legada + check `scheduled_task` (commit
+meu), apagar `MCPs\WBCPython` (dele), rotacionar as senhas que passaram pelo chat.
+
 **Status (2026-09-08, 5ª atualização, 16:10): F4 CONCLUÍDA.** Na .11: `doctor` em
 `PRODUÇÃO`/trava `DESATIVADA` com Service Layer, SQL Server e HANA configurados; `check-sap`
 OK com o usuário `orcaview` (o do `.90`); `pendentes --exportar` leu **1.682 oportunidades** a
@@ -238,6 +254,13 @@ se ele cair.
    `scheduled_task`; apagar `MCPs\WBCPython` (é o único lugar com o histórico do standalone —
    decisão dele de que deixa de existir).
 - **O que morde:** entre os passos 1 e 3 ninguém integra (minutos). Fazer no expediente.
+- **O que mordeu em 08/09 (medido):** o passo 2 foi dado como feito sem estar — o retrato do
+  monitor (15:42:28) mostrou a tarefa `enabled=true` rodando às 15:40:40 depois do "desliguei".
+  E os três comandos do passo 3 foram colados juntos no PowerShell, então o `nssm start` rodou
+  antes de alguém ler o `State` (que dizia `Running`). Regra que fica: **`Disable-ScheduledTask`
+  explícito + conferir `Settings.Enabled = False` antes do `nssm start`, uma linha por vez.**
+  O 1º ciclo do worker novo saiu limpo (1.682 avaliados, 0 escritas, 28 s); as 2 escritas
+  previstas já tinham saído pelo legado às 15:40.
 
 ### F6 — Depois (sugestões; cada uma cabe num commit) `[abertas]`
 - **Retenção de `eventos`** (D8): 940.326 linhas em 6 dias ≈ 1 GB/mês.
