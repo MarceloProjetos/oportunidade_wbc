@@ -230,22 +230,73 @@ class RepositorioTracking:
         regra: str = "",
         mensagem: str = "",
         detalhes: dict[str, Any] | None = None,
-    ) -> None:
+    ) -> bool:
+        """Grava o evento. `False` quando uma DECISÃO repete a última e por isso não foi gravada.
+
+        Uma decisão igual à última do orçamento ("revisão congelada, nada a fazer")
+        não é um acontecimento novo: é o ciclo passando de novo. Gravá-la a cada
+        ciclo custou 934.634 linhas em 6 dias de produção — 99,4 % da tabela,
+        das quais só 12.559 eram mudanças de verdade (medido em 08/09/2026, com
+        1.682 oportunidades e ciclo de 3 min). O que fica é a **primeira** vez em
+        que a decisão passou a valer; `acompanhamento.ultima_verificacao` diz que
+        o ciclo continua olhando. Ação, erro e reprocessamento são sempre
+        gravados: cada um é um acontecimento.
+        """
+        detalhes_json = (
+            json.dumps(detalhes, ensure_ascii=False, default=str) if detalhes else ""
+        )
         with self._sessao() as s, s.begin():
             if s.get(Acompanhamento, orcnum) is None:
                 s.add(Acompanhamento(orcnum=orcnum))
                 s.flush()
+            if tipo == TipoEvento.DECISAO:
+                ultimo = s.scalars(
+                    select(Evento)
+                    .where(Evento.orcnum == orcnum)
+                    .order_by(Evento.id.desc())
+                    .limit(1)
+                ).first()
+                if (
+                    ultimo is not None
+                    and ultimo.tipo == TipoEvento.DECISAO
+                    and ultimo.regra == regra
+                    and ultimo.mensagem == mensagem
+                    and ultimo.detalhes == detalhes_json
+                ):
+                    return False
             s.add(
                 Evento(
                     orcnum=orcnum,
                     tipo=tipo,
                     regra=regra,
                     mensagem=mensagem,
-                    detalhes=json.dumps(detalhes, ensure_ascii=False, default=str)
-                    if detalhes
-                    else "",
+                    detalhes=detalhes_json,
                 )
             )
+            return True
+
+    def faxina_de_eventos(self, *, dias: int) -> int:
+        """Apaga eventos de DECISÃO com mais de `dias` dias. Devolve quantos apagou.
+
+        Ação, erro e reprocessamento **ficam**: são o histórico que responde "por
+        que este orçamento virou (ou não virou) pedido?". A decisão repetida é o
+        que enchia o banco — com `registrar_evento` deixando de repeti-la, a
+        faxina cuida do que já foi gravado e do que ainda muda de verdade. Com
+        SQLite, compacta o arquivo quando apagou algo (o `DELETE` sozinho não
+        devolve espaço ao disco).
+        """
+        if dias < 0:
+            raise ValueError("dias não pode ser negativo")
+        corte = datetime.now() - timedelta(days=dias)
+        with self._sessao() as s, s.begin():
+            resultado = s.execute(
+                delete(Evento).where(Evento.tipo == TipoEvento.DECISAO, Evento.momento < corte)
+            )
+            apagados = int(resultado.rowcount or 0)
+        if apagados and self._engine.dialect.name == "sqlite":
+            with self._engine.connect().execution_options(isolation_level="AUTOCOMMIT") as c:
+                c.execute(text("VACUUM"))
+        return apagados
 
     # ---------------------------------------------------------------- leitura
 

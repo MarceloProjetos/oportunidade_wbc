@@ -3,6 +3,23 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-08] — wbc: retencao do acompanhamento — decisao repetida nao grava; faxina de 6 dias (D8)
+
+Medido no banco do worker antigo (6 dias em producao, 1.682 oportunidades, ciclo de 3 min):
+940.326 eventos, 934.634 deles `decisao` (99,4 %), ~1.300 por ciclo, ~95 MB/dia — o ciclo
+regravava "nada a fazer" para cada orcamento a cada passada. So 12.559 eram mudancas de decisao.
+Decisao do Marcelo: 6 dias de retencao.
+
+- **`RepositorioTracking.registrar_evento`** deixa de gravar uma DECISAO igual a ultima do
+  orcamento (mesma regra, mensagem e detalhes; comparacao com o ULTIMO evento, de qualquer
+  tipo — decisao → acao → a mesma decisao continua sendo historia). Devolve `bool`. Acao, erro
+  e reprocessamento sempre gravam. Corta ~99 % das gravacoes na origem.
+- **`faxina_de_eventos(dias)`**: apaga so `decisao` mais velha que o prazo (acoes/erros ficam)
+  e compacta o SQLite (`VACUUM`) quando apagou algo. `EVENTOS_RETENCAO_DIAS` (default **6**;
+  `0` desliga). O worker roda a faxina **uma vez por dia, depois do ciclo** (falha vira aviso,
+  nunca erro do ciclo). CLI: `python -m wbcpython faxina [--dias N]`.
+- 19 testes (`tests/wbc/test_retencao.py`). Docs: `docs/wbc/README.md`, `.env.example`, `CLAUDE.md`.
+
 ## [2026-09-08] — parada limpa de verdade: deploy espera o worker parar; servico do worker roda `python.exe` direto
 
 No deploy das 15:52 o worker ficou PARADO: o `nssm stop` entrou em `STOP_PENDING` (o `cmd.exe` do

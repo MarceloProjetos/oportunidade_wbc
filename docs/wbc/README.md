@@ -49,6 +49,7 @@ python -m wbcpython worker       # contínuo: ciclo a cada WORKER_INTERVAL_SECON
 python -m wbcpython dashboard    # painel em PAINEL_HOST:PAINEL_PORTA (.env)
 python -m wbcpython pesos --pedido 84315 --simular   # corrigir Weight1 das linhas (prévia)
 python -m wbcpython datas-de-abertura                # preenche data_abertura no acompanhamento
+python -m wbcpython faxina --dias 6                  # apaga decisões mais velhas (ações/erros ficam)
 ```
 
 Saída esperada do `env` na .11:
@@ -149,8 +150,11 @@ próprio serviço** — worker ou painel — na primeira subida, com as tabelas
 `acompanhamento` (uma linha por orçamento, o estado corrente), `eventos` (o histórico:
 regra, mensagem, detalhes), `execucoes` (uma por ciclo) e `travas`. Colunas novas do
 modelo são acrescentadas em base existente (`tracking/repositorio.py`, `_acrescentar_colunas_novas`).
-`eventos` cresce ≈157 k linhas/dia em produção com 1.681 oportunidades (medido em 08/09/2026);
-retenção é decisão aberta no plano.
+**Retenção (desde 08/09/2026):** `registrar_evento` não grava uma decisão igual à última do
+orçamento (era isso que enchia o banco: 934.634 decisões em 6 dias, das quais 12.559 eram
+mudanças de verdade), e o worker apaga uma vez por dia as decisões mais velhas que
+`EVENTOS_RETENCAO_DIAS` (6). Ação, erro e reprocessamento nunca são apagados. À mão:
+`python -m wbcpython faxina`.
 
 Para copiar um banco de outra máquina: com o worker de origem **parado** (SQLite em uso copia
 corrompido). Depois, `python -m wbcpython datas-de-abertura` se as linhas antigas não tiverem

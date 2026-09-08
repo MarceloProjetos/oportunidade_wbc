@@ -143,6 +143,8 @@ class WorkerIntegracao:
             else settings.limite_de_escrita_por_ciclo
         )
         self._parar = threading.Event()
+        #: Dia em que a faxina do acompanhamento já rodou — uma vez por dia basta.
+        self._faxina_em: date | None = None
 
     # ------------------------------------------------------------------ ciclo
 
@@ -384,7 +386,9 @@ class WorkerIntegracao:
                     self._settings.worker_horario_inicio.strftime("%H:%M"),
                     self._settings.worker_horario_fim.strftime("%H:%M"),
                 )
-            return self.executar_ciclo()
+            resultado = self.executar_ciclo()
+            self._faxina_diaria(agora.date())
+            return resultado
 
         if self._parado_por != motivo:
             # O aviso sai uma vez por **motivo**, e não por volta. Guardar o
@@ -394,6 +398,28 @@ class WorkerIntegracao:
             self._parado_por = motivo
             logger.info("%s O worker segue vivo e não executa ciclo.", motivo)
         return ResultadoExecucao()
+
+    def _faxina_diaria(self, hoje: date) -> None:
+        """Apaga as decisões mais velhas que a retenção, uma vez por dia, depois do ciclo.
+
+        Depois, e não antes: o ciclo é o que importa, e a faxina nunca pode
+        atrasá-lo. Falha aqui vira aviso no log, não erro do ciclo — o banco
+        crescer um dia a mais não é motivo para parar a integração.
+        """
+        dias = self._settings.eventos_retencao_dias
+        if dias <= 0 or self._faxina_em == hoje:
+            return
+        self._faxina_em = hoje
+        try:
+            apagados = self._tracking.faxina_de_eventos(dias=dias)
+        except Exception as exc:  # noqa: BLE001 — avisa, não derruba o worker
+            logger.warning("Faxina do acompanhamento falhou: %s", exc)
+            return
+        logger.info(
+            "Faxina do acompanhamento: %d evento(s) de decisão com mais de %d dia(s) apagado(s).",
+            apagados,
+            dias,
+        )
 
     def _motivo_para_nao_rodar(self, agora: datetime) -> str | None:
         """`None` quando pode rodar; a frase do log quando não pode.

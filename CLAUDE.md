@@ -189,6 +189,7 @@ python api.py                 # sobe a API local (porta 8077)
 python -m scripts.scheduled_execution   # agendador (loop; Ctrl+C p/ sair)
 python -m wbcpython --help    # CLI do WBC: env, doctor, check-sap, check-hana, pendentes, ciclo, worker, dashboard, pesos
 python -m wbcpython pendentes --exportar state/wbc_previsao.json   # o que o ciclo FARIA (só leitura)
+python -m wbcpython faxina    # apaga decisões mais velhas que EVENTOS_RETENCAO_DIAS (o worker faz 1x/dia)
 python -m wbcpython dashboard # painel WBC (PAINEL_HOST/PAINEL_PORTA do .env)
 ```
 

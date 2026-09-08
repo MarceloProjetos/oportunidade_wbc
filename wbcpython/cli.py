@@ -755,6 +755,30 @@ def _cmd_datas_de_abertura(settings: Settings) -> int:
     return 0
 
 
+def _cmd_faxina(settings: Settings, *, dias: int | None) -> int:
+    """Apaga os eventos de decisão mais velhos que a retenção. Ações e erros ficam.
+
+    O worker faz isto sozinho uma vez por dia; o comando existe para rodar à mão
+    (depois de importar um banco antigo, por exemplo) e para quem desligou a
+    retenção no `.env` e quer apagar num momento escolhido.
+    """
+    from wbcpython.tracking import RepositorioTracking
+
+    _preparar_log(settings)
+    relatar = logging.getLogger("wbcpython.acompanhamento").info
+    prazo = dias if dias is not None else settings.eventos_retencao_dias
+    if prazo <= 0:
+        relatar(f"{AVISO}Retenção desligada (EVENTOS_RETENCAO_DIAS=0): nada apagado.")
+        return 0
+    tracking = RepositorioTracking.a_partir_da_url(settings.tracking.db_url.get_secret_value())
+    apagados = tracking.faxina_de_eventos(dias=prazo)
+    relatar(
+        f"{OK}{apagados} evento(s) de decisão com mais de {prazo} dia(s) apagado(s). "
+        f"Ações, erros e reprocessamentos ficam."
+    )
+    return 0
+
+
 def _cmd_pesos(
     settings: Settings, *, pedido: int | None, orcamento: str | None, simular: bool
 ) -> int:
@@ -1025,6 +1049,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         "datas-de-abertura",
         help="preenche a data de abertura nas linhas antigas do acompanhamento",
     )
+    p_faxina = sub.add_parser(
+        "faxina",
+        help="apaga eventos de decisão mais velhos que a retenção (ações e erros ficam)",
+    )
+    p_faxina.add_argument(
+        "--dias",
+        type=int,
+        metavar="N",
+        help="retenção em dias (padrão: EVENTOS_RETENCAO_DIAS do .env)",
+    )
 
     args = parser.parse_args(argv)
 
@@ -1056,6 +1090,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     if args.comando == "datas-de-abertura":
         return _cmd_datas_de_abertura(settings)
+    if args.comando == "faxina":
+        return _cmd_faxina(settings, dias=getattr(args, "dias", None))
     if args.comando == "pesos":
         return _cmd_pesos(
             settings,

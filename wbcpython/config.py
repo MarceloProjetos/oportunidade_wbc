@@ -168,6 +168,14 @@ class Settings(BaseSettings):
     #: represados numa única execução.
     limite_de_escrita_por_ciclo: int = Field(default=200, alias="LIMITE_DE_ESCRITA_POR_CICLO")
 
+    #: Retenção dos eventos de **decisão** do acompanhamento, em dias. O worker
+    #: apaga os mais velhos uma vez por dia (`wbcpython faxina` faz o mesmo à
+    #: mão). Ação, erro e reprocessamento nunca são apagados. `0` desliga.
+    #:
+    #: Seis dias foi a escolha do Marcelo em 08/09/2026: cobre a semana de
+    #: trabalho, e o que importa de um orçamento (as ações) não passa por aqui.
+    eventos_retencao_dias: int = Field(default=6, ge=0, alias="EVENTOS_RETENCAO_DIAS")
+
     worker_interval_seconds: int = Field(default=300, alias="WORKER_INTERVAL_SECONDS")
 
     #: Horário em que o worker trabalha. Fora dele, o ciclo agendado não roda.
