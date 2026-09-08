@@ -372,7 +372,8 @@ se ele cair.
    mais velha que `EVENTOS_RETENCAO_DIAS` (6) e compacta; o worker faz 1×/dia; CLI `faxina`.
    Ação, erro e reprocessamento nunca são apagados. 19 testes.
 9. **Instalação — ✅** `requirements.txt` + `python -m wbcpython`; sem uv/hatchling.
-10. **Worker externo — aberta.** Onde roda hoje? Precisa ser parado na F5.
+10. **Worker externo — ✅ parado** (confirmado pelo Marcelo em 08/09 às 17:00; o log e o banco
+    antigos pararam às 13:24). A pasta `MCPs\WBCPython` desta máquina só espera ser apagada.
 11. **Banco de acompanhamento — ✅ novo, criado pelo próprio serviço** (pedido dele em 08/09);
     o antigo não migra por padrão (copiar é opcional, com o worker antigo parado).
 12. **Autenticação do painel — ✅ `OS_API_KEY` compartilhada** (interpretação de "usar os
