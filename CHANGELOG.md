@@ -3,6 +3,15 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-08] — `deploy_update.bat`: pip decide pelo HASH dos requirements, nao pelo pull
+
+Na .11 o `doctor` acusou `fastapi` e `pymssql` ausentes: o pip so rodava quando o `requirements.txt`
+mudava NO pull daquele deploy, e o pull com a mudanca ja tinha acontecido antes. Agora o script
+compara o SHA-256 de `requirements.txt` + `mcp/requirements.txt` com o gravado em
+`state/deps.sha256` (escrito apos um pip bem-sucedido): difere ou nao existe -> instala. O
+criterio do git continua valendo como reforco. Primeiro deploy apos esta versao instala (marca
+ainda nao existe) — e o que a .11 precisa.
+
 ## [2026-09-08] — `GET /` da 8077 vira a entrada: leva ao painel WBC; Painel de Sincronizacao em `/sincronizar`
 
 Pedido do Marcelo ao ver a 8077 no ar: "a interface do WBCPython e a principal; a janela do

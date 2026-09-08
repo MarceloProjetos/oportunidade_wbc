@@ -3,9 +3,10 @@ REM ============================================================================
 REM  deploy_update.bat - Atualiza o ServidorIntegracaoSAP em producao (.11) via git.
 REM
 REM  Roda NO servidor 192.168.7.11, na raiz C:\Python\ServidorIntegracaoSAP.
-REM  Fluxo: para os 5 servicos -> git pull --ff-only -> pip (so se requirements
-REM  mudou; no venv se houver, senao no Python do sistema) -> sobe os servicos na
-REM  ordem certa -> confere /health da API e a porta do painel WBC.
+REM  Fluxo: para os 5 servicos -> git pull --ff-only -> pip (so se o conteudo dos
+REM  requirements difere do ultimo instalado, marca em state\deps.sha256; no venv se
+REM  houver, senao no Python do sistema) -> sobe os servicos na ordem certa ->
+REM  confere /health da API e a porta do painel WBC.
 REM
 REM  Servicos (NSSM): OrcaView-MCP, OrcaView-OS-API, OrcaView-Scheduler,
 REM  OrcaView-WBC-Painel e OrcaView-WBC-Worker. O WORKER so volta a subir se
@@ -83,20 +84,31 @@ if not exist ".git" (
   )
 )
 
-REM --- reinstalar dependencias so se requirements mudaram ---
+REM --- dependencias: instalar quando o CONTEUDO dos requirements difere do que foi
+REM     instalado da ultima vez (hash em state\deps.sha256). Nao depende de como o pull
+REM     aconteceu: um "git pull" feito a mao antes do deploy nao esconde mais uma
+REM     dependencia nova (foi assim que o painel WBC subiu sem fastapi em 08/09/2026).
 REM     venv\ se existir; senao, o Python do sistema (e o caso da .11: Python312, sem venv).
-REM     Antes o script PULAVA o pip sem venv - e o deploy do status de OP exigiu pip a mao.
+set "PYEXE=python"
+if exist "venv\Scripts\python.exe" set "PYEXE=venv\Scripts\python.exe"
+set "REQHASH="
+for /f "usebackq delims=" %%h in (`%PYEXE% -c "import hashlib;print(hashlib.sha256(open('requirements.txt','rb').read()+open('mcp/requirements.txt','rb').read()).hexdigest())" 2^>nul`) do set "REQHASH=%%h"
+set "INSTALADO="
+if exist "state\deps.sha256" set /p INSTALADO=<"state\deps.sha256"
+if not defined REQHASH (
+  echo [pip] AVISO: nao calculei o hash dos requirements ^(python no PATH?^); decidindo so pelo git.
+) else if not "!INSTALADO!"=="!REQHASH!" (
+  set "REQCHANGED=1"
+)
 if defined REQCHANGED (
-  if exist "venv\Scripts\python.exe" (
-    echo [pip] requirements mudaram; atualizando o venv...
-    venv\Scripts\python.exe -m pip install -r requirements.txt -r mcp\requirements.txt || goto :fail
-  ) else (
-    where python >nul 2>&1 || (echo ERRO: python nao encontrado no PATH. & goto :fail)
-    echo [pip] requirements mudaram; instalando no Python do sistema...
-    python -m pip install -r requirements.txt -r mcp\requirements.txt || goto :fail
-  )
+  where %PYEXE% >nul 2>&1 || (echo ERRO: python nao encontrado no PATH. & goto :fail)
+  echo [pip] dependencias diferentes das instaladas; instalando com %PYEXE% ...
+  %PYEXE% -m pip install -r requirements.txt -r mcp\requirements.txt || goto :fail
+  if not exist "state" mkdir "state"
+  if defined REQHASH >"state\deps.sha256" echo !REQHASH!
+  echo [pip] instalado; marca gravada em state\deps.sha256
 ) else (
-  echo [pip] requirements sem mudanca - dependencias mantidas.
+  echo [pip] dependencias iguais as instaladas - mantidas.
 )
 
 REM --- subir servicos (API antes do MCP, que depende dela; os outros independem) ---

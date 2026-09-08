@@ -34,6 +34,8 @@ state/*.db
 state/*.db-journal
 state/*.db-wal
 state/*.db-shm
+# marca do deploy_update.bat: hash dos requirements instalados nesta maquina
+state/deps.sha256
 
 # ── Handoffs com chaves/credenciais (passados a terceiros — NÃO versionar) ──
 HANDOFF_*.md
