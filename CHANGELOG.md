@@ -3,6 +3,20 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-08] — docs: plano de integracao do WBCPython (worker + painel) neste repositorio
+
+`docs/PLANO_INTEGRACAO_WBCPYTHON.md` (+ artifact na mesma URL do cabecalho). So documentacao;
+nada codado. O WBCPython (reescrita Python do WBCServConsole: cotacao/pedido no SAP a partir
+dos orcamentos do WBC; 11.095 linhas, 843 testes) entra como pacote `wbcpython/` na raiz,
+`tests/wbc/`, `docs/wbc/`, instalado pelo `requirements.txt` e rodado com `python -m wbcpython`;
+vira 2 servicos NSSM na .11 (`OrcaView-WBC-Painel` na 8079 como entrada, `OrcaView-WBC-Worker`);
+`deploy_update.bat` passa a cuidar dos 5 servicos e a rodar pip no Python do sistema quando nao
+ha venv. Dois fatos medidos em 08/09 mandam no plano: (1) o worker novo ja escreve em producao
+ha 6 dias a partir de uma maquina Linux que monta esta pasta por SMB, **enquanto a tarefa legada
+"Integracao WBC" segue ligada na .11** (dois integradores pela mesma chave — risco §1 do
+RISCOS_PRODUCAO do WBC); (2) o git do WBCPython versiona um `.env.bak` com senha e este repo e
+publico — o historico entra sem os commits (`--squash`). 10 decisoes, 6 abertas com recomendacao.
+
 ## [2026-09-08] — Manutencao: disco C: da .11 em 84,6 % (relatorio + limpeza conservadora)
 
 O `/status` de 08/09 mostrou o disco em **84,6 %** (19,5 GB livres; o alerta dispara em 90 %). Dois
