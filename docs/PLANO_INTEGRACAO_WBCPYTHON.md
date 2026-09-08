@@ -1,13 +1,15 @@
 # Plano — Integração WBC (WBCPython) dentro do ServidorIntegracaoSAP
 
-**Status (2026-09-08, 2ª atualização):** **F1, F2 e F3 no repositório** (`8be8e69` + `4f5bcde`,
-master, no GitHub) — o WBCPython é o pacote `wbcpython/` deste projeto, a suíte única tem
-**1.591 testes verdes**, o painel pede a mesma `OS_API_KEY` da 8077 e as duas telas se
-linkam; serviços, `deploy_update.bat` e o check `wbc_worker` estão codados. **Nada disso
-está na .11 ainda**, e os `.bat` novos **nunca rodaram lá** (NSSM só existe no servidor).
-Em produção nada mudou: o worker antigo segue rodando de fora da .11 e a tarefa legada
-seguia ligada às 13:30. F0 (as decisões de produção) continua sendo do Marcelo — D1 e D10
-abaixo são o que falta para a virada.
+**Status (2026-09-08, 3ª atualização):** **F1, F2 e F3 no repositório** (`8be8e69` + `4f5bcde`,
+master) e **F4 passo 1 feito às 14:56**: o Marcelo rodou o `deploy_update.bat` novo na .11 —
+API, MCP e agendador religaram com o código novo (`/status?checks=worker` responde o bloco
+`wbc_worker` com `installed=false`, a fachada 8078 serve `estado_integracao_wbc`, o
+`sincronizar.html` da 8077 mostra o link "⇄ Integração WBC"; SAP/SQL/Supabase verdes; disco
+em 73 % após a limpeza). Não conferido: se o pip instalou as 7 deps (a saída do `.bat` não
+foi vista) — `python -m wbcpython doctor` na .11 responde isso. Pendem F4 passos 2–6 (bloco
+WBC no `.env`, 2 serviços, firewall, painel) e a virada. Em produção nada mudou: o worker
+antigo segue fora da .11 e a tarefa legada estava ligada (`Ready`, última 14:50, resultado 0).
+D1 e D10 são o que falta para a virada.
 
 Artifact publicado com o mesmo conteúdo (atualizar na MESMA url):
 https://claude.ai/code/artifact/0936772c-a2ff-4704-afab-5a417ad703dd
