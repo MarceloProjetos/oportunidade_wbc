@@ -3,6 +3,16 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-08] — `install_wbc_services.bat` nao rebaixa mais o worker para MANUAL (o boot da .11 o deixaria parado)
+
+Achado ao conferir o boot de amanha: o instalador gravava `Start SERVICE_DEMAND_START` no worker
+sempre (regra "parado ate a virada"), e foi rodado DEPOIS da virada — o reboot diario da .11
+(~06:12) levantaria API, MCP, agendador e painel, e nao o worker. Agora o script le o tipo de
+inicio ANTES do `nssm install` (`sc qc ... | find "AUTO_START"`): servico ja AUTO fica AUTO;
+so instalacao nova nasce MANUAL. Na .11 de hoje: `nssm set OrcaView-WBC-Worker Start SERVICE_AUTO_START`.
+Plano: `docs/PLANO_INTEGRACAO_WBCPYTHON.md` (8a atualizacao: tudo no ar; 1a escrita real no
+ciclo #4; worker parado 48 min pelo deploy das 15:52, corrigido).
+
 ## [2026-09-08] — wbc: Service Layer so quando ha escrita (login preguicoso; ciclo sem acao nao toca o SL)
 
 Pedido do Marcelo. O `with ServiceLayerClient(...)` fazia `Login` na entrada e `Logout` na saida

@@ -1,5 +1,17 @@
 # Plano — Integração WBC (WBCPython) dentro do ServidorIntegracaoSAP
 
+**Status (2026-09-08, 8ª atualização, 16:40): tudo no ar na .11, com o código final.** Worker
+religado às 16:39 já como `python.exe` direto (`install_wbc_services.bat`): ciclo #5 em 27 s,
+1.683 avaliados, **3 escritas, 0 erros**. **Primeira escrita real da .11** foi no ciclo #4
+(15:51): orçamento 00125273 — cotação 101295 cancelada, 102389 criada e vinculada à oportunidade
+14803, status 55 — o `orcaview` tem permissão de escrita. **O que mordeu:** o deploy das 15:52
+deixou o worker **parado por 48 min** no expediente (o `nssm start` do script chegou durante o
+`STOP_PENDING` do `cmd.exe` e foi recusado em silêncio; só o `/status` alarmou). Correções no ar:
+deploy espera `STOPPED` e roda de cópia em `%TEMP%` (`68b5954`, `40fca76`), serviço do worker sem
+`.bat` no meio, retenção de 6 dias (`df68de5`), Service Layer só com escrita (`1ebb507`).
+**Pende (dele, sem urgência):** apagar `MCPs\WBCPython`; rotacionar as senhas que passaram pelo
+chat. F6: card do `.90` → `wbc_worker`.
+
 **Status (2026-09-08, 7ª atualização, 15:55): VIRADA FEITA — um integrador só, na .11.**
 Worker antigo parado (13:24), tarefa legada desabilitada (`Enabled=False` conferido 15:47),
 `OrcaView-WBC-Worker` no ar com **3 ciclos limpos** (15:41, 15:45, 15:48 — 1.682 avaliados

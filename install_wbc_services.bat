@@ -54,13 +54,20 @@ nssm set OrcaView-WBC-Painel AppStderr "%PROJ%\logs\wbc_painel_service.log"
 nssm set OrcaView-WBC-Painel AppRotateFiles 1
 nssm set OrcaView-WBC-Painel AppRotateBytes 5000000
 
-echo === Worker da Integracao WBC (OrcaView-WBC-Worker) - MANUAL ate a virada ===
+echo === Worker da Integracao WBC (OrcaView-WBC-Worker) ===
+REM Inicio: MANUAL so na PRIMEIRA instalacao (antes da virada, com o legado ainda ligado).
+REM Se o servico ja existe como AUTO_START (virada feita), preserva: rodar este script de
+REM novo nao pode tirar o worker do boot - em 08/09/2026 fez exatamente isso, e o reboot
+REM diario da .11 (~06:12) teria deixado a integracao parada ate alguem notar.
+REM (o teste vem ANTES do "nssm install", que cria servico novo como AUTO por padrao)
+set "WORKER_START=SERVICE_DEMAND_START"
+sc qc OrcaView-WBC-Worker 2>nul | find "AUTO_START" >nul 2>&1 && set "WORKER_START=SERVICE_AUTO_START"
 nssm install OrcaView-WBC-Worker "%PYEXE%" -m wbcpython worker >nul 2>&1 || echo   (ja existia - parametros serao regravados)
 nssm set OrcaView-WBC-Worker Application "%PYEXE%"
 nssm set OrcaView-WBC-Worker AppParameters "-m wbcpython worker"
 nssm set OrcaView-WBC-Worker AppDirectory "%PROJ%"
 nssm set OrcaView-WBC-Worker AppEnvironmentExtra PYTHONUTF8=1 PYTHONIOENCODING=utf-8
-nssm set OrcaView-WBC-Worker Start SERVICE_DEMAND_START
+nssm set OrcaView-WBC-Worker Start %WORKER_START%
 nssm set OrcaView-WBC-Worker AppStopMethodConsole 60000
 nssm set OrcaView-WBC-Worker AppStdout "%PROJ%\logs\wbc_worker_service.log"
 nssm set OrcaView-WBC-Worker AppStderr "%PROJ%\logs\wbc_worker_service.log"
@@ -70,8 +77,9 @@ nssm set OrcaView-WBC-Worker AppRotateBytes 5000000
 echo.
 echo Registrados com a pasta: %PROJ%
 echo   - OrcaView-WBC-Painel  -^> logs\wbc_painel_service.log   (nao iniciado aqui)
-echo   - OrcaView-WBC-Worker  -^> logs\wbc_worker_service.log   (python.exe direto; MANUAL, parado)
+echo   - OrcaView-WBC-Worker  -^> logs\wbc_worker_service.log   (python.exe direto; inicio: %WORKER_START%)
 echo     ^(worker ja rodando? as mudancas valem no proximo start: nssm restart OrcaView-WBC-Worker^)
+echo     ^(depois da virada o worker DEVE ser SERVICE_AUTO_START: nssm set OrcaView-WBC-Worker Start SERVICE_AUTO_START^)
 echo Proximos passos:
 echo   1. bloco WBC no .env  (TRACKING_DB_URL=sqlite:///./state/wbc_tracking.db, LOG_FILE=logs/wbcpython.log,
 echo      PAINEL_HOST=0.0.0.0, PAINEL_PORTA=8079 + SL_*, WBC_SQL_*, HANA_*, WORKER_*)
