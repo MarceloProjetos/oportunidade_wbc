@@ -10,9 +10,10 @@ deixou o worker **parado por 48 min** no expediente (o `nssm start` do script ch
 deploy espera `STOPPED` e roda de cópia em `%TEMP%` (`68b5954`, `40fca76`), serviço do worker sem
 `.bat` no meio, retenção de 6 dias (`df68de5`), Service Layer só com escrita (`1ebb507`).
 **Pende (dele, sem urgência):** apagar `MCPs\WBCPython`; rotacionar as senhas que passaram pelo
-chat. **Boot de amanhã (~06:12):** o worker precisa estar `SERVICE_AUTO_START` — o
-`install_wbc_services.bat` de hoje o tinha rebaixado para manual (corrigido em `84b2770`; na .11
-`nssm set OrcaView-WBC-Worker Start SERVICE_AUTO_START`). **Card do `.90`:** feito (web `V118.1`,
+chat. **Boot de amanhã (~06:12): pronto** — às 16:55 os 5 serviços `OrcaView-*` estavam `Running` +
+`Automatic` (o `install_wbc_services.bat` de hoje tinha rebaixado o worker para manual; corrigido
+em `84b2770` e ajustado na .11 com `nssm set ... SERVICE_AUTO_START`). Fechamento do dia 16:56:
+ciclo #10 (17 s, 0 erros), sem alertas, `healthy=true`. **Card do `.90`:** feito (web `V118.1`,
 `4706801b`, pull no `.90` 16:50) — a seção lê `wbc_worker`; a legada só aparece sem `retired`.
 
 **Status (2026-09-08, 7ª atualização, 15:55): VIRADA FEITA — um integrador só, na .11.**
