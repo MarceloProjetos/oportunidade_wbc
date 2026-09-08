@@ -3,6 +3,16 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-08] — fix: os 17 `__init__.py`/`__main__.py` do wbcpython nao estavam no git (regra `_*.py`)
+
+Na .11, `python -m wbcpython` respondia "No module named wbcpython.__main__": a regra `_*.py`
+do `.gitignore` (arquivos temporarios) casa com `__init__.py` e `__main__.py`, e nenhum dos 17
+do pacote e de `tests/wbc/` tinha sido commitado — localmente funcionava porque existiam no
+disco. `.gitignore` ganha `!__init__.py` / `!__main__.py`; os 17 entram; `tests/test_repo_layout.py`
+pergunta ao `git ls-files` (nao ao disco) se toda pasta com `.py` versionado leva o seu
+`__init__.py` e se o `__main__.py` esta la. Deploy: `deploy_update.bat` (so pull + restart; o
+painel sobe sozinho no fim).
+
 ## [2026-09-08] — ops: `install_wbc_services.bat` (so os 2 servicos WBC, idempotente, corrige caminho)
 
 Primeiro F4 na .11: os comandos `nssm` de cmd (`set PROJ=` / `"%PROJ%"`) foram colados no

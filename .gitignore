@@ -41,6 +41,10 @@ HANDOFF_*.md
 # ── Arquivos temporários do projeto ──
 _*.py
 !scripts/_bootstrap.py   # exceção: bootstrap versionado (não é temporário)
+# __init__.py / __main__.py também casam com _*.py — sem estas exceções o pacote wbcpython/
+# chega ao servidor sem eles (foi o que aconteceu na .11 em 08/09/2026: 17 arquivos de fora)
+!__init__.py
+!__main__.py
 *.tmp
 
 # ── IDE / SO ──
