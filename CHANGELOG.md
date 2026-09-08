@@ -3,6 +3,22 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-08] — Manutencao: disco C: da .11 em 84,6 % (relatorio + limpeza conservadora)
+
+O `/status` de 08/09 mostrou o disco em **84,6 %** (19,5 GB livres; o alerta dispara em 90 %). Dois
+scripts em `maintenance/`, um por etapa, para rodar NO servidor como Administrador:
+
+- **`disco_relatorio.ps1`** — somente leitura: espaco livre, os "suspeitos de sempre" (cache do
+  Windows Update, Temp, CBS, WindowsAzure\Logs, WER, Lixeira, logs/exports/state do app, shadow
+  copies) e as maiores pastas do C: em 2 niveis. Demora alguns minutos.
+- **`disco_limpeza.ps1`** — **dry-run por padrao**; `-Confirmar` apaga. So o que regenera sozinho:
+  SoftwareDistribution\Download (para/religa `wuauserv`), Temp com >2 dias, CBS com >30 dias, WER,
+  Lixeira, `logs\*.log.*` rotacionados do app com >30 dias e WindowsAzure\Logs via o
+  `clean_azure_logs.ps1` que ja existia. Nao toca shadow copies, backups, exports, state, SAP;
+  nunca apaga pasta; arquivo em uso e pulado. Grava `maintenance/disco_limpeza.log`.
+- ASCII puro (PS 5.1 sem BOM). Validados localmente: parser sem erro e dry-run executando.
+  Item 2 do §5 do `MCPs/SAP_RDP/docs/PLANO_UX_MONITOR_RDP.md`.
+
 ## [2026-09-07] — Fachada MCP: panorama com teto e filtros (F1) + o servidor se apresenta (F2)
 
 F1 e F2 do `docs/PLANO_UX_FACHADA_MCP.md`. So' a fachada muda; a API 8077 e a view
