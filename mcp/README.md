@@ -18,6 +18,7 @@ operar/consultar o servidor de integração **em linguagem natural**.
 | `listar_pedidos_com_os(limit?)` | `GET /ordens-servico/disponiveis` | sim | 0 |
 | `detalhe_pedido_os(nped, incluir_linhas?)` | `GET /ordens-servico/<nped>` | sim | 1 |
 | `estado_tarefa_wbc()` | `GET /status?checks=scheduled_task` | não (aberto) | 1 |
+| `estado_integracao_wbc()` | `GET /status?checks=wbc_worker` (worker da Integração WBC → SAP; não alarma antes do 1º ciclo na máquina) | não (aberto) | WBC F3 |
 | `ultimos_erros(limit?)` | `GET /historico` (filtra falhas) | sim | 1 |
 
 ## Tools — Situação dos Pedidos
