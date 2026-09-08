@@ -30,6 +30,10 @@
       box-shadow: var(--shadow); transition: color .15s, border-color .15s, background .15s; }
     .lock:hover { color: var(--brand); border-color: var(--brand); }
     .lock[aria-expanded="true"] { color: var(--brand); border-color: var(--brand); background: #f3f8ff; }
+    /* Link para a outra tela desta máquina (Integração WBC → SAP, painel na PAINEL_PORTA).
+       Mesma casca do cadeado, mais larga; ele ocupa o margin-left:auto e o cadeado encosta. */
+    .lock.wbc { width: auto; padding: 0 14px; font-size: 13px; font-weight: 700; text-decoration: none; gap: 8px; }
+    .lock.wbc + .lock { margin-left: 0; }
     .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px;
       box-shadow: var(--shadow); padding: 20px; }
     .keybar { margin-bottom: 18px; }
@@ -140,6 +144,8 @@
         <h1>Painel de Sincronização</h1>
         <p>Ordens de Serviço (sob demanda) e Oportunidades (agendado) — a partir do SAP.</p>
       </div>
+      <a class="lock wbc" id="wbcLink" href="/painel-wbc"
+         title="Abrir o painel da Integração WBC × SAP (cotações e pedidos a partir dos orçamentos do WBC)">⇄ Integração WBC</a>
       <button type="button" class="lock" id="keyToggle" aria-controls="keybar"
               aria-expanded="false" aria-label="Mostrar ou ocultar a chave de acesso"
               title="Mostrar/ocultar a chave de acesso">🔒</button>

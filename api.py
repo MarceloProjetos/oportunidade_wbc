@@ -16,6 +16,7 @@ Endpoints
 - ``GET  /pedidos/situacao``                → order-status cut (blocked / everything)
 - ``GET  /pedidos/<numero>/situacao``       → status of ONE order
 - ``GET  /rh/colaboradores``                → Kairos roster mirror (company → sector → people)
+- ``GET  /painel-wbc``                      → 302 to the WBC integration painel (FastAPI, PAINEL_PORTA)
 
 Authentication (optional, **recommended in production**)
 --------------------------------------------------------
@@ -50,7 +51,7 @@ from functools import wraps
 from logging.handlers import TimedRotatingFileHandler
 from typing import Any, List, Optional, Tuple
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, redirect, request, send_from_directory
 
 import feriados_br
 import ordens_producao_sl as op_sl
@@ -507,6 +508,21 @@ def favicon():
     return ('', 204)  # avoids a noisy 404 in the log
 
 
+@app.get('/painel-wbc')
+def painel_wbc():
+    """302 to the **WBC → SAP integration painel** (``python -m wbcpython dashboard``, a
+    separate FastAPI process on ``PAINEL_PORTA``, 8079 by default).
+
+    A redirect instead of a URL baked into ``sincronizar.html``: the ``.env`` decides where
+    the painel lives (``WBC_PAINEL_URL``), and with nothing configured it is the same host
+    as this request, on ``PAINEL_PORTA`` — the .11 case, where both pages share a machine.
+    Open (no key): the painel asks for the same ``OS_API_KEY`` itself.
+    """
+    s = get_settings()
+    destino = s.wbc_painel_url or f"{request.scheme}://{request.host.rsplit(':', 1)[0]}:{s.wbc_painel_porta}/"
+    return redirect(destino, code=302)
+
+
 @app.get('/health')
 def health():
     """Light liveness (is the API up?). No key, no external check — fast and always
@@ -521,6 +537,11 @@ _CHECK_ALIASES = {
     'task': 'scheduled_task', 'tarefa': 'scheduled_task', 'wbc_task': 'scheduled_task',
     'wu': 'windows_update', 'windowsupdate': 'windows_update', 'update': 'windows_update',
     'updates': 'windows_update', 'patch': 'windows_update', 'reboot': 'windows_update',
+    # Integração WBC → SAP (worker). NOTE: ``wbc`` stays the SQL Server alias — it predates
+    # the worker and monitors already use it; renaming it would silently change what they
+    # check. The worker gets its own names.
+    'worker': 'wbc_worker', 'wbcworker': 'wbc_worker', 'wbc_worker': 'wbc_worker',
+    'integracao_wbc': 'wbc_worker', 'integracao': 'wbc_worker',
 }
 
 
@@ -532,7 +553,8 @@ def status_detalhado():
     **Open** (no key) — meant for monitoring and for opening straight in a browser. Runs
     only when called (no polling). Parameters:
     - ``?checks=sap,sql`` — runs only the listed checks (sap, sql/sql_server, supabase,
-      scheduler/agendador, scheduled_task/tarefa, windows_update/update/reboot). Omitted =
+      scheduler/agendador, scheduled_task/tarefa, windows_update/update/reboot,
+      wbc_worker/worker/integracao_wbc). Omitted =
       all of them. ``system`` always comes. An invalid name → **400** with the list of what
       is accepted (see ``collect_status``: a typo used to return ``healthy: true`` without
       checking anything).

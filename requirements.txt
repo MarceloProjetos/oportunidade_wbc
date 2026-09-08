@@ -18,3 +18,18 @@ requests>=2.32,<3
 # opcional: métricas de CPU/memória no endpoint /status (sem ele, o /status funciona,
 # mas CPU e memória ficam indisponíveis). Instale no servidor: pip install psutil
 psutil>=5,<8
+
+# --- Integração WBC → SAP (pacote wbcpython/: worker + painel) ---
+# Pins abertos por maior/menor: a .11 instala pelo pip do Python 3.12 do sistema.
+# httpx, hdbcli, apscheduler e python-dotenv já vêm acima (mesmas libs, de propósito).
+pydantic>=2.7,<3
+pydantic-settings>=2.3,<3
+sqlalchemy>=2.0,<3
+# SQL Server do WBC (WBCCAD, SOMENTE LEITURA) via SQLAlchemy — driver diferente do pyodbc
+# usado pelo pipeline de oportunidades; o repositório do WBC nasceu sobre pymssql.
+pymssql>=2.3,<3
+# painel de acompanhamento (HTML servido por FastAPI + Jinja2, HTMX versionado no pacote)
+fastapi>=0.111,<1
+uvicorn>=0.30,<1
+jinja2>=3.1,<4
+python-multipart>=0.0.9,<1

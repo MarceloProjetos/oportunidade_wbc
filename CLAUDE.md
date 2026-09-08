@@ -5,12 +5,22 @@ Regra de ouro: para a maioria das tarefas bastam **2 arquivos** (o módulo + seu
 
 ## O que é
 
-Serviço de integração SAP B1 → Supabase. Roda em produção no `192.168.7.11`
-(`C:\Python\ServidorIntegracaoSAP`) como 3 processos independentes:
+Serviço de integração SAP B1 → Supabase **e** Integração WBC → SAP. Roda em produção no
+`192.168.7.11` (`C:\Python\ServidorIntegracaoSAP`) como 5 processos independentes:
 
-- **API HTTP** (porta 8077, serviço NSSM `OrcaView-OS-API`) — gatilhos sob demanda + consultas.
+- **API HTTP** (porta 8077, serviço NSSM `OrcaView-OS-API`) — gatilhos sob demanda + consultas
+  + Painel de Sincronização (`GET /`).
 - **Agendador** (serviço NSSM `OrcaView-Scheduler`) — carga periódica de oportunidades.
 - **Fachada MCP** — stdio no cliente (`mcp/mcp_server.py`) ou HTTP na .11 (`mcp/serve_http.py`, porta 8078).
+- **Painel WBC** (porta `PAINEL_PORTA`=8079, serviço `OrcaView-WBC-Painel`, FastAPI) — a
+  **porta de entrada** das duas telas; `python -m wbcpython dashboard`.
+- **Worker WBC** (serviço `OrcaView-WBC-Worker`) — `python -m wbcpython worker`: lê os
+  orçamentos do WBC e cria/atualiza/cancela cotação e pedido no SAP (Service Layer) a cada
+  `WORKER_INTERVAL_SECONDS`, dentro do expediente dele. **Escreve em PRODUÇÃO.**
+
+O pacote `wbcpython/` (ex-projeto WBCPython, importado em 2026-09-08) tem guia próprio em
+`docs/wbc/README.md` e as decisões em `docs/wbc/DECISOES.md`. Plano da integração:
+`docs/PLANO_INTEGRACAO_WBCPYTHON.md`.
 
 ## Mapa do repositório (código-fonte = raiz, plano)
 
@@ -24,14 +34,18 @@ Serviço de integração SAP B1 → Supabase. Roda em produção no `192.168.7.1
 | `extract_vendas_bi.py` | Pipeline VENDAS BI (agendado, 15min): `VW_PEDIDO_ALTA` + `VW_FATO_FATURAMENTO` → agregados `bi_vendas_*` que o app desenha no modo Vendas do Dashboard |
 | `monitoring.py` | `collect_status()` — checks SAP/SQL/Supabase/scheduler/windows_update/disco do `/status` |
 | `windows_update.py` | Reboot pendente (winreg, ~0,2ms) + updates pendentes/último patch (COM via PowerShell, 3-30s → thread daemon + cache). O `monitoring.py` só o consulta no check `windows_update` |
-| `ordens_producao_sl.py` | **ÚNICA ESCRITA em SAP** deste repo: status de Ordem de Produção via Service Layer (REST). Sessão + máquina de estados + allowlist. Nasce desligado (`OP_SL_ENABLED`) |
+| `ordens_producao_sl.py` | Escrita em SAP nº 1: status de Ordem de Produção via Service Layer (REST). Sessão + máquina de estados + allowlist. Nasce desligado (`OP_SL_ENABLED`) |
+| `wbcpython/` | Escrita em SAP nº 2 (o worker). Pacote da Integração WBC → SAP: `domain/` (máquina de estados do SitCode, sem I/O), `application/processar.py` (o caso de uso), `infrastructure/{service_layer,wbc_sql,hana}/`, `tracking/` (SQLite de acompanhamento), `host/worker.py` (APScheduler + trava), `dashboard/` (painel FastAPI+HTMX), `cli.py`, `safety.py` (travas). Imports absolutos `wbcpython.*`; roda com `python -m wbcpython` na raiz |
 | `sap_connection.py` | `SAPExtractor` (HANA via hdbcli) |
 | `db_utils.py` | `read_dbapi_query` (28 linhas) |
 | `feriados_br.py` | Feriados nacionais BR até 2030 (agendador pula) |
 | `scripts/scheduled_execution.py` | Loop do agendador (APScheduler, janela 7-18, seg-sex) |
 | `mcp/` | Fachada MCP fina e read-only sobre a API 8077 — NÃO fala com banco |
-| `web/sincronizar.html` | Página única servida em `GET /` |
-| `tests/` | pytest; `test_<modulo>.py` espelha o módulo |
+| `web/sincronizar.html` | Página única servida em `GET /` (com link para o painel WBC via `GET /painel-wbc`) |
+| `tests/` | pytest; `test_<modulo>.py` espelha o módulo. `tests/wbc/` = suíte do pacote `wbcpython` (mesma árvore dele) |
+| `docs/wbc/` | Docs do WBC: `README.md` (como rodar), `DECISOES.md`, `APRENDIZADOS.md`, `RISCOS_PRODUCAO.md`, `PROGRESS.md` (diário), `ai_spec/00_index.md` (onde a spec antiga mora hoje) |
+| `sql/hana/` | View HANA `VW_INO_OPORTUNIDADE_INTEGRACAO` que o worker lê (DDL de referência) |
+| `run_wbc_worker.bat` · `run_wbc_painel.bat` | Wrappers NSSM do worker e do painel (cwd = raiz, venv-ou-sistema, UTF-8) |
 
 Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api.py` orquestra e
 importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não importa nada da raiz).
@@ -49,10 +63,17 @@ importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não impor
 | Agendamento/janela/feriado | `scripts/scheduled_execution.py` + `feriados_br.py` |
 | Tool MCP | `mcp/mcp_server.py` (+ `mcp/README.md` só p/ registro no cliente) |
 | Schema/RLS Supabase | `sql/*.sql` (DDL de referência; NÃO roda automaticamente) |
+| Regra de negócio da Integração WBC (SitCode, cotação × pedido, encerramento) | `wbcpython/domain/sitcode.py` + `tests/wbc/domain/` (+ `docs/wbc/DECISOES.md` pela busca do heading) |
+| Ciclo do worker WBC (o que ele faz por orçamento) | `wbcpython/application/processar.py` + `wbcpython/host/worker.py` + `tests/wbc/test_processar.py` |
+| Painel WBC (rota, fragmento, entrada com chave) | `wbcpython/dashboard/web.py` + `tests/wbc/dashboard/` (templates em `wbcpython/dashboard/templates/`) |
+| Comando da CLI `wbcpython` | `wbcpython/cli.py` + `tests/wbc/test_cli.py` |
+| Variável do WBC (`SL_*`, `HANA_*`, `WBC_SQL_*`, `WORKER_*`, `PAINEL_*`) | `wbcpython/config.py` + `.env.example` (bloco WBC) + `tests/wbc/test_config.py` |
+| Check `wbc_worker` do `/status` | `monitoring.py` (`_wbc_worker_signal`) + `tests/test_monitoring.py` |
 
 ## NÃO reler (não é fonte, ou raramente muda)
 
 - `CHANGELOG.md` (histórico longo) e `README.md` inteiro — no README, vá direto à seção pela busca do heading.
+- `docs/wbc/PROGRESS.md` (89 KB de diário) e `docs/wbc/DECISOES.md` inteiro — só pela busca do heading.
 - `exports/` (dados de cliente), `logs/`, `state/`, `.locks/` — runtime/gerados.
 - `install_*.bat/.ps1`, `run_*.bat`, `maintenance/` — só para tarefas de deploy/operação.
 
@@ -67,8 +88,12 @@ importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não impor
 - Escritas têm **rate-limit in-process** (`RATE_SYNC_OS_MAX`, `RATE_FORCE_OPORT_MAX`) e
   **locks**: `_sync_lock` (thread) p/ OS, `oportunidades_sync_lock` (arquivo, cross-process,
   409 se ocupado) p/ carga completa.
-- **`ordens_producao_sl.py` é a ÚNICA coisa aqui que muda dado dentro do SAP**, e mira a
-  base de **PRODUÇÃO** (`SBOALTAMIRAPROD`). Três invariantes com teste cravando — não
+- **Duas coisas aqui mudam dado dentro do SAP, e as duas miram PRODUÇÃO** (`SBOALTAMIRAPROD`):
+  `ordens_producao_sl.py` (status de OP) e o **worker do `wbcpython`** (cotação, pedido,
+  oportunidade, `OrcDetalhe`). No worker a trava `WBC_BLOCK_PRODUCTION_WRITES` está
+  **`false` de propósito** na .11 desde 2026-09-02 (`docs/wbc/DECISOES.md`, "Virada para
+  produção"); a trava de somente-leitura do SQL Server do WBC (`wbcpython/safety.py`)
+  **não tem chave** e não pode ganhar uma. Sobre `ordens_producao_sl.py`: três invariantes com teste cravando — não
   afrouxe nenhuma sem decisão explícita: (1) `OP_SL_ENABLED` **nasce `false`** (rollback em
   produção = uma linha no `.env` + restart); (2) `POST /ordens-producao/<n>/status` é
   **fail-closed** — sem `OS_API_KEY` responde **503**, ao contrário de todas as outras
@@ -120,16 +145,42 @@ importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não impor
 - Repo GitHub ainda se chama `oportunidade_wbc` (mantido de propósito); pasta local e
   prod já são `ServidorIntegracaoSAP`. Env vars/endpoints antigos (`OPORTUNIDADE_WBC_*`,
   `/api/oportunidade-wbc/status` no web) são funcionais — NÃO renomear.
-- Deploy prod = `git pull` na .11 + restart dos serviços NSSM. `requirements.txt` é a
-  fonte de instalação (não migrar deps para pyproject sem decisão explícita).
+- Deploy prod = `deploy_update.bat` na .11 (para os 5 serviços, `git pull --ff-only`, pip
+  **no Python 3.12 do sistema** se `requirements*` mudou — não há venv lá — e religa; o
+  worker WBC só religa se estava rodando). `requirements.txt` é a fonte de instalação
+  (não migrar deps para pyproject sem decisão explícita). `pip`/restart são do Marcelo.
+- **`wbcpython` roda como módulo, com cwd na raiz**: `python -m wbcpython <comando>`. Ele lê
+  o `.env` do cwd (pydantic-settings) e resolve `state/wbc_tracking.db`, `logs/wbcpython.log`
+  e `state/wbc_previsao.json` relativos ao cwd — os `run_wbc_*.bat` garantem isso. Não há
+  `pip install -e`, hatchling nem uv: o pacote é uma pasta na raiz.
+- **`OS_API_KEY` é compartilhada** pela API 8077 e pelo painel WBC (que a pede uma vez e
+  guarda um cookie HMAC). Trocar a chave derruba os cookies de todo mundo — é o desenho.
+  Sem `OS_API_KEY` o painel fica aberto, como a API (fail-open documentado).
+- **`?checks=wbc` é o SQL Server, não o worker** — o alias existia antes do worker e
+  monitores usam. O worker é `wbc_worker` (aliases `worker`, `integracao_wbc`). O check
+  **não alarma** antes do primeiro ciclo registrado na máquina (`installed=false` /
+  `last=null` são informação): na .11 antes da virada, `/status?strict=1` continua 200.
+- **`tests/wbc/conftest.py` neutraliza o `.env`**: o `load_dotenv()` do `config` da raiz
+  vaza o `.env` para o `os.environ` da sessão inteira; sem a fixture, `OS_API_KEY` do `.env`
+  faria o painel exigir chave em todo teste. Teste que precisa de um valor faz `setenv` depois.
+- **Nunca `git subtree add` do repo antigo `MCPs\WBCPython`**: o histórico dele versiona um
+  `.env.bak` com senha e este repo é público. O import de 2026-09-08 foi por cópia, sem
+  histórico, de propósito.
+- **Parada limpa do worker**: NSSM manda Ctrl+C, o worker termina o ciclo (9–14 s) e sai; o
+  serviço tem `AppStopMethodConsole 60000`. Não reduzir: matar no meio de um POST no SAP
+  deixa cotação criada sem vínculo (já aconteceu por outro motivo — `docs/wbc/RETOMADA.md`).
 
 ## Comandos
 
 ```bash
-python -m pytest              # suíte completa (rápida, sem rede)
+python -m pytest              # suíte completa (SIS + WBC; rápida, sem rede)
+python -m pytest tests/wbc    # só a suíte do WBC (843 testes; --run-integration liga os de rede)
 python -m ruff check .        # lint (config no pyproject.toml; deve ficar em 0)
 python api.py                 # sobe a API local (porta 8077)
 python -m scripts.scheduled_execution   # agendador (loop; Ctrl+C p/ sair)
+python -m wbcpython --help    # CLI do WBC: env, doctor, check-sap, check-hana, pendentes, ciclo, worker, dashboard, pesos
+python -m wbcpython pendentes --exportar state/wbc_previsao.json   # o que o ciclo FARIA (só leitura)
+python -m wbcpython dashboard # painel WBC (PAINEL_HOST/PAINEL_PORTA do .env)
 ```
 
 Tooling em `pyproject.toml` (pytest + ruff). Dependências de runtime seguem em

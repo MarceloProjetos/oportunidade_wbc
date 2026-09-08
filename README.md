@@ -1,8 +1,10 @@
-# ServidorIntegracaoSAP — Integração SAP B1 → Supabase
+# ServidorIntegracaoSAP — Integração SAP B1 → Supabase e WBC → SAP
 
 **Pipeline de integração da Altamira** que extrai a evolução de oportunidades de uma
 view do **SAP B1 (HANA)**, enriquece com a situação do orçamento vinda do **SQL Server
-(WBCcad)** e carrega tudo numa tabela do **Supabase (PostgreSQL)**.
+(WBCcad)** e carrega tudo numa tabela do **Supabase (PostgreSQL)** — e, desde 2026-09-08,
+também a **Integração WBC → SAP** (`wbcpython/`): o worker que cria cotação e pedido no SAP
+a partir dos orçamentos do WBC, com o painel que é a porta de entrada das duas telas.
 
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
 ![SAP HANA](https://img.shields.io/badge/SAP-HANA-orange)
@@ -23,6 +25,7 @@ view do **SAP B1 (HANA)**, enriquece com a situação do orçamento vinda do **S
 - [Banco de Dados (Supabase)](#banco-de-dados-supabase)
 - [Como Rodar](#como-rodar)
 - [Ordens de Produção — escrita de status no SAP](#ordens-de-produção--escrita-de-status-no-sap)
+- [Integração WBC → SAP (wbcpython)](#integração-wbc--sap-wbcpython)
 - [Agendamento (Automático)](#agendamento-automático)
 - [Monitoramento](#monitoramento)
 - [Versionamento (GitHub)](#versionamento-github)
@@ -545,6 +548,40 @@ Variáveis: ver o bloco `OP_SL_*` no [.env.example](.env.example).
 
 ---
 
+## Integração WBC → SAP (wbcpython)
+
+Desde 2026-09-08 este repositório também é a **Integração WBC → SAP** (ex-projeto
+WBCPython, reescrita Python do `WBCServConsole`): o worker lê os orçamentos do WBC (SQL
+Server, **só leitura**), decide pela máquina de estados do `SitCode` e cria/atualiza/cancela
+**cotação e pedido no SAP** pelo Service Layer, espelha o status na oportunidade e grava o
+`OrcDetalhe`. O painel (FastAPI + HTMX, porta `PAINEL_PORTA`, 8079) é a **porta de entrada**
+das duas telas: de lá um botão leva ao Painel de Sincronização (8077); de cá o link
+`⇄ Integração WBC` (`GET /painel-wbc`) volta.
+
+| Peça | Comando (na raiz) | Serviço NSSM |
+| --- | --- | --- |
+| Worker — ciclo a cada `WORKER_INTERVAL_SECONDS`, no expediente | `python -m wbcpython worker` | `OrcaView-WBC-Worker` (manual até a virada) |
+| Painel | `python -m wbcpython dashboard` | `OrcaView-WBC-Painel` |
+| Prévia — o que o ciclo faria, só leitura | `python -m wbcpython pendentes --exportar state/wbc_previsao.json` | — |
+| Diagnóstico | `python -m wbcpython doctor` · `check-sap` · `check-hana` · `env` | — |
+
+- **Configuração:** bloco "Integração WBC → SAP" do `.env.example` (mesmo `.env`;
+  `OS_API_KEY` é a chave do painel também — sem ela o painel fica aberto, como a API).
+- **Banco de acompanhamento:** `state/wbc_tracking.db` (SQLite), **criado pelo próprio
+  serviço** na primeira subida (worker ou painel), com as 4 tabelas. O
+  `/status?checks=wbc_worker` lê esse banco para dizer se o worker está vivo, e a tool MCP
+  `estado_integracao_wbc` responde a mesma pergunta em linguagem natural.
+- **Guia, regras e histórico:** `docs/wbc/README.md` (como rodar), `docs/wbc/DECISOES.md`,
+  `docs/wbc/RISCOS_PRODUCAO.md`. Plano da integração: `docs/PLANO_INTEGRACAO_WBCPYTHON.md`.
+
+> ⚠️ O worker **escreve em produção** (`SBOALTAMIRAPROD`), com a trava
+> `WBC_BLOCK_PRODUCTION_WRITES=false` por decisão (02/09/2026). Cotação cancelada e pedido
+> criado não se desfazem. Só pode ligar com o integrador legado (tarefa "Integração WBC" do
+> Task Scheduler) **desligado**: dois integradores pela mesma chave `U_INO_COTWBC` duplicam
+> documento.
+
+---
+
 ## Agendamento (Automático)
 
 ### Opção A — APScheduler (multiplataforma)
@@ -604,12 +641,15 @@ OrcaView-ETL ...`), que aparece em `services.msc`.
 
 ## Operação (iniciar / parar / serviços)
 
-No servidor rodam **dois processos** 24/7:
+No servidor rodam **cinco processos** 24/7 (os quatro abaixo + a fachada MCP, que tem
+instalador próprio — `install_mcp_service.bat`):
 
-| Processo | O que faz | Sobe com |
-| --- | --- | --- |
-| **Agendador** | carga de **oportunidades** a cada 30 min (07–18h, dias úteis) | `run_scheduler.bat` |
-| **API / painel** | endpoint + página em `:8077` (OS sob demanda · forçar oportunidades) | `run_api.bat` |
+| Processo | O que faz | Sobe com | Serviço NSSM |
+| --- | --- | --- | --- |
+| **Agendador** | carga de **oportunidades** a cada 30 min (07–18h, dias úteis) | `run_scheduler.bat` | `OrcaView-Scheduler` |
+| **API / Painel de Sincronização** | endpoint + página em `:8077` (OS sob demanda · forçar oportunidades) | `run_api.bat` | `OrcaView-OS-API` |
+| **Painel WBC** | a porta de entrada, em `:8079` (`PAINEL_PORTA`) — lê só o acompanhamento | `run_wbc_painel.bat` | `OrcaView-WBC-Painel` |
+| **Worker WBC** | cotação/pedido no SAP a partir do WBC, a cada 3 min no expediente — **escreve em produção** | `run_wbc_worker.bat` | `OrcaView-WBC-Worker` (manual até a virada) |
 
 ### Iniciar
 
@@ -618,15 +658,20 @@ No servidor rodam **dois processos** 24/7:
   ```bat
   install_services.bat
   ```
-  Registra `OrcaView-Scheduler` e `OrcaView-OS-API` com **auto-start no boot**, **restart se
-  cair** e log em `logs/`. Gerencie em `services.msc`.
+  Registra `OrcaView-Scheduler`, `OrcaView-OS-API`, `OrcaView-WBC-Painel` (auto-start no
+  boot, restart se cair, log em `logs/`) e `OrcaView-WBC-Worker` (**manual, parado**: só liga
+  na virada, com o legado desligado — `nssm set OrcaView-WBC-Worker Start SERVICE_AUTO_START`
+  e `nssm start`). Gerencie em `services.msc`.
+- **Atualizar** (git pull + pip se preciso + religar tudo): `deploy_update.bat` como
+  Administrador. O worker WBC só religa se estava rodando.
 - **Manual (teste/temporário)** — cada um isolado em sua janela: `run_scheduler.bat`
   (agendador) e `run_api.bat` (API).
 
 ### Parar
 
-- **Serviço:** `nssm stop OrcaView-OS-API` e `nssm stop OrcaView-Scheduler` (ou pelo
-  `services.msc`). Parada **limpa** — o agendador **espera** uma carga em andamento terminar.
+- **Serviço:** `nssm stop <serviço>` (ou pelo `services.msc`). Parada **limpa** — o agendador
+  **espera** uma carga em andamento terminar, e o worker WBC **termina o ciclo** em andamento
+  (9–14 s; o serviço dá até 60 s, `AppStopMethodConsole`).
 - **Janela manual:** `Ctrl+C` na janela (a da API ainda pergunta *Terminate batch job? Y*).
   O Ctrl+C de uma janela para **só** aquele processo.
 
@@ -649,7 +694,8 @@ No servidor rodam **dois processos** 24/7:
 | --- | --- |
 | `logs/scheduled_execution.log` | agendador (rotação diária, 12 dias) |
 | `logs/api.log` | API (rotação diária, 12 dias) |
-| `logs/scheduler_service.log` · `logs/api_service.log` | saída bruta dos serviços (via NSSM) |
+| `logs/wbcpython.log` | worker + CLI do WBC (o mesmo texto da aba "Log" do painel; 5 MB × 3) |
+| `logs/scheduler_service.log` · `logs/api_service.log` · `logs/wbc_painel_service.log` · `logs/wbc_worker_service.log` | saída bruta dos serviços (via NSSM) |
 
 > Os logs são gravados em **UTF-8**. No **PowerShell**, leia com `-Encoding utf8`,
 > senão os acentos saem trocados (ex.: `execuÃ§Ã£o`):
@@ -666,16 +712,20 @@ Dois endpoints para checagem (exemplos no PowerShell):
 - **`GET /status`** — diagnóstico **sob demanda** (**aberto, sem chave** — pode abrir no
   navegador; roda só quando chamado, sem polling): conexões com **SAP**, **SQL Server (WBC)** e **Supabase** (com
   latência `ms`), **sinal indireto do agendador** (idade da última carga de oportunidades;
-  `stale` se > 35 min na janela comercial → `OrcaView-Scheduler` pode ter caído), **alerta de
-  disco** e métricas do sistema (CPU/memória via `psutil` se instalado; disco/IP/host/uptime
-  via stdlib).
+  `stale` se > 35 min na janela comercial → `OrcaView-Scheduler` pode ter caído), **estado do
+  worker WBC** (`wbc_worker`: lê `state/wbc_tracking.db`; `stale` se silenciou além de 2×
+  `WORKER_INTERVAL_SECONDS` dentro do expediente **do worker** → `OrcaView-WBC-Worker` pode ter
+  caído; não alarma antes do 1º ciclo registrado na máquina), **alerta de disco** e métricas
+  do sistema (CPU/memória via `psutil` se instalado; disco/IP/host/uptime via stdlib).
 
 ```powershell
 # diagnóstico completo (aberto — funciona no navegador também)
 curl.exe -s "http://192.168.7.11:8077/status" | ConvertFrom-Json
 
-# só algumas checagens (aliases: sql/wbc -> sql_server, hana -> sap, agendador -> scheduler)
+# só algumas checagens (aliases: sql/wbc -> sql_server, hana -> sap, agendador -> scheduler,
+# worker/integracao_wbc -> wbc_worker; atenção: `wbc` é o SQL Server, não o worker)
 curl.exe -s "http://192.168.7.11:8077/status?checks=sap,sql"
+curl.exe -s "http://192.168.7.11:8077/status?checks=worker"
 
 # alertar por código de status: 503 se houver falha de conexão OU alerta
 curl.exe -s -o NUL -w "%{http_code}" "http://192.168.7.11:8077/status?strict=1"
@@ -731,6 +781,7 @@ ServidorIntegracaoSAP/
 ├── extract_ordens_servico_engenharia.py  # Sync de OS por N_PED (VW_OS_INTEGRACAO, replace_nped)
 ├── monitoring.py                # Diagnóstico do /status (conexões, agendador, tarefa)
 ├── api.py                       # API HTTP de disparo + /status (Flask, porta 8077)
+├── wbcpython/                   # Integração WBC → SAP: worker + painel + CLI (python -m wbcpython)
 ├── web/                         # Página servida pela API (sincronizar.html)
 ├── sql/                         # DDL + policies do Supabase
 ├── scripts/
@@ -741,10 +792,14 @@ ServidorIntegracaoSAP/
 ├── install_monitor_task.ps1     # Registra a tarefa do monitor (a cada 10 min, SYSTEM)
 ├── run_scheduler.bat            # Wrapper p/ Task Scheduler / NSSM (agendador, boot 24/7)
 ├── run_api.bat                  # Wrapper p/ Task Scheduler / NSSM (API, boot 24/7)
-├── install_services.bat         # Registra agendador + API como serviços NSSM (boot + restart)
+├── run_wbc_worker.bat           # Wrapper NSSM do worker WBC (parada limpa de até 60 s)
+├── run_wbc_painel.bat           # Wrapper NSSM do painel WBC (PAINEL_HOST:PAINEL_PORTA)
+├── install_services.bat         # Registra agendador + API + painel WBC + worker WBC (manual) no NSSM
+├── deploy_update.bat            # Atualiza a .11: para os 5 serviços, git pull, pip se preciso, religa
+├── docs/                        # Planos deste repo · docs/wbc/ = guia, decisões e histórico do WBC
 ├── requirements.txt             # Dependências Python
 ├── requirements-dev.txt         # pytest (testes unitários)
-├── tests/                       # Suíte pytest
+├── tests/                       # Suíte pytest (tests/wbc/ = a do pacote wbcpython)
 ├── .env.example                 # Template de variáveis de ambiente
 ├── CHANGELOG.md                 # Histórico de mudanças
 └── README.md                    # Este arquivo

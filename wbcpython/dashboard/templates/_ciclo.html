@@ -1,0 +1,213 @@
+{% import "_barras.html" as g %}
+{#
+  O que o worker faria na próxima passada — a mesma prévia do
+  `wbcpython pendentes`, lida de um retrato em disco.
+
+  Procedência antes dos números: um retrato de produção aberto achando que é
+  homologação é o erro mais caro que esta tela poderia induzir.
+#}
+<div class="bloco">
+  <header>
+    <h2>Próximo ciclo</h2>
+    <span class="carimbo">retrato de {{ previsao.company_db }} · {{ idade }}</span>
+  </header>
+
+  <div class="corpo">
+    <div class="aviso info">
+      <div>
+        Instantâneo de <strong>{{ previsao.company_db }}</strong>, tirado em
+        {{ previsao.gerado_em.strftime('%d/%m/%Y %H:%M') }} ({{ idade }}) · janela: OpenDate ≥
+        {{ previsao.corte }} ({{ previsao.meses_de_janela }} meses) · teto de escrita por ciclo:
+        {{ previsao.limite_de_escrita }}.
+        <br />
+        A prévia é somente leitura: não cria, não altera e não cancela nada.
+      </div>
+    </div>
+
+    {% if acima_do_teto %}
+      <div class="aviso atencao">
+        {{ kpis.escreve }} orçamentos pedem escrita, acima do teto de
+        {{ previsao.limite_de_escrita }} por ciclo: o restante fica para as próximas passadas.
+      </div>
+    {% endif %}
+
+    <div class="faixa-kpi">
+      <div class="kpi">
+        <span class="rotulo">Na janela</span>
+        <span class="valor">{{ kpis.total | numero }}</span>
+      </div>
+      <div class="kpi acento">
+        <span class="rotulo">O ciclo agiria</span>
+        <span class="valor">{{ kpis.escreve | numero }}</span>
+      </div>
+      <div class="kpi {{ 'atencao' if kpis.toca_documento else '' }}">
+        <span class="rotulo">Toca documento</span>
+        <span class="valor">{{ kpis.toca_documento | numero }}</span>
+        <span class="detalhe">cria, altera ou cancela no SAP</span>
+      </div>
+      <div class="kpi">
+        <span class="rotulo">Só espelha status</span>
+        <span class="valor">{{ kpis.so_status | numero }}</span>
+      </div>
+      <div class="kpi">
+        <span class="rotulo">Nada a fazer</span>
+        <span class="valor">{{ kpis.sem_acao | numero }}</span>
+      </div>
+      {% if kpis.troca_de_parceiro or kpis.sem_valor or kpis.problemas %}
+        <div class="kpi">
+          <span class="rotulo">Troca de parceiro</span>
+          <span class="valor">{{ kpis.troca_de_parceiro | numero }}</span>
+        </div>
+        <div class="kpi {{ 'atencao' if kpis.sem_valor else '' }}">
+          <span class="rotulo">Sem valor</span>
+          <span class="valor">{{ kpis.sem_valor | numero }}</span>
+          <span class="detalhe">o SAP recusaria</span>
+        </div>
+        <div class="kpi {{ 'critico' if kpis.problemas else '' }}">
+          <span class="rotulo">Problemas de dado</span>
+          <span class="valor">{{ kpis.problemas | numero }}</span>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="duas-colunas">
+  <div class="bloco">
+    <header><h2>Ações do ciclo</h2></header>
+    <div class="corpo">
+      {% if acoes %}
+        {{ g.grafico(acoes) }}
+        <p class="nota">Um orçamento pode gerar mais de uma ação.</p>
+      {% else %}
+        <p class="nota">Nenhuma ação nesta janela.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="bloco">
+    <header><h2>Status da oportunidade no SAP</h2></header>
+    <div class="corpo">
+      {{ g.grafico(por_status) }}
+      <p class="nota">OOPR."Status": Aberta (O), Vendida (W), Perdida (L).</p>
+    </div>
+  </div>
+</div>
+
+<div class="bloco">
+  <header><h2>Regra que decidiu</h2></header>
+  <div class="rolagem">
+    <table>
+      <thead>
+        <tr>
+          <th>Regra</th>
+          <th class="num">Orçamentos</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for regra, n in por_regra %}
+          <tr>
+            <td>{{ regra }}</td>
+            <td class="num">{{ n }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="bloco">
+  <header>
+    <h2>Orçamentos</h2>
+    <span class="carimbo">{{ visiveis }} de {{ kpis.total }}</span>
+  </header>
+
+  <div class="corpo">
+    <form
+      class="filtros"
+      hx-get="/fragmentos/ciclo"
+      hx-target="#conteudo"
+      hx-trigger="change, keyup changed delay:350ms from:find input[type=search]"
+    >
+      <input type="hidden" name="arquivo" value="{{ arquivo }}" />
+      <label class="campo">
+        <span>Buscar</span>
+        <input
+          type="search"
+          class="largo"
+          name="busca"
+          value="{{ busca }}"
+          placeholder="orçamento, cliente, parceiro ou documento"
+        />
+      </label>
+      <label class="campo">
+        <span>Status</span>
+        <select name="status">
+          <option value="">(todos)</option>
+          {% for s in situacoes %}
+            <option value="{{ s }}" {% if s == status %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="campo">
+        <span>SitCode</span>
+        <select name="sitcode">
+          <option value="">(todos)</option>
+          {% for s in sitcodes %}
+            <option value="{{ s }}" {% if s|string == sitcode %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="caixa">
+        <input type="checkbox" name="so_acao" value="1" {% if so_acao %}checked{% endif %} />
+        Só quem o ciclo tocaria
+      </label>
+      <label class="caixa">
+        <input
+          type="checkbox"
+          name="so_documento"
+          value="1"
+          {% if so_documento %}checked{% endif %}
+        />
+        Só quem mexe em documento
+      </label>
+    </form>
+  </div>
+
+  {% if not linhas %}
+    <div class="vazio">Nenhum orçamento com esses filtros.</div>
+  {% else %}
+    {% set mono = ["Orçamento", "SitCode", "Rev. WBC", "Cotação", "Pedido"] %}
+    <div class="rolagem">
+      <table>
+        <thead>
+          <tr>
+            {% for coluna in linhas[0].keys() %}
+              <th class="{{ 'mono' if coluna in mono }}">{{ coluna }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for linha in linhas %}
+            <tr>
+              {% for coluna, valor in linha.items() %}
+                <td class="{{ 'mono' if coluna in mono }}">{{ valor }}</td>
+              {% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</div>
+
+{% if problemas %}
+  <div class="bloco">
+    <header><h2>Problemas de dado</h2></header>
+    <div class="corpo">
+      {% for orcnum, problema in problemas %}
+        <div class="aviso erro"><div><strong>{{ orcnum }}</strong>: {{ problema }}</div></div>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}

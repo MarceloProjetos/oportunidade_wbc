@@ -1,0 +1,126 @@
+{#
+  O mesmo log que sai na tela do comando — "uma fonte, duas telas".
+
+  É o que torna o painel um monitor: o worker roda sem ninguém no terminal, e é
+  aqui que se vê o que ele fez, na mesma ordem e com o mesmo texto que
+  apareceria para quem estivesse olhando.
+
+  Só a lista se repinta, e não o bloco inteiro: a cada 5 s o formulário de
+  filtro seria recriado embaixo de quem estivesse digitando, e o campo perderia
+  o texto e o cursor. O `hx-select` recorta a lista da resposta; o `hx-include`
+  devolve os filtros que já estavam preenchidos.
+#}
+<div class="bloco">
+  <header>
+    <h2>Log da integração</h2>
+    <label class="caixa" style="padding-bottom: 0">
+      <input type="checkbox" id="seguir" {% if seguir %}checked{% endif %} />
+      Acompanhar (a cada {{ ritmo }}s)
+    </label>
+  </header>
+
+  <div class="corpo">
+    {% if not arquivo %}
+      <div class="aviso info">
+        <div>
+          Log em arquivo desligado (<code>LOG_FILE</code> vazio). Defina <code>LOG_FILE</code>
+          no <code>.env</code> para que a execução do worker apareça aqui — é o mesmo arquivo
+          que o <span class="cmd">wbcpython ciclo</span> e o
+          <span class="cmd">wbcpython pendentes</span> escrevem.
+        </div>
+      </div>
+    {% endif %}
+
+    <form class="filtros" id="log-filtros" hx-get="/fragmentos/log" hx-target="#conteudo">
+      <label class="campo">
+        <span>Arquivo</span>
+        <input type="text" class="largo" name="arquivo" value="{{ arquivo }}" />
+      </label>
+      <label class="campo">
+        <span>Filtrar por texto</span>
+        <input type="search" name="busca" value="{{ busca }}" />
+      </label>
+      <label class="campo">
+        <span>Nível</span>
+        <select name="nivel">
+          <option value="">(todos)</option>
+          {% for n in niveis %}
+            <option value="{{ n }}" {% if n == nivel %}selected{% endif %}>{{ n }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="campo">
+        <span>Últimas linhas</span>
+        <input type="number" name="limite" value="{{ limite }}" min="10" max="5000" step="50" />
+      </label>
+      <button class="acao" type="submit">Aplicar</button>
+    </form>
+  </div>
+
+  <div
+    id="log-lista"
+    hx-get="/fragmentos/log"
+    hx-trigger="every {{ ritmo }}s [seguindo()]"
+    hx-select="#log-lista"
+    hx-swap="outerHTML"
+    hx-include="#log-filtros"
+  >
+    {% if graves %}
+      <div style="padding: 0 14px">
+        <div class="aviso erro">
+          <div>{{ graves }} linha(s) de erro entre as {{ linhas | length }} mostradas.</div>
+        </div>
+      </div>
+    {% endif %}
+
+    {% if not linhas %}
+      <div class="vazio">
+        {% if arquivo %}
+          Nada em <code>{{ arquivo }}</code> com esses filtros. Rode
+          <span class="cmd">python -m wbcpython ciclo</span> ou
+          <span class="cmd">python -m wbcpython pendentes</span> para gerar log.
+        {% else %}
+          Sem arquivo de log configurado.
+        {% endif %}
+      </div>
+    {% else %}
+      <div class="log">
+        {% for linha in linhas %}
+          <div class="log-linha {{ linha.nivel }}">
+            <span class="hora">{{ linha.momento[11:19] if linha.momento else "" }}</span>
+            <span class="nivel">{{ linha.nivel }}</span>
+            {# O prefixo `wbcpython.` está em toda linha e não distingue nada:
+               cortá-lo devolve a largura para o módulo, que é o que se lê. #}
+            <span class="origem" title="{{ linha.origem }}"
+              >{{ linha.origem | replace("wbcpython.", "") }}</span
+            >
+            <span class="msg">{{ linha.mensagem }}</span>
+          </div>
+        {% endfor %}
+      </div>
+      {# Mais novas primeiro: quem abre um monitor quer saber o que acabou de
+         acontecer, não o que aconteceu quando o arquivo começou. #}
+      <div style="padding: 9px 14px">
+        <span class="carimbo">
+          <span class="pulso" id="pulso-log"></span>
+          {{ linhas | length }} linha(s), mais recentes primeiro · {{ atualizado }}
+        </span>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+  // O acompanhamento é pausável de propósito: ler uma mensagem de erro
+  // enquanto a lista se refaz embaixo do cursor é frustrante, e quem está
+  // investigando precisa que a tela fique parada.
+  function seguindo() {
+    var caixa = document.getElementById("seguir");
+    var ligado = !caixa || caixa.checked;
+    var pulso = document.getElementById("pulso-log");
+    if (pulso) pulso.classList.toggle("parado", !ligado);
+    return ligado;
+  }
+  seguindo();
+  document.getElementById("seguir").addEventListener("change", seguindo);
+</script>

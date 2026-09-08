@@ -1,0 +1,1019 @@
+/* Painel de acompanhamento — folha de estilo única.
+ *
+ * Sem fonte de web e sem CDN: a máquina do worker não tem saída para a
+ * internet, e um painel que depende de baixar algo é um painel que abre em
+ * branco justamente no dia em que alguém precisa dele. Tudo aqui é pilha de
+ * fontes do sistema e CSS puro — inclusive as barras dos gráficos.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* Neutros puxados para o azul-aço: o assunto é metalurgia, e um cinza
+   * exatamente neutro lê como cinza de template. */
+  --fundo: #eef1f4;
+  --painel: #ffffff;
+  --painel-2: #f7f9fa;
+  --traco: #d2dae1;
+  --traco-forte: #b6c1cb;
+  --tinta: #16202a;
+  --tinta-fraca: #5c6b79;
+  --tinta-fraquissima: #8695a3;
+
+  /* Cobre: metal quente. Usado com parcimônia — aba ativa, foco, números
+   * focais. Não é a cor de "tudo que é importante". */
+  --acento: #b4531d;
+  --acento-fraco: #f4e4d9;
+
+  --ok: #1c7a4c;
+  --ok-fundo: #e4f3ea;
+  --atencao: #92620a;
+  --atencao-fundo: #fbf0d8;
+  --critico: #b42318;
+  --critico-fundo: #fbe6e4;
+  --neutro: #5c6b79;
+  --neutro-fundo: #eaeef1;
+
+  --sombra: 0 1px 2px rgb(22 32 42 / 6%), 0 1px 1px rgb(22 32 42 / 4%);
+  --raio: 6px;
+
+  --ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Monoespaçada não é enfeite: a tela inteira é número de orçamento, DocNum,
+   * valor e linha de log — coisas que se comparam na vertical. */
+  --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", "Cascadia Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+/* Escuro por preferência do sistema. O `:not([data-tema="claro"])` existe
+ * para que a escolha explícita do operador ganhe do sistema operacional —
+ * sem aninhamento de CSS, que navegador de fábrica não costuma entender. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema="claro"]) {
+    --fundo: #10151a;
+    --painel: #192027;
+    --painel-2: #1e262e;
+    --traco: #2b343d;
+    --traco-forte: #3c4854;
+    --tinta: #dde4eb;
+    --tinta-fraca: #93a1ae;
+    --tinta-fraquissima: #6d7c8a;
+    --acento: #e07a3d;
+    --acento-fraco: #35241a;
+    --ok: #48b77f;
+    --ok-fundo: #14291f;
+    --atencao: #d9a227;
+    --atencao-fundo: #2d2413;
+    --critico: #f2726a;
+    --critico-fundo: #2f1917;
+    --neutro: #93a1ae;
+    --neutro-fundo: #232b33;
+    --sombra: 0 1px 2px rgb(0 0 0 / 35%);
+  }
+}
+
+:root[data-tema="escuro"] {
+  --fundo: #10151a;
+  --painel: #192027;
+  --painel-2: #1e262e;
+  --traco: #2b343d;
+  --traco-forte: #3c4854;
+  --tinta: #dde4eb;
+  --tinta-fraca: #93a1ae;
+  --tinta-fraquissima: #6d7c8a;
+  --acento: #e07a3d;
+  --acento-fraco: #35241a;
+  --ok: #48b77f;
+  --ok-fundo: #14291f;
+  --atencao: #d9a227;
+  --atencao-fundo: #2d2413;
+  --critico: #f2726a;
+  --critico-fundo: #2f1917;
+  --neutro: #93a1ae;
+  --neutro-fundo: #232b33;
+  --sombra: 0 1px 2px rgb(0 0 0 / 35%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--fundo);
+  color: var(--tinta);
+  font: 400 14px/1.5 var(--ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  text-wrap: balance;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+a {
+  color: var(--acento);
+}
+
+:focus-visible {
+  outline: 2px solid var(--acento);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* ------------------------------------------------------------------ cabeçalho */
+
+.topo {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--painel);
+  border-bottom: 1px solid var(--traco);
+}
+
+.topo-linha {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 10px 20px;
+}
+
+.marca {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-right: auto;
+}
+
+.marca h1 {
+  font-size: 15px;
+}
+
+.marca .sub {
+  font-size: 12px;
+  color: var(--tinta-fraquissima);
+}
+
+/* O ambiente é o fato mais perigoso da tela: em produção o ciclo cria e
+ * cancela documentos financeiros de verdade. Ganha uma tarja hachurada de
+ * largura inteira, e é a única coisa da página autorizada a gritar. */
+.ambiente {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font: 600 11px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--neutro-fundo);
+  color: var(--tinta-fraca);
+  border: 1px solid var(--traco);
+}
+
+.ambiente.producao {
+  background: var(--critico-fundo);
+  color: var(--critico);
+  border-color: color-mix(in srgb, var(--critico) 40%, transparent);
+}
+
+.tarja-producao {
+  padding: 8px 20px;
+  font: 600 12px/1.4 var(--ui);
+  color: #fff;
+  background-color: #a3251b;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgb(0 0 0 / 16%) 0 10px,
+    transparent 10px 20px
+  );
+}
+
+/* --------------------------------------------------------------------- abas */
+
+.abas {
+  display: flex;
+  gap: 2px;
+  padding: 0 20px;
+  overflow-x: auto;
+}
+
+.aba {
+  appearance: none;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: 500 13px/1 var(--ui);
+  color: var(--tinta-fraca);
+  padding: 11px 14px;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+
+.aba:hover {
+  color: var(--tinta);
+}
+
+.aba[aria-current="page"] {
+  color: var(--acento);
+  border-bottom-color: var(--acento);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------ estrutura */
+
+main {
+  padding: 18px 20px 48px;
+  max-width: 1500px;
+  margin: 0 auto;
+}
+
+.bloco {
+  background: var(--painel);
+  border: 1px solid var(--traco);
+  border-radius: var(--raio);
+  box-shadow: var(--sombra);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.bloco > header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--traco);
+  background: var(--painel-2);
+}
+
+.bloco > header h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--tinta-fraca);
+  margin-right: auto;
+}
+
+.corpo {
+  padding: 14px;
+}
+
+.nota {
+  color: var(--tinta-fraquissima);
+  font-size: 12px;
+  margin: 8px 0 0;
+}
+
+.vazio {
+  padding: 28px 14px;
+  text-align: center;
+  color: var(--tinta-fraca);
+}
+
+/* --------------------------------------------------------------- indicadores */
+
+.faixa-kpi {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+/* O filete no topo do bloco carrega informação: é o semáforo do indicador.
+ * Sem ele a cor teria de ir para o número, e número colorido em painel denso
+ * vira decoração. */
+/* O indicador é um botão: clicar abre a lista daqueles orçamentos. Por isso
+ * `text-align`, `font` e `width` explícitos — um `<button>` não herda nada
+ * disso, e sem eles o número sairia centralizado e com a fonte do sistema. */
+.kpi {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: var(--painel);
+  border: 1px solid var(--traco);
+  border-top: 3px solid var(--traco-forte);
+  border-radius: var(--raio);
+  padding: 12px 13px;
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.kpi:hover {
+  border-color: var(--traco-forte);
+  box-shadow: var(--sombra);
+}
+
+/* O ativo é o que responde "o que estou vendo na lista?". O anel interno basta,
+ * e é de propósito que ele não recolore mais nada: o filete de cima continua
+ * sendo o semáforo, e pintar também o rótulo colocava cobre, vermelho e o
+ * número no mesmo cartão disputando atenção. */
+.kpi.ativo {
+  border-color: var(--acento);
+  box-shadow: inset 0 0 0 1px var(--acento);
+}
+
+.kpi .rotulo {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--tinta-fraquissima);
+  display: block;
+  margin-bottom: 6px;
+}
+
+.kpi .valor {
+  font: 600 26px/1.1 var(--mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.kpi .detalhe {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--tinta-fraquissima);
+}
+
+.kpi.ok {
+  border-top-color: var(--ok);
+}
+.kpi.atencao {
+  border-top-color: var(--atencao);
+}
+.kpi.critico {
+  border-top-color: var(--critico);
+}
+.kpi.acento {
+  border-top-color: var(--acento);
+}
+.kpi.critico .valor {
+  color: var(--critico);
+}
+
+.selo {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 5px 11px;
+  border-radius: 999px;
+}
+
+.selo::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentcolor;
+}
+
+.selo.ok {
+  color: var(--ok);
+  background: var(--ok-fundo);
+}
+.selo.atencao {
+  color: var(--atencao);
+  background: var(--atencao-fundo);
+}
+.selo.critico {
+  color: var(--critico);
+  background: var(--critico-fundo);
+}
+.selo.neutro {
+  color: var(--neutro);
+  background: var(--neutro-fundo);
+}
+
+/* ------------------------------------------------------------------ formulários */
+
+.filtros {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.campo > span {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--tinta-fraquissima);
+}
+
+input[type="text"],
+input[type="number"],
+input[type="search"],
+input[type="password"],
+select {
+  font: 400 13px/1 var(--ui);
+  color: var(--tinta);
+  background: var(--painel);
+  border: 1px solid var(--traco-forte);
+  border-radius: 5px;
+  padding: 7px 9px;
+  min-width: 150px;
+}
+
+input[type="search"].largo {
+  min-width: 280px;
+}
+
+.caixa {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--tinta-fraca);
+  cursor: pointer;
+  padding-bottom: 8px;
+}
+
+.caixa input {
+  accent-color: var(--acento);
+}
+
+button.acao,
+a.acao {
+  appearance: none;
+  cursor: pointer;
+  font: 600 13px/1 var(--ui);
+  color: #fff;
+  background: var(--acento);
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 8px 14px;
+}
+
+button.acao.discreta,
+a.acao.discreta {
+  background: var(--painel);
+  color: var(--tinta);
+  border-color: var(--traco-forte);
+}
+
+button.acao:hover,
+a.acao:hover {
+  filter: brightness(1.06);
+}
+
+a.acao {
+  display: inline-block;
+  text-decoration: none;
+}
+
+.sair {
+  margin: 0;
+}
+
+/* ------------------------------------------------------------- entrada */
+
+/* A tela da chave. Existe só quando há OS_API_KEY no .env; sem ela o painel
+ * abre direto, como sempre abriu. */
+.bloco.entrada {
+  max-width: 440px;
+  margin: 48px auto;
+}
+
+.bloco.entrada form {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.bloco.entrada input[type="password"] {
+  font: 14px/1.4 var(--mono);
+  padding: 8px 10px;
+  border: 1px solid var(--traco-forte);
+  border-radius: 5px;
+  background: var(--painel);
+  color: var(--tinta);
+}
+
+.bloco.entrada input[type="password"]:focus {
+  outline: 2px solid var(--acento);
+  outline-offset: 1px;
+}
+
+.entrada-ajuda {
+  color: var(--tinta-fraca);
+  font-size: 13px;
+  margin: 6px 0;
+}
+
+.entrada-erro {
+  color: var(--critico);
+  background: var(--critico-fundo);
+  padding: 8px 10px;
+  border-radius: 5px;
+  font-size: 13px;
+  margin: 6px 0;
+}
+
+/* -------------------------------------------------------------------- tabelas */
+
+.rolagem {
+  overflow-x: auto;
+  max-height: 62vh;
+  overflow-y: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--painel-2);
+  text-align: left;
+  font: 600 11px/1 var(--ui);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--tinta-fraca);
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--traco);
+  white-space: nowrap;
+}
+
+tbody td {
+  padding: 7px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--traco) 55%, transparent);
+  white-space: nowrap;
+}
+
+tbody tr:hover td {
+  background: var(--painel-2);
+}
+
+/* Identificadores e grandezas em monoespaçada, alinhados: é o que permite
+ * varrer a coluna de cima a baixo procurando o número diferente. */
+td.mono,
+th.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Cabeçalho e célula alinham juntos: um título de coluna à esquerda sobre
+ * números à direita faz a coluna parecer desalinhada. */
+th.num,
+td.num {
+  text-align: right;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------- barras */
+
+.barras {
+  display: grid;
+  gap: 7px;
+}
+
+.barra {
+  display: grid;
+  grid-template-columns: minmax(120px, 34%) 1fr auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+/* `display: block` nos dois não é detalhe de gosto: são `<span>`, e uma caixa
+ * inline ignora `height` — o trilho aparecia e o preenchimento não. */
+.barra .trilho {
+  display: block;
+  height: 9px;
+  background: var(--neutro-fundo);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.barra .preenche {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  background: var(--acento);
+  border-radius: 2px;
+}
+
+.barra .n {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--tinta-fraca);
+  min-width: 3ch;
+  text-align: right;
+}
+
+.duas-colunas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+/* ------------------------------------------------------------------------ log */
+
+.log {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.45;
+  max-height: 60vh;
+  overflow: auto;
+  background: var(--painel-2);
+}
+
+.log-linha {
+  display: grid;
+  grid-template-columns: 9ch 8ch minmax(0, 27ch) minmax(0, 1fr);
+  gap: 12px;
+  padding: 3px 12px 3px 9px;
+  border-left: 3px solid transparent;
+  border-bottom: 1px solid color-mix(in srgb, var(--traco) 40%, transparent);
+}
+
+.log-linha .hora,
+.log-linha .origem {
+  color: var(--tinta-fraquissima);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-linha .nivel {
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--tinta-fraca);
+}
+
+.log-linha .msg {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.log-linha.WARNING {
+  border-left-color: var(--atencao);
+  background: color-mix(in srgb, var(--atencao-fundo) 55%, transparent);
+}
+.log-linha.WARNING .nivel {
+  color: var(--atencao);
+}
+
+.log-linha.ERROR,
+.log-linha.CRITICAL {
+  border-left-color: var(--critico);
+  background: color-mix(in srgb, var(--critico-fundo) 60%, transparent);
+}
+.log-linha.ERROR .nivel,
+.log-linha.CRITICAL .nivel {
+  color: var(--critico);
+}
+
+/* --------------------------------------------------------------------- avisos */
+
+.aviso {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 11px 13px;
+  border-radius: var(--raio);
+  border: 1px solid;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.aviso.ok {
+  color: var(--ok);
+  background: var(--ok-fundo);
+  border-color: color-mix(in srgb, var(--ok) 30%, transparent);
+}
+.aviso.atencao {
+  color: var(--atencao);
+  background: var(--atencao-fundo);
+  border-color: color-mix(in srgb, var(--atencao) 30%, transparent);
+}
+.aviso.erro {
+  color: var(--critico);
+  background: var(--critico-fundo);
+  border-color: color-mix(in srgb, var(--critico) 30%, transparent);
+}
+.aviso.info {
+  color: var(--tinta-fraca);
+  background: var(--neutro-fundo);
+  border-color: var(--traco);
+}
+
+code,
+.cmd {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--neutro-fundo);
+  border: 1px solid var(--traco);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.pares {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 20px;
+  margin: 0;
+}
+
+/* Item de grade tem `min-width: auto`: sem isto a célula cresce para caber o
+ * conteúdo em vez de o conteúdo quebrar dentro dela. */
+.pares > div {
+  min-width: 0;
+}
+
+.pares dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--tinta-fraquissima);
+}
+
+.pares dd {
+  margin: 2px 0 0;
+  font-family: var(--mono);
+  /* Um valor longo tem de quebrar dentro da própria coluna. Nomes de regra são
+   * uma palavra só para o navegador (`cancela_cotacao_no_encerramento`), e sem
+   * isto a linha atravessa o campo vizinho — o leitor vê o texto por cima do
+   * rótulo ao lado e não sabe mais de quem é qual valor. */
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+/* As regras aplicadas são uma lista, e não uma frase: mostrá-las como
+ * etiquetas separadas diz onde cada nome começa e termina, o que a emenda com
+ * "+" escondia. Quebram em coluna quando não cabem lado a lado. */
+.regras {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.regras .regra {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid var(--traco);
+  border-radius: 10px;
+  background: var(--painel-2);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------------ atualização */
+
+.carimbo {
+  font: 400 11px/1 var(--mono);
+  color: var(--tinta-fraquissima);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* O pulso mostra que o bloco está vivo. Quem olha um monitor precisa
+ * distinguir "nada aconteceu" de "a página congelou". */
+.pulso {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  animation: pulsar 2.4s ease-in-out infinite;
+}
+
+@keyframes pulsar {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.pulso.parado {
+  background: var(--tinta-fraquissima);
+  animation: none;
+}
+
+.htmx-request .pulso {
+  opacity: 1;
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulso {
+    animation: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .log-linha {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  main {
+    padding: 12px 10px 40px;
+  }
+  .topo-linha {
+    padding: 10px 12px;
+  }
+  .abas {
+    padding: 0 12px;
+  }
+}
+
+/* ------------------------------------------------------------------ comandos */
+
+.grade-comandos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  gap: 12px;
+}
+
+.comando {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 13px;
+  border: 1px solid var(--traco);
+  border-radius: var(--raio);
+  background: var(--painel-2);
+}
+
+/* O filete lateral separa o que escreve do que só lê antes de qualquer
+ * leitura: é a distinção que evita o clique errado. */
+.comando:has(.etiqueta.perigo) {
+  border-left: 3px solid var(--critico);
+}
+
+.comando:has(.etiqueta.atencao) {
+  border-left: 3px solid var(--atencao);
+}
+
+.comando-cabeca {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.comando-cabeca h3 {
+  font-size: 14px;
+  margin-right: auto;
+}
+
+.comando .resumo {
+  margin: 0;
+  font-size: 13px;
+  color: var(--tinta-fraca);
+}
+
+.comando .alerta {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--critico);
+}
+
+.comando .filtros {
+  margin-top: auto;
+}
+
+.comando input[type="text"],
+.comando input[type="password"] {
+  min-width: 130px;
+  background: var(--painel);
+}
+
+.etiqueta {
+  font: 600 10px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 7px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.etiqueta.perigo {
+  color: var(--critico);
+  background: var(--critico-fundo);
+}
+.etiqueta.atencao {
+  color: var(--atencao);
+  background: var(--atencao-fundo);
+}
+.etiqueta.calma {
+  color: var(--ok);
+  background: var(--ok-fundo);
+}
+.etiqueta.tempo {
+  color: var(--tinta-fraquissima);
+  background: var(--neutro-fundo);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Vermelho, e não cobre: o cobre é a cor do que a tela faz o tempo todo. Um
+ * botão que cria pedido no SAP não pode parecer o botão que aplica um filtro. */
+button.acao.perigosa {
+  background: var(--critico);
+}
+
+button.acao:disabled {
+  background: var(--neutro-fundo);
+  color: var(--tinta-fraquissima);
+  border-color: var(--traco);
+  cursor: not-allowed;
+  filter: none;
+}
+
+input:disabled {
+  background: var(--neutro-fundo);
+  color: var(--tinta-fraquissima);
+  cursor: not-allowed;
+  /* O fundo cinza sozinho quase não se distingue do cartão; a opacidade é o
+   * que faz o campo desligado parecer desligado. */
+  opacity: 0.55;
+}
+
+/* O htmx marca o elemento durante a requisição; o botão fica desabilitado por
+ * `hx-disabled-elt`, e isto deixa isso visível em vez de parecer travamento. */
+.htmx-request button.acao,
+button.acao.htmx-request {
+  opacity: 0.6;
+}
+
+/* ------------------------------------------------------------------- console */
+
+pre.console {
+  margin: 0;
+  padding: 12px 14px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--tinta);
+  background: var(--painel-2);
+  border-top: 1px solid var(--traco);
+  max-height: 42vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+pre.console.alta {
+  max-height: 66vh;
+}
+
+
+/* --------------------------------------------------------- recorte da lista */
+
+/* A etiqueta do recorte ativo, no cabeçalho da lista. Uma lista filtrada que
+ * não diz que está filtrada é a forma mais fácil de alguém concluir que
+ * faltam orçamentos no painel. */
+.recorte {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 12px/1 var(--ui);
+  padding: 5px 6px 5px 10px;
+  border-radius: 999px;
+  color: var(--acento);
+  background: var(--acento-fraco);
+  border: 1px solid color-mix(in srgb, var(--acento) 35%, transparent);
+}
+
+.recorte .sair {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  text-decoration: none;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--acento);
+  background: color-mix(in srgb, var(--acento) 16%, transparent);
+}
+
+.recorte .sair:hover {
+  background: var(--acento);
+  color: var(--painel);
+}

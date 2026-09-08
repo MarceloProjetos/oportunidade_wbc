@@ -5,6 +5,9 @@
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "integration: testes do WBC que acessam sistemas reais (Service Layer / SQL Server / HANA). Exigem .env e rede interna; só rodam com --run-integration.",
+]
 
 [tool.ruff]
 line-length = 120
@@ -20,3 +23,8 @@ select = [
 ignore = [
     "E741",  # `l` em comprehensions existentes — renomear é refactor, não lint
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# Fixtures SQL do repositório do WBC: INSERTs com as ~40 colunas reais de INTEGRACAO_ORCIMP
+# numa linha só, de propósito (quebrar a lista de colunas esconde qual falta).
+"tests/wbc/infrastructure/test_wbc_repository.py" = ["E501"]

@@ -1,0 +1,129 @@
+{#
+  O console: a saída do comando, ao vivo.
+
+  Enquanto roda, este bloco se repinta a cada segundo — mais rápido que o log,
+  porque aqui tem alguém olhando e esperando terminar. Quando termina, o
+  polling para sozinho: um console parado não precisa consultar o servidor.
+#}
+{% if atual %}
+  <div
+    class="bloco"
+    hx-get="/fragmentos/execucao"
+    hx-trigger="every {{ ritmo }}s"
+    hx-target="#console"
+    hx-swap="innerHTML"
+  >
+    <header>
+      <h2>{{ atual.rotulo }}</h2>
+      <span class="selo atencao">rodando há {{ '%.0f'|format(atual.duracao) }}s</span>
+      <span class="carimbo"><span class="pulso"></span>{{ atualizado }}</span>
+      <form hx-post="/fragmentos/comandos/interromper" hx-target="#console">
+        <button class="acao discreta" type="submit">Interromper</button>
+      </form>
+    </header>
+    <div class="corpo">
+      <p class="nota">
+        <span class="cmd">{{ atual.linha }}</span> · pedido por {{ atual.solicitante }}
+      </p>
+    </div>
+    {% if saida %}
+      <pre class="console" id="console-texto">{% for l in saida %}{{ l }}
+{% endfor %}</pre>
+    {% else %}
+      <div class="vazio">Iniciando…</div>
+    {% endif %}
+  </div>
+
+  <script>
+    // Rola para o fim a cada repintura: quem acompanha um comando quer a linha
+    // que acabou de sair, não a primeira.
+    (function () {
+      var el = document.getElementById("console-texto");
+      if (el) el.scrollTop = el.scrollHeight;
+    })();
+  </script>
+{% elif historico %}
+  {% set ultima = historico[0] %}
+  <div class="bloco">
+    <header>
+      <h2>Última execução</h2>
+      <span class="selo {{ {'ok': 'ok', 'falhou': 'critico', 'interrompida': 'atencao'}[ultima.situacao] }}">
+        {% if ultima.situacao == 'ok' %}
+          concluída em {{ '%.1f'|format(ultima.duracao) }}s
+        {% elif ultima.situacao == 'interrompida' %}
+          interrompida
+        {% else %}
+          falhou (código {{ ultima.codigo }})
+        {% endif %}
+      </span>
+    </header>
+    <div class="corpo">
+      <p class="nota">
+        <span class="cmd">{{ ultima.linha }}</span> ·
+        {{ ultima.inicio.strftime('%d/%m/%Y %H:%M:%S') }} · pedido por {{ ultima.solicitante }}
+      </p>
+    </div>
+    <pre class="console">{% for l in saida %}{{ l }}
+{% endfor %}</pre>
+    <div class="corpo">
+      <button
+        class="acao discreta"
+        type="button"
+        hx-get="/fragmentos/execucao/{{ ultima.id }}"
+        hx-target="#console"
+      >
+        Ver a saída completa
+      </button>
+    </div>
+  </div>
+{% endif %}
+
+{% if historico | length > (1 if not atual else 0) %}
+  <div class="bloco">
+    <header>
+      <h2>Comandos executados pelo painel</h2>
+      <span class="carimbo">{{ historico | length }} nesta sessão</span>
+    </header>
+    <div class="rolagem">
+      <table>
+        <thead>
+          <tr>
+            <th class="mono">Início</th>
+            <th>Comando</th>
+            <th>Quem pediu</th>
+            <th class="num">Duração</th>
+            <th>Situação</th>
+            <th>Saída</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in historico %}
+            <tr>
+              <td class="mono">{{ e.inicio.strftime('%d/%m %H:%M:%S') }}</td>
+              <td class="mono">{{ e.linha }}</td>
+              <td>{{ e.solicitante }}</td>
+              <td class="num">{{ '%.1f'|format(e.duracao) }}s</td>
+              <td>
+                <span
+                  class="etiqueta {{ {'ok': 'calma', 'falhou': 'perigo', 'interrompida': 'atencao', 'rodando': 'atencao'}[e.situacao] }}"
+                  >{{ e.situacao }}</span
+                >
+              </td>
+              <td>
+                <a href="#" hx-get="/fragmentos/execucao/{{ e.id }}" hx-target="#console">ver</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {# O histórico vive na memória do painel: reiniciar o processo o zera. O
+       rastro que dura está no log em arquivo e no histórico do orçamento. #}
+    <div class="corpo">
+      <p class="nota">
+        Esta lista está na memória do painel e some ao reiniciá-lo. O rastro que dura é o
+        log em arquivo (aba “Log”) e o histórico de cada orçamento.
+      </p>
+    </div>
+  </div>
+{% endif %}

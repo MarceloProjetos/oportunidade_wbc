@@ -1,0 +1,156 @@
+<div class="bloco">
+  <header><h2>Detalhe do orçamento</h2></header>
+  <div class="corpo">
+    <form class="filtros" hx-get="/fragmentos/detalhe" hx-target="#conteudo">
+      <label class="campo">
+        <span>Número do orçamento</span>
+        <input type="text" name="orcnum" value="{{ orcnum }}" placeholder="00125533" />
+      </label>
+      <button class="acao" type="submit">Ver histórico</button>
+    </form>
+  </div>
+</div>
+
+{% if not orcnum %}
+  <div class="bloco">
+    <div class="vazio">Informe um número de orçamento para ver o histórico.</div>
+  </div>
+{% elif registro is none %}
+  <div class="bloco">
+    <div class="corpo">
+      <div class="aviso atencao">
+        <div>Orçamento {{ orcnum }} não encontrado no acompanhamento.</div>
+      </div>
+    </div>
+  </div>
+{% else %}
+  <div class="bloco">
+    <header>
+      <h2>{{ registro.orcnum }}</h2>
+      <span class="selo {{ selo }}">{{ registro.status.rotulo }}</span>
+    </header>
+    <div class="corpo">
+      {% if registro.ultimo_erro %}
+        <div class="aviso erro"><div>{{ registro.ultimo_erro }}</div></div>
+      {% endif %}
+
+      <dl class="pares">
+        <div>
+          <dt>Cliente</dt>
+          <dd>{{ registro.cliente or "—" }}</dd>
+        </div>
+        <div>
+          <dt>Vendedor</dt>
+          <dd>{{ registro.vendedor or "—" }}</dd>
+        </div>
+        <div>
+          <dt>SitCode (WBC)</dt>
+          <dd>{{ registro.sitcode_wbc }}</dd>
+        </div>
+        <div>
+          <dt>Revisão</dt>
+          <dd>{{ registro.revisao_wbc or "—" }}</dd>
+        </div>
+        <div>
+          <dt>Regra aplicada</dt>
+          {# A regra gravada é uma lista emendada com "+"
+             (`cancela_cotacao_no_encerramento+marca_perdida`). Separada em
+             etiquetas, dá para ver quantas regras valeram e onde cada nome
+             termina — e cada etiqueta quebra sozinha, em vez de a linha
+             inteira atravessar o campo vizinho. #}
+          <dd>
+            {% if registro.regra_aplicada %}
+              <span class="regras">
+                {%- for regra in registro.regra_aplicada.split("+") %}
+                  {#- O `<wbr>` oferece a quebra no sublinhado. Sem ele o nome
+                      só quebra por caractere, e sai "encerrame/nto" — que se
+                      lê como duas regras em vez de uma. -#}
+                  <span class="regra">
+                    {%- for parte in regra.split("_") -%}
+                      {{ parte }}{% if not loop.last %}_<wbr />{% endif %}
+                    {%- endfor -%}
+                  </span>
+                {%- endfor %}
+              </span>
+            {% else %}—{% endif %}
+          </dd>
+        </div>
+        <div>
+          <dt>Cotação (DocEntry / DocNum)</dt>
+          <dd>{{ registro.cotacao_docentry or "—" }} / {{ registro.cotacao_docnum or "—" }}</dd>
+        </div>
+        <div>
+          <dt>Pedido (DocEntry / DocNum)</dt>
+          <dd>{{ registro.pedido_docentry or "—" }} / {{ registro.pedido_docnum or "—" }}</dd>
+        </div>
+        <div>
+          <dt>Valor do pedido</dt>
+          <dd>{{ registro.pedido_valor | moeda }}</dd>
+        </div>
+      </dl>
+    </div>
+  </div>
+
+  <div class="bloco">
+    <header>
+      <h2>Histórico</h2>
+      <span class="carimbo">{{ eventos | length }} evento(s)</span>
+    </header>
+    {% if not eventos %}
+      <div class="vazio">Sem eventos registrados.</div>
+    {% else %}
+      <div class="rolagem">
+        <table>
+          <thead>
+            <tr>
+              <th class="mono">Momento</th>
+              <th>Tipo</th>
+              <th>Regra</th>
+              <th>Mensagem</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for e in eventos %}
+              <tr>
+                <td class="mono">{{ e.momento.strftime('%d/%m/%Y %H:%M:%S') }}</td>
+                <td>{{ e.tipo.value }}</td>
+                <td class="mono">{{ e.regra or "—" }}</td>
+                <td style="white-space: normal">{{ e.mensagem }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </div>
+
+  {#
+    Reprocessamento manual — autenticado e auditado.
+
+    Não dispara a integração: registra a solicitação, e o worker a executa no
+    próximo ciclo. Se o painel escrevesse no SAP, contornaria a trava de
+    execução única, que é o que impede dois ciclos criando o mesmo documento.
+  #}
+  <div class="bloco">
+    <header><h2>Reprocessar</h2></header>
+    <div class="corpo">
+      <div id="resultado-reprocessamento"></div>
+      <form
+        class="filtros"
+        hx-post="/fragmentos/reprocessar"
+        hx-target="#resultado-reprocessamento"
+      >
+        <input type="hidden" name="orcnum" value="{{ registro.orcnum }}" />
+        <label class="campo">
+          <span>Seu nome ou usuário</span>
+          <input type="text" name="solicitante" placeholder="fica registrado no histórico" />
+        </label>
+        <button class="acao" type="submit">Solicitar reprocessamento</button>
+      </form>
+      <p class="nota">
+        O painel não escreve no SAP. A solicitação fica no histórico e o worker a executa no
+        próximo ciclo.
+      </p>
+    </div>
+  </div>
+{% endif %}

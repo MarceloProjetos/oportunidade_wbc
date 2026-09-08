@@ -1,0 +1,43 @@
+{#
+  Os últimos ciclos do worker. Repinta sozinho: um ciclo que termina enquanto
+  alguém olha a tela precisa aparecer sem que ninguém recarregue.
+#}
+<div
+  class="bloco"
+  hx-get="/fragmentos/execucoes"
+  hx-trigger="every {{ ritmo }}s"
+  hx-swap="outerHTML"
+>
+  <header>
+    <h2>Execuções do worker</h2>
+    <span class="carimbo"><span class="pulso"></span>{{ atualizado }}</span>
+  </header>
+  {% if not execucoes %}
+    <div class="vazio">O worker ainda não executou nenhum ciclo.</div>
+  {% else %}
+    <div class="rolagem">
+      <table>
+        <thead>
+          <tr>
+            {% for coluna in execucoes[0].keys() %}
+              <th class="{{ 'num' if coluna in ['Processados', 'Sucessos', 'Erros'] else 'mono' }}">
+                {{ coluna }}
+              </th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in execucoes %}
+            <tr>
+              {% for coluna, valor in e.items() %}
+                <td class="{{ 'num' if coluna in ['Processados', 'Sucessos', 'Erros'] else 'mono' }}">
+                  {{ valor }}
+                </td>
+              {% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</div>

@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="pt-BR" data-tema="">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Integração WBC × SAP</title>
+    <link rel="stylesheet" href="/static/painel.css" />
+    <script src="/static/htmx.min.js" defer></script>
+  </head>
+  <body>
+    {#
+      A casca da página. Daqui em diante o HTMX troca só pedaços: cada bloco
+      pede o seu próprio fragmento em /fragmentos/*, no seu próprio ritmo.
+    #}
+    {% if producao %}
+      <div class="tarja-producao" role="alert">
+        <strong>PRODUÇÃO — {{ company_db }}.</strong>
+        O ciclo cria, altera e cancela documentos de verdade. Cancelamento de cotação
+        e criação de pedido não têm volta.
+      </div>
+    {% endif %}
+
+    <div class="topo">
+      <div class="topo-linha">
+        <div class="marca">
+          <h1>Integração WBC × SAP Business One</h1>
+          <span class="sub">painel de acompanhamento</span>
+        </div>
+
+        <span class="ambiente {{ 'producao' if producao else '' }}">
+          {{ company_db }}{{ '' if producao else ' · homologação' }}
+        </span>
+
+        {# A janela é um escopo global: muda os números do topo e a lista ao
+           mesmo tempo. Recarregar a página é o mais honesto aqui — e deixa o
+           estado no endereço, que é o que permite compartilhar a tela. #}
+        <label
+          class="caixa"
+          title="A janela atual é OpenDate ≥ {{ corte.strftime('%d/%m/%Y') }} ({{ meses }} meses). Fora dela o ciclo não olha mais: as linhas ficam no histórico, mas param de ser atualizadas."
+        >
+          <input
+            type="checkbox"
+            {% if tudo %}checked{% endif %}
+            onchange="location.href = '/?aba={{ aba_ativa }}&recorte={{ recorte }}' + (this.checked ? '&tudo=1' : '')"
+          />
+          Incluir fora da janela
+        </label>
+
+        {# A outra tela desta máquina: OS e Oportunidades, SAP → Supabase (API 8077).
+           É um link, não um iframe — são dois processos, e cada um responde por si. #}
+        <a class="acao discreta" href="/sincronizacao"
+           title="Painel de Sincronização: Ordens de Serviço e Oportunidades (SAP → Supabase, API 8077)">
+          Sincronização SAP → Supabase
+        </a>
+
+        <button class="acao discreta" type="button" onclick="alternarTema()" title="Alternar claro/escuro">
+          Tema
+        </button>
+
+        {% if exige_chave %}
+          <form method="post" action="/sair" class="sair">
+            <button class="acao discreta" type="submit" title="Esquecer a chave neste navegador">
+              Sair
+            </button>
+          </form>
+        {% endif %}
+      </div>
+
+      <nav class="abas" aria-label="Seções do painel">
+        {% for id, rotulo in abas %}
+          <button
+            class="aba"
+            type="button"
+            {% if id == aba_ativa %}aria-current="page"{% endif %}
+            hx-get="/fragmentos/{{ id }}{{ '?tudo=1' if tudo else '' }}"
+            hx-target="#conteudo"
+            hx-push-url="/?aba={{ id }}{{ '&tudo=1' if tudo else '' }}"
+            onclick="marcarAba(this)"
+          >
+            {{ rotulo }}
+          </button>
+        {% endfor %}
+      </nav>
+    </div>
+
+    <main>
+      {# Os números do topo se repintam sozinhos: o ciclo termina sem ninguém
+         no terminal, e o painel precisa mostrar isso sem que alguém recarregue. #}
+      <div
+        id="kpis"
+        hx-get="/fragmentos/kpis?recorte={{ recorte }}{{ '&tudo=1' if tudo else '' }}"
+        hx-trigger="load, every {{ ritmo_numeros }}s"
+        hx-swap="innerHTML"
+      ></div>
+
+      <div
+        id="conteudo"
+        hx-get="/fragmentos/{{ aba_ativa }}?recorte={{ recorte }}{{ '&tudo=1' if tudo else '' }}"
+        hx-trigger="load"
+        hx-swap="innerHTML"
+      >
+        <div class="bloco"><div class="vazio">Carregando…</div></div>
+      </div>
+    </main>
+
+    <script>
+      // O tema fica no navegador de quem olha, não no servidor: o painel é
+      // uma tela de leitura compartilhada e a preferência é de cada pessoa.
+      // Em falha (navegador com armazenamento bloqueado) a página segue no
+      // tema do sistema, que é o padrão correto.
+      function aplicarTema(t) {
+        document.documentElement.setAttribute("data-tema", t || "");
+      }
+      function alternarTema() {
+        var atual = document.documentElement.getAttribute("data-tema");
+        var novo = atual === "escuro" ? "claro" : "escuro";
+        aplicarTema(novo);
+        try { localStorage.setItem("wbc-tema", novo); } catch (e) { /* segue no do sistema */ }
+      }
+      try { aplicarTema(localStorage.getItem("wbc-tema")); } catch (e) { /* idem */ }
+
+      // A barra de abas é da casca, então quem a mexe mora aqui — inclusive
+      // quando o pedido vem de dentro de um fragmento (um indicador do topo ou
+      // um número de orçamento na lista levam para outra aba).
+      function marcarAba(botao) {
+        document.querySelectorAll(".aba").forEach(function (b) {
+          b.removeAttribute("aria-current");
+        });
+        botao.setAttribute("aria-current", "page");
+      }
+
+      function marcarAbaPorNome(nome) {
+        document.querySelectorAll(".aba").forEach(function (b) {
+          if (b.textContent.trim() === nome) b.setAttribute("aria-current", "page");
+          else b.removeAttribute("aria-current");
+        });
+      }
+    </script>
+  </body>
+</html>

@@ -779,7 +779,9 @@ def test_autorizado_sem_chave_enviada_401(client, monkeypatch):
 
 # ============ @requer_chave: guarda por decorator (2026-07-16) ============
 
-_ROTAS_ABERTAS = {'/', '/favicon.ico', '/health', '/status'}
+# /painel-wbc e' aberto como o '/': so' redireciona para o painel WBC, que pede a MESMA
+# OS_API_KEY por conta propria (tests/wbc/dashboard/test_entrada.py).
+_ROTAS_ABERTAS = {'/', '/favicon.ico', '/health', '/status', '/painel-wbc'}
 
 
 def test_toda_rota_nova_exige_chave_ou_e_abertura_declarada(client, monkeypatch):
@@ -811,6 +813,7 @@ def test_toda_rota_nova_exige_chave_ou_e_abertura_declarada(client, monkeypatch)
 
 @pytest.mark.parametrize('metodo,url', [
     ('GET', '/'), ('GET', '/favicon.ico'), ('GET', '/health'), ('GET', '/status'),
+    ('GET', '/painel-wbc'),
 ])
 def test_rotas_abertas_continuam_abertas(client, monkeypatch, metodo, url):
     """O decorator não pode ter fechado o que é aberto de propósito (monitoramento
@@ -1198,3 +1201,44 @@ def test_os_disponiveis_repassa_status_do_pedido(client, monkeypatch):
     body = client.get('/ordens-servico/disponiveis').get_json()
     assert body['items'][0]['pedido_cancelado'] is True
     assert body['items'][0]['status_pedido'] == 'Cancelado'
+
+
+# --- Integração WBC: o caminho para o painel e o alias do check do worker ---------------
+
+def test_painel_wbc_redireciona_para_o_mesmo_host_na_porta_do_painel(client, monkeypatch):
+    monkeypatch.delenv('WBC_PAINEL_URL', raising=False)
+    monkeypatch.delenv('PAINEL_PORTA', raising=False)
+    reset_settings()
+    r = client.get('/painel-wbc')
+    assert r.status_code == 302
+    assert r.headers['Location'] == 'http://localhost:8079/'
+
+
+def test_painel_wbc_porta_vem_do_env(client, monkeypatch):
+    monkeypatch.delenv('WBC_PAINEL_URL', raising=False)
+    monkeypatch.setenv('PAINEL_PORTA', '9000')
+    reset_settings()
+    assert client.get('/painel-wbc').headers['Location'] == 'http://localhost:9000/'
+
+
+def test_painel_wbc_url_configurada_ganha(client, monkeypatch):
+    monkeypatch.setenv('WBC_PAINEL_URL', 'http://192.168.7.11:8079/')
+    reset_settings()
+    assert client.get('/painel-wbc').headers['Location'] == 'http://192.168.7.11:8079/'
+
+
+def test_painel_wbc_nao_exige_chave(client, monkeypatch):
+    """Aberto como `/`: quem pede a chave e' o proprio painel (a mesma OS_API_KEY)."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    assert client.get('/painel-wbc').status_code == 302
+
+
+def test_status_alias_worker_e_wbc_continua_sendo_o_sql_server(client, monkeypatch):
+    """`wbc` ja' era o alias do SQL Server antes do worker existir: monitores usam.
+    O worker ganha nomes proprios; trocar o antigo mudaria em silencio o que eles checam."""
+    capturado = {}
+    monkeypatch.setattr(apimod, 'collect_status',
+                        lambda only=None: capturado.update(only=only) or {'ok': True, 'alerts': []})
+    assert client.get('/status?checks=worker,wbc,integracao_wbc').status_code == 200
+    assert capturado['only'] == {'wbc_worker', 'sql_server'}

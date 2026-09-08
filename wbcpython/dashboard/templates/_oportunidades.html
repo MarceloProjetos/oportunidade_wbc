@@ -1,0 +1,121 @@
+{% set mono = ["Orçamento", "SitCode", "Rev.", "Cotação", "Pedido", "Aberta em", "Última verificação"] %}
+{% set num = ["Valor do pedido"] %}
+<div class="bloco">
+  <header>
+    <h2>Oportunidades acompanhadas</h2>
+    {# O recorte ativo fica visível e removível. Uma lista filtrada que não diz
+       que está filtrada é a forma mais fácil de alguém concluir que faltam
+       orçamentos no painel. #}
+    {% if corte is not sameas padrao %}
+      <span class="recorte">
+        {{ corte.rotulo }}
+        <a
+          href="#"
+          class="sair"
+          title="Ver todos os avaliados"
+          hx-get="/fragmentos/oportunidades?recorte=todos{{ '&tudo=1' if tudo else '' }}"
+          hx-target="#conteudo"
+          hx-push-url="/?aba=oportunidades{{ '&tudo=1' if tudo else '' }}"
+          >×</a
+        >
+      </span>
+    {% endif %}
+    <span class="carimbo" id="contagem-oportunidades">{{ linhas | length }} orçamento(s)</span>
+  </header>
+
+  <div class="corpo">
+    {# `hx-trigger` com atraso na busca: digitar não pode virar uma consulta
+       por tecla. 350 ms é o tempo entre teclas de quem digita um número de
+       orçamento inteiro.
+
+       O alvo é a **lista**, e não `#conteudo`. Trocando o bloco inteiro, este
+       formulário era destruído e recriado a cada busca: o campo perdia o foco
+       e o cursor voltava para o começo, então quem digitava "00125" acabava
+       com o texto embaralhado. Fora do alvo, o campo nem é tocado — o foco e a
+       posição do cursor são os do navegador, e não algo que a gente restaura
+       depois.
+
+       A contagem do cabeçalho vem junto por `hx-select-oob`, senão a lista
+       filtraria e o "N orçamento(s)" continuaria mostrando o número antigo. #}
+    <form
+      class="filtros"
+      hx-get="/fragmentos/oportunidades"
+      hx-target="#lista-oportunidades"
+      hx-swap="outerHTML"
+      hx-select="#lista-oportunidades"
+      hx-select-oob="#contagem-oportunidades"
+      hx-trigger="change, keyup changed delay:350ms from:find input[type=search]"
+    >
+      <input type="hidden" name="tudo" value="{{ tudo }}" />
+      <input type="hidden" name="recorte" value="{{ corte.id }}" />
+      <label class="campo">
+        <span>Buscar</span>
+        <input
+          type="search"
+          class="largo"
+          name="busca"
+          value="{{ busca }}"
+          placeholder="orçamento ou cliente"
+        />
+      </label>
+      <label class="campo">
+        <span>Situação</span>
+        <select name="status">
+          <option value="">(todas)</option>
+          {% for s in situacoes %}
+            <option value="{{ s }}" {% if s == status %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+  </div>
+
+  {# O `id` fica no invólucro, e não na tabela: ele precisa existir também
+     quando a busca não acha nada, senão o htmx perderia o alvo e a próxima
+     tecla não filtraria mais. #}
+  <div id="lista-oportunidades">
+  {% if not linhas %}
+    <div class="vazio">
+      Nenhum orçamento encontrado com esses filtros{% if corte is not sameas padrao %}
+        dentro de “{{ corte.rotulo }}”{% endif %}.
+    </div>
+  {% else %}
+    <div class="rolagem">
+      <table>
+        <thead>
+          <tr>
+            {% for coluna in linhas[0].keys() %}
+              <th class="{{ 'mono' if coluna in mono }}">{{ coluna }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for linha in linhas %}
+            <tr>
+              {% for coluna, valor in linha.items() %}
+                {% if loop.first %}
+                  {# O número do orçamento leva direto ao histórico dele: é a
+                     pergunta seguinte em praticamente toda leitura desta lista. #}
+                  <td class="mono">
+                    <a
+                      href="#"
+                      hx-get="/fragmentos/detalhe?orcnum={{ valor }}"
+                      hx-target="#conteudo"
+                      onclick="marcarAbaPorNome('Detalhe')"
+                      >{{ valor }}</a
+                    >
+                  </td>
+                {% else %}
+                  <td
+                    class="{{ 'num' if coluna in num else ('mono' if coluna in mono else '') }}"
+                  >{{ valor }}</td>
+                {% endif %}
+              {% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+  </div>
+</div>

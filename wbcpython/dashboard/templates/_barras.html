@@ -1,0 +1,22 @@
+{#
+  Gráfico de barras em CSS — macro, não include: `{% with %}` não propaga o
+  escopo para dentro de um include em Jinja2, e o segundo gráfico da página
+  sairia com os dados do primeiro. Um argumento nomeado não tem esse problema.
+
+  Sem biblioteca de gráfico de propósito: são sempre categorias com uma
+  contagem, e um gráfico que não carrega no navegador da fábrica é pior do que
+  uma barra que carrega sempre.
+#}
+{% macro grafico(itens) %}
+  <div class="barras">
+    {% for barra in itens %}
+      <div class="barra">
+        <span>{{ barra.rotulo }}</span>
+        <span class="trilho" role="img" aria-label="{{ barra.rotulo }}: {{ barra.valor }}">
+          <span class="preenche" style="width: {{ '%.1f'|format(barra.proporcao) }}%"></span>
+        </span>
+        <span class="n">{{ barra.valor }}</span>
+      </div>
+    {% endfor %}
+  </div>
+{% endmacro %}

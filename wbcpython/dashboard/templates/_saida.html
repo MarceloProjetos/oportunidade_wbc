@@ -1,0 +1,26 @@
+{# A saída completa de uma execução passada, aberta a partir do histórico. #}
+<div class="bloco">
+  <header>
+    <h2>{{ execucao.rotulo }}</h2>
+    <span
+      class="selo {{ {'ok': 'ok', 'falhou': 'critico', 'interrompida': 'atencao', 'rodando': 'atencao'}[execucao.situacao] }}"
+      >{{ execucao.situacao }}{% if execucao.codigo %} (código {{ execucao.codigo }}){% endif %}</span
+    >
+    <button class="acao discreta" type="button" hx-get="/fragmentos/execucao" hx-target="#console">
+      Voltar
+    </button>
+  </header>
+  <div class="corpo">
+    <p class="nota">
+      <span class="cmd">{{ execucao.linha }}</span> ·
+      {{ execucao.inicio.strftime('%d/%m/%Y %H:%M:%S') }} ·
+      {{ '%.1f'|format(execucao.duracao) }}s · pedido por {{ execucao.solicitante }}
+    </p>
+  </div>
+  {% if saida %}
+    <pre class="console alta">{% for l in saida %}{{ l }}
+{% endfor %}</pre>
+  {% else %}
+    <div class="vazio">Sem saída.</div>
+  {% endif %}
+</div>

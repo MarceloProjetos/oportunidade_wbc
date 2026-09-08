@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="pt-BR" data-tema="">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Entrar — Integração WBC × SAP</title>
+    <link rel="stylesheet" href="/static/painel.css" />
+  </head>
+  <body>
+    {#
+      Porta de entrada do painel quando há OS_API_KEY no .env. A chave é a MESMA
+      da API 8077 (Painel de Sincronização): uma chave só para as duas telas.
+      Depois de conferida, vira um cookie HttpOnly — o navegador não a reexpõe.
+    #}
+    <div class="topo">
+      <div class="topo-linha">
+        <div class="marca">
+          <h1>Integração WBC × SAP Business One</h1>
+          <span class="sub">painel de acompanhamento</span>
+        </div>
+        <span class="ambiente {{ 'producao' if producao else '' }}">
+          {{ company_db }}{{ '' if producao else ' · homologação' }}
+        </span>
+      </div>
+    </div>
+
+    <main>
+      <div class="bloco entrada">
+        <h2>Chave de acesso</h2>
+        <p class="entrada-ajuda">
+          É a mesma chave do Painel de Sincronização (a <code>OS_API_KEY</code> da API 8077).
+          Fica guardada só neste navegador, como cookie.
+        </p>
+        {% if erro %}
+          <p class="entrada-erro" role="alert">{{ erro }}</p>
+        {% endif %}
+        <form method="post" action="/entrar" autocomplete="off">
+          <input type="hidden" name="proximo" value="{{ proximo }}" />
+          <label for="chave">Chave</label>
+          <input id="chave" name="chave" type="password" autofocus required
+                 autocomplete="current-password" />
+          <button class="acao" type="submit">Entrar</button>
+        </form>
+        <p class="entrada-ajuda">
+          Sem a chave? <a href="/sincronizacao">Abrir o Painel de Sincronização</a>.
+        </p>
+      </div>
+    </main>
+
+    <script>
+      try {
+        document.documentElement.setAttribute("data-tema", localStorage.getItem("wbc-tema") || "");
+      } catch (e) { /* segue no tema do sistema */ }
+    </script>
+  </body>
+</html>

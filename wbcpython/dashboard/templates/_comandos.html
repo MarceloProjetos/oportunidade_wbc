@@ -1,0 +1,149 @@
+{#
+  A aba "Executar": os comandos da CLI, rodados de verdade em subprocesso.
+
+  Os que só leem ficam em cima e sem cerimônia. Os que escrevem ficam
+  separados, com aviso e senha — misturar "testar a conexão" com "criar pedidos
+  de verdade" na mesma lista é convite a clicar no errado.
+#}
+{% macro formulario(c, pode, ritmo) %}
+  <form
+    class="comando"
+    hx-post="/fragmentos/comandos/executar"
+    hx-target="#console"
+    hx-disabled-elt="find button"
+    {% if c.protegido %}
+      hx-confirm="{{ c.rotulo }}: confirma a execução? {{ c.aviso }}"
+    {% endif %}
+  >
+    <input type="hidden" name="comando" value="{{ c.id }}" />
+
+    <div class="comando-cabeca">
+      <h3>{{ c.rotulo }}</h3>
+      {% if c.escreve %}
+        <span class="etiqueta perigo">escreve no SAP</span>
+      {% elif c.escreve_tracking %}
+        <span class="etiqueta atencao">escreve no acompanhamento</span>
+      {% else %}
+        <span class="etiqueta calma">só leitura</span>
+      {% endif %}
+      {% if c.demora %}<span class="etiqueta tempo">{{ c.demora }}</span>{% endif %}
+    </div>
+
+    <p class="resumo">{{ c.resumo }}</p>
+    {% if c.aviso %}<p class="alerta">{{ c.aviso }}</p>{% endif %}
+
+    {% if c.campos %}
+      <div class="filtros">
+        {% for campo in c.campos %}
+          {% if campo.tipo == "checkbox" %}
+            <label class="caixa" title="{{ campo.ajuda }}">
+              <input
+                type="checkbox"
+                name="{{ campo.nome }}"
+                value="1"
+                {% if campo.marcado %}checked{% endif %}
+              />
+              {{ campo.rotulo }}
+            </label>
+          {% else %}
+            <label class="campo">
+              <span>{{ campo.rotulo }}</span>
+              <input type="text" name="{{ campo.nome }}" placeholder="{{ campo.ajuda }}" />
+            </label>
+          {% endif %}
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if c.protegido %}
+      <div class="filtros">
+        <label class="campo">
+          <span>Seu nome</span>
+          <input
+            type="text"
+            name="solicitante"
+            placeholder="fica no histórico"
+            {% if not pode %}disabled{% endif %}
+          />
+        </label>
+        <label class="campo">
+          <span>Senha do painel</span>
+          <input type="password" name="senha" {% if not pode %}disabled{% endif %} />
+        </label>
+        {% if c.id == "pesos" %}
+          {# Duas ações no mesmo formulário: a prévia é o caminho normal, e
+             aplicar só passa depois dela — a regra vive no executor, o botão
+             só diz qual das duas se está pedindo. #}
+          <button class="acao" type="submit" {% if not pode %}disabled{% endif %}>
+            Ver o que mudaria
+          </button>
+          <button
+            class="acao perigosa"
+            type="submit"
+            name="aplicar"
+            value="1"
+            {% if not pode %}disabled{% endif %}
+          >
+            Aplicar
+          </button>
+        {% else %}
+          <button class="acao perigosa" type="submit" {% if not pode %}disabled{% endif %}>
+            Executar
+          </button>
+        {% endif %}
+      </div>
+    {% else %}
+      <div class="filtros">
+        <button class="acao" type="submit">Executar</button>
+      </div>
+    {% endif %}
+  </form>
+{% endmacro %}
+
+<div id="console" hx-get="/fragmentos/execucao" hx-trigger="load" hx-swap="innerHTML">
+  <div class="bloco"><div class="vazio">Carregando…</div></div>
+</div>
+
+<div class="bloco">
+  <header>
+    <h2>Leitura e diagnóstico</h2>
+    {# "não escrevem nada" era verdade até o ensaio entrar aqui: ele grava o
+       acompanhamento. O selo de cada cartão diz o que cada um faz; este
+       subtítulo diz o que vale para todos. #}
+    <span class="carimbo">nenhum documento do SAP é criado, alterado ou cancelado</span>
+  </header>
+  <div class="corpo grade-comandos">
+    {% for c in leitura %}{{ formulario(c, true, ritmo) }}{% endfor %}
+  </div>
+</div>
+
+<div class="bloco">
+  <header>
+    <h2>Execução</h2>
+    <span class="etiqueta perigo">exige senha</span>
+  </header>
+
+  {% if not pode_escrever %}
+    <div class="corpo">
+      <div class="aviso {{ 'erro' if producao else 'atencao' }}">
+        <div>
+          <strong>Indisponível neste painel.</strong> {{ motivo }}
+        </div>
+      </div>
+    </div>
+  {% else %}
+    <div class="corpo">
+      <div class="aviso info">
+        <div>
+          Estes comandos rodam a CLI de verdade, em <strong>{{ company_db }}</strong>. Uma
+          execução por vez, sob a mesma trava do worker: se ele estiver rodando, o comando
+          espera a vez em vez de duplicar documento.
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  <div class="corpo grade-comandos">
+    {% for c in escrita %}{{ formulario(c, pode_escrever, ritmo) }}{% endfor %}
+  </div>
+</div>

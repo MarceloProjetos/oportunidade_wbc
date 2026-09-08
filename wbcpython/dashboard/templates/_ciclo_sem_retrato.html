@@ -1,0 +1,33 @@
+{#
+  Falta o retrato — e a tela diz isso em vez de mostrar zero.
+
+  A distinção importa: "nada a fazer" e "ninguém gerou o retrato ainda" são
+  estados diferentes, e mostrar zero nos dois seria mentir por omissão
+  justamente na tela que existe para dar confiança antes de rodar o ciclo.
+#}
+<div class="bloco">
+  <header><h2>Próximo ciclo</h2></header>
+  <div class="corpo">
+    {% if erro %}
+      <div class="aviso erro">
+        <div>Não foi possível ler o retrato <code>{{ arquivo }}</code>: {{ erro }}</div>
+      </div>
+    {% else %}
+      <div class="aviso info">
+        <div>
+          Nenhum retrato em <code>{{ arquivo }}</code>. Gere um na máquina do worker com
+          <span class="cmd">python -m wbcpython pendentes --exportar state/wbc_previsao.json</span>.
+          A prévia é somente leitura: não cria, não altera e não cancela nada.
+        </div>
+      </div>
+    {% endif %}
+
+    <form class="filtros" hx-get="/fragmentos/ciclo" hx-target="#conteudo">
+      <label class="campo">
+        <span>Arquivo do retrato</span>
+        <input type="text" class="largo" name="arquivo" value="{{ arquivo }}" />
+      </label>
+      <button class="acao" type="submit">Procurar</button>
+    </form>
+  </div>
+</div>

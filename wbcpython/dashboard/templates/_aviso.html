@@ -1,0 +1,9 @@
+<div class="aviso {{ tipo }}">
+  <div>
+    {{ texto }}
+    {% if comando %}
+      <br />Para reprocessar agora, na máquina do worker:
+      <span class="cmd">{{ comando }}</span>
+    {% endif %}
+  </div>
+</div>

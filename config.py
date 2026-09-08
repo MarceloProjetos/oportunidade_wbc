@@ -99,6 +99,18 @@ WBC_TASK_NAME_DEFAULT = 'Integração WBC'
 WBC_TASK_STATE_FILE_DEFAULT = 'state/wbc_task_state.json'
 WBC_TASK_STALE_MIN_DEFAULT = 25
 
+# Integração WBC → SAP (pacote ``wbcpython/``: worker + painel). The ``/status`` check
+# ``wbc_worker`` reads the worker's tracking DB (SQLite) and needs the worker's OWN
+# schedule to know when silence is a problem. Same env names as ``wbcpython.config``
+# on purpose: one ``.env``, one truth — the monitor cannot disagree with the worker
+# about what "business hours" means.
+WBC_TRACKING_DB_URL_DEFAULT = 'sqlite:///./state/wbc_tracking.db'
+WBC_WORKER_INTERVAL_S_DEFAULT = 300
+WBC_WORKER_HORARIO_INICIO_DEFAULT = '06:30'
+WBC_WORKER_HORARIO_FIM_DEFAULT = '19:00'
+WBC_WORKER_DIAS_DEFAULT = '1,2,3,4,5'
+WBC_PAINEL_PORTA_DEFAULT = 8079
+
 # Windows Update / pending reboot (``windows_update.py``; full plan in
 # ``../SAP_RDP/docs/PLANO_WINDOWS_UPDATE.md``). Every number here comes from MEASUREMENT
 # on the two real servers, not from an estimate.
@@ -282,6 +294,16 @@ class Settings:
     wbc_task_state_file: str
     wbc_task_stale_min: int
 
+    # Integração WBC → SAP (``wbcpython/``): tracking DB + the worker's schedule, read
+    # by the ``wbc_worker`` check, and where the painel lives (``GET /painel-wbc``).
+    wbc_tracking_db_url: str        # TRACKING_DB_URL (the worker's own variable)
+    wbc_worker_interval_s: int      # WORKER_INTERVAL_SECONDS
+    wbc_worker_horario_inicio: str  # WORKER_HORARIO_INICIO ('HH:MM')
+    wbc_worker_horario_fim: str     # WORKER_HORARIO_FIM ('HH:MM'; before inicio = crosses midnight)
+    wbc_worker_dias: str            # WORKER_DIAS_DE_TRABALHO ('1,2,3,4,5', ISO weekdays)
+    wbc_painel_porta: int           # PAINEL_PORTA (FastAPI painel)
+    wbc_painel_url: Optional[str]   # WBC_PAINEL_URL — overrides host:PAINEL_PORTA
+
     # Windows Update (expensive collection, in the background — see windows_update.py)
     wu_enabled: bool           # WU_ENABLED — turns the collection thread off
     rotinas_estado_supabase: bool  # ROTINAS_ESTADO_SUPABASE — grava em `rotinas_execucao`
@@ -355,6 +377,17 @@ class Settings:
             wbc_task_stale_min=max(
                 1, int(os.getenv('WBC_TASK_STALE_MIN', WBC_TASK_STALE_MIN_DEFAULT))
             ),
+            wbc_tracking_db_url=os.getenv('TRACKING_DB_URL') or WBC_TRACKING_DB_URL_DEFAULT,
+            wbc_worker_interval_s=max(
+                1, _env_int('WORKER_INTERVAL_SECONDS', WBC_WORKER_INTERVAL_S_DEFAULT)
+            ),
+            wbc_worker_horario_inicio=(
+                os.getenv('WORKER_HORARIO_INICIO') or WBC_WORKER_HORARIO_INICIO_DEFAULT
+            ),
+            wbc_worker_horario_fim=os.getenv('WORKER_HORARIO_FIM') or WBC_WORKER_HORARIO_FIM_DEFAULT,
+            wbc_worker_dias=os.getenv('WORKER_DIAS_DE_TRABALHO') or WBC_WORKER_DIAS_DEFAULT,
+            wbc_painel_porta=_env_int('PAINEL_PORTA', WBC_PAINEL_PORTA_DEFAULT),
+            wbc_painel_url=(os.getenv('WBC_PAINEL_URL') or '').strip() or None,
             wu_enabled=_env_bool('WU_ENABLED', WU_ENABLED_DEFAULT),
             rotinas_estado_supabase=_env_bool(
                 'ROTINAS_ESTADO_SUPABASE', ROTINAS_ESTADO_SUPABASE_DEFAULT
