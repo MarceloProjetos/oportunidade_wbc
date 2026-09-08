@@ -3,6 +3,15 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-08] — ops: `install_wbc_services.bat` (so os 2 servicos WBC, idempotente, corrige caminho)
+
+Primeiro F4 na .11: os comandos `nssm` de cmd (`set PROJ=` / `"%PROJ%"`) foram colados no
+**PowerShell**, que nao expande `%PROJ%` — os servicos ficaram com `AppDirectory` literal
+`%PROJ%` e pararam no start (`SERVICE_STOPPED`). Novo `install_wbc_services.bat`: registra ou
+**regrava** so `OrcaView-WBC-Painel` e `OrcaView-WBC-Worker` com o caminho real da pasta
+(`Application`, `AppDirectory`, logs), sem tocar nos outros tres servicos; rodar
+`.\install_wbc_services.bat` como Administrador, em qualquer shell. Nao inicia nada.
+
 ## [2026-09-08] — ops: servicos WBC no NSSM, deploy_update com 5 servicos e pip no sistema, check `wbc_worker`, tool MCP
 
 F3 do `docs/PLANO_INTEGRACAO_WBCPYTHON.md`. Tudo aditivo; nada do que a API 8077 e a fachada MCP
