@@ -280,7 +280,11 @@ se ele cair.
 3. **Porta do painel — ✅ 8079** (assumida em 08/09; ele não objetou; muda por `PAINEL_PORTA`).
 4. **Histórico do WBCPython — ✅ sem histórico** (cópia); repo antigo deixa de existir (dele).
 5. **Um processo ou dois — ✅ dois** (Flask 8077 + FastAPI 8079).
-6. **"Interface principal" — ✅** principal = 8079 com link cruzado; `GET /` da 8077 intacto.
+6. **"Interface principal" — ✅ revista em 08/09 (pedido dele ao ver a 8077 no ar):** a raiz
+   da 8077, o endereço que todos usam, **leva ao painel WBC** (`web/entrada.html` sonda a porta
+   e redireciona; se o painel está parado, mostra o aviso e o botão para o Painel de
+   Sincronização); o Painel de Sincronização passa a `/sincronizar`. Consumidores REST não
+   mudam (`.90` usa só `/health` e `/status`).
 7. **Nome do pacote e dos serviços — ✅** `wbcpython` e `OrcaView-WBC-*`.
 8. **Retenção de eventos — aberta.** Recomendado: não gravar evento por avaliação sem ação +
    faxina de 90 dias; medir antes qual `tipo` domina.

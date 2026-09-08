@@ -763,8 +763,10 @@ def _destino_local(proximo: str) -> str:
 
 
 def _url_da_sincronizacao(config: Settings, request: Request) -> str:
-    """Endereço do Painel de Sincronização: o configurado, ou o mesmo host na porta da API."""
+    """Endereço do Painel de Sincronização: o configurado, ou o mesmo host na porta da
+    API, em `/sincronizar` — a raiz da API leva de volta para cá (este painel é a
+    entrada), e apontar o botão para ela seria um vaivém."""
     configurado = config.sis_painel_url.strip()
     if configurado:
         return configurado
-    return f"{request.url.scheme}://{request.url.hostname}:{config.os_api_port}/"
+    return f"{request.url.scheme}://{request.url.hostname}:{config.os_api_port}/sincronizar"

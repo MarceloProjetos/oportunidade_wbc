@@ -3,6 +3,25 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-08] — `GET /` da 8077 vira a entrada: leva ao painel WBC; Painel de Sincronizacao em `/sincronizar`
+
+Pedido do Marcelo ao ver a 8077 no ar: "a interface do WBCPython e a principal; a janela do
+ServidorIntegracaoSAP se acessa por um botao". O endereco que todo mundo ja usa
+(`192.168.7.11:8077`) passa a cair no painel WBC.
+
+- **`GET /`** serve `web/entrada.html`: sonda o painel (`fetch` `no-cors`, 3 s) e so entao troca
+  a `location`; se o painel nao responde (servico `OrcaView-WBC-Painel` parado), a propria raiz
+  mostra o aviso com o nome do servico e os botoes para `/sincronizar` e "tentar de novo" — em vez
+  da pagina de erro do navegador. Endereco do painel vem da API (`WBC_PAINEL_URL` ou
+  host:`PAINEL_PORTA`), escapado para HTML e para JS; `Cache-Control: no-store`.
+- **`GET /sincronizar`** serve o Painel de Sincronizacao de sempre (o JS dele usa caminhos
+  absolutos; nada mais mudou). O botao "Sincronizacao SAP -> Supabase" do painel WBC passa a
+  apontar para `/sincronizar` (apontar para `/` seria um vaivem); `SIS_PAINEL_URL`, se usada,
+  deve ir em `/sincronizar`.
+- Consumidores conferidos: o `.90` (watchdog da Mira, admin) usa so `/health` e `/status`.
+- Rotas abertas declaradas no teste-guarda: `/` e `/sincronizar`. 5 testes novos/ajustados;
+  previa da raiz (estado de fallback) conferida no navegador.
+
 ## [2026-09-08] — fix: os 17 `__init__.py`/`__main__.py` do wbcpython nao estavam no git (regra `_*.py`)
 
 Na .11, `python -m wbcpython` respondia "No module named wbcpython.__main__": a regra `_*.py`

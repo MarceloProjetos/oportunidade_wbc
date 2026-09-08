@@ -647,9 +647,13 @@ instalador próprio — `install_mcp_service.bat`):
 | Processo | O que faz | Sobe com | Serviço NSSM |
 | --- | --- | --- | --- |
 | **Agendador** | carga de **oportunidades** a cada 30 min (07–18h, dias úteis) | `run_scheduler.bat` | `OrcaView-Scheduler` |
-| **API / Painel de Sincronização** | endpoint + página em `:8077` (OS sob demanda · forçar oportunidades) | `run_api.bat` | `OrcaView-OS-API` |
+| **API / Painel de Sincronização** | endpoints em `:8077`; `GET /` leva ao painel WBC (a entrada), a página de OS/Oportunidades fica em `/sincronizar` | `run_api.bat` | `OrcaView-OS-API` |
 | **Painel WBC** | a porta de entrada, em `:8079` (`PAINEL_PORTA`) — lê só o acompanhamento | `run_wbc_painel.bat` | `OrcaView-WBC-Painel` |
 | **Worker WBC** | cotação/pedido no SAP a partir do WBC, a cada 3 min no expediente — **escreve em produção** | `run_wbc_worker.bat` | `OrcaView-WBC-Worker` (manual até a virada) |
+
+**Entrada única:** abrir `http://192.168.7.11:8077` leva ao painel WBC (ou, se o serviço dele
+estiver parado, mostra o aviso e o botão para o Painel de Sincronização). O Painel de
+Sincronização vive em `http://192.168.7.11:8077/sincronizar`.
 
 ### Iniciar
 

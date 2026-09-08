@@ -6,6 +6,10 @@ trigger.
 
 Endpoints
 ---------
+- ``GET  /``                                → entrance: sends the browser to the WBC painel
+                                              (``web/entrada.html``; falls back to ``/sincronizar``
+                                              when the painel does not answer)
+- ``GET  /sincronizar``                     → the Painel de Sincronização (OS · Oportunidades)
 - ``GET  /health``                          → ``{"status": "ok"}``
 - ``GET  /ordens-servico/<nped>``           → detail (summary) of a pedido's OS
 - ``POST /ordens-servico/<nped>/sincronizar`` → syncs + returns the summary (GET's pair)
@@ -42,6 +46,8 @@ Example call::
 from __future__ import annotations
 
 import hmac
+import html as _html
+import json
 import logging
 import os
 import sys
@@ -51,7 +57,7 @@ from functools import wraps
 from logging.handlers import TimedRotatingFileHandler
 from typing import Any, List, Optional, Tuple
 
-from flask import Flask, jsonify, redirect, request, send_from_directory
+from flask import Flask, Response, jsonify, redirect, request, send_from_directory
 
 import feriados_br
 import ordens_producao_sl as op_sl
@@ -497,9 +503,38 @@ def _sincronizar(npeds: List[int]) -> Tuple[Any, int]:
     return jsonify(payload), http
 
 
+def _url_painel_wbc() -> str:
+    """Where the WBC integration painel lives: ``WBC_PAINEL_URL`` (verbatim) or this host
+    on ``PAINEL_PORTA`` (the .11 case, both pages on one machine)."""
+    s = get_settings()
+    return s.wbc_painel_url or f"{request.scheme}://{request.host.rsplit(':', 1)[0]}:{s.wbc_painel_porta}/"
+
+
 @app.get('/')
 def ui():
-    """Friendly page (pedido field + key + Sincronizar button)."""
+    """The entrance of the server: the **WBC integration painel is the main screen**
+    (Marcelo, 2026-09-08), so the address everybody already uses (``:8077``) lands there.
+
+    Not a bare 302: the painel is another process (``OrcaView-WBC-Painel``), and a redirect
+    to a stopped service would leave the visitor on the browser's error page. The tiny
+    ``web/entrada.html`` probes the painel first (``fetch`` in ``no-cors`` mode, 3 s) and only
+    then replaces the location; when the painel does not answer it shows the service name
+    and the button to ``/sincronizar``. The Painel de Sincronização itself moved to
+    ``GET /sincronizar`` — its JS uses absolute paths, so nothing else changed.
+    """
+    with open(os.path.join(_WEB_DIR, 'entrada.html'), encoding='utf-8') as fh:
+        pagina = fh.read()
+    url = _url_painel_wbc()
+    pagina = (pagina
+              .replace('__PAINEL_WBC_JSON__', json.dumps(url))
+              .replace('__PAINEL_WBC__', _html.escape(url, quote=True)))
+    return Response(pagina, mimetype='text/html', headers={'Cache-Control': 'no-store'})
+
+
+@app.get('/sincronizar')
+def sincronizar():
+    """Painel de Sincronização (pedido field + key + Sincronizar button). Was ``GET /``
+    until 2026-09-08; the root now leads to the WBC painel."""
     return send_from_directory(_WEB_DIR, 'sincronizar.html')
 
 
@@ -518,9 +553,7 @@ def painel_wbc():
     as this request, on ``PAINEL_PORTA`` — the .11 case, where both pages share a machine.
     Open (no key): the painel asks for the same ``OS_API_KEY`` itself.
     """
-    s = get_settings()
-    destino = s.wbc_painel_url or f"{request.scheme}://{request.host.rsplit(':', 1)[0]}:{s.wbc_painel_porta}/"
-    return redirect(destino, code=302)
+    return redirect(_url_painel_wbc(), code=302)
 
 
 @app.get('/health')

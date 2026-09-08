@@ -36,10 +36,34 @@ def test_health(client):
     assert r.get_json()['status'] == 'ok'
 
 
-def test_ui_served_at_root(client):
+def test_raiz_e_a_entrada_para_o_painel_wbc(client, monkeypatch):
+    """A raiz leva ao painel WBC (a tela principal), com o endereco vindo da API e o
+    fallback para /sincronizar quando o painel nao responde."""
+    monkeypatch.delenv('WBC_PAINEL_URL', raising=False)
+    monkeypatch.delenv('PAINEL_PORTA', raising=False)
+    reset_settings()
     r = client.get('/')
     assert r.status_code == 200
-    assert b'Painel de Sincroniza' in r.data  # a pagina HTML
+    assert r.headers['Cache-Control'] == 'no-store'
+    assert b'const PAINEL = "http://localhost:8079/";' in r.data
+    assert b'href="http://localhost:8079/"' in r.data
+    assert b'href="/sincronizar"' in r.data
+    assert b'OrcaView-WBC-Painel' in r.data
+    assert b'__PAINEL_WBC' not in r.data  # nenhum placeholder sobrou
+
+
+def test_raiz_escapa_a_url_configurada(client, monkeypatch):
+    monkeypatch.setenv('WBC_PAINEL_URL', 'http://192.168.7.11:8079/?a=1&b=<x>')
+    reset_settings()
+    r = client.get('/')
+    assert b'href="http://192.168.7.11:8079/?a=1&amp;b=&lt;x&gt;"' in r.data
+    assert b'const PAINEL = "http://192.168.7.11:8079/?a=1&b=<x>";' in r.data
+
+
+def test_sincronizar_serve_o_painel_de_sincronizacao(client):
+    r = client.get('/sincronizar')
+    assert r.status_code == 200
+    assert b'Painel de Sincroniza' in r.data  # a pagina HTML de sempre, em outro caminho
 
 
 def test_favicon_no_content(client):
@@ -781,7 +805,7 @@ def test_autorizado_sem_chave_enviada_401(client, monkeypatch):
 
 # /painel-wbc e' aberto como o '/': so' redireciona para o painel WBC, que pede a MESMA
 # OS_API_KEY por conta propria (tests/wbc/dashboard/test_entrada.py).
-_ROTAS_ABERTAS = {'/', '/favicon.ico', '/health', '/status', '/painel-wbc'}
+_ROTAS_ABERTAS = {'/', '/sincronizar', '/favicon.ico', '/health', '/status', '/painel-wbc'}
 
 
 def test_toda_rota_nova_exige_chave_ou_e_abertura_declarada(client, monkeypatch):
@@ -812,8 +836,8 @@ def test_toda_rota_nova_exige_chave_ou_e_abertura_declarada(client, monkeypatch)
 
 
 @pytest.mark.parametrize('metodo,url', [
-    ('GET', '/'), ('GET', '/favicon.ico'), ('GET', '/health'), ('GET', '/status'),
-    ('GET', '/painel-wbc'),
+    ('GET', '/'), ('GET', '/sincronizar'), ('GET', '/favicon.ico'), ('GET', '/health'),
+    ('GET', '/status'), ('GET', '/painel-wbc'),
 ])
 def test_rotas_abertas_continuam_abertas(client, monkeypatch, metodo, url):
     """O decorator não pode ter fechado o que é aberto de propósito (monitoramento

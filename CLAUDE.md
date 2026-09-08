@@ -9,7 +9,8 @@ Serviço de integração SAP B1 → Supabase **e** Integração WBC → SAP. Rod
 `192.168.7.11` (`C:\Python\ServidorIntegracaoSAP`) como 5 processos independentes:
 
 - **API HTTP** (porta 8077, serviço NSSM `OrcaView-OS-API`) — gatilhos sob demanda + consultas
-  + Painel de Sincronização (`GET /`).
+  + Painel de Sincronização (`GET /sincronizar`). `GET /` é a **entrada**: leva ao painel WBC
+  (`web/entrada.html` sonda a porta e, se o painel não responde, mostra o caminho para `/sincronizar`).
 - **Agendador** (serviço NSSM `OrcaView-Scheduler`) — carga periódica de oportunidades.
 - **Fachada MCP** — stdio no cliente (`mcp/mcp_server.py`) ou HTTP na .11 (`mcp/serve_http.py`, porta 8078).
 - **Painel WBC** (porta `PAINEL_PORTA`=8079, serviço `OrcaView-WBC-Painel`, FastAPI) — a
@@ -41,7 +42,8 @@ O pacote `wbcpython/` (ex-projeto WBCPython, importado em 2026-09-08) tem guia p
 | `feriados_br.py` | Feriados nacionais BR até 2030 (agendador pula) |
 | `scripts/scheduled_execution.py` | Loop do agendador (APScheduler, janela 7-18, seg-sex) |
 | `mcp/` | Fachada MCP fina e read-only sobre a API 8077 — NÃO fala com banco |
-| `web/sincronizar.html` | Página única servida em `GET /` (com link para o painel WBC via `GET /painel-wbc`) |
+| `web/sincronizar.html` | Painel de Sincronização, servido em `GET /sincronizar` (link "⇄ Integração WBC" via `GET /painel-wbc`) |
+| `web/entrada.html` | `GET /`: sonda o painel WBC e redireciona; fallback com o botão para `/sincronizar` |
 | `tests/` | pytest; `test_<modulo>.py` espelha o módulo. `tests/wbc/` = suíte do pacote `wbcpython` (mesma árvore dele) |
 | `docs/wbc/` | Docs do WBC: `README.md` (como rodar), `DECISOES.md`, `APRENDIZADOS.md`, `RISCOS_PRODUCAO.md`, `PROGRESS.md` (diário), `ai_spec/00_index.md` (onde a spec antiga mora hoje) |
 | `sql/hana/` | View HANA `VW_INO_OPORTUNIDADE_INTEGRACAO` que o worker lê (DDL de referência) |

@@ -167,7 +167,7 @@ class TestCaminhoParaASincronizacao:
     def test_sem_configuracao_e_o_mesmo_host_na_porta_da_api(self, aberto: TestClient) -> None:
         resposta = aberto.get("/sincronizacao", follow_redirects=False)
         assert resposta.status_code == 302
-        assert resposta.headers["location"] == "http://testserver:8077/"
+        assert resposta.headers["location"] == "http://testserver:8077/sincronizar"
 
     def test_porta_da_api_vem_do_env(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo: RepositorioTracking
@@ -176,7 +176,7 @@ class TestCaminhoParaASincronizacao:
             criar_app(settings=_config(monkeypatch, tmp_path, OS_API_PORT="9000"), tracking=repo)
         )
         assert cliente.get("/sincronizacao", follow_redirects=False).headers["location"] == (
-            "http://testserver:9000/"
+            "http://testserver:9000/sincronizar"
         )
 
     def test_url_configurada_ganha(
