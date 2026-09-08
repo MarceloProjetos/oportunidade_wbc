@@ -1,5 +1,17 @@
 # Plano — Integração WBC (WBCPython) dentro do ServidorIntegracaoSAP
 
+**Status (2026-09-08, 7ª atualização, 15:55): VIRADA FEITA — um integrador só, na .11.**
+Worker antigo parado (13:24), tarefa legada desabilitada (`Enabled=False` conferido 15:47),
+`OrcaView-WBC-Worker` no ar com **3 ciclos limpos** (15:41, 15:45, 15:48 — 1.682 avaliados
+cada, 0 erros, ~25 s por ciclo; `/status` `healthy=true`). Commit `8ca58f0` aposenta o monitor
+da tarefa legada **sem tirar o bloco** `scheduled_task` (o card do `.90` e a tool
+`estado_tarefa_wbc` continuam lendo; vem `retired=true` e nunca alarma; `WBC_TASK_MONITOR=true`
+é o rollback). **Pende na .11:** `deploy_update.bat` para levar o `8ca58f0` (senão o próximo
+retrato do monitor legado, dizendo "desabilitada", vira alerta e `?strict=1` responde 503);
+remover `OrcaView-Monitor-WBC-Task` (opcional); apagar `MCPs\WBCPython` (dele); rotacionar as
+senhas que passaram pelo chat. F6 segue aberta (retenção de `eventos`, card do `.90` →
+`wbc_worker`).
+
 **Status (2026-09-08, 6ª atualização, 15:45): F5 EM ANDAMENTO, com um passo errado no meio.**
 O worker antigo (Linux/SMB) está parado desde 13:24 (último ciclo #725 no banco antigo, sem
 trava). Às 15:41 o Marcelo ligou o `OrcaView-WBC-Worker` na .11: **1º ciclo limpo** (#1,
@@ -241,7 +253,7 @@ acompanhamento novo existe, e o worker continua parado.
   quiser o histórico, copiar com o worker antigo parado para `state/wbc_tracking.db` antes do
   passo 5.
 
-### F5 — Virada: um integrador só, na .11 `[Marcelo]`
+### F5 — Virada: um integrador só, na .11 `[concluída · 08/09 15:48 · monitor legado aposentado em 8ca58f0]`
 **Meta:** o worker roda na .11 como serviço; legado e worker Linux parados; `/status` alarma
 se ele cair.
 1. Parar o worker Linux (D10).
