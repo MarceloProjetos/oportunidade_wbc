@@ -118,7 +118,11 @@ importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não impor
   concorrentes e vazá-las derruba o SL para todo mundo, cliente B1 incluído — por isso a
   sessão é compartilhada com TTL e a sessão **substituída sai pelo `/Logout`**.
   `ordens_producao_sl.py` é irmão de `web_orcaview_V117/backend/services/compras_sap_service.py`:
-  **mantenha os dois diffáveis** (correção num vale para o outro).
+  **mantenha os dois diffáveis** (correção num vale para o outro). O cliente do **WBC**
+  (`wbcpython/infrastructure/service_layer/client.py`) é outro, com `httpx`: **login
+  preguiçoso** (na 1ª requisição; entrar no `with` não autentica) e `Logout` na saída — um
+  ciclo sem escrita não toca o SL (decisão de 08/09/2026). Não "corrija" o `__enter__` para
+  logar cedo.
 - `config.get_settings()` é cacheado — testes usam `reset_settings()` após mexer em env.
 - **Windows Update: "0 pendentes" MENTE se o agente não varre.** Não é erro tratável — a busca
   `IsInstalled=0` **responde** (3,1s aqui, 22,5s na .12), diz **0** e está errada, porque o cache

@@ -168,12 +168,22 @@ class TestSessao:
             cliente.get("OrcDetalhe")
         assert exc.value.sessao_expirada is True
 
-    def test_context_manager_faz_login_e_logout(self) -> None:
+    def test_context_manager_loga_na_primeira_requisicao_e_desloga_na_saida(self) -> None:
         g = Gravador()
         with _cliente(g) as cliente:
+            assert cliente.autenticado is False  # entrar no `with` não autentica
+            cliente.get("OrcDetalhe")
             assert cliente.autenticado is True
-        assert "/b1s/v1/Login" in g.caminhos
+        assert g.caminhos[0] == "/b1s/v1/Login"
         assert "/b1s/v1/Logout" in g.caminhos
+
+    def test_context_manager_sem_requisicao_nao_toca_o_service_layer(self) -> None:
+        """Um ciclo do worker sem escrita — a maioria — não pode custar um login:
+        eram ~260 Login/Logout por dia só para descobrir que não havia nada a fazer."""
+        g = Gravador()
+        with _cliente(g) as cliente:
+            assert cliente.autenticado is False
+        assert g.caminhos == []
 
     def test_logout_sem_sessao_nao_faz_requisicao(self) -> None:
         g = Gravador()

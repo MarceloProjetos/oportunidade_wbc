@@ -15,6 +15,11 @@ Pontos de projeto:
 * **Sessão renovada automaticamente.** O Service Layer expira a sessão por
   inatividade; ao receber 401 o cliente refaz o login uma vez e repete a
   requisição, de forma transparente.
+* **Login só quando há o que pedir.** Entrar no `with` não autentica: o login
+  acontece na primeira requisição (`request()`), e o `logout` na saída só se
+  houve login. Um ciclo do worker sem escrita — a maioria — não toca o Service
+  Layer (decisão do Marcelo, 08/09/2026: eram ~260 logins/dia só para descobrir
+  que não havia nada a fazer). A leitura das oportunidades vem do HANA.
 * **Credenciais nunca aparecem em log ou em mensagem de erro.**
 """
 
@@ -129,7 +134,7 @@ class ServiceLayerClient:
         self._http.close()
 
     def __enter__(self) -> Self:
-        self.login()
+        # Sem login aqui: `request()` autentica na primeira chamada de verdade.
         return self
 
     def __exit__(
