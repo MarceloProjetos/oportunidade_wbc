@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import platform
 import shutil
 import socket
+import sqlite3
 import time
 from datetime import datetime
 from typing import Any, Callable, Dict, Optional
@@ -56,7 +58,7 @@ DISK_PCT_ALERT = 90.0  # or more than this used
 # degrade the web — it BREAKS it (the /status panel and the Mira assistant). Adding is
 # safe; renaming means updating `CHECKS_ACEITOS` on the web side too. The `_CHECK_ALIASES`
 # in api.py (sql→sql_server, wu→windows_update, …) are part of the same contract.
-SELECTABLE_CHECKS = ('sap', 'sql_server', 'supabase', 'scheduler', 'scheduled_task',
+SELECTABLE_CHECKS = ('sap', 'sql_server', 'supabase', 'scheduler', 'scheduled_task', 'wbc_worker',
                      'windows_update')
 # Note: classifying LastTaskResult (success/running/never-run/refused) lives in
 # monitor_wbc_task.ps1 — Python only READS the state JSON the script writes.
@@ -295,6 +297,170 @@ def _scheduled_task_signal() -> Dict[str, Any]:
     return data
 
 
+# ------------------------------------------------------------------ WBC worker
+
+_WBC_TABELAS = ('acompanhamento', 'eventos', 'execucoes', 'travas')
+_WBC_COLUNAS_EXECUCAO = ('id', 'inicio', 'fim', 'status', 'processados', 'sucessos', 'erros', 'detalhe')
+
+
+def _wbc_tracking_db_path() -> Optional[str]:
+    """Absolute path of the WBC tracking SQLite taken from ``TRACKING_DB_URL``.
+
+    ``None`` when the URL is not a file-backed SQLite (PostgreSQL, ``:memory:``): the check
+    then reports itself unavailable instead of guessing. Relative paths are resolved from
+    the project root — the worker runs with cwd = root (``run_wbc_worker.bat``), so both
+    read the same file.
+    """
+    url = (get_settings().wbc_tracking_db_url or '').strip()
+    if not url.lower().startswith('sqlite:'):
+        return None
+    resto = url[len('sqlite:'):]
+    # sqlite:///./state/x.db → ./state/x.db · sqlite:///D:/x.db → D:/x.db · sqlite:////var/x.db → /var/x.db
+    caminho = resto[3:] if resto.startswith('////') else resto.lstrip('/')
+    caminho = caminho.split('?', 1)[0]
+    if not caminho or caminho.startswith(':memory:') or caminho.startswith('file:'):
+        return None
+    if os.path.isabs(caminho):
+        return caminho
+    return os.path.normpath(os.path.join(_PROJECT_DIR, caminho))
+
+
+def _wbc_worker_in_window(now: datetime) -> bool:
+    """Whether the worker is supposed to be cycling right now — by ITS OWN schedule
+    (``WORKER_HORARIO_*``, ``WORKER_DIAS_DE_TRABALHO``; same ``.env`` line the worker
+    reads). Outside it, silence is normal and never alarms. ``fim`` before ``inicio`` is a
+    shift crossing midnight, as in ``wbcpython.config``.
+    """
+    s = get_settings()
+    try:
+        dias = {int(d) for d in s.wbc_worker_dias.split(',') if d.strip()}
+        h_ini = datetime.strptime(s.wbc_worker_horario_inicio.strip(), '%H:%M').time()
+        h_fim = datetime.strptime(s.wbc_worker_horario_fim.strip(), '%H:%M').time()
+    except ValueError:
+        # Unreadable schedule: the worker itself refuses to start on it. Treating it as
+        # "always in window" makes the silence visible instead of hiding it.
+        return True
+    if now.isoweekday() not in dias:
+        return False
+    agora = now.time()
+    if h_ini <= h_fim:
+        return h_ini <= agora <= h_fim
+    return agora >= h_ini or agora <= h_fim
+
+
+def _wbc_worker_threshold_min() -> int:
+    """Silence tolerated inside the window: two intervals, never under 10 min. A cycle takes
+    9–14 s (measured 2026-09-08), but one Service Layer hiccup can hold a cycle for minutes
+    and that is not the worker being dead."""
+    return max(10, math.ceil(2 * get_settings().wbc_worker_interval_s / 60))
+
+
+def _wbc_worker_signal() -> Dict[str, Any]:
+    """State of the WBC → SAP integration worker, read from its tracking DB (SQLite).
+
+    Opens the file read-only, no connection to SAP/WBC. Three levels, on purpose:
+
+    - **not installed** (``installed=False``): the DB does not exist — the integration never
+      ran on this machine. ``healthy=None`` and NO alert: on the .11 before the cutover
+      this is the normal state, and an alert here would turn ``?strict=1`` into a 503 for
+      a service nobody started yet.
+    - **installed, never ran** (``last=None``): tables exist (the painel creates them) but
+      the worker has not recorded a cycle. Information, no alert.
+    - **running**: from the first recorded cycle on, silence inside the worker's own
+      window beyond ``threshold_min`` → ``stale``; a cycle ``em_andamento`` for longer than
+      that → ``stuck``; last cycle ``falhou`` → unhealthy. Each becomes a readable alert.
+    """
+    s = get_settings()
+    agora = datetime.now()
+    base: Dict[str, Any] = {
+        'available': False, 'installed': False, 'healthy': None,
+        'in_window': _wbc_worker_in_window(agora),
+        'threshold_min': _wbc_worker_threshold_min(),
+        'interval_s': s.wbc_worker_interval_s,
+        'db': None,
+    }
+    caminho = _wbc_tracking_db_path()
+    base['db'] = caminho
+    if caminho is None:
+        return {**base, 'note': 'TRACKING_DB_URL não é um SQLite em arquivo — check indisponível'}
+    if not os.path.exists(caminho):
+        return {**base, 'note': ('banco de acompanhamento ainda não existe — a integração WBC '
+                                 'nunca rodou nesta máquina')}
+
+    try:
+        con = sqlite3.connect(f'file:{caminho}?mode=ro', uri=True, timeout=2)
+        try:
+            tabelas = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            faltam = sorted(set(_WBC_TABELAS) - tabelas)
+            ultima: Optional[Dict[str, Any]] = None
+            hoje: Dict[str, Any] = {}
+            if 'execucoes' in tabelas:
+                row = con.execute(
+                    'SELECT id, inicio, fim, status, processados, sucessos, erros, detalhe '
+                    'FROM execucoes ORDER BY id DESC LIMIT 1'
+                ).fetchone()
+                if row:
+                    ultima = dict(zip(_WBC_COLUNAS_EXECUCAO, row))
+                n, falhas = con.execute(
+                    "SELECT COUNT(*), COALESCE(SUM(CASE WHEN status = 'falhou' THEN 1 ELSE 0 END), 0) "
+                    'FROM execucoes WHERE inicio >= ?', (agora.strftime('%Y-%m-%d'),)
+                ).fetchone()
+                hoje = {'execucoes': int(n or 0), 'falhas': int(falhas or 0)}
+        finally:
+            con.close()
+    except sqlite3.Error as exc:
+        return {**base, 'installed': True, 'healthy': False,
+                'error': f'banco de acompanhamento ilegível: {str(exc)[:200]}'}
+
+    out = {**base, 'installed': True, 'available': True, 'tabelas_faltando': faltam, 'hoje': hoje}
+    if faltam:
+        return {**out, 'healthy': False, 'error': f"banco sem as tabelas: {', '.join(faltam)}"}
+    if ultima is None:
+        return {**out, 'last': None,
+                'note': 'sem execuções registradas — o worker ainda não rodou nesta máquina'}
+
+    ultima['detalhe'] = (ultima.get('detalhe') or '')[:200]
+    running = ultima.get('fim') is None and ultima.get('status') == 'em_andamento'
+    referencia = ultima.get('inicio') if running else (ultima.get('fim') or ultima.get('inicio'))
+    minutes_ago = _age_minutes(referencia)
+    limite = out['threshold_min']
+    stale = out['in_window'] and (minutes_ago is None or minutes_ago > limite)
+    stuck = running and (minutes_ago is None or minutes_ago > limite)
+    failed = ultima.get('status') == 'falhou'
+    return {**out, 'last': ultima, 'running': running, 'minutes_ago': minutes_ago,
+            'stale': stale, 'stuck': stuck, 'healthy': not (stale or stuck or failed)}
+
+
+def _wbc_worker_alerts(w: Dict[str, Any]) -> list:
+    """Readable alerts for the ``wbc_worker`` block. Nothing before the first recorded
+    cycle on this machine (see ``_wbc_worker_signal``)."""
+    if not w.get('installed'):
+        return []
+    if w.get('error'):
+        return [f"worker WBC: {w['error']}"]
+    last = w.get('last')
+    if not last:
+        return []
+    alerts = []
+    m = w.get('minutes_ago')
+    idade = f"há {m} min" if m is not None else "com carimbo ilegível"
+    if w.get('stale'):
+        alerts.append(
+            f"worker WBC sem ciclo {idade} dentro do expediente (limite {w.get('threshold_min')} min, "
+            f"intervalo {w.get('interval_s')} s) — serviço OrcaView-WBC-Worker parado?"
+        )
+    if w.get('stuck'):
+        alerts.append(
+            f"worker WBC: ciclo #{last.get('id')} em andamento {idade} sem terminar — "
+            "processo morreu no meio?"
+        )
+    if last.get('status') == 'falhou':
+        alerts.append(
+            f"worker WBC: última execução (#{last.get('id')}) falhou — {last.get('detalhe') or 'sem detalhe'}"
+        )
+    return alerts
+
+
 def _windows_update_signal() -> Dict[str, Any]:
     """Pending reboot + pending updates + last patch (the ``windows_update`` block).
 
@@ -393,6 +559,7 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
         Dict with ``ok`` (every connection that ran is green), ``healthy`` (``ok`` and no
         alerts), ``checks`` (connectivity), ``scheduler`` (indirect signal),
         ``scheduled_task`` (state of the "Integração WBC" task, read from the monitor),
+        ``wbc_worker`` (the WBC → SAP integration worker, read from its tracking DB),
         ``windows_update`` (pending reboot + pending updates + last patch), ``system``,
         ``api_auth`` (whether OS_API_KEY is configured — information only, never an
         alert) and ``alerts`` (list of readable warnings: low disk, scheduler stopped,
@@ -431,6 +598,7 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
 
     scheduler = _scheduler_signal() if 'scheduler' in sel else None
     scheduled_task = _scheduled_task_signal() if 'scheduled_task' in sel else None
+    wbc_worker = _wbc_worker_signal() if 'wbc_worker' in sel else None
     wu_estado = _windows_update_signal() if 'windows_update' in sel else None
     system = _system_info()
     # Whether the API requires X-API-Key. Without OS_API_KEY every route except the SAP
@@ -450,6 +618,8 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
         )
     if scheduled_task is not None:
         alerts.extend(_scheduled_task_alerts(scheduled_task))
+    if wbc_worker is not None:
+        alerts.extend(_wbc_worker_alerts(wbc_worker))
     # The windows_update block raises NO alert — neither pending reboot nor pending update.
     # Marcelo's decision (2026-07-16, revising the plan's D1): this is INFORMATION, not
     # system health. "If one day the server does not reboot, it does not matter" — what
@@ -477,6 +647,8 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
         out['scheduler'] = scheduler
     if scheduled_task is not None:
         out['scheduled_task'] = scheduled_task
+    if wbc_worker is not None:
+        out['wbc_worker'] = wbc_worker
     if wu_estado is not None:
         out['windows_update'] = wu_estado
     return out

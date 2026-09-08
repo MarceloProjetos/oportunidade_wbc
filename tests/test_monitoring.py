@@ -18,9 +18,21 @@ def _wu_ok() -> dict:
             'ultimo_patch': '2026-06-30', 'dias_sem_patch': 16}
 
 
-def _stub_all_ok(monkeypatch, *, stub_wu=True):
+def _wbc_ok() -> dict:
+    """Bloco wbc_worker de um worker vivo (ciclo concluído há 2 min, dentro do expediente)."""
+    return {'available': True, 'installed': True, 'healthy': True, 'in_window': True,
+            'threshold_min': 10, 'interval_s': 180, 'db': 'state/wbc_tracking.db',
+            'last': {'id': 725, 'status': 'concluida', 'detalhe': ''}, 'running': False,
+            'minutes_ago': 2, 'stale': False, 'stuck': False, 'tabelas_faltando': [],
+            'hoje': {'execucoes': 120, 'falhas': 0}}
+
+
+def _stub_all_ok(monkeypatch, *, stub_wu=True, stub_wbc=True):
     """Deixa todas as checagens verdes. `stub_wu=False` só para quem testa o próprio
-    `_windows_update_signal` (aí ele precisa rodar de verdade)."""
+    `_windows_update_signal` (aí ele precisa rodar de verdade); idem `stub_wbc=False`
+    para quem testa `_wbc_worker_signal` contra um SQLite de verdade."""
+    if stub_wbc:
+        monkeypatch.setattr(monitoring, '_wbc_worker_signal', _wbc_ok)
     monkeypatch.setattr(monitoring, '_check_sap', lambda: 'sap-ok')
     monkeypatch.setattr(monitoring, '_check_sql_server', lambda: 'sql-ok')
     monkeypatch.setattr(monitoring, '_check_supabase', lambda: 'sb-ok')
@@ -393,3 +405,165 @@ def test_fora_da_janela_nunca_alarma(monkeypatch):
                    agora=_dt(2026, 7, 15, 22, 0),
                    ultima_carga=_dt(2026, 7, 15, 18, 50))
     assert sinal['in_window'] is False and sinal['stale'] is False
+
+
+# ============================== wbc_worker (Integração WBC → SAP) ===========================
+
+import os  # noqa: E402
+import sqlite3  # noqa: E402
+
+
+def _banco_wbc(caminho, execucoes=()):
+    """Cria o SQLite do acompanhamento com as 4 tabelas (o esquema mínimo que o check lê)."""
+    con = sqlite3.connect(caminho)
+    con.executescript("""
+        CREATE TABLE acompanhamento (orcnum TEXT PRIMARY KEY);
+        CREATE TABLE eventos (id INTEGER PRIMARY KEY, orcnum TEXT);
+        CREATE TABLE execucoes (id INTEGER PRIMARY KEY, inicio TEXT, fim TEXT, status TEXT,
+                                processados INT, sucessos INT, erros INT, detalhe TEXT);
+        CREATE TABLE travas (nome TEXT PRIMARY KEY);
+    """)
+    for e in execucoes:
+        con.execute('INSERT INTO execucoes VALUES (?,?,?,?,?,?,?,?)', e)
+    con.commit()
+    con.close()
+
+
+def _apontar(monkeypatch, caminho):
+    monkeypatch.setenv('TRACKING_DB_URL', f'sqlite:///{caminho}')
+    reset_settings()
+
+
+def _carimbo(minutos_atras: int) -> str:
+    return (datetime.now() - timedelta(minutes=minutos_atras)).strftime('%Y-%m-%d %H:%M:%S.%f')
+
+
+def test_wbc_worker_sem_banco_e_informacao_nao_alerta(monkeypatch, tmp_path):
+    """A .11 antes da virada: a integração nunca rodou ali. Alertar aqui viraria 503 no
+    ?strict=1 por um serviço que ninguém ligou."""
+    _apontar(monkeypatch, tmp_path / 'nao_existe.db')
+    w = monitoring._wbc_worker_signal()
+    assert w['installed'] is False and w['available'] is False and w['healthy'] is None
+    assert 'nunca rodou' in w['note']
+    assert monitoring._wbc_worker_alerts(w) == []
+
+
+def test_wbc_worker_sem_banco_nao_derruba_o_healthy_do_status(monkeypatch, tmp_path):
+    _stub_all_ok(monkeypatch, stub_wbc=False)
+    _apontar(monkeypatch, tmp_path / 'nao_existe.db')
+    data = monitoring.collect_status()
+    assert data['healthy'] is True and data['alerts'] == []
+    assert data['wbc_worker']['installed'] is False
+
+
+def test_wbc_worker_banco_criado_mas_nunca_rodou(monkeypatch, tmp_path):
+    """O painel cria as tabelas antes do primeiro ciclo: informação, sem alerta."""
+    _banco_wbc(tmp_path / 't.db')
+    _apontar(monkeypatch, tmp_path / 't.db')
+    w = monitoring._wbc_worker_signal()
+    assert w['installed'] and w['available'] and w['last'] is None and w['healthy'] is None
+    assert monitoring._wbc_worker_alerts(w) == []
+
+
+def test_wbc_worker_ciclo_recente_e_saudavel(monkeypatch, tmp_path):
+    _banco_wbc(tmp_path / 't.db', [(725, _carimbo(3), _carimbo(2), 'concluida', 1681, 1681, 0,
+                                    '1681 orçamento(s) avaliado(s); nenhum erro.')])
+    _apontar(monkeypatch, tmp_path / 't.db')
+    monkeypatch.setattr(monitoring, '_wbc_worker_in_window', lambda now: True)
+    w = monitoring._wbc_worker_signal()
+    assert w['healthy'] is True and w['stale'] is False and w['minutes_ago'] == 2
+    assert w['last']['id'] == 725 and w['hoje']['execucoes'] == 1
+    assert monitoring._wbc_worker_alerts(w) == []
+
+
+def test_wbc_worker_silencio_no_expediente_alerta_e_nomeia_o_servico(monkeypatch, tmp_path):
+    _banco_wbc(tmp_path / 't.db', [(1, _carimbo(41), _carimbo(40), 'concluida', 1, 1, 0, '')])
+    _apontar(monkeypatch, tmp_path / 't.db')
+    monkeypatch.setattr(monitoring, '_wbc_worker_in_window', lambda now: True)
+    w = monitoring._wbc_worker_signal()
+    assert w['stale'] is True and w['healthy'] is False
+    alertas = monitoring._wbc_worker_alerts(w)
+    assert len(alertas) == 1 and 'OrcaView-WBC-Worker' in alertas[0] and '40 min' in alertas[0]
+
+
+def test_wbc_worker_silencio_fora_do_expediente_nao_alerta(monkeypatch, tmp_path):
+    _banco_wbc(tmp_path / 't.db', [(1, _carimbo(600), _carimbo(599), 'concluida', 1, 1, 0, '')])
+    _apontar(monkeypatch, tmp_path / 't.db')
+    monkeypatch.setattr(monitoring, '_wbc_worker_in_window', lambda now: False)
+    w = monitoring._wbc_worker_signal()
+    assert w['stale'] is False and w['healthy'] is True
+    assert monitoring._wbc_worker_alerts(w) == []
+
+
+def test_wbc_worker_ultima_falhou_alerta(monkeypatch, tmp_path):
+    _banco_wbc(tmp_path / 't.db', [(9, _carimbo(3), _carimbo(2), 'falhou', 0, 0, 1, 'HANA fora do ar')])
+    _apontar(monkeypatch, tmp_path / 't.db')
+    monkeypatch.setattr(monitoring, '_wbc_worker_in_window', lambda now: True)
+    w = monitoring._wbc_worker_signal()
+    assert w['healthy'] is False
+    assert any('#9' in a and 'HANA fora do ar' in a for a in monitoring._wbc_worker_alerts(w))
+
+
+def test_wbc_worker_ciclo_preso_alerta_mesmo_fora_do_expediente(monkeypatch, tmp_path):
+    """`em_andamento` sem `fim` além do limite: o processo morreu no meio (ou está preso)."""
+    _banco_wbc(tmp_path / 't.db', [(3, _carimbo(30), None, 'em_andamento', 0, 0, 0, '')])
+    _apontar(monkeypatch, tmp_path / 't.db')
+    monkeypatch.setattr(monitoring, '_wbc_worker_in_window', lambda now: False)
+    w = monitoring._wbc_worker_signal()
+    assert w['running'] is True and w['stuck'] is True and w['healthy'] is False
+    assert any('#3' in a for a in monitoring._wbc_worker_alerts(w))
+
+
+def test_wbc_worker_banco_sem_tabelas_alerta(monkeypatch, tmp_path):
+    sqlite3.connect(tmp_path / 'vazio.db').close()
+    _apontar(monkeypatch, tmp_path / 'vazio.db')
+    w = monitoring._wbc_worker_signal()
+    assert w['healthy'] is False and 'execucoes' in w['error']
+    assert monitoring._wbc_worker_alerts(w)
+
+
+def test_wbc_worker_entra_no_status_e_respeita_o_filtro(monkeypatch):
+    _stub_all_ok(monkeypatch)
+    assert 'wbc_worker' in monitoring.collect_status()
+    assert 'wbc_worker' not in monitoring.collect_status(only={'sap'})
+    so = monitoring.collect_status(only={'wbc_worker'})
+    assert set(so['checks']) == set() and so['wbc_worker']['healthy'] is True
+
+
+@pytest.mark.parametrize('url, esperado', [
+    ('sqlite:///./state/wbc_tracking.db', os.path.join(monitoring._PROJECT_DIR, 'state', 'wbc_tracking.db')),
+    ('sqlite:///state/wbc_tracking.db', os.path.join(monitoring._PROJECT_DIR, 'state', 'wbc_tracking.db')),
+    ('sqlite:///D:/x/wbc.db', 'D:/x/wbc.db'),
+    ('postgresql://u:p@h/db', None),
+    ('sqlite:///:memory:', None),
+])
+def test_wbc_tracking_db_path(monkeypatch, url, esperado):
+    monkeypatch.setenv('TRACKING_DB_URL', url)
+    reset_settings()
+    obtido = monitoring._wbc_tracking_db_path()
+    assert (obtido is None) == (esperado is None)
+    if esperado is not None:
+        assert os.path.normpath(obtido) == os.path.normpath(esperado)
+
+
+@pytest.mark.parametrize('inicio, fim, dias, quando, esperado', [
+    ('07:00', '20:00', '1,2,3,4,5', datetime(2026, 9, 7, 10, 0), True),    # segunda 10h
+    ('07:00', '20:00', '1,2,3,4,5', datetime(2026, 9, 7, 20, 30), False),  # segunda 20h30
+    ('07:00', '20:00', '1,2,3,4,5', datetime(2026, 9, 6, 10, 0), False),   # domingo
+    ('07:00', '20:00', '1,2,3,4,5,6,7', datetime(2026, 9, 6, 10, 0), True),
+    ('22:00', '02:00', '1,2,3,4,5', datetime(2026, 9, 7, 23, 0), True),    # turno cruza a meia-noite
+    ('22:00', '02:00', '1,2,3,4,5', datetime(2026, 9, 7, 12, 0), False),
+])
+def test_wbc_worker_in_window_segue_a_agenda_do_proprio_worker(monkeypatch, inicio, fim, dias, quando, esperado):
+    monkeypatch.setenv('WORKER_HORARIO_INICIO', inicio)
+    monkeypatch.setenv('WORKER_HORARIO_FIM', fim)
+    monkeypatch.setenv('WORKER_DIAS_DE_TRABALHO', dias)
+    reset_settings()
+    assert monitoring._wbc_worker_in_window(quando) is esperado
+
+
+@pytest.mark.parametrize('intervalo, limite', [('180', 10), ('300', 10), ('900', 30), ('lixo', 10)])
+def test_wbc_worker_threshold_dois_intervalos_nunca_abaixo_de_10(monkeypatch, intervalo, limite):
+    monkeypatch.setenv('WORKER_INTERVAL_SECONDS', intervalo)
+    reset_settings()
+    assert monitoring._wbc_worker_threshold_min() == limite

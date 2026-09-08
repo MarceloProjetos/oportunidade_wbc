@@ -3,6 +3,71 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-08] — ops: servicos WBC no NSSM, deploy_update com 5 servicos e pip no sistema, check `wbc_worker`, tool MCP
+
+F3 do `docs/PLANO_INTEGRACAO_WBCPYTHON.md`. Tudo aditivo; nada do que a API 8077 e a fachada MCP
+faziam mudou (suite de antes verde: 468 testes; `?checks=wbc` continua sendo o SQL Server).
+
+- **`run_wbc_worker.bat` / `run_wbc_painel.bat`** — wrappers no padrao dos outros (cwd = raiz,
+  venv-ou-sistema, UTF-8). **`install_services.bat`** registra tambem `OrcaView-WBC-Painel`
+  (auto) e `OrcaView-WBC-Worker` (**MANUAL, nao e iniciado**: so na virada, com o legado
+  desligado) com `AppStopMethodConsole 60000` — parada limpa: o NSSM manda Ctrl+C e o worker
+  termina o ciclo (9-14 s medidos) antes de sair.
+- **`deploy_update.bat`** — para/sobe os 5 servicos (worker por ultimo e **so religa se estava
+  rodando**, via `sc query`); **pip no Python 3.12 do sistema quando nao ha venv** (antes pulava
+  em silencio — foi o que exigiu pip a mao no deploy do status de OP); confere `/health` da 8077
+  e `/entrar` do painel na `PAINEL_PORTA` do `.env`.
+- **`/status` ganha o check `wbc_worker`** (`monitoring._wbc_worker_signal`; aliases `worker`,
+  `integracao_wbc`): le `execucoes` do SQLite do acompanhamento em modo `ro`, sem tocar SAP/WBC.
+  Tres niveis de proposito: `installed=false` (banco nao existe — a .11 antes da virada:
+  informacao, **sem alerta**, `?strict=1` segue 200) · `last=null` (tabelas criadas, nenhum
+  ciclo) · e so a partir do 1o ciclo registrado alarma por silencio dentro do expediente **do
+  worker** (`WORKER_HORARIO_*`/`DIAS` do mesmo `.env`; limite = 2 x `WORKER_INTERVAL_SECONDS`,
+  minimo 10 min), ciclo `em_andamento` preso, ou ultimo `falhou`. 7 campos novos em
+  `config.py` (mesmos nomes de env do worker). 17 testes.
+- **Fachada MCP: `estado_integracao_wbc()`** (17a tool, leitura) sobre `/status?checks=wbc_worker`,
+  com a docstring ensinando a ler `installed=false`/`healthy=null`; o servidor passa a se
+  apresentar dizendo que a Integracao WBC roda nesta maquina e que nao e a "tarefa WBC" legada.
+  `tests/test_mcp_wbc.py` (roda com `mcp<2`; o `mcp` 2.x local ja quebrava os outros).
+- `CLAUDE.md`, `README.md` (secao nova, operacao, logs, monitoramento, estrutura) e
+  `.env.example` atualizados no mesmo commit.
+
+## [2026-09-08] — wbc: o WBCPython entra no repositorio (pacote `wbcpython/`), painel com chave compartilhada e caminho para a 8077
+
+F1 + F2 do `docs/PLANO_INTEGRACAO_WBCPYTHON.md`. Decisao do Marcelo em 08/09: **um projeto so**
+— o WBCPython deixa de existir como repositorio e vira parte deste; a .11 continua com uma
+pasta, um `.env`, um `requirements.txt`, um `deploy_update.bat`.
+
+- **Import por copia, SEM historico** (`3aa7ef2` do WBCPython versionava um `.env.bak` com
+  senha, e este repo e publico): `src/wbcpython/` → `wbcpython/` (imports absolutos intactos),
+  `tests/` → `tests/wbc/` (colidia `test_config.py`; imports `tests.x` viraram `tests.wbc.x`),
+  7 docs → `docs/wbc/` (com banner de "historico"), `sql/VW_INO_OPORTUNIDADE_INTEGRACAO.sql` →
+  `sql/hana/`. `uv`, `hatchling`, `uv.lock` e `[project.scripts]` **nao entram**: roda com
+  `python -m wbcpython` na raiz (le o `.env` do cwd), instala pelo `requirements.txt` (8 deps
+  novas: pydantic-settings, sqlalchemy, pymssql, fastapi, uvicorn, jinja2, python-multipart;
+  httpx/hdbcli/apscheduler/python-dotenv ja existiam). Sintaxe varrida contra 3.12 (a .11):
+  89 arquivos, 0 incompativeis.
+- **Suite unica: 1.591 testes verdes** (468 + 843 do WBC + 280 novos/afinados), 29 skipped (os
+  de rede, por opcao `--run-integration` — a opcao mora no `tests/conftest.py` da raiz, unico
+  lugar em que o pytest a aceita; marker `integration` registrado no `pyproject.toml`).
+  `tests/wbc/conftest.py` neutraliza o `.env` da maquina (o `load_dotenv()` do `config` da raiz
+  vaza para o `os.environ` da sessao). `ruff` em 0 (uma isencao E501 num fixture SQL).
+- **Painel: entrada com a MESMA `OS_API_KEY` da API 8077** (`GET/POST /entrar`, `POST /sair`;
+  cookie HttpOnly com HMAC da chave, nunca a chave; `X-API-Key`/`?key=` para script; HTMX sem
+  cookie recebe 401 + `HX-Redirect`; `proximo` so aceita caminho local). **Sem `OS_API_KEY` nada
+  muda**: o painel continua aberto, como a API. 23 testes em `tests/wbc/dashboard/test_entrada.py`.
+- **Links cruzados:** botao "Sincronizacao SAP → Supabase" no topo do painel (`GET /sincronizacao`
+  → `SIS_PAINEL_URL` ou mesmo host na `OS_API_PORT`) e `⇄ Integracao WBC` no header do
+  `sincronizar.html` (`GET /painel-wbc` da API → `WBC_PAINEL_URL` ou mesmo host na
+  `PAINEL_PORTA`, 8079; rota aberta declarada no teste-guarda). Previa conferida no navegador
+  (entrada, pagina com os 1.680 orcamentos de producao, botao ao lado de Tema/Sair).
+- Retrato da previa (`pendentes --exportar`) e `ARQUIVO_PADRAO` do painel passam a
+  `state/wbc_previsao.json` (runtime, ignorado); `.gitignore` ganha `state/*.db*`;
+  `PAINEL_PORTA` default 8079; `.env.example` ganha o bloco WBC inteiro com os valores de
+  producao anotados (180 s, 07:00-20:00).
+- `docs/wbc/README.md` (guia novo, sem uv), `docs/wbc/ai_spec/00_index.md` (onde mora o que
+  a spec original — ausente — regia), `CLAUDE.md` com o mapa e os gotchas do pacote.
+
 ## [2026-09-08] — docs: plano de integracao do WBCPython (worker + painel) neste repositorio
 
 `docs/PLANO_INTEGRACAO_WBCPYTHON.md` (+ artifact na mesma URL do cabecalho). So documentacao;

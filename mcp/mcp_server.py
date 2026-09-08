@@ -51,6 +51,11 @@ Responde sobre: saúde do servidor e da tarefa WBC, sincronizações de Ordens d
 situação de pedidos no SAP (liberado/bloqueado em Financeiro, Produção e Entrega) e o
 quadro de colaboradores das 3 empresas (Altamira, Tecnequip, Proalta).
 
+A Integração WBC → SAP (cotações e pedidos criados no SAP a partir dos orçamentos do
+WBC; worker + painel na porta 8079) roda nesta mesma máquina: `estado_integracao_wbc`
+diz se o worker está ciclando. É outra coisa que a "tarefa WBC" de `estado_tarefa_wbc`
+(a tarefa agendada legada do Windows).
+
 Não é o servidor RDP do SAP (192.168.7.12): esse é o servidor MCP `sap-rdp`, com tools
 próprias. Não confunda as respostas de Windows Update das duas máquinas.
 
@@ -259,6 +264,29 @@ def estado_tarefa_wbc() -> Dict[str, Any]:
     # de `checks` — isola o bloco da tarefa + os alertas relacionados.
     if isinstance(data, dict) and "scheduled_task" in data:
         return {"ok": data.get("ok", True), "scheduled_task": data["scheduled_task"],
+                "alerts": data.get("alerts", [])}
+    return data
+
+
+@mcp.tool()
+def estado_integracao_wbc() -> Dict[str, Any]:
+    """Estado do worker da Integração WBC → SAP (bloco ``wbc_worker`` do /status).
+
+    O worker lê os orçamentos do WBC e cria/atualiza/cancela cotação e pedido no SAP a
+    cada poucos minutos, dentro do expediente dele. Use para "a integração WBC está
+    rodando?", "quando foi o último ciclo?", "o ciclo deu erro?". Endpoint aberto (não
+    exige chave); lê só o banco de acompanhamento do worker — não toca SAP nem WBC.
+
+    Como ler: ``installed=false`` = a integração nunca rodou nesta máquina (não é falha);
+    ``last=null`` = tabelas criadas mas nenhum ciclo ainda; ``stale=true`` = silêncio além
+    de ``threshold_min`` DENTRO do expediente do worker (fora dele silêncio é normal e
+    ``in_window=false``); ``stuck=true`` = ciclo em andamento há tempo demais; ``last.status``
+    ``falhou`` = último ciclo falhou (``last.detalhe`` diz o quê). ``healthy=null`` é "não
+    há o que avaliar", não "doente". Os ``alerts`` já vêm em texto legível.
+    """
+    data = _get("/status", {"checks": "wbc_worker"})
+    if isinstance(data, dict) and "wbc_worker" in data:
+        return {"ok": data.get("ok", True), "wbc_worker": data["wbc_worker"],
                 "alerts": data.get("alerts", [])}
     return data
 
