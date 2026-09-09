@@ -1,5 +1,12 @@
 # Plano — Integração WBC (WBCPython) dentro do ServidorIntegracaoSAP
 
+**Status (2026-09-09, 08:35): alerta do worker PROVADO de ponta a ponta.** Deploy na .11 às
+08:00 (API religou, worker retomou no #94 sem intervenção); `.90` reiniciado 07:57 com o vigia
+novo. Teste real: `nssm stop` do worker às 08:15 → `/status` `stale` aos 11 min (08:23:49, 503) →
+mensagem "⚠️ Worker WBC (:8077) … não responde (HTTP 503) desde 08:24" no grupo da Mira às 08:26
+→ `nssm start` às 08:33, ciclo #99 e sonda 200 às 08:34. (Um `nssm stop` na 1ª tentativa devolveu
+"cannot accept control messages": estado transitório, basta repetir.)
+
 **Status (2026-09-09, 07:50): F7 itens 1 e 2 no ar.** Vigia da Mira do `.90` passa a sondar o
 worker (`/status?checks=worker&strict=1`; web `V118.2` `ddb6a16d`, pull no `.90` feito 07:47, sonda
 respondendo 200 no #89; vale no próximo restart do vigia, que é dele). Credenciais do WBC caem em
