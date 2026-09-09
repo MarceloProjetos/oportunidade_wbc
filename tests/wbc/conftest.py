@@ -14,7 +14,13 @@ import os
 
 import pytest
 
-_PREFIXOS = ("SL_", "WBC_SQL_", "HANA_", "TRACKING_", "WORKER_", "PAINEL_", "MESES_DE_JANELA")
+# Os prefixos do SIS (SAP_, SQL_, SQLSERVER_, OP_SL_) entram porque, desde 09/09/2026, as
+# credenciais do WBC caem neles quando os nomes do WBC faltam — sem apagá-los, o `.env` da
+# máquina preencheria HANA/SQL/SL nos testes que esperam configuração vazia.
+_PREFIXOS = (
+    "SL_", "WBC_SQL_", "HANA_", "TRACKING_", "WORKER_", "PAINEL_", "MESES_DE_JANELA",
+    "SAP_", "SQL_", "SQLSERVER_", "OP_SL_",
+)
 _NOMES = (
     "WBC_ENVIRONMENT", "WBC_BLOCK_PRODUCTION_WRITES", "WBC_PRODUCTION_COMPANY_DB",
     "LOG_LEVEL", "LOG_FILE", "LIMITE_DE_ESCRITA_POR_CICLO", "FATOR_PESO_EMBARQUE",

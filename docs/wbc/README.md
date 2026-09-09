@@ -80,9 +80,9 @@ do WBC; `OP_SL_*` é o Service Layer do status de OP; `SL_*` é o do WBC).
 | Grupo | Variáveis | Observação |
 |---|---|---|
 | Ambiente | `WBC_ENVIRONMENT`, `WBC_BLOCK_PRODUCTION_WRITES`, `WBC_PRODUCTION_COMPANY_DB` | as três de produção mudam **juntas** com `SL_COMPANY_DB` e `HANA_SCHEMA` (`RISCOS_PRODUCAO.md` §6) |
-| Service Layer (escrita) | `SL_BASE_URL`, `SL_COMPANY_DB`, `SL_USERNAME`, `SL_PASSWORD`, `SL_VERIFY_SSL`, `SL_CA_BUNDLE`, `SL_TIMEOUT_SECONDS` | login só na primeira chamada de um ciclo **com escrita** (ciclo sem escrita não toca o SL); `Logout` no fim |
-| WBC (só leitura) | `WBC_SQL_HOST`, `WBC_SQL_PORT`, `WBC_SQL_DATABASE`, `WBC_SQL_USERNAME`, `WBC_SQL_PASSWORD` | use usuário `db_datareader` |
-| HANA (só leitura) | `HANA_HOST`, `HANA_PORT`, `HANA_USERNAME`, `HANA_PASSWORD`, `HANA_SCHEMA` | `HANA_SCHEMA` = mesma company de `SL_COMPANY_DB` |
+| Service Layer (escrita) | `SL_BASE_URL`, `SL_COMPANY_DB`, `SL_USERNAME`, `SL_PASSWORD`, `SL_VERIFY_SSL`, `SL_CA_BUNDLE`, `SL_TIMEOUT_SECONDS` | login só na primeira chamada de um ciclo **com escrita** (ciclo sem escrita não toca o SL); `Logout` no fim. Usuário/senha vazios caem em `OP_SL_USERNAME`/`OP_SL_PASSWORD`; a company **não** cai |
+| WBC (só leitura) | `WBC_SQL_HOST`, `WBC_SQL_PORT`, `WBC_SQL_DATABASE`, `WBC_SQL_USERNAME`, `WBC_SQL_PASSWORD` | use usuário `db_datareader`; vazios caem em `SQL_*`/`SQLSERVER_*` do SIS |
+| HANA (só leitura) | `HANA_HOST`, `HANA_PORT`, `HANA_USERNAME`, `HANA_PASSWORD`, `HANA_SCHEMA` | `HANA_SCHEMA` = mesma company de `SL_COMPANY_DB`; vazios caem em `SAP_*` do SIS |
 | Acompanhamento | `TRACKING_DB_URL` | `sqlite:///./state/wbc_tracking.db` — relativo ao cwd (a raiz); o serviço **cria** o arquivo e as 4 tabelas na primeira subida |
 | Worker | `WORKER_INTERVAL_SECONDS`, `WORKER_HORARIO_INICIO`, `WORKER_HORARIO_FIM`, `WORKER_DIAS_DE_TRABALHO`, `MESES_DE_JANELA`, `MESES_DE_JANELA_DIRIGIDA`, `LIMITE_DE_ESCRITA_POR_CICLO`, `FATOR_PESO_EMBARQUE` | produção em 08/09/2026: 180 s, 07:00–20:00, seg–sex, 6 meses |
 | Log | `LOG_LEVEL`, `LOG_FILE` | `logs/wbcpython.log` — o mesmo texto da tela; rotação 5 MB × 3 |

@@ -14,23 +14,36 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from wbcpython.safety import is_production
+
+# Uma senha por sistema (decisão do Marcelo, 09/09/2026). O `.env` do ServidorIntegracaoSAP
+# já descreve o mesmo HANA (`SAP_*`), o mesmo SQL Server do WBC (`SQL_*`/`SQLSERVER_*`) e o
+# mesmo usuário do Service Layer (`OP_SL_*`) que este pacote usa. Cada credencial abaixo
+# lê primeiro o nome do WBC e, se ele não existir, o do SIS — assim uma rotação de senha é
+# uma linha por sistema, e o bloco WBC do `.env` fica só com o que é exclusivo dele.
+#
+# O que NÃO cai no SIS, de propósito: `SL_COMPANY_DB`, `WBC_ENVIRONMENT` e a trava. A
+# company de escrita do WBC não pode "herdar" a de produção de outro módulo em silêncio —
+# apontar para produção continua sendo um ato explícito neste bloco.
 
 
 class ServiceLayerSettings(BaseSettings):
     """Conexão com o SAP Business One Service Layer (REST)."""
 
     model_config = SettingsConfigDict(
-        env_prefix="SL_", env_file=".env", extra="ignore", case_sensitive=False
+        env_prefix="SL_", env_file=".env", extra="ignore", case_sensitive=False,
+        populate_by_name=True,
     )
 
     base_url: str = "https://sapbusinessonehana-vm:50000/b1s/v1"
     company_db: str = "SBOALTAMIRAHOMOLOG"
-    username: str = ""
-    password: SecretStr = SecretStr("")
+    username: str = Field(default="", validation_alias=AliasChoices("SL_USERNAME", "OP_SL_USERNAME"))
+    password: SecretStr = Field(
+        default=SecretStr(""), validation_alias=AliasChoices("SL_PASSWORD", "OP_SL_PASSWORD")
+    )
     verify_ssl: bool = False
     ca_bundle: str | None = None
     timeout_seconds: float = 60.0
@@ -47,28 +60,39 @@ class WbcSqlSettings(BaseSettings):
     """Conexão com o SQL Server do WBC (banco WBCCAD)."""
 
     model_config = SettingsConfigDict(
-        env_prefix="WBC_SQL_", env_file=".env", extra="ignore", case_sensitive=False
+        env_prefix="WBC_SQL_", env_file=".env", extra="ignore", case_sensitive=False,
+        populate_by_name=True,
     )
 
-    host: str = ""
-    port: int = 1433
-    database: str = "WBCCAD"
-    username: str = ""
-    password: SecretStr = SecretStr("")
+    host: str = Field(default="", validation_alias=AliasChoices("WBC_SQL_HOST", "SQL_HOST", "SQLSERVER_HOST"))
+    port: int = Field(default=1433, validation_alias=AliasChoices("WBC_SQL_PORT", "SQL_PORT", "SQLSERVER_PORT"))
+    database: str = Field(
+        default="WBCCAD", validation_alias=AliasChoices("WBC_SQL_DATABASE", "SQL_DATABASE", "SQLSERVER_DATABASE")
+    )
+    username: str = Field(default="", validation_alias=AliasChoices("WBC_SQL_USERNAME", "SQL_USER", "SQLSERVER_USER"))
+    password: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias=AliasChoices("WBC_SQL_PASSWORD", "SQL_PASSWORD", "SQLSERVER_PASSWORD"),
+    )
 
 
 class HanaSettings(BaseSettings):
     """Conexão SQL direta ao HANA via hdbcli (views de leitura)."""
 
     model_config = SettingsConfigDict(
-        env_prefix="HANA_", env_file=".env", extra="ignore", case_sensitive=False
+        env_prefix="HANA_", env_file=".env", extra="ignore", case_sensitive=False,
+        populate_by_name=True,
     )
 
-    host: str = ""
-    port: int = 30015
-    username: str = ""
-    password: SecretStr = SecretStr("")
-    schema_name: str = Field(default="SBOALTAMIRAHOMOLOG", alias="HANA_SCHEMA")
+    host: str = Field(default="", validation_alias=AliasChoices("HANA_HOST", "SAP_HOST"))
+    port: int = Field(default=30015, validation_alias=AliasChoices("HANA_PORT", "SAP_PORT"))
+    username: str = Field(default="", validation_alias=AliasChoices("HANA_USERNAME", "SAP_USER"))
+    password: SecretStr = Field(
+        default=SecretStr(""), validation_alias=AliasChoices("HANA_PASSWORD", "SAP_PASSWORD")
+    )
+    schema_name: str = Field(
+        default="SBOALTAMIRAHOMOLOG", validation_alias=AliasChoices("HANA_SCHEMA", "SAP_SCHEMA")
+    )
 
 
 class TrackingSettings(BaseSettings):

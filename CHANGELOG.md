@@ -13,6 +13,18 @@ so instalacao nova nasce MANUAL. Na .11 de hoje: `nssm set OrcaView-WBC-Worker S
 Plano: `docs/PLANO_INTEGRACAO_WBCPYTHON.md` (8a atualizacao: tudo no ar; 1a escrita real no
 ciclo #4; worker parado 48 min pelo deploy das 15:52, corrigido).
 
+## [2026-09-09] — wbc: uma senha por sistema — credenciais do WBC caem nos nomes do SIS quando faltam
+
+Pedido do Marcelo na hora de rotacionar as senhas: o `.env` da .11 descrevia o mesmo HANA
+(`SAP_*` e `HANA_*`), o mesmo SQL Server do WBC (`SQL_*` e `WBC_SQL_*`) e o mesmo usuario do
+Service Layer (`OP_SL_*` e `SL_*`) duas vezes. Agora `wbcpython/config.py` le primeiro o nome do
+WBC e, se ele nao existe, o do SIS (`AliasChoices`): `SL_USERNAME`→`OP_SL_USERNAME`,
+`WBC_SQL_*`→`SQL_*`/`SQLSERVER_*`, `HANA_*`→`SAP_*`. O que NAO cai, de proposito: `SL_COMPANY_DB`,
+`WBC_ENVIRONMENT` e a trava — apontar a escrita para producao continua explicito no bloco WBC.
+`tests/wbc/conftest.py` passa a limpar tambem `SAP_`/`SQL_`/`SQLSERVER_`/`OP_SL_` do ambiente.
+12 testes (`tests/wbc/test_config_fallback.py`). Na .11 nada muda ate alguem apagar as linhas
+duplicadas do `.env`; vale no proximo deploy.
+
 ## [2026-09-08] — wbc: Service Layer so quando ha escrita (login preguicoso; ciclo sem acao nao toca o SL)
 
 Pedido do Marcelo. O `with ServiceLayerClient(...)` fazia `Login` na entrada e `Logout` na saida
