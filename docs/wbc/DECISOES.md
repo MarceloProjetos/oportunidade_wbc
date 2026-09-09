@@ -1809,3 +1809,10 @@ oportunidade. É o que o código já faz (`nasce_no_parceiro_corrigido` exige `a
 dia: `00125225` — o 84355 (no parceiro corrigido) foi cancelado à mão pelo `financeiro04` às 08:38,
 o worker recriou às 10:33 com `Update = 'N'` no parceiro da oportunidade (84360), e a troca pedida
 depois esbarrou na regra 1996.
+
+**Aplicado em 09/09 11:40** pelo Service Layer, com o próprio `orcaview` (que, pelo SL, é
+`Superuser = tNO` — a autorização de editar o cadastro bastou): `PATCH Users(144)`
+`{"U_INO_CancelaPedido":"S","U_INO_AlteraPeso":"S"}` → 204, conferido no `OUSR`. O objeto
+`Users` do SL é `OpenType` e expõe os UDFs do `OUSR`; a PATCH funciona como em qualquer
+entidade (UDFs no metadata desde o 9.1 PL05). `maintenance/liberar_cancelamento_orcaview.py`
+faz o mesmo a partir da .11, se precisar repetir noutro usuário.
