@@ -1,5 +1,12 @@
 # Plano — Integração WBC (WBCPython) dentro do ServidorIntegracaoSAP
 
+**Status (2026-09-09, 07:50): F7 itens 1 e 2 no ar.** Vigia da Mira do `.90` passa a sondar o
+worker (`/status?checks=worker&strict=1`; web `V118.2` `ddb6a16d`, pull no `.90` feito 07:47, sonda
+respondendo 200 no #89; vale no próximo restart do vigia, que é dele). Credenciais do WBC caem em
+`SAP_*`/`SQL_*`/`OP_SL_*` quando os nomes do WBC faltam (`06a038a`, 1.630 testes; a company de
+escrita nunca cai) — chega à .11 no próximo `deploy_update.bat`; a rotação de senhas vira uma
+linha por sistema, apagando as duplicatas do bloco WBC do `.env`.
+
 **Status (2026-09-09, 07:09): passou pelo primeiro boot sozinho.** A .11 reiniciou às ~06:13
 (uptime da API 56 min), o agendador de oportunidades rodou às 06:13, e o worker WBC retomou às
 07:00 dentro do expediente: 3 ciclos até 07:07 (#75: 1.688 avaliados, 0 escritas, 0 erros, 19 s),
@@ -302,6 +309,25 @@ se ele cair.
   explícito + conferir `Settings.Enabled = False` antes do `nssm start`, uma linha por vez.**
   O 1º ciclo do worker novo saiu limpo (1.682 avaliados, 0 escritas, 28 s); as 2 escritas
   previstas já tinham saído pelo legado às 15:40.
+
+### F7 — Recomendações de 09/09 (análise dos ciclos e do programa)
+Medido: ciclos de 17–28 s para 1.68 mil oportunidades a cada 3 min (~12 % do tempo ocupado),
+4 escritas em 76 ciclos, 0 erros. Ordem de valor:
+1. ✅ **Alerta automático quando o worker para** — vigia da Mira no `.90` sonda
+   `/status?checks=worker&strict=1` (web `V118.2`, `ddb6a16d`; pull no `.90` feito; vale no
+   próximo restart do vigia, que é dele). Motivo: os 48 min de worker parado em 08/09 só
+   foram vistos por quem olhava.
+2. ✅ **Uma senha por sistema** — o WBC cai em `SAP_*`/`SQL_*`/`OP_SL_*` quando os nomes dele
+   faltam (`06a038a`); a company de escrita nunca cai. Na .11 vale no próximo deploy; a
+   rotação de senhas passa a ser uma linha por sistema, apagando as duplicatas do bloco WBC.
+3. ⏳ **Deploy em PowerShell** (`deploy_update.ps1` chamado pelo `.bat`): os três defeitos de
+   08/09 eram a linguagem do `cmd`, não a lógica.
+4. ⏳ **Não criar um terceiro de nada**: dois clientes de SL, dois acessos HANA, dois SQL
+   Server, duas configs, dois agendadores. Coisa nova nasce nos padrões do `wbcpython`;
+   convergência quando cada peça antiga for tocada por outro motivo.
+5. ⏳ **`cli.py` (1.116 linhas) → um módulo por comando**; `processar.py` fica como está;
+   `docs/wbc/PROGRESS.md` e `DECISOES.md` (85–89 KB) → `docs/wbc/historico/`.
+6. ⏳ **Ciclo por mudança, não por relógio** — só se volume/ritmo apertar; hoje custa 20 s.
 
 ### F6 — Depois (sugestões; cada uma cabe num commit) `[abertas]`
 - ✅ **Retenção de `eventos`** (D8): feita — ver decisão 8.
