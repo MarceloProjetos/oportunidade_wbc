@@ -1790,3 +1790,22 @@ Sobre "atualizar" o parceiro em vez de cancelar e recriar: o B1 não aceita
 trocar o `CardCode` de um pedido já gravado, por isso o legado cancela e recria,
 e aqui também. Testes: `TestParceiroDoPedido`, `TestTrocaDeParceiroDeNegocios`
 (domínio) e `TestPedidoNasceNoParceiroCorrigido` (processador).
+
+### Complemento (09/09, 10:55): a "regra 1996" é o UDF `OUSR.U_INO_CancelaPedido`
+
+Não é autorização padrão do B1 (o Marcelo deu permissão ao usuário e o erro continuou). A
+`OUSR` tem quatro UDFs: `U_INO_RepCod`, `U_INO_CancelaPedido`, `U_INO_LiberaEntrega`,
+`U_INO_AlteraPeso`. Lido em produção: `U_INO_CancelaPedido = 'S'` em 4 usuários (`manager`,
+`financeiro01`, `financeiro04` e mais um) e `'N'` nos outros 105 — o `orcaview` entre eles. É
+essa lista que o `SBO_SP_TransactionNotification` consulta antes de deixar cancelar um pedido.
+Correção: `U_INO_CancelaPedido = 'S'` no usuário `orcaview` (tela de Usuários do B1, campos
+definidos pelo usuário). Vale já no ciclo seguinte: o worker faz login novo a cada ciclo. Sugerido
+também `U_INO_AlteraPeso = 'S'` (o `financeiro04` tinha, e o pedido leva peso nas linhas).
+Cancelar **cotação** o `orcaview` já pode (3 canceladas por ele desde 01/09).
+
+**Decisão de negócio confirmada (Marcelo, 09/09):** sem pedido e com `PN_Correc` preenchido, o
+pedido novo só nasce no `PN_Correc` com `Update = 'Y'`; com `'N'` nasce no parceiro da
+oportunidade. É o que o código já faz (`nasce_no_parceiro_corrigido` exige `alterado`). Caso do
+dia: `00125225` — o 84355 (no parceiro corrigido) foi cancelado à mão pelo `financeiro04` às 08:38,
+o worker recriou às 10:33 com `Update = 'N'` no parceiro da oportunidade (84360), e a troca pedida
+depois esbarrou na regra 1996.
