@@ -315,6 +315,44 @@ class TestTrocaDeParceiroDeNegocios:
         assert Acao.CANCELAR_E_RECRIAR_PEDIDO in decisao.acoes
         assert "troca_de_pn" in decisao.regra
 
+    def test_sem_pedido_e_update_y_cria_ja_no_pn_corrigido(self) -> None:
+        """Mesmas ações da criação comum (atualiza a cotação, cria, vincula),
+        regra própria para o histórico dizer que o pedido nasceu corrigido, e
+        **nenhum cancelamento** — não há o que cancelar."""
+        decisao = decidir(
+            estado(
+                sitcode_wbc=60,
+                tem_cotacao=True,
+                tem_pedido=False,
+                alterado=True,
+                parceiro_atual="C007515",
+                parceiro_novo="C004584",
+            )
+        )
+        # As três primeiras são a criação; o espelhamento do SitCode pode vir depois.
+        assert decisao.acoes[:3] == (
+            Acao.ATUALIZAR_COTACAO,
+            Acao.CRIAR_PEDIDO,
+            Acao.VINCULAR_DOCUMENTO_A_OPORTUNIDADE,
+        )
+        assert Acao.CANCELAR_E_RECRIAR_PEDIDO not in decisao.acoes
+        assert "cria_pedido_no_pn_corrigido" in decisao.regra
+        assert "C007515" in decisao.motivos[0] and "C004584" in decisao.motivos[0]
+
+    def test_sem_pedido_e_update_n_cria_no_parceiro_da_oportunidade(self) -> None:
+        decisao = decidir(
+            estado(
+                sitcode_wbc=60,
+                tem_cotacao=True,
+                tem_pedido=False,
+                alterado=False,
+                parceiro_atual="C007515",
+                parceiro_novo="C004584",
+            )
+        )
+        assert Acao.CRIAR_PEDIDO in decisao.acoes
+        assert decisao.regra.startswith("cria_pedido") and "corrigido" not in decisao.regra
+
     def test_troca_sem_parceiro_novo_informado_nao_age(self) -> None:
         # Defesa: o legado chamaria a verificação de PN com string vazia.
         decisao = decidir(
@@ -658,15 +696,59 @@ class TestParceiroDoPedido:
 
     def test_sem_pedido_nao_ha_troca_a_fazer(self) -> None:
         """A troca é cancelar-e-recriar um pedido; sem pedido, não se aplica.
-        O pedido novo já nasce com o parceiro da oportunidade."""
+        Com `Update = 'N'`, o pedido novo nasce com o parceiro da oportunidade:
+        `PN_Correc` sem a marca é dado residual (578 oportunidades o carregam)."""
         estado_ = estado(
             sitcode_wbc=60,
             tem_pedido=False,
+            alterado=False,
             parceiro_atual="C011151",
             parceiro_novo="C011081",
         )
         assert not estado_.troca_de_parceiro_pendente
+        assert not estado_.nasce_no_parceiro_corrigido
         assert estado_.parceiro_do_pedido == "C011151"
+
+    def test_sem_pedido_com_update_y_nasce_no_parceiro_corrigido(self) -> None:
+        """O caso do `00125572` (09/09/2026), visto pelo outro lado.
+
+        Ali o operador marcou `Update = 'Y'` + `PN_Correc` **depois** de o
+        pedido existir, e a troca caiu no cancelamento. Se marcar **antes**
+        (oportunidade corrigida em SitCode 40, pedido chega no 60), o pedido
+        tem de nascer no parceiro novo — senão nasce no antigo, o vínculo baixa
+        o `Update`, e a passada seguinte lê "corrigido à mão" para sempre.
+        """
+        estado_ = estado(
+            sitcode_wbc=60,
+            tem_pedido=False,
+            alterado=True,
+            parceiro_atual="C007515",
+            parceiro_novo="C004584",
+        )
+        assert not estado_.troca_de_parceiro_pendente
+        assert estado_.nasce_no_parceiro_corrigido
+        assert estado_.pedido_no_parceiro_corrigido
+        assert estado_.parceiro_do_pedido == "C004584"
+
+    def test_update_y_sem_pn_correc_nao_desvia_a_criacao(self) -> None:
+        """`'Y'` sozinho não diz para onde ir: sem `PN_Correc`, parceiro da
+        oportunidade (`00125645` em produção está assim)."""
+        estado_ = estado(sitcode_wbc=60, tem_pedido=False, alterado=True, parceiro_novo="")
+        assert not estado_.nasce_no_parceiro_corrigido
+        assert estado_.parceiro_do_pedido == estado_.parceiro_atual
+
+    def test_com_pedido_existente_a_marca_e_a_troca_e_nao_a_criacao(self) -> None:
+        estado_ = estado(
+            sitcode_wbc=60,
+            tem_pedido=True,
+            alterado=True,
+            parceiro_atual="C001",
+            parceiro_novo="C999",
+            parceiro_pedido_sap="C001",
+        )
+        assert estado_.troca_de_parceiro_pendente
+        assert not estado_.nasce_no_parceiro_corrigido
+        assert estado_.parceiro_do_pedido == "C999"
 
     def test_pn_correc_vazio_nao_e_troca(self) -> None:
         estado_ = estado(sitcode_wbc=60, tem_pedido=True, parceiro_atual="C001", parceiro_novo="")

@@ -549,17 +549,28 @@ class ProcessadorDeOrcamento:
     def _parceiro_existe(self, estado: EstadoIntegracao, orcnum: str) -> bool:
         """O parceiro corrigido existe no SAP? (`ChecaPN` do legado.)
 
+        Vale para os dois caminhos que gravam o pedido no `PN_Correc`: a troca
+        (cancela e recria) e a criação já corrigida. Criar no parceiro da
+        oportunidade "enquanto isso" seria pior do que não criar: o vínculo
+        baixa o `U_INO_Update`, e o pedido ficaria no parceiro errado para
+        sempre — ver `EstadoIntegracao.nasce_no_parceiro_corrigido`.
+
         Sem repositório de parceiros injetado, segue em frente: é o
         comportamento de antes, e vale para os testes que não exercitam troca.
         """
-        if not estado.troca_de_parceiro_pendente or self._parceiros is None:
+        if not estado.pedido_no_parceiro_corrigido or self._parceiros is None:
             return True
         if self._parceiros.existe(estado.parceiro_novo):
             return True
 
         aviso = (
             f"Parceiro corrigido {estado.parceiro_novo} não existe no SAP: "
-            f"o pedido não foi refeito (cancelá-lo o deixaria sem substituto)."
+            + (
+                "o pedido não foi criado (criá-lo no parceiro da oportunidade o "
+                "deixaria no parceiro errado para sempre)."
+                if estado.nasce_no_parceiro_corrigido
+                else "o pedido não foi refeito (cancelá-lo o deixaria sem substituto)."
+            )
         )
         logger.warning("Orçamento %s: %s", orcnum, aviso)
         self._tracking.registrar_evento(orcnum, tipo=TipoEvento.ERRO, mensagem=aviso)
@@ -717,6 +728,11 @@ class ProcessadorDeOrcamento:
         self._exigir_valor(tipo, orcamento.orcnum, dados)
 
         if acao is Acao.CRIAR_PEDIDO:
+            # Pedido nascendo já no `PN_Correc` (`U_INO_Update = 'Y'` antes de
+            # existir pedido): a mesma guarda `ChecaPN` da troca. Fora desse
+            # caso `_parceiro_existe` devolve True sem ir à rede.
+            if not self._parceiro_existe(estado, orcamento.orcnum):
+                return None, None
             return self._documentos.criar(tipo, dados), tipo
         if acao is Acao.CANCELAR_E_RECRIAR_PEDIDO:
             # `cancelar_e_recriar` cancela **antes** de criar. Se o parceiro
@@ -786,7 +802,10 @@ class ProcessadorDeOrcamento:
             filial=self._filial,
             snapshot_id=snapshot_id,
             oportunidade=oportunidade,
-            trocando_de_parceiro=estado.troca_de_parceiro_pendente,
+            # Vale também para o pedido que nasce no `PN_Correc`: o contato da
+            # oportunidade pertence ao parceiro antigo, e o SAP recusa contato
+            # de outro parceiro (`-5002 Invalid contact person code`).
+            trocando_de_parceiro=estado.pedido_no_parceiro_corrigido,
         )
         # O peso vai só no pedido — ver `domain.linhas`. A leitura é uma
         # consulta extra ao WBC, feita apenas nas ações que montam um pedido:

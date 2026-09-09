@@ -1242,6 +1242,84 @@ class TestParceiroCorrigidoInexistente:
         assert parceiros.consultados == []
 
 
+class TestPedidoNasceNoParceiroCorrigido:
+    """`U_INO_Update = 'Y'` + `PN_Correc` antes de existir pedido: nasce no PN novo.
+
+    Fiação do `EstadoIntegracao.nasce_no_parceiro_corrigido`: o payload leva o
+    parceiro novo, o contato do parceiro antigo fica de fora, e a guarda de
+    existência do parceiro (`ChecaPN`) vale como na troca — sem criar "enquanto
+    isso" no parceiro da oportunidade.
+    """
+
+    class ParceirosFalso:
+        def __init__(self, existentes: set[str]) -> None:
+            self._existentes = existentes
+            self.consultados: list[str] = []
+
+        def existe(self, card_code: str) -> bool:
+            self.consultados.append(card_code)
+            return card_code in self._existentes
+
+    def _rodar(self, tracking, parceiros=None, **oport):
+        docs = DocumentosFalso(tem_cotacao=True)
+        kw = {"parceiros": parceiros} if parceiros is not None else {}
+        _processador(
+            tracking,
+            WbcFalso(_orcamento(sitcode=60)),
+            docs,
+            OportunidadesFalso(),
+            OrcDetalheFalso(),
+            **kw,
+        ).processar(_oportunidade(CardCode="C007515", ContactPerson=7, **oport))
+        return docs
+
+    def test_cria_o_pedido_no_pn_corrigido_sem_cancelar_nada(self, tracking) -> None:
+        docs = self._rodar(tracking, U_INO_PN_Correc="C004584", U_INO_Update="Y")
+        criados = [c for c in docs.chamadas if c[0] == "criar" and c[1] is TipoDocumento.PEDIDO]
+        assert len(criados) == 1
+        assert criados[0][2]["CardCode"] == "C004584"
+        assert not any(c[0] == "cancelar_e_recriar" for c in docs.chamadas)
+
+    def test_o_contato_do_parceiro_antigo_fica_de_fora(self, tracking) -> None:
+        """Contato é do parceiro; no parceiro novo ele não existe e o SAP
+        recusa com `-5002 Invalid contact person code`."""
+        docs = self._rodar(tracking, U_INO_PN_Correc="C004584", U_INO_Update="Y")
+        pedido = next(c[2] for c in docs.chamadas if c[0] == "criar" and c[1] is TipoDocumento.PEDIDO)
+        assert "ContactPersonCode" not in pedido
+
+    def test_a_cotacao_continua_no_parceiro_da_oportunidade(self, tracking) -> None:
+        docs = self._rodar(tracking, U_INO_PN_Correc="C004584", U_INO_Update="Y")
+        cotacao = next(c[2] for c in docs.chamadas if c[1] is TipoDocumento.COTACAO)
+        assert cotacao["CardCode"] == "C007515"
+
+    def test_com_update_n_o_pedido_nasce_no_parceiro_da_oportunidade(self, tracking) -> None:
+        docs = self._rodar(tracking, U_INO_PN_Correc="C004584", U_INO_Update="N")
+        pedido = next(c[2] for c in docs.chamadas if c[0] == "criar" and c[1] is TipoDocumento.PEDIDO)
+        assert pedido["CardCode"] == "C007515"
+
+    def test_pn_corrigido_inexistente_nao_cria_o_pedido(self, tracking) -> None:
+        """Criar no parceiro da oportunidade "por enquanto" seria o defeito de
+        sempre: o vínculo baixa o `Update` e o pedido fica no PN errado. Sem
+        parceiro válido, não há pedido — e o motivo fica no histórico."""
+        parceiros = self.ParceirosFalso(set())
+        docs = self._rodar(tracking, parceiros, U_INO_PN_Correc="C004584", U_INO_Update="Y")
+        assert not any(c[1] is TipoDocumento.PEDIDO for c in docs.chamadas)
+        assert parceiros.consultados == ["C004584"]
+        mensagens = [e.mensagem for e in tracking.eventos("00123316")]
+        assert any("não existe no SAP" in m and "não foi criado" in m for m in mensagens)
+
+    def test_pn_corrigido_existente_consulta_uma_vez_e_cria(self, tracking) -> None:
+        parceiros = self.ParceirosFalso({"C004584"})
+        docs = self._rodar(tracking, parceiros, U_INO_PN_Correc="C004584", U_INO_Update="Y")
+        assert parceiros.consultados == ["C004584"]
+        assert any(c[0] == "criar" and c[1] is TipoDocumento.PEDIDO for c in docs.chamadas)
+
+    def test_criacao_comum_nao_consulta_parceiro(self, tracking) -> None:
+        parceiros = self.ParceirosFalso({"C007515"})
+        self._rodar(tracking, parceiros)
+        assert parceiros.consultados == []
+
+
 class TestPesoNoPedidoCriado:
     """O peso chega ao pedido de verdade — do WBC até o payload.
 

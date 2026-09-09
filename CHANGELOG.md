@@ -13,6 +13,20 @@ so instalacao nova nasce MANUAL. Na .11 de hoje: `nssm set OrcaView-WBC-Worker S
 Plano: `docs/PLANO_INTEGRACAO_WBCPYTHON.md` (8a atualizacao: tudo no ar; 1a escrita real no
 ciclo #4; worker parado 48 min pelo deploy das 15:52, corrigido).
 
+## [2026-09-09] — wbc: pedido nasce no `PN_Correc` quando `U_INO_Update = 'Y'` chega antes do pedido
+
+Revisao das regras contra o WBCPython original, a pedido do Marcelo. A troca de parceiro (cancela e
+recria) existe e dispara; no `00125572` quem recusa e o SAP: `-1116 (1996) Cancelamento de Pedido de
+vendas nao permitido para o seu usuario` — regra do `SBO_SP_TransactionNotification` que deixa o
+`financeiro04` cancelar (101 cancelamentos desde 06/2026) e nao o `orcaview`, usuario do SL desde a
+virada. Acao dele: incluir o `orcaview` na regra 1996 ou voltar `SL_USERNAME` para `financeiro04`.
+O que faltava no codigo: com `Update = 'Y'` + `PN_Correc` ANTES de existir pedido, ele nascia no
+parceiro da oportunidade, o vinculo baixava o `Update` e a passada seguinte lia "corrigido a mao"
+— parceiro errado para sempre (o legado tinha o mesmo buraco). Agora
+`EstadoIntegracao.nasce_no_parceiro_corrigido` cria o pedido ja no `PN_Correc` (regra
+`cria_pedido_no_pn_corrigido`), com a guarda `ChecaPN` (parceiro inexistente = nao cria, motivo no
+historico) e sem o contato do parceiro antigo. 12 testes novos. `docs/wbc/DECISOES.md`, ultima secao.
+
 ## [2026-09-09] — wbc: uma senha por sistema — credenciais do WBC caem nos nomes do SIS quando faltam
 
 Pedido do Marcelo na hora de rotacionar as senhas: o `.env` da .11 descrevia o mesmo HANA

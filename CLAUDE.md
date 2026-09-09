@@ -114,6 +114,12 @@ importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não impor
 - **DocEntry ≠ DocNum na OP** (a OP 125060 é o DocEntry 126599). O default das rotas é
   DocNum (o número da tela); `?chave=docentry` troca. DocNum que casa com mais de uma
   ordem é **recusado** (409), nunca resolvido por `[0]`.
+- **Troca de parceiro do pedido (`U_INO_PN_Correc` + `U_INO_Update = 'Y'`, UDFs da oportunidade):**
+  com pedido existente é cancelar-e-recriar (`troca_de_pn`); sem pedido, ele **nasce** no
+  `PN_Correc` (`cria_pedido_no_pn_corrigido`). `'N'` + `PN_Correc` = já corrigido à mão, não mexer.
+  O SAP recusa o cancelamento ao usuário `orcaview` (`-1116 (1996)`, regra do
+  `SBO_SP_TransactionNotification`; o `financeiro04` pode) — não é defeito da integração.
+  Decisão: `docs/wbc/DECISOES.md`, "`U_INO_Update = 'Y'` antes de existir pedido".
 - **Sessão do Service Layer: nunca um login por request.** O SL tem teto de sessões
   concorrentes e vazá-las derruba o SL para todo mundo, cliente B1 incluído — por isso a
   sessão é compartilhada com TTL e a sessão **substituída sai pelo `/Logout`**.

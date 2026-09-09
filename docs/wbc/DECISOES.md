@@ -1724,3 +1724,69 @@ Medido na janela de produção (1.668 oportunidades): **2** estavam nesse estado
 correção, essas duas seriam reescritas a cada ciclo, para sempre.
 
 Cinco dos sete testes novos reprovam com a guarda antiga.
+
+## `U_INO_Update = 'Y'` antes de existir pedido: ele nasce no `PN_Correc`
+
+Pedido do Marcelo em 09/09/2026, ao revisar as regras contra o WBCPython original:
+"faltou a regra de atualizar o pedido quando `U_INO_Update = 'Y'`: alterar o
+parceiro de negócios do pedido". A revisão mostrou duas coisas distintas.
+
+### 1. A troca existe e dispara — quem recusa é o SAP, para o usuário `orcaview`
+
+O caso vivo era o `00125572`: pedido 84357 criado pelo worker às 08:43 no parceiro
+da oportunidade (`C007515`), o operador preencheu `PN_Correc = C004584` e
+`Update = 'Y'` entre 08:45 e 09:00, e desde 09:00 **a cada ciclo** a decisão é
+`troca_de_pn` (cancela e recria) e o SAP responde:
+
+```
+HTTP 400 | SAP -1116 | POST Orders(19792)/Cancel
+(1996) Cancelamento de Pedido de vendas não permitido para o seu usuário!
+```
+
+`-1116` é o código com que o `SBO_SP_TransactionNotification` bloqueia uma
+transação; `1996` é o número da regra dentro dele. Não é autorização padrão do
+B1: `orcaview` e `financeiro04` são os dois `SUPERUSER = 'Y'` na `OUSR`. É uma
+lista de usuários dentro do procedimento — e o `orcaview` (usuário do Service
+Layer desde a virada de 08/09) não está nela. Medido no `ORDR`: desde 06/2026,
+101 cancelamentos de pedido pelo `financeiro04` (o legado e o worker antigo,
+incluindo as duas trocas de 08/09: 84345 e 84347), zero pelo `orcaview`.
+
+A integração está certa; o ambiente mudou de usuário. Saída: incluir o
+`orcaview` na regra 1996 (quem mantém o `SBO_SP_TransactionNotification`), ou
+voltar o `SL_USERNAME` do bloco WBC para `financeiro04`. Até lá o ciclo repete a
+tentativa a cada 3 minutos — inofensivo (cancela **antes** de criar, então nada
+é criado) e visível no painel como "Com erro".
+
+### 2. O que faltava de verdade: o pedido que nasce depois da correção
+
+A troca só olha pedido **existente** (`troca_de_parceiro_pendente` exige
+`tem_pedido`), e a criação usava sempre o parceiro da oportunidade — como o
+legado (`CriaPedido(oRs.Fields.Item(1))`). Se o operador corrige o parceiro
+**antes** de o orçamento chegar ao SitCode 60, a sequência era:
+
+1. pedido criado no parceiro antigo;
+2. o vínculo do pedido baixa `U_INO_Update` para `'N'` (regra "A baixa de
+   `U_INO_Update`, decidida");
+3. passada seguinte: `PN_Correc` + `'N'` = `pedido_corrigido_a_mao` — congelado.
+
+Pedido no parceiro errado, para sempre, sem erro nenhum. O legado tinha o mesmo
+buraco.
+
+Agora `EstadoIntegracao.nasce_no_parceiro_corrigido` (`not tem_pedido and
+alterado and parceiro_novo`) faz o pedido **nascer** no `PN_Correc`, sem
+cancelar nada — regra `cria_pedido_no_pn_corrigido` no histórico. É a mesma
+frase da troca, dita para o outro caminho: **`Update = 'Y'` manda o pedido para
+o `PN_Correc`.** Vale também:
+
+* a guarda `ChecaPN` (`_parceiro_existe`): parceiro corrigido inexistente →
+  **não cria** e registra o motivo. Criar "enquanto isso" no parceiro da
+  oportunidade reproduziria o buraco acima;
+* o contato da oportunidade fica de fora (é do parceiro antigo);
+* a cotação continua no parceiro da oportunidade, como sempre;
+* `Update = 'N'` com `PN_Correc` na criação continua criando no parceiro da
+  oportunidade — é o dado residual das 578 oportunidades.
+
+Sobre "atualizar" o parceiro em vez de cancelar e recriar: o B1 não aceita
+trocar o `CardCode` de um pedido já gravado, por isso o legado cancela e recria,
+e aqui também. Testes: `TestParceiroDoPedido`, `TestTrocaDeParceiroDeNegocios`
+(domínio) e `TestPedidoNasceNoParceiroCorrigido` (processador).

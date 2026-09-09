@@ -246,15 +246,41 @@ class EstadoIntegracao:
         return self.parceiro_pedido_sap != self.parceiro_novo
 
     @property
+    def nasce_no_parceiro_corrigido(self) -> bool:
+        """Pedido ainda não existe, e o operador já pediu o parceiro novo.
+
+        `U_INO_Update = 'Y'` com `U_INO_PN_Correc` preenchido **antes** de o
+        pedido existir. O legado criava o pedido no `CardCode` da oportunidade
+        (`CriaPedido(oRs.Fields.Item(1))`) e só olhava o `PNNew` no ramo da
+        troca, que exige pedido existente — e o vínculo do pedido novo baixa o
+        `Update` para `'N'`. Resultado: na passada seguinte a combinação
+        `PN_Correc` + `'N'` é lida como "já corrigido à mão" e o pedido fica
+        para sempre no parceiro errado, sem erro nenhum.
+
+        A regra pedida pelo negócio (Marcelo, 09/09/2026) é a mesma dos dois
+        caminhos: **`Update = 'Y'` manda o pedido para o `PN_Correc`.** Havendo
+        pedido, é a troca (cancela e recria); não havendo, é aqui — o pedido
+        nasce no parceiro certo, sem cancelar nada. Mesma guarda de existência
+        do parceiro (`ChecaPN`) nos dois casos, no `processar.py`.
+        """
+        return not self.tem_pedido and self.alterado and bool(self.parceiro_novo)
+
+    @property
+    def pedido_no_parceiro_corrigido(self) -> bool:
+        """O pedido a gravar (novo ou refeito) leva o `PN_Correc`, não o da oportunidade."""
+        return self.troca_de_parceiro_pendente or self.nasce_no_parceiro_corrigido
+
+    @property
     def parceiro_do_pedido(self) -> str:
         """O parceiro que o **pedido** deve levar.
 
-        Só o `PN_Correc` quando a troca está pendente; fora disso, o da
+        O `PN_Correc` quando a troca está pendente **ou** quando o pedido vai
+        nascer já corrigido (`nasce_no_parceiro_corrigido`); fora disso, o da
         oportunidade — como no legado, em que `CriaPedido` recebe
         `oRs.Fields.Item(1)` (o `CardCode` da oportunidade) no caminho normal e
         `PNNew` apenas no ramo da troca.
         """
-        return self.parceiro_novo if self.troca_de_parceiro_pendente else self.parceiro_atual
+        return self.parceiro_novo if self.pedido_no_parceiro_corrigido else self.parceiro_atual
 
     @property
     def status_ja_espelhado(self) -> bool:
@@ -550,6 +576,17 @@ def _decidir_pedido(
 ) -> None:
     """SitCode 60 — pedido fechado."""
     if not estado.tem_pedido:
+        if estado.nasce_no_parceiro_corrigido:
+            acumulador.registrar(
+                f"SitCode 60 e nenhum pedido no SAP; parceiro corrigido na oportunidade "
+                f"({estado.parceiro_atual or '-'} → {estado.parceiro_novo}, U_INO_Update = 'Y'): "
+                f"atualiza a cotação e cria o pedido já no parceiro novo.",
+                Acao.ATUALIZAR_COTACAO,
+                Acao.CRIAR_PEDIDO,
+                Acao.VINCULAR_DOCUMENTO_A_OPORTUNIDADE,
+            )
+            regras.append("cria_pedido_no_pn_corrigido")
+            return
         acumulador.registrar(
             "SitCode 60 e nenhum pedido no SAP: atualiza a cotação e cria o pedido.",
             Acao.ATUALIZAR_COTACAO,
