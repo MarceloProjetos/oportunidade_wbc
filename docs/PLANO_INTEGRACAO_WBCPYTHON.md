@@ -1,5 +1,19 @@
 # Plano — Integração WBC (WBCPython) dentro do ServidorIntegracaoSAP
 
+**Status (2026-09-09, 10:10): revisão das regras contra o WBCPython original + deploy.** Pedido do
+Marcelo: "faltou a regra de atualizar o pedido quando `U_INO_Update = 'Y'`: alterar o parceiro".
+Achado (1): a troca existe e dispara; no `00125572` quem recusava era o SAP, para o usuário
+`orcaview` — `-1116 (1996) Cancelamento de Pedido de vendas não permitido para o seu usuário`, regra
+do `SBO_SP_TransactionNotification` (o `financeiro04` fez 101 cancelamentos desde 06/2026; o
+`orcaview`, zero). O caso foi resolvido à mão às 09:39 (pedido 84359 no parceiro certo).
+**Decisão dele: incluir o `orcaview` na regra 1996 do SAP** (F8, ação dele/consultoria). Achado (2),
+corrigido em `6f5923d`: com `Update = 'Y'` + `PN_Correc` **antes** de existir pedido, ele nascia no
+parceiro antigo e o vínculo baixava o `Update` — congelado para sempre (buraco herdado do legado);
+agora nasce no `PN_Correc` (`cria_pedido_no_pn_corrigido`, guarda `ChecaPN`, 12 testes). Deploy na .11
+às 10:04, worker retomou no #130. Também hoje: deploy das 08:00 (uma senha por sistema no ar) e o
+alerta do vigia provado. Pasta `D:\ProjetoAltamira\WBCPython` recolocada por ele como referência
+(só leitura; o pacote em `wbcpython/` é a fonte).
+
 **Status (2026-09-09, 08:35): alerta do worker PROVADO de ponta a ponta.** Deploy na .11 às
 08:00 (API religou, worker retomou no #94 sem intervenção); `.90` reiniciado 07:57 com o vigia
 novo. Teste real: `nssm stop` do worker às 08:15 → `/status` `stale` aos 11 min (08:23:49, 503) →
@@ -335,6 +349,16 @@ Medido: ciclos de 17–28 s para 1.68 mil oportunidades a cada 3 min (~12 % do t
 5. ⏳ **`cli.py` (1.116 linhas) → um módulo por comando**; `processar.py` fica como está;
    `docs/wbc/PROGRESS.md` e `DECISOES.md` (85–89 KB) → `docs/wbc/historico/`.
 6. ⏳ **Ciclo por mudança, não por relógio** — só se volume/ritmo apertar; hoje custa 20 s.
+
+### F8 — Troca de parceiro do pedido: usuário do SL precisa poder cancelar `[Marcelo · SAP]`
+- ⏳ **Incluir o `orcaview` na regra 1996 do `SBO_SP_TransactionNotification`** (decisão de 09/09).
+  Até lá, toda troca com pedido existente repete o erro a cada 3 min (inofensivo: cancela antes de
+  criar, nada é criado; aparece como "Com erro" no painel). Alternativa descartada: voltar
+  `SL_USERNAME` ao `financeiro04`.
+- ✅ Regra da criação corrigida (`6f5923d`): pedido nasce no `PN_Correc` quando o `Update = 'Y'`
+  chega antes do pedido. Decisão em `docs/wbc/DECISOES.md`, última seção.
+- Prova depois da regra 1996: numa oportunidade com pedido aberto, preencher `PN_Correc` +
+  `Update = 'Y'` e ver `troca_de_pn` executar no ciclo seguinte (histórico no painel 8079).
 
 ### F6 — Depois (sugestões; cada uma cabe num commit) `[abertas]`
 - ✅ **Retenção de `eventos`** (D8): feita — ver decisão 8.
