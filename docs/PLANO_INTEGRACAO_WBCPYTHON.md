@@ -5,8 +5,9 @@
 07:00 dentro do expediente: 3 ciclos até 07:07 (#75: 1.688 avaliados, 0 escritas, 0 erros, 19 s),
 `healthy=true`, sem alertas, painel 8079 no ar, raiz da 8077 levando a ele, tarefa legada
 `retired`. Ontem entre 16:54 e 20:00 o worker fechou o dia em #72. O worker antigo segue parado
-(log local parou 08/09 13:24). **Restam só itens dele, sem pressa:** apagar `MCPs\WBCPython`,
-rotacionar as senhas que passaram pelo chat (com o worker antigo parado, `financeiro04` ficou
+(log local parou 08/09 13:24). **09/09 07:20: `MCPs\WBCPython` apagada** (o único histórico do
+standalone, com o `.env.bak`, deixou de existir; o arquivo local `.env.wbc-para-a-11` também foi
+removido). **Restam só itens dele, sem pressa:** rotacionar as senhas que passaram pelo chat (com o worker antigo parado, `financeiro04` ficou
 sem uso — pode ser desativado) e, num dia calmo, apagar a tarefa legada desabilitada.
 
 **Status (2026-09-08, 8ª atualização, 16:40): tudo no ar na .11, com o código final.** Worker
