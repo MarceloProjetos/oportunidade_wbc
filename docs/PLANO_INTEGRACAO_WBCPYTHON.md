@@ -1,5 +1,14 @@
 # Plano — Integração WBC (WBCPython) dentro do ServidorIntegracaoSAP
 
+**Status (2026-09-09, 07:09): passou pelo primeiro boot sozinho.** A .11 reiniciou às ~06:13
+(uptime da API 56 min), o agendador de oportunidades rodou às 06:13, e o worker WBC retomou às
+07:00 dentro do expediente: 3 ciclos até 07:07 (#75: 1.688 avaliados, 0 escritas, 0 erros, 19 s),
+`healthy=true`, sem alertas, painel 8079 no ar, raiz da 8077 levando a ele, tarefa legada
+`retired`. Ontem entre 16:54 e 20:00 o worker fechou o dia em #72. O worker antigo segue parado
+(log local parou 08/09 13:24). **Restam só itens dele, sem pressa:** apagar `MCPs\WBCPython`,
+rotacionar as senhas que passaram pelo chat (com o worker antigo parado, `financeiro04` ficou
+sem uso — pode ser desativado) e, num dia calmo, apagar a tarefa legada desabilitada.
+
 **Status (2026-09-08, 8ª atualização, 16:40): tudo no ar na .11, com o código final.** Worker
 religado às 16:39 já como `python.exe` direto (`install_wbc_services.bat`): ciclo #5 em 27 s,
 1.683 avaliados, **3 escritas, 0 erros**. **Primeira escrita real da .11** foi no ciclo #4
