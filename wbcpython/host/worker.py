@@ -27,6 +27,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from wbcpython.application.processar import ACOES_DE_ESCRITA, ProcessadorDeOrcamento
 from wbcpython.config import Settings
+from wbcpython.host.parada import PedidoDeParada
 from wbcpython.infrastructure.hana.oportunidades import RepositorioOportunidadesHana
 from wbcpython.infrastructure.service_layer.client import ServiceLayerClient
 from wbcpython.infrastructure.service_layer.documentos import (
@@ -143,6 +144,9 @@ class WorkerIntegracao:
             else settings.limite_de_escrita_por_ciclo
         )
         self._parar = threading.Event()
+        #: O canal de parada que não depende de console nem de sinal — ver
+        #: `host/parada.py`. Consultado entre orçamentos e entre ciclos.
+        self._pedido_de_parada = PedidoDeParada(settings.worker_arquivo_de_parada)
         #: Dia em que a faxina do acompanhamento já rodou — uma vez por dia basta.
         self._faxina_em: date | None = None
 
@@ -304,7 +308,7 @@ class WorkerIntegracao:
                     )
 
                 for oportunidade in pendentes:
-                    if self._parar.is_set():
+                    if self.parada_solicitada():
                         logger.info("Parada solicitada — ciclo interrompido.")
                         break
                     if escritas >= self._limite_de_escrita:
@@ -375,6 +379,12 @@ class WorkerIntegracao:
         que se repete assim deixa de ser lido justamente quando importa.
         """
         agora = _agora()
+        if self.parada_solicitada():
+            # Um ciclo que começasse agora só terminaria depois do `nssm stop`
+            # desistir: o pedido chegou entre dois ciclos, e o certo é não abrir
+            # outro.
+            logger.info("Parada solicitada — ciclo não iniciado.")
+            return ResultadoExecucao()
         motivo = self._motivo_para_nao_rodar(agora)
 
         if motivo is None:
@@ -458,6 +468,9 @@ class WorkerIntegracao:
         )
 
         self._instalar_sinais()
+        # Um pedido de parada esquecido (do deploy que acabou de nos religar, ou
+        # de alguém que parou o worker à mão) não pode derrubar o processo novo.
+        self._pedido_de_parada.limpar(motivo="partida do worker")
         logger.info(
             "Worker iniciado (intervalo de %ds; expediente %s, %s–%s). %s",
             intervalo,
@@ -473,13 +486,31 @@ class WorkerIntegracao:
             # worker 22h não pode ser a porta dos fundos para rodar fora do
             # horário.
             self._ciclo_agendado()
-            self._parar.wait()
+            # `wait()` sem timeout não é interrompido por sinal no Windows: o
+            # tratador de Ctrl+C só rodaria depois do wait — nunca. Acordar a
+            # cada segundo dá vez ao tratador **e** ao arquivo de parada.
+            while not self._parar.wait(1.0):
+                self.parada_solicitada()
         finally:
+            # `wait=True`: o ciclo em andamento termina (ele mesmo já viu o
+            # pedido e interrompe entre orçamentos), a trava é liberada e a
+            # execução é fechada antes de o processo sair.
             agendador.shutdown(wait=True)
             logger.info("Worker encerrado.")
 
     def solicitar_parada(self) -> None:
         self._parar.set()
+
+    def parada_solicitada(self) -> bool:
+        """Sinal recebido **ou** arquivo de parada presente.
+
+        O arquivo promove a si mesmo a sinal: assim o laço principal acorda,
+        `rodar_continuamente` chega ao `shutdown` e o processo termina — o que o
+        `deploy_update.bat` está esperando do outro lado.
+        """
+        if not self._parar.is_set() and self._pedido_de_parada.pendente():
+            self._parar.set()
+        return self._parar.is_set()
 
     def _instalar_sinais(self) -> None:
         def encerrar(_sinal: int, _quadro: FrameType | None) -> None:

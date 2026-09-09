@@ -13,6 +13,21 @@ so instalacao nova nasce MANUAL. Na .11 de hoje: `nssm set OrcaView-WBC-Worker S
 Plano: `docs/PLANO_INTEGRACAO_WBCPYTHON.md` (8a atualizacao: tudo no ar; 1a escrita real no
 ciclo #4; worker parado 48 min pelo deploy das 15:52, corrigido).
 
+## [2026-09-09] — wbc: parada por arquivo (`state/wbc_worker.stop`) — o deploy nao mata mais o worker no meio do ciclo
+
+Deploy das 10:14 (o 2o do dia) pegou o worker 3 s dentro do ciclo #133: Event Log do NSSM mostra
+STOP 10:12:55, `kill_console()` esperando 60 s pelo Ctrl+C sem resposta, `Killing process tree`
+10:13:57. O tratador de Ctrl+C existia mas nunca rodava: `Event.wait()` sem timeout nao e
+interrompido por sinal no Windows — e o agendador ainda abriu o #133 no meio da espera. Resultado:
+trava em nome do PID morto por 30 min (`Ciclo ignorado ... expira em 10:43:50`), execucao #133
+"em andamento" para sempre, e o reboot da .11 (10:26) nao resolveu. Agora: (1) `deploy_update.bat`
+grava `state\wbc_worker.stop` antes do `nssm stop`; (2) o worker checa o arquivo entre orcamentos
+e entre ciclos (`host/parada.py`, `WorkerIntegracao.parada_solicitada`), nao abre ciclo novo, termina
+o atual (trava liberada, execucao fechada, Logout) e sai; apaga o arquivo ao religar; (3) o laco
+principal acorda a cada 1 s, entao o Ctrl+C tambem passa a funcionar. `WORKER_ARQUIVO_DE_PARADA`
+(padrao `state/wbc_worker.stop`). 11 testes (`tests/wbc/host/test_parada_por_arquivo.py`). Pendente
+(proposto): assumir na hora a trava de PID morto na mesma maquina, em vez de esperar 30 min.
+
 ## [2026-09-09] — wbc: pedido nasce no `PN_Correc` quando `U_INO_Update = 'Y'` chega antes do pedido
 
 Revisao das regras contra o WBCPython original, a pedido do Marcelo. A troca de parceiro (cancela e

@@ -70,7 +70,13 @@ nssm stop OrcaView-OS-API     >nul 2>&1
 nssm stop OrcaView-Scheduler  >nul 2>&1
 nssm stop OrcaView-WBC-Painel >nul 2>&1
 if defined WORKER_ATIVO (
-  echo [nssm] parando o worker WBC ^(termina o ciclo atual; espera ate 90 s^)...
+  REM Parada por arquivo (09/09/2026): o python.exe direto no servico nao tem console, o
+  REM Ctrl+C do NSSM nao chega e o worker era morto no meio do ciclo (trava presa 30 min,
+  REM execucao "em andamento" para sempre). O worker ve o arquivo entre orcamentos e entre
+  REM ciclos, termina o que esta fazendo e sai; ele mesmo apaga o arquivo ao religar.
+  if not exist "state" mkdir "state"
+  echo parada pedida pelo deploy_update.bat em %DATE% %TIME%> "state\wbc_worker.stop"
+  echo [nssm] parando o worker WBC ^(state\wbc_worker.stop gravado; termina o ciclo atual; espera ate 90 s^)...
   nssm stop OrcaView-WBC-Worker >nul 2>&1
   call :esperar_parar OrcaView-WBC-Worker 90
 )

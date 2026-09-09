@@ -243,6 +243,13 @@ class Settings(BaseSettings):
     #: não pegaram porque construíam `Settings(...)` com o valor já pronto, sem
     #: passar pela fonte do `.env`; quem pegou foi rodar no ambiente real.
     worker_dias_de_trabalho: str = Field(default="1,2,3,4,5", alias="WORKER_DIAS_DE_TRABALHO")
+    #: Arquivo cuja existência pede ao worker que termine o que está fazendo e
+    #: saia. O `deploy_update.bat` o grava antes do `nssm stop`; o worker o
+    #: remove na partida. Relativo ao cwd (a raiz do projeto), como o resto de
+    #: `state/`. Ver `host/parada.py`.
+    worker_arquivo_de_parada: Path = Field(
+        default=Path("state/wbc_worker.stop"), alias="WORKER_ARQUIVO_DE_PARADA"
+    )
 
     @field_validator("worker_dias_de_trabalho", mode="before")
     @classmethod

@@ -185,9 +185,13 @@ importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não impor
 - **Nunca `git subtree add` do repo antigo `MCPs\WBCPython`**: o histórico dele versiona um
   `.env.bak` com senha e este repo é público. O import de 2026-09-08 foi por cópia, sem
   histórico, de propósito.
-- **Parada limpa do worker**: NSSM manda Ctrl+C, o worker termina o ciclo (9–14 s) e sai; o
-  serviço tem `AppStopMethodConsole 60000`. Não reduzir: matar no meio de um POST no SAP
-  deixa cotação criada sem vínculo (já aconteceu por outro motivo — `docs/wbc/RETOMADA.md`).
+- **Parada limpa do worker é por ARQUIVO, não por Ctrl+C**: o `deploy_update.bat` grava
+  `state\wbc_worker.stop` antes do `nssm stop`; o worker o vê entre orçamentos e entre ciclos,
+  termina o que está fazendo e sai (apaga o arquivo ao religar). Parar à mão com segurança =
+  gravar o arquivo e depois `nssm stop`. O Ctrl+C do NSSM (`AppStopMethodConsole 60000`) chegava
+  mas o worker não reagia (`Event.wait()` sem timeout no Windows) e era **morto aos 60 s** —
+  em 09/09 no meio do ciclo #133, trava presa 30 min. Matar no meio de um POST no SAP deixa
+  cotação criada sem vínculo (`docs/wbc/RETOMADA.md`). Ver `wbcpython/host/parada.py`.
 
 ## Comandos
 
