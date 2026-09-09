@@ -7,7 +7,10 @@
 `retired`. Ontem entre 16:54 e 20:00 o worker fechou o dia em #72. O worker antigo segue parado
 (log local parou 08/09 13:24). **09/09 07:20: `MCPs\WBCPython` apagada** (o único histórico do
 standalone, com o `.env.bak`, deixou de existir; o arquivo local `.env.wbc-para-a-11` também foi
-removido). **Restam só itens dele, sem pressa:** rotacionar as senhas que passaram pelo chat (com o worker antigo parado, `financeiro04` ficou
+removido). **07:30: as tarefas "Integração WBC" e "IntegraçãoWbc Teste" foram APAGADAS do Task
+Scheduler** (decisão dele, sem esperar os dias de observação) — o rollback para o legado agora
+exige recriar a tarefa; o programa C# segue no disco da .11. No Task Scheduler ficam só
+`OrcaView-Clean-Azure-Logs` e as do Edge. **Restam só itens dele, sem pressa:** rotacionar as senhas que passaram pelo chat (com o worker antigo parado, `financeiro04` ficou
 sem uso — pode ser desativado) e, num dia calmo, apagar a tarefa legada desabilitada.
 
 **Status (2026-09-08, 8ª atualização, 16:40): tudo no ar na .11, com o código final.** Worker
