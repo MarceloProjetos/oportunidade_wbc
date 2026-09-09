@@ -13,6 +13,13 @@ so instalacao nova nasce MANUAL. Na .11 de hoje: `nssm set OrcaView-WBC-Worker S
 Plano: `docs/PLANO_INTEGRACAO_WBCPYTHON.md` (8a atualizacao: tudo no ar; 1a escrita real no
 ciclo #4; worker parado 48 min pelo deploy das 15:52, corrigido).
 
+## [2026-09-09] — painel WBC: fontes ~10% maiores
+
+Pedido do Marcelo olhando o painel na .11. Todos os `font-size`/`font:` do `painel.css` escalados
+por 1,1 e arredondados a meio pixel (11→12, 12→13, 12,5→14, 13→14,5, 14→15,5, 15→16,5, 26→28,5).
+Prévia local antes/depois com os fragmentos reais. `painel.css?v=20260909` no `pagina.html` para
+furar o cache do navegador.
+
 ## [2026-09-09] — wbc: parada por arquivo (`state/wbc_worker.stop`) — o deploy nao mata mais o worker no meio do ciclo
 
 Deploy das 10:14 (o 2o do dia) pegou o worker 3 s dentro do ciclo #133: Event Log do NSSM mostra

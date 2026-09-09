@@ -101,7 +101,7 @@ body {
   margin: 0;
   background: var(--fundo);
   color: var(--tinta);
-  font: 400 14px/1.5 var(--ui);
+  font: 400 15.5px/1.5 var(--ui);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -150,11 +150,11 @@ a {
 }
 
 .marca h1 {
-  font-size: 15px;
+  font-size: 16.5px;
 }
 
 .marca .sub {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--tinta-fraquissima);
 }
 
@@ -167,7 +167,7 @@ a {
   gap: 8px;
   padding: 4px 10px;
   border-radius: 999px;
-  font: 600 11px/1 var(--mono);
+  font: 600 12px/1 var(--mono);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   background: var(--neutro-fundo);
@@ -183,7 +183,7 @@ a {
 
 .tarja-producao {
   padding: 8px 20px;
-  font: 600 12px/1.4 var(--ui);
+  font: 600 13px/1.4 var(--ui);
   color: #fff;
   background-color: #a3251b;
   background-image: repeating-linear-gradient(
@@ -207,7 +207,7 @@ a {
   border: 0;
   background: none;
   cursor: pointer;
-  font: 500 13px/1 var(--ui);
+  font: 500 14.5px/1 var(--ui);
   color: var(--tinta-fraca);
   padding: 11px 14px;
   border-bottom: 2px solid transparent;
@@ -252,7 +252,7 @@ main {
 }
 
 .bloco > header h2 {
-  font-size: 13px;
+  font-size: 14.5px;
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: var(--tinta-fraca);
@@ -265,7 +265,7 @@ main {
 
 .nota {
   color: var(--tinta-fraquissima);
-  font-size: 12px;
+  font-size: 13px;
   margin: 8px 0 0;
 }
 
@@ -321,7 +321,7 @@ main {
 }
 
 .kpi .rotulo {
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--tinta-fraquissima);
@@ -330,7 +330,7 @@ main {
 }
 
 .kpi .valor {
-  font: 600 26px/1.1 var(--mono);
+  font: 600 28.5px/1.1 var(--mono);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
 }
@@ -338,7 +338,7 @@ main {
 .kpi .detalhe {
   display: block;
   margin-top: 4px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--tinta-fraquissima);
 }
 
@@ -363,7 +363,7 @@ main {
   align-items: center;
   gap: 7px;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 14.5px;
   padding: 5px 11px;
   border-radius: 999px;
 }
@@ -409,7 +409,7 @@ main {
 }
 
 .campo > span {
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--tinta-fraquissima);
@@ -420,7 +420,7 @@ input[type="number"],
 input[type="search"],
 input[type="password"],
 select {
-  font: 400 13px/1 var(--ui);
+  font: 400 14.5px/1 var(--ui);
   color: var(--tinta);
   background: var(--painel);
   border: 1px solid var(--traco-forte);
@@ -437,7 +437,7 @@ input[type="search"].largo {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-size: 13px;
+  font-size: 14.5px;
   color: var(--tinta-fraca);
   cursor: pointer;
   padding-bottom: 8px;
@@ -451,7 +451,7 @@ button.acao,
 a.acao {
   appearance: none;
   cursor: pointer;
-  font: 600 13px/1 var(--ui);
+  font: 600 14.5px/1 var(--ui);
   color: #fff;
   background: var(--acento);
   border: 1px solid transparent;
@@ -496,7 +496,7 @@ a.acao {
 }
 
 .bloco.entrada input[type="password"] {
-  font: 14px/1.4 var(--mono);
+  font: 15.5px/1.4 var(--mono);
   padding: 8px 10px;
   border: 1px solid var(--traco-forte);
   border-radius: 5px;
@@ -511,7 +511,7 @@ a.acao {
 
 .entrada-ajuda {
   color: var(--tinta-fraca);
-  font-size: 13px;
+  font-size: 14.5px;
   margin: 6px 0;
 }
 
@@ -520,7 +520,7 @@ a.acao {
   background: var(--critico-fundo);
   padding: 8px 10px;
   border-radius: 5px;
-  font-size: 13px;
+  font-size: 14.5px;
   margin: 6px 0;
 }
 
@@ -535,7 +535,7 @@ a.acao {
 table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 14.5px;
 }
 
 thead th {
@@ -544,7 +544,7 @@ thead th {
   z-index: 1;
   background: var(--painel-2);
   text-align: left;
-  font: 600 11px/1 var(--ui);
+  font: 600 12px/1 var(--ui);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--tinta-fraca);
@@ -592,7 +592,7 @@ td.num {
   grid-template-columns: minmax(120px, 34%) 1fr auto;
   align-items: center;
   gap: 10px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 /* `display: block` nos dois não é detalhe de gosto: são `<span>`, e uma caixa
@@ -631,7 +631,7 @@ td.num {
 
 .log {
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 14px;
   line-height: 1.45;
   max-height: 60vh;
   overflow: auto;
@@ -656,7 +656,7 @@ td.num {
 
 .log-linha .nivel {
   font-weight: 600;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.04em;
   color: var(--tinta-fraca);
 }
@@ -693,7 +693,7 @@ td.num {
   padding: 11px 13px;
   border-radius: var(--raio);
   border: 1px solid;
-  font-size: 13px;
+  font-size: 14.5px;
   margin-bottom: 12px;
 }
 
@@ -721,7 +721,7 @@ td.num {
 code,
 .cmd {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 13px;
   background: var(--neutro-fundo);
   border: 1px solid var(--traco);
   border-radius: 4px;
@@ -742,7 +742,7 @@ code,
 }
 
 .pares dt {
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--tinta-fraquissima);
@@ -774,14 +774,14 @@ code,
   border: 1px solid var(--traco);
   border-radius: 10px;
   background: var(--painel-2);
-  font-size: 12px;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 
 /* ------------------------------------------------------------------ atualização */
 
 .carimbo {
-  font: 400 11px/1 var(--mono);
+  font: 400 12px/1 var(--mono);
   color: var(--tinta-fraquissima);
   display: inline-flex;
   align-items: center;
@@ -876,19 +876,19 @@ code,
 }
 
 .comando-cabeca h3 {
-  font-size: 14px;
+  font-size: 15.5px;
   margin-right: auto;
 }
 
 .comando .resumo {
   margin: 0;
-  font-size: 13px;
+  font-size: 14.5px;
   color: var(--tinta-fraca);
 }
 
 .comando .alerta {
   margin: 0;
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--critico);
 }
 
@@ -903,7 +903,7 @@ code,
 }
 
 .etiqueta {
-  font: 600 10px/1 var(--mono);
+  font: 600 11px/1 var(--mono);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   padding: 4px 7px;
@@ -966,7 +966,7 @@ pre.console {
   margin: 0;
   padding: 12px 14px;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 14px;
   line-height: 1.5;
   color: var(--tinta);
   background: var(--painel-2);
@@ -991,7 +991,7 @@ pre.console.alta {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font: 600 12px/1 var(--ui);
+  font: 600 13px/1 var(--ui);
   padding: 5px 6px 5px 10px;
   border-radius: 999px;
   color: var(--acento);
@@ -1007,7 +1007,7 @@ pre.console.alta {
   height: 17px;
   border-radius: 50%;
   text-decoration: none;
-  font-size: 13px;
+  font-size: 14.5px;
   line-height: 1;
   color: var(--acento);
   background: color-mix(in srgb, var(--acento) 16%, transparent);
