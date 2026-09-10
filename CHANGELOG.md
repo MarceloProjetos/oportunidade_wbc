@@ -3,6 +3,58 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-10] — A Situacao dos Pedidos passa a dizer PARA ONDE a mercadoria vai (B3-B7)
+
+O SAP guarda **dois** enderecos de entrega no mesmo pedido: o Ponto de Entrega (ShipTo,
+o cadastro do cliente) e o "Local de Entrega" (o campo BR que a tela marca com o selo
+*"difere do ponto de entrega"*). Medido em 10/09 no recorte de 268 pedidos: **38 tem o
+Local preenchido e em 24 deles a CIDADE difere** — 24 pedidos em que despachar pelo
+cadastro manda a carga para a cidade errada. No 84348, 250 km errada.
+
+**A API resolve; quem consome nao escolhe** (decisao do Marcelo: *"nao posso deixar a
+outra equipe tomar a decisao"*).
+
+- **`completo`** ganha `entrega_endereco`: o endereco efetivo no TOPO, e o ShipTo
+  aninhado em `ponto_entrega` como referencia cadastral.
+- **`resumo`** (o default da lista) ganha `entrega_linha`, `entrega_cidade_uf` e
+  `entrega_difere` — resolvidos, e **sem o ShipTo junto**: no default nao ha como
+  escolher errado.
+- **A propriedade que segura tudo:** quem ignorar `fonte`, ignorar o selo e ler so
+  `cidade`/`uf`/`linha` ainda despacha certo. O caminho preguicoso e' o correto.
+
+Tres detalhes que so a medicao revelou:
+
+1. **O CEP vinha em DOIS formatos, na mesma coluna** (`ZipDlvryP`: 4 com hifen, 33 sem;
+   `ZipCodeS`: 147 e 117). A API normaliza para `NNNNN-NNN` quando ha 8 digitos e passa
+   o resto como veio — nao se inventa CEP.
+2. **A caixa da cidade diverge entre as colunas** (`'BELO HORIZONTE'` x `'Belo
+   Horizonte'` no 84317), entao `difere_do_ponto_de_entrega` NAO e' comparacao de
+   cidade: e' "existe Local de Entrega preenchido", a mesma regra do selo da tela.
+   Dos 38, 24 mudam de cidade e 14 sao outro endereco na MESMA cidade.
+3. **A regua de "preenchido" e' >= 3 caracteres** (mais estrita que a do
+   `_entrega_efetiva` do OrcaView, que aceita qualquer nao-branco). Medido antes de
+   aplicar: ZERO das 268 linhas tinha 1-2 caracteres nesses campos, entao a diferenca e'
+   teorica e a regua fica so aqui — a tela e o PDF do V118 nao foram tocados.
+
+**Pedido cancelado tambem tem endereco:** o caminho da ORDR le a RDR12 daquele DocNum em
+vez de emitir nulos (a chave nao podia faltar so nele; ha teste comparando as chaves dos
+dois caminhos). SAP fora nao derruba a resposta — a chave vem vazia.
+
+**Fachada MCP:** as docstrings das 3 tools passam a dizer que o endereco da resposta JA
+e' o de despacho e que o `ponto_entrega` e' cadastro. E um furo foi fechado: o
+`panorama_pedidos` busca o perfil `completo` quando ha filtro por montador/vendedor e
+projetava por NOME — perdia o endereco, entao a MESMA tool respondia com endereco sem
+filtro e sem endereco com filtro.
+
+**Smoke em producao (10/09, apos o deploy):** 84348 devolve Juiz de Fora com o ShipTo de
+Belo Horizonte aninhado; 84199 cai no padrao (`difere: false`); o cancelado 84282 traz o
+endereco lido da RDR12, com o municipio resolvido na OCNT; e `panorama_pedidos` com
+filtro traz os 3 campos sem vazar o ShipTo.
+
+> **Custo:** ~0,7 KB por pedido, quase tudo no `ponto_entrega`. A lista foi de ~74 para
+> **120 KB** no `resumo` e de ~237 para **435 KB** no `completo`. O `API_SITUACAO_PEDIDOS.md`
+> avisa quem consome; para quem so quer despachar, o `resumo` basta.
+
 ## [2026-09-10] — Endereco de entrega no recorte da Situacao dos Pedidos (B1) + o teste diffavel que estava pulando calado
 
 O SELECT do recorte ganha `LEFT JOIN RDR12 a ON a."DocEntry" = v."DocEntry"` e 18 colunas

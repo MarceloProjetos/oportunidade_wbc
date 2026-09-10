@@ -34,7 +34,7 @@ normalização — não é um espelho, não é uma fila, não passa por banco in
 
 ---
 
-## 2. Antes de tudo: as seis armadilhas
+## 2. Antes de tudo: as sete armadilhas
 
 Leia esta seção inteira. Cada item aqui já custou caro para alguém.
 
@@ -123,6 +123,36 @@ Para conta, use **`prazo_fim`** (`"2026-09-25"`, ISO), que já calculamos, e **`
 (positivo = passou do prazo, negativo = ainda há prazo). `prazo_fim` pode vir `null`
 quando o texto não casa com o formato — `null` significa "não dá para afirmar", e é melhor
 que um número inventado.
+
+---
+
+### 2.7 O endereço da resposta **já é** o de despacho ⭐ (10/09/2026)
+
+O SAP guarda **dois** endereços de entrega no mesmo pedido, e eles podem apontar para
+cidades diferentes:
+
+| Na tela de Pedidos | Na RDR12 | No pedido 84348 |
+| --- | --- | --- |
+| **Ponto de Entrega — ENTREGA** (o cadastro do cliente) | colunas `*S` | AV NOSSA SENHORA DO CARMO, 279 — **BELO HORIZONTE-MG** |
+| **Local de Entrega** (marcado com o selo "difere do ponto de entrega") | colunas `*DlvryP` | AVENIDA DEUSDEDITH SALGADO, 4010 — **JUIZ DE FORA-MG** |
+
+**Nós resolvemos isso por você.** O `entrega_endereco` (perfil `completo`) e os campos
+`entrega_*` (perfil `resumo`) são **sempre o endereço para onde a mercadoria vai**.
+
+> [!WARNING]
+> **`entrega_endereco.ponto_entrega` é referência cadastral, NÃO destino.** Ele existe
+> para você poder mostrar os dois na tela e para auditoria. Despachar por ele erra a
+> cidade em **24 dos 268 pedidos de hoje** (9%) — no 84348 seria uma carga 250 km fora
+> do lugar.
+
+Se você ignorar `fonte`, ignorar `difere_do_ponto_de_entrega` e ler só `cidade`, `uf` e
+`linha`, **você ainda despacha certo**. O caminho preguiçoso é o correto, de propósito.
+
+**`difere_do_ponto_de_entrega: true` é para AVISAR, não para escolher.** Ele diz "este
+pedido tem um local de entrega separado do cadastro" — é o mesmo selo da tela. Ele NÃO
+é comparação de cidade: dos 38 pedidos com o selo, 24 mudam de cidade e 14 são outro
+endereço na mesma cidade. E não tente comparar as cidades você mesmo — o SAP grava
+`'BELO HORIZONTE'` num campo e `'Belo Horizonte'` no outro.
 
 ---
 
@@ -245,17 +275,28 @@ Resposta `200`:
 
 ## 6. Dicionário de campos
 
-### 6.1 Perfil `resumo` — 11 campos
+### 6.1 Perfil `resumo` — 14 campos
 
-São as colunas da tela, mais o alerta. É o default da lista, e serve para quase tudo.
+São as colunas da tela, mais o alerta e o endereço de entrega. É o default da lista,
+e serve para quase tudo.
 
 `data_pedido` · `card_name` · `doc_num` · `sinal` · `financeiro` · `producao` ·
-`entrega` · `prazo_entrega` · `atrasado` · `pymnt_group` · `alerta_liberacao`
+`entrega` · `prazo_entrega` · `atrasado` · `pymnt_group` · `alerta_liberacao` ·
+**`entrega_linha`** · **`entrega_cidade_uf`** · **`entrega_difere`**
+
+| Campo | Tipo | O que é |
+| --- | --- | --- |
+| `entrega_linha` | str \| null | O endereço de despacho **pronto para imprimir**. Ex.: `"AVENIDA DEUSDEDITH SALGADO, 4010 - SALVATERRA, 36033-000 JUIZ DE FORA-MG"` |
+| `entrega_cidade_uf` | str \| null | `"JUIZ DE FORA-MG"` — para agrupar por cidade sem quebrar a linha |
+| `entrega_difere` | bool | O pedido tem um Local de Entrega separado do cadastro (o selo da tela). **Informação, não escolha** — ver 2.7 |
+
+Aqui **não** vem o `ponto_entrega`: no default você não tem sequer como escolher
+errado. Se precisar dele, peça `campos=completo`.
 
 As três etapas (`financeiro`, `producao`, `entrega`) trazem `"Liberado"`, `"Bloqueado"`
 ou — em pedido cancelado no SAP — `"Cancelado"` (2.2).
 
-### 6.2 Perfil `completo` — 35 campos
+### 6.2 Perfil `completo` — 36 campos
 
 | Campo | Tipo | O que é |
 | --- | --- | --- |
@@ -294,6 +335,7 @@ ou — em pedido cancelado no SAP — `"Cancelado"` (2.2).
 | `total_os` | int | Quantas Ordens de Serviço o pedido tem |
 | `total_os_fechadas` | int | Quantas já foram fechadas |
 | `montagem` | objeto | Ver abaixo |
+| **`entrega_endereco`** | objeto | **Para onde a mercadoria vai**, já resolvido. Ver **6.3** — e a armadilha **2.7** antes |
 
 **`montagem`:**
 
@@ -307,6 +349,54 @@ ou — em pedido cancelado no SAP — `"Cancelado"` (2.2).
 
 > **Datas:** todas as datas são `YYYY-MM-DD` (sem hora), exceto `gerado_em`, que é ISO
 > completo com fuso (`-03:00`). Campo sem valor vem **`null`**, nunca `""` nem `0`.
+
+---
+
+
+### 6.3 `entrega_endereco` — o bloco de entrega (perfil `completo`)
+
+Leia a **armadilha 2.7** antes de usar. Os campos do topo são o endereço **efetivo**;
+`ponto_entrega` é o cadastro.
+
+```jsonc
+"entrega_endereco": {
+  "fonte": "local_entrega",              // ou "ponto_entrega" — de onde veio o de cima
+  "difere_do_ponto_de_entrega": true,    // o selo da tela; AVISO, não escolha
+  "logradouro": "AVENIDA DEUSDEDITH SALGADO",
+  "numero": "4010",
+  "complemento": null,
+  "bairro": "SALVATERRA",
+  "cidade": "JUIZ DE FORA",
+  "uf": "MG",
+  "cep": "36033-000",
+  "pais": "BR",
+  "municipio": "Juiz de Fora",           // nome oficial (OCNT); pode diferir de `cidade`
+  "linha": "AVENIDA DEUSDEDITH SALGADO, 4010 - SALVATERRA, 36033-000 JUIZ DE FORA-MG",
+  "ponto_entrega": { /* as mesmas chaves, menos `fonte` e `difere_*` */ }
+}
+```
+
+| Campo | Tipo | O que é |
+| --- | --- | --- |
+| `fonte` | str | `"local_entrega"` (o pedido tem local próprio) ou `"ponto_entrega"` (caiu no cadastro — **86%** dos casos) |
+| `difere_do_ponto_de_entrega` | bool | O mesmo que `entrega_difere` do resumo |
+| `logradouro` · `numero` · `complemento` · `bairro` | str \| null | Como o SAP guarda, sem reformatar |
+| `cidade` · `uf` | str \| null | Do próprio endereço |
+| `cep` | str \| null | **Normalizado para `NNNNN-NNN`** quando tem 8 dígitos. O SAP guarda os dois formatos na mesma coluna; nós padronizamos. O que não tiver 8 dígitos passa como veio — não inventamos CEP |
+| `municipio` | str \| null | Nome oficial do município (tabela `OCNT`). Use para conferência; para mostrar, `cidade` basta |
+| `linha` | str \| null | Tudo junto, pronto para etiqueta |
+| `ponto_entrega` | objeto | **Cadastro do cliente, não destino.** Ver 2.7 |
+
+**Nunca vem vazio:** medido em 10/09, nenhum dos 268 pedidos do recorte está sem os dois
+endereços. Mesmo assim, trate `null` — é o contrato desta API para "não foi possível
+saber".
+
+**Pedido cancelado também tem endereço:** a resposta de um cancelado (2.2, `fonte:
+"ordr"`) traz o `entrega_endereco` igual, lido do pedido no SAP.
+
+> **Peso:** o bloco custa ~0,7 KB por pedido, quase tudo no `ponto_entrega`. Na lista
+> inteira isso levou o `campos=completo` de ~237 KB para **435 KB**. Se você não precisa
+> do cadastro, fique no `resumo` (120 KB) — ele já traz o endereço certo.
 
 ---
 
@@ -376,12 +466,17 @@ usuário que são consulta, não ação.
 
 ### 8.4 Cuidados com IA
 
-- **Prefira a tool específica.** `panorama_pedidos` traz a carteira inteira (~74 KB) e
-  gasta contexto à toa quando a pergunta era sobre um pedido.
+- **Prefira a tool específica.** `panorama_pedidos` traz a carteira (120 KB no `resumo`,
+  435 KB no `completo`) e gasta contexto à toa quando a pergunta era sobre um pedido.
 - **Não deixe o modelo concluir "está liberado" a partir de um 404** (armadilha 2.2). A
   descrição da tool avisa, mas vale reforçar no seu prompt.
 - **`cache_idade_s`** diz de quantos segundos atrás é o retrato. Se a resposta precisa ser
   do instante, diga isso ao usuário em vez de afirmar que é tempo real.
+- **Não deixe o modelo responder o endereço pelo `ponto_entrega`** (armadilha 2.7). As
+  descrições das tools já dizem que o endereço da resposta é o de despacho e que o
+  `ponto_entrega` é cadastro, mas em pergunta do tipo "para onde vai o pedido X?" vale
+  reforçar: o campo certo é o `entrega_linha` (resumo) ou o `entrega_endereco.linha`
+  (completo).
 
 ---
 
@@ -582,7 +677,10 @@ Estrutura real; **valores ilustrativos**.
   `status=aberto` na tool MCP). Se você depende de um deles, **passe explícito** — custa
   nada e blinda seu código.
 - **Trate `null`.** Vários campos são legitimamente nulos (`prazo_fim`, `data_pagto`,
-  `alerta_liberacao`, as datas de liberação).
+  `alerta_liberacao`, as datas de liberação, e os campos do endereço).
+- **Nós resolvemos o endereço de entrega por você** (2.7). Se um dia a regra mudar,
+  avisamos antes — mas o contrato é que o topo do `entrega_endereco` é sempre o
+  destino de despacho.
 
 ---
 
@@ -596,7 +694,8 @@ Estrutura real; **valores ilustrativos**.
 | "O dado está velho" | Cache de 120 s. Veja `cache_idade_s` |
 | "Deu 401" | Cabeçalho `X-API-Key` ausente, com espaço, ou chave errada |
 | "Deu 503" | O SAP HANA está fora. Espere e tente de novo |
-| "A resposta está enorme" | Você está em `campos=completo`. Use `resumo` |
+| "A resposta está enorme" | Você está em `campos=completo` (435 KB na lista). Use `resumo` (120 KB) — ele já traz o endereço de entrega |
+| "O endereço não é o do cadastro do cliente" | É assim mesmo: o pedido tem um **Local de Entrega** próprio (2.7). Despache pelo que veio |
 
 **Vale nos avisar na hora:** um `409`, um `503` que não passa em ~15 minutos, um campo que
 mudou de tipo, ou qualquer número que divirja da tela do OrçaView de forma consistente.
