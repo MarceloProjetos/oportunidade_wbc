@@ -3,13 +3,11 @@
 > **Status (2026-09-10): frente A FECHADA e no ar · frente B com B0–B5 concluídas.**
 >
 > - **Frente A:** o `STATUS_ID` está no `.env` da .11 e foi conferido ao vivo — com ele o
->   `/status` vem completo, sem ele vem a visão mínima (§1.7). Falta **mandar o texto do
->   README para a outra equipe** e a **A4** (o modal do `.90` passar a usar o ID no lugar
->   da chave forte).
-> - **Frente B:** o endereço já sai nas duas rotas REST e nas tools MCP, provado ponta a
->   ponta contra o HANA de produção. Restam **B6** (docs de quem consome) e **B7** (smoke
->   depois do deploy). ⚠️ **A B4 e a B5 ainda não subiram para a .11** — o deploy de
->   10/09 parou na B3.
+>   `/status` vem completo, sem ele vem a visão mínima (§1.7).
+> - **Só falta:** mandar o texto do README para a outra equipe, e a **A4** (o modal do
+>   `.90` passar a usar o ID no lugar da chave que escreve no SAP).
+> - **Frente B: FECHADA e no ar.** O `.11` foi atualizado e reiniciado em 10/09, e o
+>   smoke passou nos quatro casos (§2.8) — inclusive o cancelado e o furo do panorama.
 > - **As 9 decisões estão fechadas.** Nenhuma pergunta em aberto.
 > - **Suíte: 1661 passando, 12 skipped, zero erro** (era 1165 passando com 42 erros no
 >   começo do dia — `flask` e `apscheduler` entraram a pedido dele, e o guard dos testes
@@ -276,6 +274,21 @@ no `campos=completo` (é o que mais sente, porque vira token), e a **B6** tem de
 isto na cara de quem consome — o doc já tem a linha *"a resposta está enorme → use
 `resumo`"*, e agora ela vale mais.
 
+
+### 2.8 B7 — smoke em produção (10/09, depois do deploy)
+
+Quatro casos, pelas tools MCP (que injetam a chave), contra a .11 já atualizada:
+
+| Caso | Pedido | Resultado |
+| --- | --- | --- |
+| Local de Entrega vence | **84348** | `fonte: local_entrega` · `AVENIDA DEUSDEDITH SALGADO, 4010 - SALVATERRA, 36033-000 JUIZ DE FORA-MG` · `ponto_entrega` aninhado em Belo Horizonte |
+| Cai no padrão | **84199** | `difere: false` · `AUTAZ MIRIM, 2531 - COROADO, 69082-265 MANAUS-AM` |
+| **Cancelado** (D5) | **84282** | Lê a RDR12: `DR RICARDO JAFET, 2419 - IPIRANGA, 04123-030 SAO PAULO-SP`, com `municipio` resolvido na OCNT |
+| **Panorama com filtro** (o furo da B5) | `montador=fabiano` | Os 3 campos vieram, e o ShipTo **não** vazou |
+
+A `linha` do 84348 bate **caractere a caractere** com a aba Logística da tela de Pedidos
+— que foi de onde este plano saiu.
+
 ### 2.5 Fatos que travam o desenho
 
 1. **`situacao_pedidos.py` é PORTE do `situacao_pedidos_service.py` do OrçaView**, e
@@ -316,8 +329,8 @@ isto na cara de quem consome — o doc já tem a linha *"a resposta está enorme
 | **B3** | ✅ **CONCLUÍDA 10/09** — `endereco_entrega_efetivo()`, com CEP normalizado para `NNNNN-NNN` (D9) e `linha` pronta. 9 testes + **contraprova sobre o recorte real** (268 pedidos): 38 pelo Local, 230 pelo padrão, 24 mudando de cidade — batendo com a B0 —, zero sem endereço, zero sem município e **zero CEP fora do padrão** | eu |
 | **B4** | ✅ **CONCLUÍDA 10/09** — objeto no `completo`, 3 campos no `resumo`, decoração em `api.py`, cancelado lendo a RDR12 (D5). 6 testes novos + **ponta a ponta contra o HANA de produção**: 268 pedidos, 268 com endereço, 38 com o selo, zero sem cidade/uf, e o ShipTo **não** vaza para o `resumo` | eu |
 | **B5** | ✅ **CONCLUÍDA 10/09** — docstrings das 3 tools + do `verificar_saude` (o `restrito` é falta de credencial, não servidor mudo). **Furo achado e fechado:** o `panorama_pedidos` com filtro busca o `completo` e projetava por nome, perdendo o endereço — a MESMA tool respondia com endereço sem filtro e sem endereço com filtro. `_endereco_resumido()` normaliza as duas formas. 6 testes (só rodam onde há mcp 1.x; a lógica pura foi verificada contra o fonte) | eu |
-| **B6** | Docs da outra equipe: `API_SITUACAO_PEDIDOS.md` ganha a **7ª armadilha** ("o endereço da resposta já é o de despacho; `ponto_entrega` é cadastro, não destino") + §6.3 com o exemplo do 84348. CHANGELOG | eu |
-| **B7** | Smoke real: 84348 (deve vir Juiz de Fora, `difere=true`) · um pedido sem Local de Entrega (vem o padrão, `difere=false`) · um cancelado (chave presente) · conferência contra a tela do .90 | pull meu, restart dele |
+| **B6** | ✅ **CONCLUÍDA 10/09** — a **7ª armadilha** (2.7), o §6.3 com o dicionário do bloco, o §6.1 de 11→14 campos, o §6.2 de 35→36, o cuidado com IA no §8.4, o contrato no §12 e o sintoma novo no §13. Mais a entrada de CHANGELOG da frente inteira | eu |
+| **B7** | ✅ **CONCLUÍDA 10/09** — os quatro casos passaram em produção (§2.8), e a `linha` do 84348 bate caractere a caractere com a tela | deploy dele |
 
 ---
 
