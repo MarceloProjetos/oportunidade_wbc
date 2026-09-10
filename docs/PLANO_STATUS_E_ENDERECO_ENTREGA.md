@@ -1,6 +1,6 @@
 # Plano — Fechar o `/status`, abrir o endereço de entrega
 
-> **Status: B0, A1, A2, B1 e B2 ✅ concluídas (10/09) — e o A1 já está NO AR.** O
+> **Status: B0, A1, A2, B1, B2 e B3 ✅ concluídas (10/09) — e o A1 já está NO AR.** O
 > Marcelo reiniciou a .11 às 13:52 e o serviço subiu com a visão mínima do `/status`;
 > conferido ao vivo (§1.7). As 8 decisões estão fechadas, e a
 > medição da B0 no HANA de produção confirmou as 21 colunas, o caso do 84348 e **zero
@@ -289,7 +289,7 @@ tem sequer como escolher errado.
 | **B0** | ✅ **CONCLUÍDA 10/09** — resultados em §2.3. 21/21 colunas conferem · 84348 = DocEntry 19763 (JF contra BH) · 266 pedidos, 86% caem no padrão · **zero** linha com 1–2 caracteres (fecha a D8) · achados novos: CEP em 2 formatos e caixa de cidade inconsistente | eu |
 | **B1** | ✅ **CONCLUÍDA 10/09** — 18 colunas de endereço + `LEFT JOIN "RDR12"` por `DocEntry`, com o mapa `ENDERECO_COLS` explícito. **Custo medido no HANA de produção** (3 rodadas alternadas): mediana 142 ms antes, 107 ms depois — **o delta está dentro do ruído** (a 1ª execução paga o plano: 486 ms); com o cache de 120 s, pago no máximo 1×/2 min. Ninguém consome ainda: a regra é a B3 | eu |
 | **B2** | ✅ **CONCLUÍDA 10/09** — `_injetar_municipios()`: **uma** consulta `WHERE AbsId IN (...)` para o recorte inteiro, na **mesma conexão** (antes do `finally` que a fecha) e nas **mesmas linhas**, que já têm o cache de 120 s. Sem tabela, sem cache próprio, sem job. Best-effort: OCNT fora não derruba a Situação — as chaves ficam `null`. 7 testes | eu |
-| **B3** | `endereco_entrega_efetivo()` em `situacao_pedidos_hana.py` — a regra da §2.2, com teste dos quatro casos: os dois preenchidos e diferentes · só ShipTo · nenhum dos dois · **Local de Entrega com 1–2 caracteres** (cai no padrão) | eu |
+| **B3** | ✅ **CONCLUÍDA 10/09** — `endereco_entrega_efetivo()`, com CEP normalizado para `NNNNN-NNN` (D9) e `linha` pronta. 9 testes + **contraprova sobre o recorte real** (268 pedidos): 38 pelo Local, 230 pelo padrão, 24 mudando de cidade — batendo com a B0 —, zero sem endereço, zero sem município e **zero CEP fora do padrão** | eu |
 | **B4** | Publicar: objeto no `completo`, os 3 campos resolvidos no `resumo`, decoração em `api.py`. **Pedido cancelado lê a RDR12 desse DocEntry** (D5) — a chave nunca vem nula por preguiça, e a paridade de chaves entre os dois caminhos continua testada | eu |
 | **B5** | MCP: `situacao_pedido` já é `completo` por default; `panorama_pedidos` ganha `entrega_cidade_uf` + `entrega_difere` no resumo. Docstrings das tools dizendo que **o endereço da resposta já é o de despacho** — senão o modelo procura o ShipTo e responde a cidade errada | eu |
 | **B6** | Docs da outra equipe: `API_SITUACAO_PEDIDOS.md` ganha a **7ª armadilha** ("o endereço da resposta já é o de despacho; `ponto_entrega` é cadastro, não destino") + §6.3 com o exemplo do 84348. CHANGELOG | eu |
