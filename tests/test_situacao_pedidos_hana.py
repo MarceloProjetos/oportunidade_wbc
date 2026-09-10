@@ -36,6 +36,8 @@ class _Cursor:
             cols, linhas = ["N"], [(self._c.total,)]
         elif "CUFD" in sql:
             cols, linhas = ["FldValue", "Descr"], self._c.udf
+        elif '"OCNT"' in sql:
+            cols, linhas = ["AbsId", "Name"], self._c.ocnt
         else:
             cols, linhas = self._c.colunas, self._c.linhas
         self.description = [(c,) for c in cols]
@@ -51,11 +53,13 @@ class _Cursor:
 class _ConexaoFalsa:
     """HANA de mentira. Guarda os SQLs recebidos para as asserções de contrato."""
 
-    def __init__(self, *, colunas=None, linhas=None, total=None, udf=None, erro_em=None):
+    def __init__(self, *, colunas=None, linhas=None, total=None, udf=None, erro_em=None,
+                 ocnt=None):
         self.colunas = colunas or []
         self.linhas = linhas or []
         self.total = total if total is not None else len(self.linhas)
         self.udf = udf or []
+        self.ocnt = ocnt or []
         self.erro_em = erro_em
         self.sqls: list[str] = []
         self.params: list[tuple] = []
@@ -364,3 +368,95 @@ def test_o_select_entrega_todas_as_colunas_que_o_nucleo_le():
         f"o núcleo lê {sorted(faltando)} e o SELECT não traz — alias errado ou coluna "
         f"nova no V117 que não foi replicada aqui."
     )
+
+
+# --- municipio pela OCNT (B2) -----------------------------------------------
+# A OCNT NAO entra no JOIN: `County` vazio faz o HANA estourar "invalid number" no plano
+# de execucao. O nome vem de um SELECT a parte, na MESMA conexao e nas MESMAS linhas --
+# que ja tem o cache de 120 s do recorte. Sem tabela nova, sem cache proprio.
+
+COLUNAS_END = COLUNAS + ["CntyDlvryP", "CityDlvryP", "CountyS", "CityS"]
+
+
+def _linha_end(**over: Any) -> tuple:
+    """Uma linha com os códigos de município dos dois lados do endereço."""
+    base = dict(zip(COLUNAS, _linha()))
+    base.update({"CntyDlvryP": "1763", "CityDlvryP": "JUIZ DE FORA",
+                 "CountyS": "1410", "CityS": "BELO HORIZONTE"})
+    base.update(over)
+    return tuple(base[c] for c in COLUNAS_END)
+
+
+def _com_ocnt(monkeypatch, linhas, ocnt=((1763, "Juiz de Fora"), (1410, "Belo Horizonte"))):
+    return _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS_END, linhas=linhas,
+                                             ocnt=list(ocnt)))
+
+
+def test_o_municipio_vem_da_ocnt_num_select_a_parte(monkeypatch):
+    c = _com_ocnt(monkeypatch, [_linha_end()])
+    linha = hana.fetch_status_pedidos()[0]
+
+    assert linha["_MunicipioLocal"] == "Juiz de Fora"
+    assert linha["_MunicipioPonto"] == "Belo Horizonte"
+    ocnt = [s for s in c.sqls if '"OCNT"' in s]
+    assert len(ocnt) == 1, "a OCNT tem de ser UMA consulta, não uma por pedido"
+    assert "JOIN" not in ocnt[0], "a OCNT no JOIN mata a consulta (invalid number)"
+    assert "IN (1410,1763)" in ocnt[0], "códigos entram como número, ordenados"
+
+
+def test_um_select_de_ocnt_para_o_recorte_inteiro(monkeypatch):
+    """Reuso, não N+1: 3 pedidos com 2 municípios repetidos = 1 consulta, 2 códigos."""
+    linhas = [_linha_end(), _linha_end(DocNum=84261), _linha_end(DocNum=84262)]
+    c = _com_ocnt(monkeypatch, linhas)
+    assert all(r["_MunicipioLocal"] == "Juiz de Fora" for r in hana.fetch_status_pedidos())
+    assert len([s for s in c.sqls if '"OCNT"' in s]) == 1
+
+
+def test_codigo_vazio_ou_lixo_nao_vai_para_a_ocnt(monkeypatch):
+    """É por causa dessas linhas que a OCNT não pode entrar no JOIN."""
+    c = _com_ocnt(monkeypatch, [_linha_end(CntyDlvryP="", CountyS="  ")], ocnt=[])
+    linha = hana.fetch_status_pedidos()[0]
+
+    assert linha["_MunicipioLocal"] is None and linha["_MunicipioPonto"] is None
+    assert not [s for s in c.sqls if '"OCNT"' in s], "sem código, sem consulta"
+
+
+def test_a_chave_do_municipio_existe_mesmo_sem_resposta(monkeypatch):
+    """`None` = "não foi possível saber". Chave ausente viraria KeyError em quem lê."""
+    c = _com_ocnt(monkeypatch, [_linha_end(CntyDlvryP="9999")], ocnt=[(1410, "Belo Horizonte")])
+    linha = hana.fetch_status_pedidos()[0]
+
+    assert "_MunicipioLocal" in linha and linha["_MunicipioLocal"] is None
+    assert linha["_MunicipioPonto"] == "Belo Horizonte"
+    assert c.sqls  # a consulta aconteceu; o código é que não casou
+
+
+def test_ocnt_fora_do_ar_nao_derruba_o_recorte(monkeypatch):
+    """O nome de uma cidade não vale derrubar a Situação dos Pedidos inteira."""
+    c = _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS_END, linhas=[_linha_end()],
+                                          erro_em='"OCNT"'))
+    linhas = hana.fetch_status_pedidos()
+
+    assert len(linhas) == 1 and linhas[0]["DocNum"] == 84260   # o recorte veio
+    assert linhas[0]["_MunicipioLocal"] is None                # só o nome faltou
+    assert c.fechada, "a conexão tem de fechar mesmo com a OCNT falhando"
+
+
+def test_a_ocnt_roda_antes_de_fechar_a_conexao(monkeypatch):
+    """Uma conexão por leitura é regra do módulo: nada de abrir outra só para a OCNT."""
+    idas: list[int] = []
+    _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS_END, linhas=[_linha_end()],
+                                      ocnt=[(1763, "Juiz de Fora")]), contador=idas)
+    hana.fetch_status_pedidos()
+    assert len(idas) == 1
+
+
+def test_o_municipio_entra_no_cache_do_recorte(monkeypatch):
+    """Sem cache próprio: o nome viaja nas linhas, que já são cacheadas por 120 s."""
+    idas: list[int] = []
+    _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS_END, linhas=[_linha_end()],
+                                      ocnt=[(1763, "Juiz de Fora")]), contador=idas)
+    hana.fetch_status_pedidos()
+    segunda = hana.fetch_status_pedidos()
+    assert len(idas) == 1, "a 2ª leitura não pode ir ao HANA de novo"
+    assert segunda[0]["_MunicipioLocal"] == "Juiz de Fora"

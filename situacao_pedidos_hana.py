@@ -217,6 +217,64 @@ def _linhas(conn, sql: str, params: tuple = ()) -> list[dict[str, Any]]:
             logger.debug("Falha ao fechar cursor HANA (ignorada): %s", e)
 
 
+#: Chave injetada com o NOME do municipio, por lado do endereco. Comeca com ``_`` porque
+#: nao e' coluna do SAP: e' derivada aqui, como o ``_DeliveryPlaceCountyName`` do V118.
+MUNICIPIO_CHAVES = {"local": "_MunicipioLocal", "ponto": "_MunicipioPonto"}
+
+
+def _injetar_municipios(conn, schema: str, linhas: list[dict[str, Any]]) -> None:
+    """Resolve ``CntyDlvryP``/``CountyS`` (codigos = ``OCNT.AbsId``) para o NOME da
+    cidade, **em uma consulta so**, e grava em :data:`MUNICIPIO_CHAVES`.
+
+    Tres decisoes que valem a leitura:
+
+    1. **Fora do JOIN.** Ha linha historica com o campo vazio; no plano de execucao do
+       join o HANA avalia a conversao em linhas que o filtro descartaria e a consulta
+       MORRE com "invalid number". Um ``SELECT ... WHERE AbsId IN (...)`` a parte
+       funciona — e' o padrao do ``fetch_municipios`` do OrcaView.
+    2. **Mesma conexao, mesmo ciclo, mesmo cache.** Nao abre conexao nova (uma por
+       leitura e' regra deste modulo) nem guarda cache proprio: o nome viaja dentro das
+       proprias linhas, que ja tem o cache de 120 s do recorte. Sem tabela, sem espelho,
+       sem job.
+    3. **Best-effort.** Se a OCNT falhar, o recorte inteiro NAO cai por causa do nome de
+       uma cidade: as chaves ficam ``None`` (que ja significa "nao foi possivel saber") e
+       o log registra. Medido em 10/09: ``CountyS`` vem preenchido em 266 de 266 pedidos,
+       entao na pratica isso quase nunca fica vazio.
+
+    A lista do ``IN`` e' montada com ``int()`` em cada elemento — os codigos entram como
+    numero, nunca como texto vindo de fora.
+    """
+    codigos: set[int] = set()
+    for r in linhas:
+        for lado, cols in ENDERECO_COLS.items():
+            r[MUNICIPIO_CHAVES[lado]] = None          # a chave existe sempre
+            bruto = str(r.get(cols["municipio_cod"]) or "").strip()
+            if bruto.isdigit():
+                codigos.add(int(bruto))
+    if not codigos:
+        return
+
+    lista = ",".join(str(c) for c in sorted(codigos))
+    try:
+        nomes = {
+            int(m["AbsId"]): (m.get("Name") or "").strip()
+            for m in _linhas(conn, f'SELECT "AbsId", "Name" FROM "{schema}"."OCNT" '
+                                   f'WHERE "AbsId" IN ({lista})')
+            if m.get("AbsId") is not None
+        }
+    except Exception as e:
+        # SAPIndisponivel inclusive: o nome da cidade nao vale derrubar a Situacao.
+        logger.warning("[SIT_PED] municipios da OCNT indisponiveis (%s) — seguindo sem.", e)
+        return
+
+    for r in linhas:
+        for lado, cols in ENDERECO_COLS.items():
+            bruto = str(r.get(cols["municipio_cod"]) or "").strip()
+            if bruto.isdigit():
+                r[MUNICIPIO_CHAVES[lado]] = nomes.get(int(bruto))
+    logger.info("[SIT_PED] %d municipios resolvidos na OCNT.", len(nomes))
+
+
 def _buscar_no_hana() -> list[dict[str, Any]]:
     """Uma ida ao HANA: conta, confere o volume, seleciona e converte os tipos."""
     schema = _schema()
@@ -237,6 +295,9 @@ def _buscar_no_hana() -> list[dict[str, Any]]:
             f'ORDER BY v."Producao", v."Data_Pedido"'
         )
         linhas = _linhas(conn, sql)
+        # Ainda com a conexao aberta: o nome do municipio entra nas MESMAS linhas, que
+        # ja vao para o cache de 120 s do recorte.
+        _injetar_municipios(conn, schema, linhas)
     finally:
         try:
             conn.close()
