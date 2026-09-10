@@ -1,14 +1,19 @@
 # Plano — Fechar o `/status`, abrir o endereço de entrega
 
-> **Status: frente A FECHADA (A0–A3 no ar) · frente B com B0–B4 concluídas.** O
-> `STATUS_ID` está no `.env` da .11 desde 10/09 e conferido ao vivo: com ele o
-> `/status` vem completo, sem ele vem a visão mínima (§1.7). Restam **A4** (o modal do
-> .90 passar a usar o ID), **B5** (MCP), **B6** (docs) e **B7** (smoke em produção). As 8 decisões estão fechadas, e a
-> medição da B0 no HANA de produção confirmou as 21 colunas, o caso do 84348 e **zero
-> divergência** na régua dos 3 caracteres — a D8 fechou sozinha. O único insumo que falta
-> é o `STATUS_ID`, que o Marcelo gera na A3. Com o `flask` e o `apscheduler` instalados
-> a pedido dele em 10/09, a suíte local saiu de 1165 para **1616 testes passando, zero
-> falha** — `tests/test_api.py` deixou de pular e os 6 testes novos rodaram.
+> **Status (2026-09-10): frente A FECHADA e no ar · frente B com B0–B5 concluídas.**
+>
+> - **Frente A:** o `STATUS_ID` está no `.env` da .11 e foi conferido ao vivo — com ele o
+>   `/status` vem completo, sem ele vem a visão mínima (§1.7). Falta **mandar o texto do
+>   README para a outra equipe** e a **A4** (o modal do `.90` passar a usar o ID no lugar
+>   da chave forte).
+> - **Frente B:** o endereço já sai nas duas rotas REST e nas tools MCP, provado ponta a
+>   ponta contra o HANA de produção. Restam **B6** (docs de quem consome) e **B7** (smoke
+>   depois do deploy). ⚠️ **A B4 e a B5 ainda não subiram para a .11** — o deploy de
+>   10/09 parou na B3.
+> - **As 9 decisões estão fechadas.** Nenhuma pergunta em aberto.
+> - **Suíte: 1661 passando, 12 skipped, zero erro** (era 1165 passando com 42 erros no
+>   começo do dia — `flask` e `apscheduler` entraram a pedido dele, e o guard dos testes
+>   de MCP foi corrigido).
 
 Duas frentes independentes na API 8077 da `192.168.7.11`, que podem subir no mesmo deploy
 ou em deploys separados:
@@ -310,7 +315,7 @@ isto na cara de quem consome — o doc já tem a linha *"a resposta está enorme
 | **B2** | ✅ **CONCLUÍDA 10/09** — `_injetar_municipios()`: **uma** consulta `WHERE AbsId IN (...)` para o recorte inteiro, na **mesma conexão** (antes do `finally` que a fecha) e nas **mesmas linhas**, que já têm o cache de 120 s. Sem tabela, sem cache próprio, sem job. Best-effort: OCNT fora não derruba a Situação — as chaves ficam `null`. 7 testes | eu |
 | **B3** | ✅ **CONCLUÍDA 10/09** — `endereco_entrega_efetivo()`, com CEP normalizado para `NNNNN-NNN` (D9) e `linha` pronta. 9 testes + **contraprova sobre o recorte real** (268 pedidos): 38 pelo Local, 230 pelo padrão, 24 mudando de cidade — batendo com a B0 —, zero sem endereço, zero sem município e **zero CEP fora do padrão** | eu |
 | **B4** | ✅ **CONCLUÍDA 10/09** — objeto no `completo`, 3 campos no `resumo`, decoração em `api.py`, cancelado lendo a RDR12 (D5). 6 testes novos + **ponta a ponta contra o HANA de produção**: 268 pedidos, 268 com endereço, 38 com o selo, zero sem cidade/uf, e o ShipTo **não** vaza para o `resumo` | eu |
-| **B5** | MCP: `situacao_pedido` já é `completo` por default; `panorama_pedidos` ganha `entrega_cidade_uf` + `entrega_difere` no resumo. Docstrings das tools dizendo que **o endereço da resposta já é o de despacho** — senão o modelo procura o ShipTo e responde a cidade errada | eu |
+| **B5** | ✅ **CONCLUÍDA 10/09** — docstrings das 3 tools + do `verificar_saude` (o `restrito` é falta de credencial, não servidor mudo). **Furo achado e fechado:** o `panorama_pedidos` com filtro busca o `completo` e projetava por nome, perdendo o endereço — a MESMA tool respondia com endereço sem filtro e sem endereço com filtro. `_endereco_resumido()` normaliza as duas formas. 6 testes (só rodam onde há mcp 1.x; a lógica pura foi verificada contra o fonte) | eu |
 | **B6** | Docs da outra equipe: `API_SITUACAO_PEDIDOS.md` ganha a **7ª armadilha** ("o endereço da resposta já é o de despacho; `ponto_entrega` é cadastro, não destino") + §6.3 com o exemplo do 84348. CHANGELOG | eu |
 | **B7** | Smoke real: 84348 (deve vir Juiz de Fora, `difere=true`) · um pedido sem Local de Entrega (vem o padrão, `difere=false`) · um cancelado (chave presente) · conferência contra a tela do .90 | pull meu, restart dele |
 
