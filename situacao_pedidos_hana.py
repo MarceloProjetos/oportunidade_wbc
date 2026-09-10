@@ -275,6 +275,113 @@ def _injetar_municipios(conn, schema: str, linhas: list[dict[str, Any]]) -> None
     logger.info("[SIT_PED] %d municipios resolvidos na OCNT.", len(nomes))
 
 
+# ─────────────────── B3: qual dos dois enderecos vale ───────────────────
+# O SAP guarda DOIS enderecos de entrega no mesmo pedido, e eles podem apontar para
+# cidades diferentes. Medido em 10/09 no recorte: 38 pedidos de 266 tem "Local de
+# Entrega" preenchido, e em 24 deles a CIDADE difere do ShipTo -- 24 pedidos em que
+# despachar pelo Ponto de Entrega manda a carga para a cidade errada.
+#
+# A API RESOLVE, quem consome nao escolhe (decisao do Marcelo, 10/09: "nao posso deixar
+# a outra equipe tomar a decisao"). O `ponto_entrega` viaja aninhado como REFERENCIA
+# CADASTRAL, nunca como alternativa de despacho.
+
+#: Minimo de caracteres para um campo contar como preenchido. Regra do Marcelo (10/09),
+#: mais estrita que a do OrcaView (`pedido_report._entrega_efetiva`, que aceita qualquer
+#: texto nao-branco). Medido antes de aplicar: das 266 linhas do recorte, ZERO tinha 1-2
+#: caracteres nesses campos -- a diferenca entre as duas reguas e' teorica hoje, e por
+#: isso ela fica so aqui, sem mexer na tela nem no PDF do V118.
+MIN_CARACTERES = 3
+
+
+def _texto(v: Any) -> str:
+    return str(v).strip() if v is not None else ""
+
+
+def _cep(valor: Any) -> str | None:
+    """CEP normalizado para ``NNNNN-NNN``; o que nao for 8 digitos passa como veio.
+
+    **Medido em 10/09: o SAP guarda os dois formatos, nas duas colunas** —
+    ``ZipDlvryP`` tinha 4 com hifen e 33 sem (``'36033000'``); ``ZipCodeS``, 147 e 117.
+    Repassar como veio daria ``36033000`` num pedido e ``30330-000`` no outro, no MESMO
+    campo, e quem consome teria de normalizar. Nao inventamos digito: so formatamos o
+    que ja tem 8.
+    """
+    bruto = _texto(valor)
+    if not bruto:
+        return None
+    so_digitos = "".join(c for c in bruto if c.isdigit())
+    if len(so_digitos) == 8:
+        return f"{so_digitos[:5]}-{so_digitos[5:]}"
+    return bruto
+
+
+def _linha_do_endereco(e: dict[str, Any]) -> str | None:
+    """``'AVENIDA DEUSDEDITH SALGADO, 4010 - SALVATERRA, 36033-000 JUIZ DE FORA-MG'``.
+
+    Uma string pronta para etiqueta/tela, montada por partes: campo vazio nao deixa
+    virgula solta nem hifen orfao.
+    """
+    rua = ", ".join(p for p in (e.get("logradouro"), e.get("numero")) if p)
+    if e.get("bairro"):
+        rua = f"{rua} - {e['bairro']}" if rua else e["bairro"]
+    cidade_uf = "-".join(p for p in (e.get("cidade"), e.get("uf")) if p)
+    local = " ".join(p for p in (e.get("cep"), cidade_uf) if p)
+    return ", ".join(p for p in (rua, local) if p) or None
+
+
+def _endereco(r: dict[str, Any], lado: str) -> dict[str, Any]:
+    """Um lado do endereco (``local`` ou ``ponto``) em campos ja limpos."""
+    cols = ENDERECO_COLS[lado]
+    e: dict[str, Any] = {
+        campo: (_texto(r.get(coluna)) or None)
+        for campo, coluna in cols.items()
+        if campo not in ("cep", "municipio_cod")
+    }
+    e["cep"] = _cep(r.get(cols["cep"]))
+    e["municipio"] = r.get(MUNICIPIO_CHAVES[lado]) or None
+    e["linha"] = _linha_do_endereco(e)
+    return e
+
+
+def _preenchido(e: dict[str, Any]) -> bool:
+    """Tem rua, cidade OU CEP com pelo menos :data:`MIN_CARACTERES`.
+
+    Os mesmos tres campos que o ``_entrega_efetiva`` do OrcaView testa — e' o que a tela
+    usa para decidir se desenha o card do Local de Entrega com o selo "difere do ponto
+    de entrega".
+    """
+    return any(len(_texto(e.get(c))) >= MIN_CARACTERES
+               for c in ("logradouro", "cidade", "cep"))
+
+
+def endereco_entrega_efetivo(r: dict[str, Any]) -> dict[str, Any]:
+    """O endereco de DESPACHO do pedido, ja resolvido — mais o ShipTo como referencia.
+
+    **Se houver Local de Entrega preenchido, e' ele.** Vazio, ou com menos de
+    :data:`MIN_CARACTERES`, conta como ausente e responde o padrao (o Ponto de Entrega),
+    que e' 86% dos casos (medido em 10/09).
+
+    A propriedade que segura a coisa: os campos do TOPO sao sempre o endereco efetivo.
+    Quem ignorar ``fonte``, ignorar o selo e ler so ``cidade``/``uf``/``linha`` **ainda
+    despacha certo** — o caminho preguicoso e' o caminho correto.
+
+    ``difere_do_ponto_de_entrega`` e' "existe Local de Entrega preenchido", **nao**
+    comparacao de cidade: a caixa das duas colunas diverge no SAP (``'BELO HORIZONTE'``
+    contra ``'Belo Horizonte'`` no 84317). E' a mesma regra do selo da tela, que aparece
+    nos 38 — inclusive nos 14 que sao outro endereco na MESMA cidade.
+    """
+    local = _endereco(r, "local")
+    ponto = _endereco(r, "ponto")
+    usa_local = _preenchido(local)
+    efetivo = local if usa_local else ponto
+    return {
+        "fonte": "local_entrega" if usa_local else "ponto_entrega",
+        "difere_do_ponto_de_entrega": usa_local,
+        **efetivo,
+        "ponto_entrega": ponto,
+    }
+
+
 def _buscar_no_hana() -> list[dict[str, Any]]:
     """Uma ida ao HANA: conta, confere o volume, seleciona e converte os tipos."""
     schema = _schema()

@@ -460,3 +460,120 @@ def test_o_municipio_entra_no_cache_do_recorte(monkeypatch):
     segunda = hana.fetch_status_pedidos()
     assert len(idas) == 1, "a 2ª leitura não pode ir ao HANA de novo"
     assert segunda[0]["_MunicipioLocal"] == "Juiz de Fora"
+
+
+# --- qual dos dois enderecos vale (B3) --------------------------------------
+# A API resolve, quem consome nao escolhe. Caso real de 10/09: o 84348 entrega em Juiz
+# de Fora e tem Ponto de Entrega em Belo Horizonte.
+
+def _bruta(**over: Any) -> dict:
+    """Linha crua como sai do HANA, com os dois enderecos do pedido 84348."""
+    base = {
+        "StrtDlvryP": "AVENIDA DEUSDEDITH SALGADO", "StrNoDlvrP": "4010",
+        "BldDlvryP": None, "BlckDlvryP": "SALVATERRA", "CityDlvryP": "JUIZ DE FORA",
+        "StatDlvryP": "MG", "ZipDlvryP": "36033000", "CntyDlvryP": "1763",
+        "CtryDlvryP": "BR", "_MunicipioLocal": "Juiz de Fora",
+        "StreetS": "AV NOSSA SENHORA DO CARMO", "StreetNoS": "279",
+        "BuildingS": None, "BlockS": "CARMO", "CityS": "BELO HORIZONTE",
+        "StateS": "MG", "ZipCodeS": "30330-000", "CountyS": "1410",
+        "CountryS": "BR", "_MunicipioPonto": "Belo Horizonte",
+    }
+    base.update(over)
+    return base
+
+
+def test_o_local_de_entrega_vence_o_ponto_de_entrega():
+    """O 84348: quem despachar pelo ShipTo manda a carga 250 km para o lado errado."""
+    e = hana.endereco_entrega_efetivo(_bruta())
+
+    assert e["fonte"] == "local_entrega"
+    assert e["difere_do_ponto_de_entrega"] is True
+    assert e["cidade"] == "JUIZ DE FORA" and e["uf"] == "MG"
+    assert e["logradouro"] == "AVENIDA DEUSDEDITH SALGADO" and e["numero"] == "4010"
+    assert e["municipio"] == "Juiz de Fora"
+    assert e["linha"] == ("AVENIDA DEUSDEDITH SALGADO, 4010 - SALVATERRA, "
+                          "36033-000 JUIZ DE FORA-MG")
+    # o ShipTo nao some: vira referencia cadastral, aninhada
+    assert e["ponto_entrega"]["cidade"] == "BELO HORIZONTE"
+    assert "fonte" not in e["ponto_entrega"]
+
+
+def test_quem_le_so_a_cidade_ainda_despacha_certo():
+    """A propriedade que segura tudo: o topo é SEMPRE o efetivo. Um consumidor que
+    ignore `fonte` e o selo não tem como errar."""
+    for r, esperada in ((_bruta(), "JUIZ DE FORA"),
+                        (_bruta(StrtDlvryP=None, CityDlvryP=None, ZipDlvryP=None),
+                         "BELO HORIZONTE")):
+        assert hana.endereco_entrega_efetivo(r)["cidade"] == esperada
+
+
+def test_sem_local_de_entrega_cai_no_padrao():
+    """86% dos pedidos (medido em 10/09): responde o Ponto de Entrega."""
+    e = hana.endereco_entrega_efetivo(
+        _bruta(StrtDlvryP=None, CityDlvryP=None, ZipDlvryP=None, BlckDlvryP=None,
+               StatDlvryP=None, StrNoDlvrP=None, _MunicipioLocal=None))
+
+    assert e["fonte"] == "ponto_entrega"
+    assert e["difere_do_ponto_de_entrega"] is False
+    assert e["cidade"] == "BELO HORIZONTE"
+    assert e["linha"] == "AV NOSSA SENHORA DO CARMO, 279 - CARMO, 30330-000 BELO HORIZONTE-MG"
+
+
+def test_menos_de_tres_caracteres_conta_como_vazio():
+    """A régua do Marcelo. Medido: ZERO linha assim no recorte — mas se aparecer, um
+    `-` no logradouro não pode desviar a carga."""
+    e = hana.endereco_entrega_efetivo(
+        _bruta(StrtDlvryP="-", CityDlvryP="", ZipDlvryP="  "))
+
+    assert e["fonte"] == "ponto_entrega"
+    assert e["cidade"] == "BELO HORIZONTE"
+
+
+def test_tres_caracteres_ja_contam():
+    """A régua é >= 3: 'RUA' vale, e a fronteira tem de ficar cravada."""
+    e = hana.endereco_entrega_efetivo(
+        _bruta(StrtDlvryP="RUA", CityDlvryP="", ZipDlvryP=""))
+    assert e["fonte"] == "local_entrega" and e["logradouro"] == "RUA"
+
+
+def test_o_selo_nao_e_comparacao_de_cidade():
+    """No 84284 o SAP tem 'SANTOS' de um lado e 'Santos' do outro. O selo é "existe
+    Local de Entrega", como na tela — 14 dos 38 são outro endereço na MESMA cidade."""
+    e = hana.endereco_entrega_efetivo(
+        _bruta(CityDlvryP="SANTOS", CityS="Santos", StrtDlvryP="RUA XV", StreetS="RUA X"))
+
+    assert e["difere_do_ponto_de_entrega"] is True
+    assert e["cidade"] == "SANTOS"
+
+
+def test_o_cep_sai_normalizado_dos_dois_lados():
+    """O SAP guarda os dois formatos NA MESMA coluna (medido: 4 com hífen e 33 sem, no
+    ZipDlvryP). Sem normalizar, quem consome recebe formatos diferentes no mesmo campo."""
+    e = hana.endereco_entrega_efetivo(_bruta(ZipDlvryP="36033000", ZipCodeS="30330-000"))
+    assert e["cep"] == "36033-000"
+    assert e["ponto_entrega"]["cep"] == "30330-000"
+
+    # o que não tem 8 dígitos passa como veio — não se inventa CEP
+    assert hana.endereco_entrega_efetivo(_bruta(ZipDlvryP="123"))["cep"] == "123"
+    assert hana.endereco_entrega_efetivo(_bruta(ZipDlvryP=None))["cep"] is None
+
+
+def test_a_linha_nao_deixa_virgula_solta_nem_hifen_orfao():
+    """Campo vazio some da string; ela é feita para ir na etiqueta."""
+    e = hana.endereco_entrega_efetivo(
+        _bruta(StrNoDlvrP=None, BlckDlvryP=None, ZipDlvryP=None))
+    assert e["linha"] == "AVENIDA DEUSDEDITH SALGADO, JUIZ DE FORA-MG"
+
+    vazio = hana.endereco_entrega_efetivo(
+        {k: None for k in list(_bruta())})
+    assert vazio["linha"] is None and vazio["fonte"] == "ponto_entrega"
+
+
+def test_as_chaves_do_endereco_sao_sempre_as_mesmas():
+    """Quem consome não pode precisar de `if` para saber quais chaves vieram."""
+    cheio = set(hana.endereco_entrega_efetivo(_bruta()))
+    vazio = set(hana.endereco_entrega_efetivo({k: None for k in list(_bruta())}))
+    assert cheio == vazio
+    assert cheio == {"fonte", "difere_do_ponto_de_entrega", "logradouro", "numero",
+                     "complemento", "bairro", "cidade", "uf", "cep", "pais",
+                     "municipio", "linha", "ponto_entrega"}
