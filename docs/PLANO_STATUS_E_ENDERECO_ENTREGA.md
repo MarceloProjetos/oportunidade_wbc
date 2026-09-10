@@ -1,6 +1,8 @@
 # Plano — Fechar o `/status`, abrir o endereço de entrega
 
-> **Status: B0, A1 e B1 ✅ concluídas (10/09).** As 8 decisões estão fechadas, e a
+> **Status: B0, A1, A2, B1 e B2 ✅ concluídas (10/09) — e o A1 já está NO AR.** O
+> Marcelo reiniciou a .11 às 13:52 e o serviço subiu com a visão mínima do `/status`;
+> conferido ao vivo (§1.7). As 8 decisões estão fechadas, e a
 > medição da B0 no HANA de produção confirmou as 21 colunas, o caso do 84348 e **zero
 > divergência** na régua dos 3 caracteres — a D8 fechou sozinha. O único insumo que falta
 > é o `STATUS_ID`, que o Marcelo gera na A3. Com o `flask` e o `apscheduler` instalados
@@ -124,14 +126,31 @@ nenhuma — é justamente o ponto de ele existir separado da `OS_API_KEY`.
   `OS_API_KEY` vem completo; `?strict=1` devolve o mesmo código nos três;
   `?checks=worker&strict=1` (o do watchdog) inalterado; e o teste da invariante 1.
 
+
+### 1.7 A1 no ar — smoke em produção (10/09, 13:52)
+
+O Marcelo reiniciou a .11 e o serviço subiu **já com o A1**. Conferido ao vivo:
+
+| O quê | Resultado |
+| --- | --- |
+| `GET /status` sem credencial | `restrito: true`, sem `system`, sem `windows_update`, `alerts` como número |
+| `X-API-Key` **errada** | Também a visão mínima — credencial inválida não vira 401 nesta rota, vira menos informação |
+| `?checks=worker&strict=1` **sem credencial** (o do watchdog) | **200**, como antes |
+| Tool MCP `verificar_saude` (manda a chave server-side) | Payload **completo**: `system.hostname`, `checks.sap.detail`, `api_auth` |
+| Tool MCP `situacao_pedido(84348)` | Responde normal — `doc_entry 19763`, `valor_total 550.812,11`, igual à tela |
+
+Ou seja: **a A3 está feita para o código**; falta só o `STATUS_ID` no `.env` para a
+outra equipe deixar de depender da chave forte. Enquanto ele não existir, quem precisa
+do payload completo usa a `OS_API_KEY` — que é exatamente como era antes.
+
 ### 1.6 Fases da frente A
 
 | Fase | Entrega | Dono |
 | --- | --- | --- |
 | **A0** | Inventário dos chamadores — ✅ feito em 10/09 (§1.2) | eu |
 | **A1** | ✅ **CONCLUÍDA 10/09** — `status_id` no `config.py` + `.env.example`; `_credencial_enviada()`/`_confere()` extraídos do `_autorizado()`; `_status_completo_autorizado()` e `_status_publico()` no `api.py`; a rota calcula o código HTTP antes de reduzir. **6 testes novos** em `tests/test_api.py` (um por invariante + o não-vazamento + as duas credenciais + o fail-open), **150 passando no módulo**. O refactor derrubou o `test_autorizado_usa_compare_digest`, que inspecionava o fonte do `_autorizado`: agora ele olha o `_confere` **e** exige que o `_autorizado` delegue — senão a garantia de tempo constante se perderia calada | eu |
-| **A2** | Docs: `API_OS_INTEGRACAO.md` §3.4, `API_ORDENS_PRODUCAO.md` §9, `README.md`, `CLAUDE.md`, `.env.example`, CHANGELOG — **e o texto de entrega do ID para a outra equipe** (o que ele abre, o que ele **não** abre) | eu |
-| **A3** | Marcelo gera o ID e grava no `.env` da .11 · deploy · smoke: `curl` anônimo (mínimo), com o ID (completo), watchdog do .90 verde | ID e restart dele, pull e smoke meus |
+| **A2** | ✅ **CONCLUÍDA 10/09** — sem doc novo: a explicação entra na seção de Monitoramento do `README.md` (que já documentava o `/status`) e os outros três apontam para lá em uma linha. Essa seção **é** o texto de entrega para a outra equipe — mas só mandar **depois da A3**: sem o ID no `.env`, quem recebê-lo bate no `/status` e leva a visão mínima sem entender por quê | eu |
+| **A3** | 🔶 **METADE FEITA** — o código subiu no restart de 10/09 13:52 e o smoke passou (§1.7). **Falta só o `STATUS_ID` no `.env` da .11** + um restart; depois disso, mandar o texto do README para a outra equipe | ID e restart dele |
 | **A4** | OrçaView: o proxy do modal passa a mandar o `STATUS_ID` em vez da chave forte — 1 linha no `.env` do .90 + 1 em `admin_integrations_routes.py`. **Nota honesta:** o .90 continua precisando da `OS_API_KEY` para o sync da Mira (`assistente_sap_routes.py`); o ganho aqui é o modal de status deixar de carregar a chave que escreve no SAP | eu |
 
 **Rollback:** `git revert` + restart. Não haverá flag `STATUS_*_ENABLED` no `.env` — o
@@ -269,7 +288,7 @@ tem sequer como escolher errado.
 | --- | --- | --- |
 | **B0** | ✅ **CONCLUÍDA 10/09** — resultados em §2.3. 21/21 colunas conferem · 84348 = DocEntry 19763 (JF contra BH) · 266 pedidos, 86% caem no padrão · **zero** linha com 1–2 caracteres (fecha a D8) · achados novos: CEP em 2 formatos e caixa de cidade inconsistente | eu |
 | **B1** | ✅ **CONCLUÍDA 10/09** — 18 colunas de endereço + `LEFT JOIN "RDR12"` por `DocEntry`, com o mapa `ENDERECO_COLS` explícito. **Custo medido no HANA de produção** (3 rodadas alternadas): mediana 142 ms antes, 107 ms depois — **o delta está dentro do ruído** (a 1ª execução paga o plano: 486 ms); com o cache de 120 s, pago no máximo 1×/2 min. Ninguém consome ainda: a regra é a B3 | eu |
-| **B2** | Município: coleta dos `AbsId` do recorte + um `SELECT` na OCNT, cache no mesmo TTL de 120 s. Fora do JOIN (§2.5.2) | eu |
+| **B2** | ✅ **CONCLUÍDA 10/09** — `_injetar_municipios()`: **uma** consulta `WHERE AbsId IN (...)` para o recorte inteiro, na **mesma conexão** (antes do `finally` que a fecha) e nas **mesmas linhas**, que já têm o cache de 120 s. Sem tabela, sem cache próprio, sem job. Best-effort: OCNT fora não derruba a Situação — as chaves ficam `null`. 7 testes | eu |
 | **B3** | `endereco_entrega_efetivo()` em `situacao_pedidos_hana.py` — a regra da §2.2, com teste dos quatro casos: os dois preenchidos e diferentes · só ShipTo · nenhum dos dois · **Local de Entrega com 1–2 caracteres** (cai no padrão) | eu |
 | **B4** | Publicar: objeto no `completo`, os 3 campos resolvidos no `resumo`, decoração em `api.py`. **Pedido cancelado lê a RDR12 desse DocEntry** (D5) — a chave nunca vem nula por preguiça, e a paridade de chaves entre os dois caminhos continua testada | eu |
 | **B5** | MCP: `situacao_pedido` já é `completo` por default; `panorama_pedidos` ganha `entrega_cidade_uf` + `entrega_difere` no resumo. Docstrings das tools dizendo que **o endereço da resposta já é o de despacho** — senão o modelo procura o ShipTo e responde a cidade errada | eu |
