@@ -1,8 +1,9 @@
 # Plano — Fechar o `/status`, abrir o endereço de entrega
 
-> **Status: B0, A1, A2, B1, B2 e B3 ✅ concluídas (10/09) — e o A1 já está NO AR.** O
-> Marcelo reiniciou a .11 às 13:52 e o serviço subiu com a visão mínima do `/status`;
-> conferido ao vivo (§1.7). As 8 decisões estão fechadas, e a
+> **Status: frente A FECHADA (A0–A3 no ar) · frente B com B0–B4 concluídas.** O
+> `STATUS_ID` está no `.env` da .11 desde 10/09 e conferido ao vivo: com ele o
+> `/status` vem completo, sem ele vem a visão mínima (§1.7). Restam **A4** (o modal do
+> .90 passar a usar o ID), **B5** (MCP), **B6** (docs) e **B7** (smoke em produção). As 8 decisões estão fechadas, e a
 > medição da B0 no HANA de produção confirmou as 21 colunas, o caso do 84348 e **zero
 > divergência** na régua dos 3 caracteres — a D8 fechou sozinha. O único insumo que falta
 > é o `STATUS_ID`, que o Marcelo gera na A3. Com o `flask` e o `apscheduler` instalados
@@ -150,7 +151,7 @@ do payload completo usa a `OS_API_KEY` — que é exatamente como era antes.
 | **A0** | Inventário dos chamadores — ✅ feito em 10/09 (§1.2) | eu |
 | **A1** | ✅ **CONCLUÍDA 10/09** — `status_id` no `config.py` + `.env.example`; `_credencial_enviada()`/`_confere()` extraídos do `_autorizado()`; `_status_completo_autorizado()` e `_status_publico()` no `api.py`; a rota calcula o código HTTP antes de reduzir. **6 testes novos** em `tests/test_api.py` (um por invariante + o não-vazamento + as duas credenciais + o fail-open), **150 passando no módulo**. O refactor derrubou o `test_autorizado_usa_compare_digest`, que inspecionava o fonte do `_autorizado`: agora ele olha o `_confere` **e** exige que o `_autorizado` delegue — senão a garantia de tempo constante se perderia calada | eu |
 | **A2** | ✅ **CONCLUÍDA 10/09** — sem doc novo: a explicação entra na seção de Monitoramento do `README.md` (que já documentava o `/status`) e os outros três apontam para lá em uma linha. Essa seção **é** o texto de entrega para a outra equipe — mas só mandar **depois da A3**: sem o ID no `.env`, quem recebê-lo bate no `/status` e leva a visão mínima sem entender por quê | eu |
-| **A3** | 🔶 **METADE FEITA** — o código subiu no restart de 10/09 13:52 e o smoke passou (§1.7). **Falta só o `STATUS_ID` no `.env` da .11** + um restart; depois disso, mandar o texto do README para a outra equipe | ID e restart dele |
+| **A3** | ✅ **CONCLUÍDA 10/09** — código no ar desde as 13:52 e `STATUS_ID` no `.env` desde as ~14:20. Conferido ao vivo: **com** o ID vem `system.hostname` e `api_auth`; **sem** ele, `restrito: true`. Falta só **mandar o texto do README para a outra equipe** | ID e restart dele |
 | **A4** | OrçaView: o proxy do modal passa a mandar o `STATUS_ID` em vez da chave forte — 1 linha no `.env` do .90 + 1 em `admin_integrations_routes.py`. **Nota honesta:** o .90 continua precisando da `OS_API_KEY` para o sync da Mira (`assistente_sap_routes.py`); o ganho aqui é o modal de status deixar de carregar a chave que escreve no SAP | eu |
 
 **Rollback:** `git revert` + restart. Não haverá flag `STATUS_*_ENABLED` no `.env` — o
@@ -252,6 +253,24 @@ O `ponto_entrega` **só existe no `completo`**, e a documentação vai dizer com
 letras: *é referência cadastral, não destino de despacho*. Quem estiver no `resumo` não
 tem sequer como escolher errado.
 
+
+### 2.7 O que isto custou no payload (medido em 10/09, 268 pedidos)
+
+| Rota / perfil | Antes | Depois |
+| --- | --- | --- |
+| `GET /pedidos/situacao` (`resumo`, o default) | ~74 KB | **120 KB** |
+| `GET /pedidos/situacao?campos=completo` | ~237 KB | **435 KB** |
+
+**Maior que a estimativa do plano** (+28 KB e +67 KB). São ~0,7 KB por pedido, e quase
+tudo é o `ponto_entrega` aninhado — que existe justamente para ninguém perder o dado
+cadastral. O `resumo`, que é o default e o caminho recomendado, continua a metade do
+`completo`.
+
+Duas consequências registradas: a **B5** precisa decidir o que o `panorama_pedidos` leva
+no `campos=completo` (é o que mais sente, porque vira token), e a **B6** tem de dizer
+isto na cara de quem consome — o doc já tem a linha *"a resposta está enorme → use
+`resumo`"*, e agora ela vale mais.
+
 ### 2.5 Fatos que travam o desenho
 
 1. **`situacao_pedidos.py` é PORTE do `situacao_pedidos_service.py` do OrçaView**, e
@@ -290,7 +309,7 @@ tem sequer como escolher errado.
 | **B1** | ✅ **CONCLUÍDA 10/09** — 18 colunas de endereço + `LEFT JOIN "RDR12"` por `DocEntry`, com o mapa `ENDERECO_COLS` explícito. **Custo medido no HANA de produção** (3 rodadas alternadas): mediana 142 ms antes, 107 ms depois — **o delta está dentro do ruído** (a 1ª execução paga o plano: 486 ms); com o cache de 120 s, pago no máximo 1×/2 min. Ninguém consome ainda: a regra é a B3 | eu |
 | **B2** | ✅ **CONCLUÍDA 10/09** — `_injetar_municipios()`: **uma** consulta `WHERE AbsId IN (...)` para o recorte inteiro, na **mesma conexão** (antes do `finally` que a fecha) e nas **mesmas linhas**, que já têm o cache de 120 s. Sem tabela, sem cache próprio, sem job. Best-effort: OCNT fora não derruba a Situação — as chaves ficam `null`. 7 testes | eu |
 | **B3** | ✅ **CONCLUÍDA 10/09** — `endereco_entrega_efetivo()`, com CEP normalizado para `NNNNN-NNN` (D9) e `linha` pronta. 9 testes + **contraprova sobre o recorte real** (268 pedidos): 38 pelo Local, 230 pelo padrão, 24 mudando de cidade — batendo com a B0 —, zero sem endereço, zero sem município e **zero CEP fora do padrão** | eu |
-| **B4** | Publicar: objeto no `completo`, os 3 campos resolvidos no `resumo`, decoração em `api.py`. **Pedido cancelado lê a RDR12 desse DocEntry** (D5) — a chave nunca vem nula por preguiça, e a paridade de chaves entre os dois caminhos continua testada | eu |
+| **B4** | ✅ **CONCLUÍDA 10/09** — objeto no `completo`, 3 campos no `resumo`, decoração em `api.py`, cancelado lendo a RDR12 (D5). 6 testes novos + **ponta a ponta contra o HANA de produção**: 268 pedidos, 268 com endereço, 38 com o selo, zero sem cidade/uf, e o ShipTo **não** vaza para o `resumo` | eu |
 | **B5** | MCP: `situacao_pedido` já é `completo` por default; `panorama_pedidos` ganha `entrega_cidade_uf` + `entrega_difere` no resumo. Docstrings das tools dizendo que **o endereço da resposta já é o de despacho** — senão o modelo procura o ShipTo e responde a cidade errada | eu |
 | **B6** | Docs da outra equipe: `API_SITUACAO_PEDIDOS.md` ganha a **7ª armadilha** ("o endereço da resposta já é o de despacho; `ponto_entrega` é cadastro, não destino") + §6.3 com o exemplo do 84348. CHANGELOG | eu |
 | **B7** | Smoke real: 84348 (deve vir Juiz de Fora, `difere=true`) · um pedido sem Local de Entrega (vem o padrão, `difere=false`) · um cancelado (chave presente) · conferência contra a tela do .90 | pull meu, restart dele |
