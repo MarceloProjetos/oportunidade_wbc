@@ -90,15 +90,52 @@ STATUS_PEDIDO_COLS = (
     # Valor e vendedor: a view nao tem nenhum dos dois. Campos PADRAO, nao UDF --
     # `U_INO_Vendedor` da OSLP NAO existe em producao e ja quebrou um sync.
     'o."DocTotal", o."DocCur", o."SlpCode", '
-    's."SlpName" AS "Vendedor"'
+    's."SlpName" AS "Vendedor", '
+    # Endereco de entrega (RDR12). Ver ENDERECO_COLS.
+    + ", ".join(f'a."{c}"' for c in
+                ("StrtDlvryP", "StrNoDlvrP", "BldDlvryP", "BlckDlvryP", "CityDlvryP",
+                 "StatDlvryP", "ZipDlvryP", "CntyDlvryP", "CtryDlvryP",
+                 "StreetS", "StreetNoS", "BuildingS", "BlockS", "CityS",
+                 "StateS", "ZipCodeS", "CountyS", "CountryS"))
 )
+
+#: As colunas de endereco da RDR12, por sufixo. **A grafia e' irregular e o mapa e'
+#: explicito de proposito**: ``StrNoDlvrP`` nao tem o "y", e ha ``BldDlvryP`` ao lado de
+#: ``BuildingS``. Um loop de sufixo produziria nome errado -- foi a armadilha da
+#: implementacao de 13/08 no OrcaView (``sap_hana_client._DELIVERY_PLACE_COLS``, de onde
+#: isto e' copia fiel).
+#:
+#: ``*DlvryP`` = "Local de entrega" (o campo BR que a tela marca com o selo "difere do
+#: ponto de entrega"); ``*S`` = ShipTo, o "Ponto de Entrega". Medido em 10/09 no recorte
+#: de 266 pedidos: 38 tem o Local preenchido, e em 24 deles a CIDADE difere do ShipTo.
+ENDERECO_COLS = {
+    "local": {"logradouro": "StrtDlvryP", "numero": "StrNoDlvrP",
+              "complemento": "BldDlvryP", "bairro": "BlckDlvryP",
+              "cidade": "CityDlvryP", "uf": "StatDlvryP", "cep": "ZipDlvryP",
+              "municipio_cod": "CntyDlvryP", "pais": "CtryDlvryP"},
+    "ponto": {"logradouro": "StreetS", "numero": "StreetNoS",
+              "complemento": "BuildingS", "bairro": "BlockS",
+              "cidade": "CityS", "uf": "StateS", "cep": "ZipCodeS",
+              "municipio_cod": "CountyS", "pais": "CountryS"},
+}
 
 #: LEFT, nunca INNER: pedido sem montador -- ou que suma da ORDR -- nao pode desaparecer
 #: da resposta. Os KPIs contam a VIEW, nao o join.
+#:
+#: A ``RDR12`` (endereco do documento) e' 1:1 por ``DocEntry`` e entra pelo mesmo motivo:
+#: LEFT. Medido em 10/09 nos 266 pedidos do recorte, nenhum ficou sem linha na RDR12 --
+#: mas basta um para o INNER apagar um pedido da lista sem erro nenhum.
+#:
+#: **A OCNT NAO entra aqui.** O municipio e' um codigo (``CntyDlvryP``/``CountyS`` =
+#: ``OCNT.AbsId``) e ha linha historica com o campo vazio; no plano de execucao do join o
+#: HANA avalia a conversao em linhas que o filtro descartaria e a consulta MORRE com
+#: "invalid number". Quem resolve o nome e' um SELECT a parte (F2), como o
+#: ``fetch_municipios`` do OrcaView.
 STATUS_PEDIDO_JOINS = (
     'LEFT JOIN "{schema}"."ORDR" o ON o."DocEntry" = v."DocEntry" '
     'LEFT JOIN "{schema}"."@INO_MONTADOR" m ON m."Code" = o."U_INO_MONTADOR" '
-    'LEFT JOIN "{schema}"."OSLP" s ON s."SlpCode" = o."SlpCode"'
+    'LEFT JOIN "{schema}"."OSLP" s ON s."SlpCode" = o."SlpCode" '
+    'LEFT JOIN "{schema}"."RDR12" a ON a."DocEntry" = v."DocEntry"'
 )
 
 _cache_lock = threading.Lock()

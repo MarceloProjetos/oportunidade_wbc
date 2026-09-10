@@ -141,15 +141,48 @@ def test_char_do_hana_vem_sem_o_espaco_a_direita(monkeypatch):
 
 
 def test_o_sql_usa_left_join_e_a_ordenacao_do_power_bi(monkeypatch):
-    """Contrato com o V117: INNER JOIN sumiria com pedido sem montador da resposta."""
+    """Contrato com o V117: INNER JOIN sumiria com pedido sem montador da resposta.
+
+    São 4 desde 2026-09-10 (a RDR12 do endereço entrou). Vale o mesmo argumento: em
+    10/09 nenhum dos 266 pedidos do recorte estava sem linha na RDR12, mas basta um
+    para o INNER apagar um pedido da lista sem erro nenhum.
+    """
     c = _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS, linhas=[_linha()]))
     hana.fetch_status_pedidos()
     select = next(s for s in c.sqls if SELECT_DA_VIEW in s)
 
-    assert select.count("LEFT JOIN") == 3
+    assert select.count("LEFT JOIN") == 4
     assert "INNER JOIN" not in select
     assert 'ORDER BY v."Producao", v."Data_Pedido"' in select
     assert "SBOALTAMIRAPROD" in select
+
+
+def test_a_rdr12_entra_por_docentry_e_a_ocnt_fica_de_fora(monkeypatch):
+    """A OCNT no JOIN **mata a consulta**: o município é um código e há linha
+    histórica com o campo vazio; no plano de execução o HANA avalia a conversão em
+    linhas que o filtro descartaria e estoura "invalid number". Quem resolve o nome é
+    um SELECT à parte."""
+    c = _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS, linhas=[_linha()]))
+    hana.fetch_status_pedidos()
+    select = next(s for s in c.sqls if SELECT_DA_VIEW in s)
+
+    assert 'LEFT JOIN "SBOALTAMIRAPROD"."RDR12" a ON a."DocEntry" = v."DocEntry"' in select
+    assert "OCNT" not in select
+
+
+def test_as_colunas_de_endereco_vao_com_a_grafia_irregular_do_sap(monkeypatch):
+    """`StrNoDlvrP` não tem o "y", e `BldDlvryP` convive com `BuildingS`. Um loop de
+    sufixo produziria nome errado — foi a armadilha de 13/08 no OrçaView. Este teste
+    existe para o dia em que alguém "arrumar" a lista."""
+    c = _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS, linhas=[_linha()]))
+    hana.fetch_status_pedidos()
+    select = next(s for s in c.sqls if SELECT_DA_VIEW in s)
+
+    for grupo in hana.ENDERECO_COLS.values():
+        for coluna in grupo.values():
+            assert f'a."{coluna}"' in select, f'{coluna} sumiu do SELECT'
+    assert 'a."StrNoDlvrP"' in select      # sem o "y", como o SAP escreve
+    assert 'a."StrNoDlvryP"' not in select  # a grafia "certa" NÃO existe na RDR12
 
 
 def test_o_sql_nao_le_a_udf_de_vendedor_que_nao_existe_em_producao(monkeypatch):

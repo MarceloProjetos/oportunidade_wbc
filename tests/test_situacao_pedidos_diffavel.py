@@ -82,9 +82,13 @@ def _caminho_v117() -> str | None:
     if override:
         candidatos.append(os.path.join(override, "services", "situacao_pedidos_service.py"))
     raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    candidatos.append(os.path.join(
-        raiz, "..", "..", "web_orcaview_V117", "backend", "services",
-        "situacao_pedidos_service.py"))
+    # V118 primeiro: a pasta foi renomeada em 2026-09-08 e este teste ficou PULANDO
+    # calado em dev por dois dias — exatamente o contrário do que ele existe para fazer.
+    # A lista fica aberta de propósito: a próxima renomeação só custa uma linha.
+    for pasta in ("web_orcaview_V118", "web_orcaview_V117"):
+        candidatos.append(os.path.join(
+            raiz, "..", "..", pasta, "backend", "services",
+            "situacao_pedidos_service.py"))
     for c in candidatos:
         if os.path.isfile(c):
             return os.path.normpath(c)
@@ -215,12 +219,32 @@ def test_fallback_de_montagem_e_identico_ao_v117():
     assert sap_montagem_labels.FALLBACK_LABELS == espaco["FALLBACK_LABELS"]
 
 
+#: Colunas que a .11 lê e a tela NÃO — extensão legítima, não divergência.
+#:
+#: O endereço de entrega (RDR12: ``*DlvryP`` = Local de Entrega, ``*S`` = ShipTo) entrou
+#: em 2026-09-10 para a Situação dos Pedidos poder dizer PARA ONDE a mercadoria vai. A
+#: tela não precisa deles aqui: ela mostra o endereço na aba Logística do Pedido, por
+#: outro caminho (``fetch_pedido_report``, RDR12 por ``DocEntry``). Levá-los para o V118
+#: só para o teste ficar simétrico custaria 18 colunas × ~267 linhas em toda abertura da
+#: tela, sem ninguém ler.
+#:
+#: Só entra aqui coluna que a .11 consome pela API/MCP e a tela comprovadamente não usa.
+#: **Coluna que as DUAS leem continua sendo contrato** — some das duas ou de nenhuma.
+COLUNAS_SO_DA_11 = frozenset({
+    "StrtDlvryP", "StrNoDlvrP", "BldDlvryP", "BlckDlvryP", "CityDlvryP",
+    "StatDlvryP", "ZipDlvryP", "CntyDlvryP", "CtryDlvryP",
+    "StreetS", "StreetNoS", "BuildingS", "BlockS", "CityS",
+    "StateS", "ZipCodeS", "CountyS", "CountryS",
+})
+
+
 def test_o_select_da_view_e_o_mesmo_do_v117():
     """O SQL também é contrato: é ele que faz a .11 e a tela lerem os mesmos campos.
 
-    Compara só a LISTA DE COLUNAS. Os JOINs divergem no texto de propósito — lá o schema
-    é interpolado direto, aqui vem de ``{schema}.format()`` — e por isso são conferidos
-    por forma (3 ``LEFT JOIN``, nenhum ``INNER``) em ``test_situacao_pedidos_hana``.
+    Compara só a LISTA DE COLUNAS, descontadas as de :data:`COLUNAS_SO_DA_11`. Os JOINs
+    divergem no texto de propósito — lá o schema é interpolado direto, aqui vem de
+    ``{schema}.format()`` — e por isso são conferidos por forma (``LEFT JOIN``, nenhum
+    ``INNER``) em ``test_situacao_pedidos_hana``.
     """
     caminho = _caminho_v117()
     if not caminho:
@@ -238,7 +262,22 @@ def test_o_select_da_view_e_o_mesmo_do_v117():
     fim = fonte.index("\n    )", ini)
     colunas = lambda t: re.findall(r'"([A-Za-z_@][\w]*)"', t)  # noqa: E731
 
-    assert colunas(hana.STATUS_PEDIDO_COLS) == colunas(fonte[ini:fim]), (
-        "a lista de colunas divergiu do V117 — uma das duas telas vai ficar com campo "
-        "vazio sem erro nenhum aparecer."
+    aqui = [c for c in colunas(hana.STATUS_PEDIDO_COLS) if c not in COLUNAS_SO_DA_11]
+    assert aqui == colunas(fonte[ini:fim]), (
+        "a lista de colunas divergiu do V117/V118 — uma das duas telas vai ficar com "
+        "campo vazio sem erro nenhum aparecer. Se a coluna nova é só da .11, declare-a "
+        "em COLUNAS_SO_DA_11 e diga por quê."
+    )
+
+
+def test_o_endereco_e_extensao_da_11_e_nao_some_do_select():
+    """A contraprova de :data:`COLUNAS_SO_DA_11`: ela não pode virar um saco onde
+    qualquer divergência é abafada. Se o endereço sair do SELECT da .11, a lista de
+    exceções fica mentindo — e é aqui que isso aparece."""
+    import situacao_pedidos_hana as hana
+
+    do_select = set(re.findall(r'"([A-Za-z_@][\w]*)"', hana.STATUS_PEDIDO_COLS))
+    assert COLUNAS_SO_DA_11 <= do_select, (
+        f"{sorted(COLUNAS_SO_DA_11 - do_select)} está em COLUNAS_SO_DA_11 mas não no "
+        f"SELECT — tire da lista de exceções."
     )
