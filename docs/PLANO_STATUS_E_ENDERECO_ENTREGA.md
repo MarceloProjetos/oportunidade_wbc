@@ -1,6 +1,6 @@
 # Plano — Fechar o `/status`, abrir o endereço de entrega
 
-> **Status (2026-09-10): frente A FECHADA e no ar · frente B com B0–B5 concluídas.**
+> **Status (2026-09-10): as duas frentes FECHADAS e no ar.**
 >
 > - **Frente A:** o `STATUS_ID` está no `.env` da .11 e foi conferido ao vivo — com ele o
 >   `/status` vem completo, sem ele vem a visão mínima (§1.7).
