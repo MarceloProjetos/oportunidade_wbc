@@ -4,8 +4,12 @@
 >
 > - **Frente A:** o `STATUS_ID` está no `.env` da .11 e foi conferido ao vivo — com ele o
 >   `/status` vem completo, sem ele vem a visão mínima (§1.7).
-> - **Só falta:** mandar o texto do README para a outra equipe, e a **A4** (o modal do
->   `.90` passar a usar o ID no lugar da chave que escreve no SAP).
+> - **A4 ✅ feita** (V118.58 no repo do OrçaView): o proxy do modal prefere o
+>   `OPORTUNIDADE_WBC_STATUS_ID` e só cai na chave forte se ele faltar — com `WARNING`
+>   no log, para o fallback não ser silencioso.
+> - **Só falta, e é com ele:** (1) mandar o texto do README para a outra equipe;
+>   (2) pôr `OPORTUNIDADE_WBC_STATUS_ID` no `.env` do `.90` + restart. Até lá o card
+>   funciona igual, usando a chave.
 > - **Frente B: FECHADA e no ar.** O `.11` foi atualizado e reiniciado em 10/09, e o
 >   smoke passou nos quatro casos (§2.8) — inclusive o cancelado e o furo do panorama.
 > - **As 9 decisões estão fechadas.** Nenhuma pergunta em aberto.
@@ -155,7 +159,7 @@ do payload completo usa a `OS_API_KEY` — que é exatamente como era antes.
 | **A1** | ✅ **CONCLUÍDA 10/09** — `status_id` no `config.py` + `.env.example`; `_credencial_enviada()`/`_confere()` extraídos do `_autorizado()`; `_status_completo_autorizado()` e `_status_publico()` no `api.py`; a rota calcula o código HTTP antes de reduzir. **6 testes novos** em `tests/test_api.py` (um por invariante + o não-vazamento + as duas credenciais + o fail-open), **150 passando no módulo**. O refactor derrubou o `test_autorizado_usa_compare_digest`, que inspecionava o fonte do `_autorizado`: agora ele olha o `_confere` **e** exige que o `_autorizado` delegue — senão a garantia de tempo constante se perderia calada | eu |
 | **A2** | ✅ **CONCLUÍDA 10/09** — sem doc novo: a explicação entra na seção de Monitoramento do `README.md` (que já documentava o `/status`) e os outros três apontam para lá em uma linha. Essa seção **é** o texto de entrega para a outra equipe — mas só mandar **depois da A3**: sem o ID no `.env`, quem recebê-lo bate no `/status` e leva a visão mínima sem entender por quê | eu |
 | **A3** | ✅ **CONCLUÍDA 10/09** — código no ar desde as 13:52 e `STATUS_ID` no `.env` desde as ~14:20. Conferido ao vivo: **com** o ID vem `system.hostname` e `api_auth`; **sem** ele, `restrito: true`. Falta só **mandar o texto do README para a outra equipe** | ID e restart dele |
-| **A4** | OrçaView: o proxy do modal passa a mandar o `STATUS_ID` em vez da chave forte — 1 linha no `.env` do .90 + 1 em `admin_integrations_routes.py`. **Nota honesta:** o .90 continua precisando da `OS_API_KEY` para o sync da Mira (`assistente_sap_routes.py`); o ganho aqui é o modal de status deixar de carregar a chave que escreve no SAP | eu |
+| **A4** | ✅ **CONCLUÍDA 10/09** — V118.58 no repo do OrçaView. O proxy prefere o `OPORTUNIDADE_WBC_STATUS_ID`; **o fallback é de propósito e barulhento** (a ordem dos dois deploys não pode quebrar o card, mas o log denuncia). 4 testes novos — a rota não tinha nenhum. **Nota honesta:** a chave forte fica no `.env` do .90, porque o branch SAP/OS da Mira precisa dela; o ganho é o card de status não portá-la mais. **Falta:** a variável no `.env` do .90 + restart | dele |
 
 **Rollback:** `git revert` + restart. Não haverá flag `STATUS_*_ENABLED` no `.env` — o
 que existe é a credencial.
