@@ -3,6 +3,45 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-10] — `/status` em dois niveis: o `STATUS_ID` de baixo privilegio (A1 do PLANO_STATUS_E_ENDERECO_ENTREGA)
+
+Medido em producao em 10/09 as 11:43, com um `curl` da maquina do Marcelo e **sem header
+nenhum**: o `/status` publicava `SAPBusinessOneI`, `192.168.7.11`,
+`Windows-2022Server-10.0.20348`, Python 3.12.10, `SAPBusinessOneHana-vm:30015`,
+`192.168.0.1:1433 / WBCCAD`, a URL do projeto Supabase, `C:\Python\...\state\`, disco/CPU
+e o nivel de patch (`pendentes: 3`, `dias_sem_patch: 5`). O mapa da integracao para
+qualquer um na LAN.
+
+- **Nasce o `STATUS_ID`** (`config.py`, `.env.example`): credencial que abre **so** o
+  `/status` completo. E' a que vai para a outra equipe e para o OrcaView — assim ler o
+  diagnostico deixa de exigir a `OS_API_KEY`, que tambem escreve no SAP e abre o painel
+  8079. Aceita nos MESMOS tres lugares da chave (`X-API-Key`, `Bearer`, `?key=`), entao
+  quem ja consome **so troca o valor**: nenhum cliente muda de codigo.
+- **Tres niveis na rota:** sem credencial vem a visao MINIMA (`ok`, `healthy`, um booleano
+  por check, `alerts` como **contagem**, `restrito: true`); com o `STATUS_ID` ou com a
+  `OS_API_KEY` vem o payload inteiro, como antes.
+- **O codigo HTTP nao depende da credencial** — e' calculado ANTES da reducao. O
+  `mira-watchdog.js` do .90 chama `/status?checks=worker&strict=1` **sem credencial** e
+  decide pelo codigo: ele nao muda uma linha. Ha teste cravando isso nos tres cenarios
+  (check caido, alerta, saudavel).
+- **O `STATUS_ID` nao abre mais nada.** O `_autorizado()` (guard das outras 18 rotas) NAO
+  o aceita — teste cravando 401 em `/rh/colaboradores`, `/pedidos/situacao`,
+  `/historico`, `/ordens-servico/<n>`, `/oportunidades/info` e na escrita de OP.
+- **Fail-closed na credencial nova:** sem `STATUS_ID` no `.env`, credencial qualquer nao
+  abre nada. A unica porta que segue aberta e' a antiga — sem `OS_API_KEY` a API inteira
+  cai aberta (fail-open documentado) e o `/status` acompanha, em vez de inventar uma
+  segunda regra so para esta rota. Quem denuncia esse estado e' o `api_auth` do payload.
+- **`monitoring.py` NAO mudou.** `collect_status()` e `SELECTABLE_CHECKS` sao contrato
+  entre repos (o card do .90 e a tool MCP leem os blocos pelo nome): a reducao e'
+  apresentacao (`_status_publico` no `api.py`), nao coleta.
+- **Sem flag no `.env`**: `STATUS_ID` e' credencial, da familia de `OS_API_KEY` e
+  `SIS_MCP_TOKEN` — nao ha `STATUS_*_ENABLED`. Rollback = `git revert` + restart.
+
+> ⚠️ **Os 6 testes novos nao rodaram nesta maquina**: o Python 3.14 local nao tem `flask`,
+> entao `tests/test_api.py` pula inteiro (gap antigo do ambiente — o mesmo vale para
+> `apscheduler` e `mcp`). A logica da reducao foi verificada campo a campo contra o fonte
+> real (nao uma copia), e o resto se prova na .11, na fase A3.
+
 ## [2026-09-08] — `install_wbc_services.bat` nao rebaixa mais o worker para MANUAL (o boot da .11 o deixaria parado)
 
 Achado ao conferir o boot de amanha: o instalador gravava `Start SERVICE_DEMAND_START` no worker

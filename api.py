@@ -28,6 +28,16 @@ Set ``OS_API_KEY`` in ``.env``. The client must send the ``X-API-Key: <key>`` he
 (or ``Authorization: Bearer <key>``). Without ``OS_API_KEY`` the endpoint is **open**
 (use only on a trusted internal network / development).
 
+``GET /status`` is the one route with **two** levels. It stays open — the .90's watchdog
+polls it with no credential and decides by the HTTP status code — but a caller without a
+credential now gets a **minimal** view (``ok``, ``healthy``, one boolean per check, the
+alert **count**, ``restrito: true``). The full payload needs either the ``OS_API_KEY`` or
+the low-privilege ``STATUS_ID``, which is the one handed to the other team and to the
+OrçaView: it opens the diagnosis and **nothing else** — on every other route it is a 401.
+Reason: the full payload publishes the HANA and SQL Server ``host:port``, the Supabase
+URL, hostname/IP/OS/Python, the install path and the patch level — a map of the
+integration for anyone on the LAN.
+
 How to run
 ----------
 - Dev/Production: ``python api.py`` (the supported form — serves via waitress if
@@ -377,23 +387,19 @@ def _resumo_os(linhas: List[dict]) -> dict:
     }
 
 
-def _autorizado() -> bool:
-    """True if ``OS_API_KEY`` is unset (open) or if the key matches.
+def _credencial_enviada() -> Optional[str]:
+    """The credential that came with the request, or ``None``.
 
-    Accepts the key via: the ``X-API-Key`` header, ``Authorization: Bearer <key>``, or the
-    query string ``?key=`` / ``?api_key=`` (the query param allows testing from a browser,
-    which sends no headers; with the caveat that the key then appears in the URL/browser
-    history).
+    Accepted in three places: the ``X-API-Key`` header, ``Authorization: Bearer <key>``,
+    or the query string ``?key=`` / ``?api_key=`` (the query param allows testing from a
+    browser, which sends no headers; with the caveat that the key then appears in the
+    URL/browser history).
 
-    The comparison uses ``compare_digest`` (constant time): ``==`` short-circuits on the
-    1st differing byte, and the response time leaks how many bytes the guess got right —
-    enough to recover the key byte by byte. Made worse by accepting the key on the query
-    string, so the attack is a plain GET in a loop, with no rate limit on reads.
-    ``mcp/serve_http.py`` already did this right; the API did not.
+    Extracted from ``_autorizado`` so that ``/status`` can check a **second**, weaker
+    credential (``STATUS_ID``) in the very same places — which is what lets a client
+    switch from the strong key to the weak one by changing the value alone, with no code
+    change on their side.
     """
-    chave = get_settings().os_api_key
-    if not chave:
-        return True
     enviado = request.headers.get('X-API-Key')
     if not enviado:
         auth = request.headers.get('Authorization', '')
@@ -401,11 +407,83 @@ def _autorizado() -> bool:
             enviado = auth[len('Bearer '):]
     if not enviado:
         enviado = request.args.get('key') or request.args.get('api_key')
-    if not enviado:
-        return False   # compare_digest does not accept None
-    # encode: compare_digest requires bytes or an ASCII-only str — a key with an accent
-    # would raise TypeError and turn into a 500 instead of a 401.
-    return hmac.compare_digest(enviado.encode('utf-8'), chave.encode('utf-8'))
+    return enviado or None
+
+
+def _confere(enviado: Optional[str], esperado: Optional[str]) -> bool:
+    """Constant-time comparison; ``False`` when either side is missing.
+
+    ``compare_digest``: ``==`` short-circuits on the 1st differing byte, and the response
+    time leaks how many bytes the guess got right — enough to recover the key byte by
+    byte. Made worse by accepting the key on the query string, so the attack is a plain
+    GET in a loop, with no rate limit on reads. ``mcp/serve_http.py`` already did this
+    right; the API did not.
+
+    ``encode``: ``compare_digest`` requires bytes or an ASCII-only str — a key with an
+    accent would raise TypeError and turn into a 500 instead of a 401.
+    """
+    if not enviado or not esperado:
+        return False
+    return hmac.compare_digest(enviado.encode('utf-8'), esperado.encode('utf-8'))
+
+
+def _autorizado() -> bool:
+    """True if ``OS_API_KEY`` is unset (open) or if the key matches.
+
+    **The ``STATUS_ID`` is deliberately NOT accepted here.** It is a low-privilege
+    credential that opens the full ``/status`` and nothing else; letting it through this
+    guard would hand the other team the roster, the orders and the SAP write. There is a
+    test nailing that ``STATUS_ID`` on ``/rh/colaboradores`` answers **401**.
+    """
+    chave = get_settings().os_api_key
+    if not chave:
+        return True
+    return _confere(_credencial_enviada(), chave)
+
+
+def _status_completo_autorizado() -> bool:
+    """Who may see the **whole** ``/status``: the ``OS_API_KEY`` or the ``STATUS_ID``.
+
+    Everyone else gets :func:`_status_publico`. Reusing ``_autorizado()`` keeps a single
+    fail-open rule in the service: with no ``OS_API_KEY`` configured the API is open as a
+    whole (documented at the top of this file), and the diagnosis follows it rather than
+    inventing a second, stricter rule for one route.
+    """
+    return _autorizado() or _confere(_credencial_enviada(), get_settings().status_id)
+
+
+def _status_publico(data: dict) -> dict:
+    """The **minimal** view of ``/status`` — what goes out with no credential.
+
+    Keeps what serves to MONITOR (is it up? did a check fail? how many alerts?) and drops
+    what serves to MAP: the HANA and SQL Server ``host:port`` and the Supabase URL (in
+    ``checks.*.detail``), hostname/IP/OS/Python and the disk sizes (``system``), the
+    tracking DB path (``wbc_worker.db``), the patch level (``windows_update``) and whether
+    the API even requires a key (``api_auth``). ``checks.*.error`` goes too: connection
+    errors quote DSNs and user names.
+
+    ``alerts`` comes as a **count**, not the list of texts — the texts carry numbers
+    (free GB, minutes stale) and, more importantly, whoever needs to read them now has the
+    ``STATUS_ID``. ``restrito: true`` is there so the consumer can tell this shape apart
+    from the full one instead of guessing why a key is missing.
+
+    The HTTP status code is computed by the caller **before** this reduction, so
+    ``?strict=1`` answers exactly what it answered before for everybody — that is what
+    keeps the .90's watchdog (which polls with no credential and decides by the code)
+    working untouched.
+    """
+    checks = {nome: {'ok': bool(c.get('ok'))}
+              for nome, c in (data.get('checks') or {}).items()}
+    return {
+        'ok': data.get('ok'),
+        'healthy': data.get('healthy'),
+        'service': data.get('service'),
+        'timestamp': data.get('timestamp'),
+        'uptime_s': data.get('uptime_s'),
+        'checks': checks,
+        'alerts': len(data.get('alerts') or []),
+        'restrito': True,
+    }
 
 
 def requer_chave(fn):
@@ -417,7 +495,9 @@ def requer_chave(fn):
     decorator leaves the route visibly without it, instead of looking like all the others.
 
     Deliberately WITHOUT it (see CLAUDE.md): ``/``, ``/favicon.ico``, ``/health`` and
-    ``/status`` — monitoring and browser use.
+    ``/status`` — monitoring and browser use. ``/status`` is not simply open, though: it
+    has its own two-level rule (:func:`_status_completo_autorizado`), because a decorator
+    here would be all-or-nothing and the .90's watchdog polls it with no credential.
 
     Order matters: ``@app.get(...)`` **on top**, ``@requer_chave`` right below — otherwise
     Flask registers the wrapper as the endpoint and the guard never runs on the request.
@@ -583,8 +663,17 @@ def status_detalhado():
     """**On-demand** diagnosis: SAP, SQL Server (WBC), Supabase (with latency), scheduler
     signal and system (CPU/memory/disk/IP/uptime).
 
-    **Open** (no key) — meant for monitoring and for opening straight in a browser. Runs
-    only when called (no polling). Parameters:
+    **Open, in two levels.** With no credential the answer is the **minimal** view
+    (:func:`_status_publico`): ``ok``, ``healthy``, one boolean per check, the alert
+    **count** and ``restrito: true``. The full payload needs the ``OS_API_KEY`` or the
+    low-privilege ``STATUS_ID`` — the one handed to the other team and to the OrçaView,
+    which opens this route and **nothing else**.
+
+    The **HTTP status code does not depend on the credential**: ``?strict=1`` answers 503
+    for a degraded server either way. That is deliberate — the .90's watchdog polls
+    ``?checks=worker&strict=1`` with no credential and decides by the code alone.
+
+    Runs only when called (no polling). Parameters:
     - ``?checks=sap,sql`` — runs only the listed checks (sap, sql/sql_server, supabase,
       scheduler/agendador, scheduled_task/tarefa, windows_update/update/reboot,
       wbc_worker/worker/integracao_wbc). Omitted =
@@ -613,8 +702,12 @@ def status_detalhado():
         return jsonify(ok=False, error='falha ao coletar status'), 500
 
     strict = request.args.get('strict') in ('1', 'true', 'yes')
+    # Computed BEFORE the reduction, on the full data: the code is the same for everyone.
     degraded = (not data['ok']) or bool(data.get('alerts'))
-    return jsonify(data), (503 if strict and degraded else 200)
+    http = 503 if strict and degraded else 200
+    if not _status_completo_autorizado():
+        data = _status_publico(data)
+    return jsonify(data), http
 
 
 @app.get('/historico')

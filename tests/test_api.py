@@ -13,6 +13,9 @@ def client(monkeypatch):
     # Estado base: SEM OS_API_KEY (API aberta). Os testes de auth definem a chave.
     # (o .env local pode ter OS_API_KEY; aqui garantimos um estado determinístico.)
     monkeypatch.delenv('OS_API_KEY', raising=False)
+    # Idem para o STATUS_ID: com ele vazando do .env, o teste da visão mínima do /status
+    # passaria a depender do ambiente em vez do código.
+    monkeypatch.delenv('STATUS_ID', raising=False)
     reset_settings()
     apimod._rate_limiter.reset()   # rate-limit é singleton de processo — zera entre testes
     # sync_os mockado: registra os NPEDs chamados e devolve sucesso por padrão.
@@ -663,6 +666,123 @@ def test_status_strict_503_when_degraded(client, monkeypatch):
                         lambda only=None: {'ok': False, 'alerts': [], 'checks': {}})
     assert client.get('/status?strict=1').status_code == 503  # degradado + strict → 503
     assert client.get('/status').status_code == 200           # sem strict → 200 sempre
+
+
+# ----- /status: os dois níveis e o STATUS_ID (2026-09-10) -----
+# Medido em produção em 10/09, sem header nenhum: o /status publicava hostname, IP, o
+# `host:porta` do HANA e do SQL Server, a URL do Supabase, o caminho em disco e o nível
+# de patch — o mapa da integração para quem estivesse na LAN. Agora quem não tem
+# credencial recebe a visão MÍNIMA; o completo pede a OS_API_KEY ou o STATUS_ID.
+
+#: Um payload parecido com o real — é o que a redução tem de esvaziar.
+_STATUS_COMPLETO = {
+    'ok': True, 'healthy': True, 'service': 'ordens-servico-engenharia',
+    'timestamp': '2026-09-10T11:43:15', 'uptime_s': 19779,
+    'checks': {
+        'sap': {'ok': True, 'ms': 16, 'detail': 'SAPBusinessOneHana-vm:30015'},
+        'sql_server': {'ok': False, 'ms': 3, 'error': 'login failed for user integra'},
+    },
+    'system': {'hostname': 'SAPBusinessOneI', 'ip': '192.168.7.11',
+               'os': 'Windows-2022Server-10.0.20348-SP0', 'python': '3.12.10',
+               'disk_free_gb': 36.6, 'disk_low': False},
+    'wbc_worker': {'healthy': True, 'db': r'C:\Python\ServidorIntegracaoSAP\state\x.db'},
+    'windows_update': {'pendentes': 3, 'ultimo_patch_kb': 'KB5120241'},
+    'api_auth': {'api_key_configurada': True},
+    'alerts': ['disco baixo: 36.6 GB livres', 'agendador possivelmente parado'],
+}
+
+
+@pytest.fixture
+def status_com_id(client, monkeypatch):
+    """API com chave forte E STATUS_ID configurados, servindo o payload completo."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    monkeypatch.setenv('STATUS_ID', 'id-do-status')
+    reset_settings()
+    monkeypatch.setattr(apimod, 'collect_status', lambda only=None: dict(_STATUS_COMPLETO))
+    return client
+
+
+def test_status_sem_credencial_nao_publica_a_topologia(status_com_id):
+    """O que motivou a mudança: nada de host:porta, IP, caminho ou nível de patch."""
+    body = status_com_id.get('/status').get_json()
+    assert body['restrito'] is True
+    # o que fica: dá para monitorar
+    assert body['ok'] is True and body['healthy'] is True
+    assert body['checks'] == {'sap': {'ok': True}, 'sql_server': {'ok': False}}
+    assert body['alerts'] == 2          # contagem, não os textos
+    # o que sai: o mapa da infraestrutura
+    for chave in ('system', 'windows_update', 'api_auth', 'wbc_worker'):
+        assert chave not in body, f'{chave} não pode sair sem credencial'
+    bruto = status_com_id.get('/status').get_data(as_text=True)
+    for vazado in ('SAPBusinessOneHana-vm', '192.168.7.11', 'SAPBusinessOneI',
+                   'Windows-2022Server', 'C:\\\\Python', 'KB5120241', 'login failed'):
+        assert vazado not in bruto, f'{vazado} vazou na visão mínima'
+
+
+def test_status_completo_com_status_id_ou_com_a_chave(status_com_id):
+    """Ninguém perde funcionalidade: as duas credenciais abrem o payload inteiro."""
+    for cabecalho in ({'X-API-Key': 'id-do-status'},        # o ID novo
+                      {'X-API-Key': 'segredo'},             # a chave de sempre
+                      {'Authorization': 'Bearer id-do-status'}):
+        body = status_com_id.get('/status', headers=cabecalho).get_json()
+        assert 'restrito' not in body
+        assert body['system']['hostname'] == 'SAPBusinessOneI'
+        assert body['checks']['sap']['detail'] == 'SAPBusinessOneHana-vm:30015'
+        assert body['alerts'] == _STATUS_COMPLETO['alerts']   # lista, não contagem
+    # ?key= também vale (é como se testa pelo navegador)
+    assert 'system' in status_com_id.get('/status?key=id-do-status').get_json()
+
+
+def test_status_id_nao_abre_nenhuma_outra_rota(status_com_id):
+    """INVARIANTE 1: o STATUS_ID é só para o diagnóstico — em todo o resto é 401."""
+    for rota in ('/rh/colaboradores', '/pedidos/situacao', '/historico',
+                 '/ordens-servico/84348', '/oportunidades/info'):
+        r = status_com_id.get(rota, headers={'X-API-Key': 'id-do-status'})
+        assert r.status_code == 401, f'{rota} aceitou o STATUS_ID'
+    r = status_com_id.post('/ordens-producao/129850/status',
+                           headers={'X-API-Key': 'id-do-status'},
+                           json={'status': 'encerrada'})
+    assert r.status_code == 401, 'escrita em OP aceitou o STATUS_ID'
+
+
+def test_status_codigo_http_nao_depende_da_credencial(client, monkeypatch):
+    """INVARIANTE 2: o watchdog do .90 chama sem credencial e decide pelo CÓDIGO."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    monkeypatch.setenv('STATUS_ID', 'id-do-status')
+    reset_settings()
+    for payload in ({'ok': False, 'alerts': [], 'checks': {}},          # check caiu
+                    {'ok': True, 'alerts': ['worker parado'], 'checks': {}},  # alerta
+                    {'ok': True, 'alerts': [], 'checks': {}}):               # saudável
+        monkeypatch.setattr(apimod, 'collect_status', lambda only=None, p=payload: dict(p))
+        sem = client.get('/status?checks=worker&strict=1').status_code
+        com = client.get('/status?checks=worker&strict=1',
+                         headers={'X-API-Key': 'id-do-status'}).status_code
+        assert sem == com, f'o código divergiu para {payload}'
+
+
+def test_sem_status_id_configurado_so_a_chave_abre_o_completo(client, monkeypatch):
+    """INVARIANTE 3: fail-closed na credencial nova — nada de `if not id: libera`."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    monkeypatch.delenv('STATUS_ID', raising=False)
+    reset_settings()
+    monkeypatch.setattr(apimod, 'collect_status', lambda only=None: dict(_STATUS_COMPLETO))
+    assert client.get('/status').get_json()['restrito'] is True
+    assert client.get('/status', headers={'X-API-Key': 'qualquer'}).get_json()['restrito']
+    assert 'system' in client.get('/status', headers={'X-API-Key': 'segredo'}).get_json()
+
+
+def test_sem_os_api_key_o_status_segue_o_fail_open_da_api(client, monkeypatch):
+    """Sem chave nenhuma configurada a API inteira é aberta — o /status acompanha.
+
+    Uma regra de fail-open só para esta rota seria uma segunda regra para lembrar; a
+    visibilidade de que a API está aberta continua sendo o `api_auth` do payload.
+    """
+    monkeypatch.delenv('OS_API_KEY', raising=False)
+    monkeypatch.delenv('STATUS_ID', raising=False)
+    reset_settings()
+    monkeypatch.setattr(apimod, 'collect_status', lambda only=None: dict(_STATUS_COMPLETO))
+    body = client.get('/status').get_json()
+    assert 'restrito' not in body and body['api_auth']['api_key_configurada'] is True
 
 
 # ----- /status: nome de check inválido (regressão 2026-07-15) -----

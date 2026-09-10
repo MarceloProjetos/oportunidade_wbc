@@ -1,9 +1,12 @@
 # Plano — Fechar o `/status`, abrir o endereço de entrega
 
-> **Status: B0 ✅ concluída (10/09) · A1 em andamento.** As 8 decisões estão fechadas, e a
+> **Status: B0 ✅ e A1 ✅ concluídas (10/09).** As 8 decisões estão fechadas, e a
 > medição da B0 no HANA de produção confirmou as 21 colunas, o caso do 84348 e **zero
 > divergência** na régua dos 3 caracteres — a D8 fechou sozinha. O único insumo que falta
-> é o `STATUS_ID`, que o Marcelo gera na A3.
+> é o `STATUS_ID`, que o Marcelo gera na A3. **Ressalva do A1:** os 6 testes novos não
+> puderam rodar nesta máquina — o Python 3.14 local não tem `flask`, então
+> `tests/test_api.py` pula inteiro (gap antigo do ambiente, não desta mudança). A lógica
+> da redução foi verificada contra o fonte real, campo a campo; o resto roda na A3.
 
 Duas frentes independentes na API 8077 da `192.168.7.11`, que podem subir no mesmo deploy
 ou em deploys separados:
@@ -75,9 +78,12 @@ que também escreve no SAP.
    **não** o aceita. Teste: `STATUS_ID` em `/rh/colaboradores` → **401**.
 2. **O `?strict=1` é calculado antes da redução.** O watchdog do .90 decide pelo código
    HTTP e não muda uma linha.
-3. **Sem `STATUS_ID` no `.env`, só a `OS_API_KEY` abre o completo** — e o anônimo segue
-   na visão mínima. Fail-closed na credencial nova, ao contrário da `OS_API_KEY`, que
-   ainda cai aberta por desenho antigo.
+3. **Fail-closed na credencial nova.** Sem `STATUS_ID` no `.env`, uma credencial
+   qualquer não abre nada: só a `OS_API_KEY` abre o completo, e o resto fica na visão
+   mínima. A única porta que continua aberta é a antiga: **sem `OS_API_KEY` configurada
+   a API inteira é aberta** (fail-open documentado no topo do `api.py`) e o `/status`
+   acompanha — uma regra de fail-open só para esta rota seria uma segunda regra para
+   lembrar. Quem denuncia esse estado é o próprio `api_auth` do payload.
 
 **Onde o ID é aceito:** nos mesmos três lugares da chave (`X-API-Key`,
 `Authorization: Bearer`, `?key=`), com `compare_digest`. Assim o modal do .90 e a outra
@@ -124,7 +130,7 @@ nenhuma — é justamente o ponto de ele existir separado da `OS_API_KEY`.
 | Fase | Entrega | Dono |
 | --- | --- | --- |
 | **A0** | Inventário dos chamadores — ✅ feito em 10/09 (§1.2) | eu |
-| **A1** | `STATUS_ID` + `_status_publico()` + os testes das 3 invariantes | eu |
+| **A1** | ✅ **CONCLUÍDA 10/09** — `status_id` no `config.py` + `.env.example`; `_credencial_enviada()`/`_confere()` extraídos do `_autorizado()`; `_status_completo_autorizado()` e `_status_publico()` no `api.py`; a rota calcula o código HTTP antes de reduzir. **6 testes novos** em `tests/test_api.py` (uma por invariante + o não-vazamento + as duas credenciais + o fail-open). ⚠️ não executados aqui: falta `flask` no 3.14 local | eu |
 | **A2** | Docs: `API_OS_INTEGRACAO.md` §3.4, `API_ORDENS_PRODUCAO.md` §9, `README.md`, `CLAUDE.md`, `.env.example`, CHANGELOG — **e o texto de entrega do ID para a outra equipe** (o que ele abre, o que ele **não** abre) | eu |
 | **A3** | Marcelo gera o ID e grava no `.env` da .11 · deploy · smoke: `curl` anônimo (mínimo), com o ID (completo), watchdog do .90 verde | ID e restart dele, pull e smoke meus |
 | **A4** | OrçaView: o proxy do modal passa a mandar o `STATUS_ID` em vez da chave forte — 1 linha no `.env` do .90 + 1 em `admin_integrations_routes.py`. **Nota honesta:** o .90 continua precisando da `OS_API_KEY` para o sync da Mira (`assistente_sap_routes.py`); o ganho aqui é o modal de status deixar de carregar a chave que escreve no SAP | eu |

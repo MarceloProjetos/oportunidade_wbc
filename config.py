@@ -278,6 +278,11 @@ class Settings:
     os_execution_mode: str
     os_insert_batch_size: int
     os_api_key: Optional[str]
+    #: Credencial de BAIXO PRIVILÉGIO que abre **só** o ``/status`` completo — a que vai
+    #: para a outra equipe e para o OrçaView. Não é aceita por ``_autorizado()``: em
+    #: qualquer outra rota ela é 401. Existe separada da ``os_api_key`` para que ler o
+    #: diagnóstico não exija a chave que também escreve no SAP e abre o painel WBC.
+    status_id: Optional[str]
     os_api_host: str
     os_api_port: int
 
@@ -358,6 +363,7 @@ class Settings:
                 os.getenv('OS_INSERT_BATCH_SIZE', OS_INSERT_BATCH_SIZE_DEFAULT)
             ),
             os_api_key=os.getenv('OS_API_KEY') or None,
+            status_id=os.getenv('STATUS_ID') or None,
             os_api_host=os.getenv('OS_API_HOST', OS_API_HOST_DEFAULT),
             os_api_port=int(os.getenv('OS_API_PORT', OS_API_PORT_DEFAULT)),
             op_sl_enabled=_env_bool('OP_SL_ENABLED', OP_SL_ENABLED_DEFAULT),
