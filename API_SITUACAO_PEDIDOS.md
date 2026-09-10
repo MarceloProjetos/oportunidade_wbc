@@ -5,7 +5,8 @@ nada: tudo que você precisa saber está aqui, inclusive o que costuma dar errad
 
 Ele descreve as duas formas de ler a **situação dos pedidos de venda no SAP** — se estão
 liberados ou bloqueados no **Financeiro**, na **Produção** e na **Entrega**, com prazo,
-sinal, condição de pagamento, montador, vendedor e valor:
+sinal, condição de pagamento, montador, vendedor, valor — e **para onde a mercadoria
+vai** (§2.7):
 
 - **API REST** (`192.168.7.11:8077`) — para código: script, integração, painel.
 - **MCP** (`192.168.7.11:8078`) — para assistente de IA (Claude Desktop, Claude Code)
@@ -198,17 +199,112 @@ Não há usuário/senha, não há OAuth. É só o cabeçalho.
 | `campos` | query | `resumo` \| `completo` | **`completo`** |
 | `recarregar` | query | `1` = ignora o cache | — |
 
-Resposta `200`:
+**Resposta `200` — real, do pedido 84348, em 10/09/2026.** Nada foi cortado: é
+exatamente o que sai no perfil `completo` (o default desta rota).
 
 ```json
 {
   "ok": true,
-  "gerado_em": "2026-08-24T15:12:07-03:00",
-  "cache_idade_s": 34.2,
+  "gerado_em": "2026-09-10T16:06:03-03:00",
+  "cache_idade_s": 0.0,
   "fonte": "view",
   "status_pedido": "Aberto",
   "pedido_cancelado": false,
-  "pedido": { "...": "os campos do §6" }
+  "pedido": {
+    "doc_num": 84348,
+    "doc_entry": 19763,
+    "data_pedido": "2026-09-08",
+    "card_code": "C011439",
+    "card_name": "MG VIDROS AUTOMOTIVOS LTDA",
+    "group_num": 1190,
+    "pymnt_group": "15% SINAL / 85% A 28DDL",
+    "financeiro": "Liberado",
+    "producao": "Bloqueado",
+    "entrega": "Bloqueado",
+    "sinal": true,
+    "ddo": false,
+    "integrar": true,
+    "status_pedido": "Aberto",
+    "prazo_entrega": "09/11 A 13/11",
+    "prazo_fim": "2026-11-13",
+    "data_entrega": "2026-11-12",
+    "dias_atraso": -64,
+    "atrasado": false,
+    "atrasado_sap": false,
+    "dias_desde_pedido": 2,
+    "fin_liberacao_atrasada": false,
+    "alerta_liberacao": null,
+    "data_lib_fin": "2026-09-09",
+    "data_lib_prod": null,
+    "data_pagto": null,
+    "valor_total": 550812.11,
+    "moeda": "R$",
+    "vendedor": "Edson Stefano",
+    "cotacao_wbc": "00124945",
+    "versao_wbc": "G",
+    "peso": 30281.0,
+    "total_os": 68,
+    "total_os_fechadas": 0,
+    "montagem": {
+      "tipo": "MONTAGEM POR CONTA DE TERCEIROS",
+      "tipo_cod": "3",
+      "valor": 135800.0,
+      "montador": "FABIANO MONTAGEM",
+      "montador_cnpj": "39.695.222/0001-01"
+    },
+    "entrega_endereco": {
+      "fonte": "local_entrega",
+      "difere_do_ponto_de_entrega": true,
+      "logradouro": "AVENIDA DEUSDEDITH SALGADO",
+      "numero": "4010",
+      "complemento": null,
+      "bairro": "SALVATERRA",
+      "cidade": "JUIZ DE FORA",
+      "uf": "MG",
+      "cep": "36033-000",
+      "pais": "BR",
+      "municipio": "Juiz de Fora",
+      "linha": "AVENIDA DEUSDEDITH SALGADO, 4010 - SALVATERRA, 36033-000 JUIZ DE FORA-MG",
+      "ponto_entrega": {
+        "logradouro": "AV NOSSA SENHORA DO CARMO",
+        "numero": "279",
+        "complemento": null,
+        "bairro": "CARMO",
+        "cidade": "BELO HORIZONTE",
+        "uf": "MG",
+        "cep": "30330-000",
+        "pais": "BR",
+        "municipio": "Belo Horizonte",
+        "linha": "AV NOSSA SENHORA DO CARMO, 279 - CARMO, 30330-000 BELO HORIZONTE-MG"
+      }
+    }
+  }
+}
+```
+
+> **Repare neste pedido:** a entrega é em **Juiz de Fora** e o `ponto_entrega` é em
+> **Belo Horizonte**. Quem despachasse pelo cadastro do cliente mandaria a carga 250 km
+> para o lado errado. Leia a armadilha **2.7**.
+
+**A mesma rota com `?campos=resumo`** devolve o `pedido` assim — 14 campos, e o endereço
+continua resolvido:
+
+```json
+{
+  "doc_num": 84348,
+  "data_pedido": "2026-09-08",
+  "card_name": "MG VIDROS AUTOMOTIVOS LTDA",
+  "sinal": true,
+  "financeiro": "Liberado",
+  "producao": "Bloqueado",
+  "entrega": "Bloqueado",
+  "prazo_entrega": "09/11 A 13/11",
+  "atrasado": false,
+  "pymnt_group": "15% SINAL / 85% A 28DDL",
+  "alerta_liberacao": null,
+  "entrega_linha": "AVENIDA DEUSDEDITH SALGADO, 4010 - SALVATERRA, 36033-000 JUIZ DE FORA-MG",
+  "entrega_cidade_uf": "JUIZ DE FORA-MG",
+  "entrega_difere": true
 }
 ```
 
@@ -240,28 +336,51 @@ Um endpoint só, porque é o mesmo recorte; o que muda é o filtro.
 
 Os filtros se **somam** (E lógico).
 
-Resposta `200`:
+**Resposta `200` — real, de `?bloqueio=qualquer` em 10/09/2026**, cortada só na
+quantidade (vieram 11 pedidos e 8 montadores; mostramos 1 e 2):
 
 ```json
 {
   "ok": true,
-  "gerado_em": "2026-08-24T15:12:07-03:00",
-  "cache_idade_s": 34.2,
+  "gerado_em": "2026-09-10T16:06:03-03:00",
+  "cache_idade_s": 0.0,
   "kpis": {
-    "total": 237,
-    "atrasados": 42,
-    "financeiro_bloqueado": 3,
-    "producao_bloqueada": 10,
-    "entrega_bloqueada": 10
+    "total": 268,
+    "atrasados": 21,
+    "financeiro_bloqueado": 6,
+    "producao_bloqueada": 11,
+    "entrega_bloqueada": 11
   },
-  "total_no_recorte": 237,
-  "total_filtrado": 10,
-  "pedidos": [ "..." ],
+  "total_no_recorte": 268,
+  "total_filtrado": 11,
+  "pedidos": [
+    {
+      "doc_num": 83832,
+      "data_pedido": "2026-04-02",
+      "card_name": "FUNDACAO BRADESCO",
+      "sinal": true,
+      "financeiro": "Liberado",
+      "producao": "Bloqueado",
+      "entrega": "Bloqueado",
+      "prazo_entrega": "04/05 A 08/05",
+      "atrasado": true,
+      "pymnt_group": "20% a 30 DDP / 30% a 30 DDL / 50% 60DDL",
+      "alerta_liberacao": null,
+      "entrega_linha": "FUNDACAO BRADESCO, 466 - FUNDACAO BRADESCO, 44900-000 IRECE-BA",
+      "entrega_cidade_uf": "IRECE-BA",
+      "entrega_difere": false
+    }
+  ],
   "montadores": [
-    { "cnpj": "00.000.000/0001-00", "nome": "MONTADORA EXEMPLO LTDA", "qtd": 7 }
+    { "cnpj": "73.165.516/0001-60", "nome": "BARROS MONTAGENS", "qtd": 27 },
+    { "cnpj": "52.892.552/0001-55", "nome": "DAPPER CROSS", "qtd": 2 }
   ]
 }
 ```
+
+Este pedido é o caso comum (**86%**): sem Local de Entrega próprio, `entrega_difere` é
+`false` e o endereço veio do cadastro do cliente. Você não precisa saber disso para usar
+— `entrega_linha` já é o destino nos dois casos.
 
 ⚠️ **Dois pontos que confundem quem lê pela primeira vez:**
 
@@ -372,9 +491,24 @@ Leia a **armadilha 2.7** antes de usar. Os campos do topo são o endereço **efe
   "pais": "BR",
   "municipio": "Juiz de Fora",           // nome oficial (OCNT); pode diferir de `cidade`
   "linha": "AVENIDA DEUSDEDITH SALGADO, 4010 - SALVATERRA, 36033-000 JUIZ DE FORA-MG",
-  "ponto_entrega": { /* as mesmas chaves, menos `fonte` e `difere_*` */ }
+  "ponto_entrega": {
+    "logradouro": "AV NOSSA SENHORA DO CARMO",
+    "numero": "279",
+    "complemento": null,
+    "bairro": "CARMO",
+    "cidade": "BELO HORIZONTE",
+    "uf": "MG",
+    "cep": "30330-000",
+    "pais": "BR",
+    "municipio": "Belo Horizonte",
+    "linha": "AV NOSSA SENHORA DO CARMO, 279 - CARMO, 30330-000 BELO HORIZONTE-MG"
+  }
 }
 ```
+
+O `ponto_entrega` tem **as mesmas chaves**, menos `fonte`, `difere_do_ponto_de_entrega` e
+`ponto_entrega` (não aninha duas vezes). Ele é o cadastro do cliente — **neste pedido,
+outra cidade.**
 
 | Campo | Tipo | O que é |
 | --- | --- | --- |
@@ -602,68 +736,122 @@ else:
     print(f"  financeiro={p['financeiro']} producao={p['producao']} entrega={p['entrega']}")
     if p["alerta_liberacao"]:
         print(f"  ⚠ {p['alerta_liberacao']}")
+    # o endereço já vem RESOLVIDO — não escolha entre os dois, só imprima (§2.7)
+    e = p["entrega_endereco"]
+    print(f"  entrega: {e['linha']}"
+          + ("  [tem local próprio]" if e["difere_do_ponto_de_entrega"] else ""))
 
 for x in travados_agora():
+    # na lista o perfil é `resumo`: o endereço vem em 3 campos, também resolvidos
     print(f"{x['data_pedido']}  {x['doc_num']:<7} {x['card_name'][:34]:<34} "
-          f"F={x['financeiro']:<9} P={x['producao']:<9} E={x['entrega']}")
+          f"F={x['financeiro']:<9} P={x['producao']:<9} E={x['entrega']}  "
+          f"-> {x['entrega_cidade_uf']}")
 ```
 
-### 11.4 Resposta completa de um pedido
+### 11.4 Resposta de um pedido **cancelado**
 
-Estrutura real; **valores ilustrativos**.
+O caso que mais confunde (armadilha 2.2): a view não carrega cancelado, então a situação
+vem da `ORDR` ao vivo — mas no **mesmo formato**, com as três etapas em `"Cancelado"`.
+Real, do pedido 84282 em 10/09/2026:
 
 ```json
 {
   "ok": true,
-  "gerado_em": "2026-08-24T15:12:07-03:00",
-  "cache_idade_s": 34.2,
-  "fonte": "view",
-  "status_pedido": "Aberto",
-  "pedido_cancelado": false,
+  "gerado_em": "2026-09-10T16:06:03-03:00",
+  "cache_idade_s": 0.0,
+  "fonte": "ordr",
+  "status_pedido": "Cancelado",
+  "pedido_cancelado": true,
+  "aviso": {
+    "tipo": "pedido_cancelado",
+    "motivo": "Pedido cancelado no SAP - nao ha etapa a liberar; nao produza nem entregue por ele."
+  },
   "pedido": {
-    "doc_num": 84260,
-    "doc_entry": 19244,
-    "data_pedido": "2026-08-12",
-    "card_code": "C000000",
-    "card_name": "CLIENTE EXEMPLO LTDA",
-    "group_num": 1186,
-    "pymnt_group": "30% SINAL / 20% ENTREGA / 30% 45DDL / 10% 65DDL / 10% 85DDL",
-    "financeiro": "Bloqueado",
-    "producao": "Bloqueado",
-    "entrega": "Bloqueado",
-    "sinal": true,
-    "ddo": false,
-    "integrar": false,
-    "status_pedido": "Aberto",
-    "prazo_entrega": "21/09 A 25/09",
-    "prazo_fim": "2026-09-25",
-    "data_entrega": "2026-09-23",
-    "dias_atraso": -32,
-    "atrasado": false,
-    "atrasado_sap": false,
-    "dias_desde_pedido": 12,
-    "fin_liberacao_atrasada": true,
-    "alerta_liberacao": "Mais de 10 dias preso no financeiro (12 dias)",
-    "data_lib_fin": null,
-    "data_lib_prod": null,
-    "data_pagto": null,
-    "valor_total": 100000.00,
+    "doc_num": 84282,
+    "doc_entry": null,
+    "data_pedido": "2026-08-18",
+    "card_code": "C011388",
+    "card_name": "DIVENA AUTOMOVEIS LTDA",
+    "financeiro": "Cancelado",
+    "producao": "Cancelado",
+    "entrega": "Cancelado",
+    "status_pedido": "Cancelado",
+    "valor_total": 7001.04,
     "moeda": "R$",
-    "vendedor": "NOME DO VENDEDOR",
-    "cotacao_wbc": "00125283",
-    "versao_wbc": "B",
-    "peso": 4.0,
-    "total_os": 0,
-    "total_os_fechadas": 0,
-    "montagem": {
-      "tipo": "MONTAGEM POR CONTA DE TERCEIROS",
-      "tipo_cod": "3",
-      "valor": 135000.0,
-      "montador": "MONTADORA EXEMPLO LTDA",
-      "montador_cnpj": "00.000.000/0001-00"
-    }
+    "dias_desde_pedido": 23,
+    "alerta_liberacao": null,
+    "fin_liberacao_atrasada": false,
+    "prazo_entrega": "",
+    "prazo_fim": null,
+    "data_entrega": null,
+    "montagem": { "tipo": "SEM MONTAGEM", "tipo_cod": "", "valor": 0, "montador": "", "montador_cnpj": "" },
+    "entrega_endereco": {
+      "fonte": "ponto_entrega",
+      "difere_do_ponto_de_entrega": false,
+      "logradouro": "DR RICARDO JAFET",
+      "numero": "2419",
+      "complemento": null,
+      "bairro": "IPIRANGA",
+      "cidade": "SAO PAULO",
+      "uf": "SP",
+      "cep": "04123-030",
+      "pais": "BR",
+      "municipio": "São Paulo",
+      "linha": "DR RICARDO JAFET, 2419 - IPIRANGA, 04123-030 SAO PAULO-SP",
+      "ponto_entrega": { "...": "as mesmas chaves" }
+    },
+    "...": "as demais chaves do §6.2, vazias ou zeradas"
   }
 }
+```
+
+Três coisas para reparar:
+
+1. **As chaves são as MESMAS** do caminho normal — nenhum `if` a mais no seu código.
+2. **`doc_entry` vem `null`**: a chave interna sai da view, e cancelado não está nela.
+   O `doc_num` continua certo.
+3. **O endereço vem preenchido.** Cancelado também tem endereço, e nós lemos direto do
+   pedido no SAP para essa chave não faltar só aqui.
+
+---
+
+### 11.5 Receita: usar o endereço sem errar
+
+O jeito certo é o mais curto. **Não escreva `if` sobre `fonte` nem sobre
+`difere_do_ponto_de_entrega`** — nós já decidimos.
+
+```python
+# Etiqueta / romaneio — perfil `resumo` (o default da lista)
+for pedido in resposta["pedidos"]:
+    imprimir(pedido["entrega_linha"])            # já é o destino
+    if pedido["entrega_difere"]:                 # opcional: só para MOSTRAR o selo
+        marcar("difere do ponto de entrega")
+
+# Campos separados — perfil `completo`
+e = pedido["entrega_endereco"]
+destino = {
+    "logradouro": e["logradouro"], "numero": e["numero"],
+    "bairro": e["bairro"], "cidade": e["cidade"], "uf": e["uf"], "cep": e["cep"],
+}
+# e["ponto_entrega"] é o CADASTRO do cliente. Não use para despachar.
+```
+
+```javascript
+// JavaScript — mesma ideia
+const destino = pedido.entrega_linha ?? pedido.entrega_endereco?.linha;
+const temLocalProprio = pedido.entrega_difere
+  ?? pedido.entrega_endereco?.difere_do_ponto_de_entrega;
+```
+
+**O anti-padrão**, que é justamente o que a armadilha 2.7 existe para evitar:
+
+```python
+# ERRADO — manda a carga para a cidade do cadastro em 24 dos 268 pedidos de hoje
+destino = pedido["entrega_endereco"]["ponto_entrega"]["linha"]
+
+# ERRADO — o SAP grava 'BELO HORIZONTE' num campo e 'Belo Horizonte' no outro
+if e["cidade"] != e["ponto_entrega"]["cidade"]:
+    ...
 ```
 
 ---
