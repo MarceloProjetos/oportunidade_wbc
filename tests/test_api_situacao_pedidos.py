@@ -26,6 +26,13 @@ import situacao_pedidos_hana as hana  # noqa: E402
 from config import reset_settings  # noqa: E402
 
 
+#: Os 3 campos de entrega que a B4 acrescentou ao perfil `resumo` (D4): a API resolve
+#: o endereco e entrega pronto, entao quem esta no default NAO recebe o ShipTo e nao
+#: tem como escolher errado. Nao entram em `CAMPOS_RESUMO` porque aquilo e' do nucleo
+#: portado; sao acrescentados em `api._resumir`.
+CAMPOS_ENTREGA_RESUMO = {"entrega_linha", "entrega_cidade_uf", "entrega_difere"}
+
+
 def _row(**over: Any) -> dict[str, Any]:
     """Linha crua da view, como o ``fetch_status_pedidos`` a devolve."""
     base: dict[str, Any] = {
@@ -43,6 +50,12 @@ def _row(**over: Any) -> dict[str, Any]:
         "MontadorCnpj": "67.133.900/0001-88",
         "MontadorNome": "MONTARIM MONTAGENS INDUSTRIAIS LTDA",
         "DocTotal": 41250.0, "DocCur": "R$", "SlpCode": 12, "Vendedor": "MARCOS",
+        # Endereco (RDR12). O default e' o caso de 86% dos pedidos: so o Ponto de
+        # Entrega (ShipTo) preenchido, sem Local de Entrega.
+        "StreetS": "AV NOSSA SENHORA DO CARMO", "StreetNoS": "279",
+        "BuildingS": None, "BlockS": "CARMO", "CityS": "BELO HORIZONTE",
+        "StateS": "MG", "ZipCodeS": "30330000", "CountyS": "1410",
+        "CountryS": "BR", "_MunicipioPonto": "Belo Horizonte",
     }
     base.update(over)
     return base
@@ -141,10 +154,17 @@ def test_lista_traz_os_montadores_do_recorte(client):
 
 
 def test_lista_usa_resumo_por_padrao(client):
-    """D4: 236 pedidos com ~40 campos não cabem no contexto de um cliente MCP."""
+    """D4: 236 pedidos com ~40 campos não cabem no contexto de um cliente MCP.
+
+    Desde a B4 (10/09) o resumo leva também os 3 campos de entrega — resolvidos, e
+    sem o ShipTo junto: quem está no default não tem como despachar pelo endereço
+    errado.
+    """
     p = client.get('/pedidos/situacao').get_json()['pedidos'][0]
-    assert set(p) == set(sit_ped.CAMPOS_RESUMO)
+    assert set(p) == set(sit_ped.CAMPOS_RESUMO) | CAMPOS_ENTREGA_RESUMO
     assert 'valor_total' not in p
+    assert 'entrega_endereco' not in p, 'o objeto inteiro é do perfil completo'
+    assert 'ponto_entrega' not in str(p), 'o ShipTo não pode chegar ao resumo'
 
 
 def test_lista_com_campos_completo(client):
@@ -255,7 +275,7 @@ def test_pedido_por_docentry(client):
 
 def test_pedido_com_campos_resumo(client):
     p = client.get('/pedidos/84260/situacao?campos=resumo').get_json()['pedido']
-    assert set(p) == set(sit_ped.CAMPOS_RESUMO)
+    assert set(p) == set(sit_ped.CAMPOS_RESUMO) | CAMPOS_ENTREGA_RESUMO
 
 
 def test_pedido_fora_do_recorte_e_404_que_nao_mente(client):
@@ -307,7 +327,7 @@ def test_pedido_cancelado_tem_o_mesmo_formato_do_caminho_da_view(client, monkeyp
     cancelado = client.get('/pedidos/84282/situacao').get_json()['pedido']
     assert set(cancelado) == set(da_view)
     assert set(client.get('/pedidos/84282/situacao?campos=resumo')
-               .get_json()['pedido']) == set(sit_ped.CAMPOS_RESUMO)
+               .get_json()['pedido']) == set(sit_ped.CAMPOS_RESUMO) | CAMPOS_ENTREGA_RESUMO
 
 
 def test_pedido_nao_encontrado_na_ordr_e_404_com_motivo(client, monkeypatch):
@@ -396,3 +416,84 @@ def test_as_duas_rotas_exigem_a_chave(client, monkeypatch):
             assert client.get(url, headers={'X-API-Key': 'segredo'}).status_code == 200
     finally:
         reset_settings()
+
+
+# --- endereco de entrega nas 2 rotas (B4) -----------------------------------
+# A API RESOLVE, quem consome nao escolhe. O objeto inteiro so no `completo`; o
+# `resumo` leva os 3 campos ja resolvidos, sem o ShipTo junto.
+
+#: O pedido 84348 real: entrega em Juiz de Fora, Ponto de Entrega em Belo Horizonte.
+_LOCAL_DIFERENTE = {
+    "StrtDlvryP": "AVENIDA DEUSDEDITH SALGADO", "StrNoDlvrP": "4010",
+    "BlckDlvryP": "SALVATERRA", "CityDlvryP": "JUIZ DE FORA", "StatDlvryP": "MG",
+    "ZipDlvryP": "36033000", "CntyDlvryP": "1763", "CtryDlvryP": "BR",
+    "_MunicipioLocal": "Juiz de Fora",
+}
+
+
+def test_completo_traz_o_endereco_de_despacho_ja_resolvido(client, monkeypatch):
+    """O caso que motivou a frente B: despachar pelo ShipTo erraria a cidade."""
+    monkeypatch.setattr(apimod.sit_ped_hana, 'fetch_status_pedidos',
+                        lambda **_k: [_row(DocNum=84348, **_LOCAL_DIFERENTE)])
+    e = client.get('/pedidos/84348/situacao').get_json()['pedido']['entrega_endereco']
+
+    assert e['fonte'] == 'local_entrega' and e['difere_do_ponto_de_entrega'] is True
+    assert e['cidade'] == 'JUIZ DE FORA' and e['cep'] == '36033-000'
+    assert e['linha'].endswith('36033-000 JUIZ DE FORA-MG')
+    # o ShipTo continua na resposta, mas aninhado — referência, não destino
+    assert e['ponto_entrega']['cidade'] == 'BELO HORIZONTE'
+
+
+def test_sem_local_de_entrega_o_endereco_e_o_ponto(client):
+    """86% dos pedidos. O `_row` padrão não tem Local de Entrega."""
+    e = client.get('/pedidos/83554/situacao').get_json()['pedido']['entrega_endereco']
+    assert e['fonte'] == 'ponto_entrega' and e['difere_do_ponto_de_entrega'] is False
+    assert e['cidade'] == 'BELO HORIZONTE' and e['cep'] == '30330-000'
+
+
+def test_o_resumo_leva_o_endereco_resolvido_e_nao_o_shipto(client, monkeypatch):
+    """D4: no default, quem consome não recebe as duas opções — recebe a certa."""
+    monkeypatch.setattr(apimod.sit_ped_hana, 'fetch_status_pedidos',
+                        lambda **_k: [_row(DocNum=84348, **_LOCAL_DIFERENTE)])
+    p = client.get('/pedidos/situacao').get_json()['pedidos'][0]
+
+    assert p['entrega_cidade_uf'] == 'JUIZ DE FORA-MG'
+    assert p['entrega_difere'] is True
+    assert p['entrega_linha'].startswith('AVENIDA DEUSDEDITH SALGADO, 4010')
+    assert 'BELO HORIZONTE' not in str(p), 'o ShipTo não pode vazar para o resumo'
+
+
+def test_pedido_cancelado_le_a_rdr12_em_vez_de_devolver_nulos(client, monkeypatch):
+    """D5. A chave não pode faltar só no caminho do cancelado."""
+    monkeypatch.setattr(apimod, 'consultar_status_pedido',
+                        lambda n: _ordr(pedido_cancelado=True, pedido_status='Cancelado'))
+    monkeypatch.setattr(apimod.sit_ped_hana, 'fetch_endereco_do_pedido',
+                        lambda n: dict(_LOCAL_DIFERENTE))
+    e = client.get('/pedidos/84282/situacao').get_json()['pedido']['entrega_endereco']
+
+    assert e['fonte'] == 'local_entrega' and e['cidade'] == 'JUIZ DE FORA'
+
+
+def test_endereco_do_cancelado_indisponivel_nao_derruba_a_resposta(client, monkeypatch):
+    """O endereço não vale mais que a informação de que o pedido está cancelado."""
+    monkeypatch.setattr(apimod, 'consultar_status_pedido',
+                        lambda n: _ordr(pedido_cancelado=True, pedido_status='Cancelado'))
+    monkeypatch.setattr(apimod.sit_ped_hana, 'fetch_endereco_do_pedido', _boom)
+    b = client.get('/pedidos/84282/situacao')
+
+    assert b.status_code == 200
+    p = b.get_json()['pedido']
+    assert p['financeiro'] == 'Cancelado'
+    assert p['entrega_endereco']['linha'] is None          # a chave existe, vazia
+    assert p['entrega_endereco']['fonte'] == 'ponto_entrega'
+
+
+def test_pedido_sem_linha_crua_recebe_o_endereco_vazio_com_as_mesmas_chaves(client, monkeypatch):
+    """Defensivo: o casamento é por DocEntry; sem par, nada de `None` solto."""
+    monkeypatch.setattr(apimod, 'consultar_status_pedido',
+                        lambda n: _ordr(pedido_cancelado=True, pedido_status='Cancelado'))
+    monkeypatch.setattr(apimod.sit_ped_hana, 'fetch_endereco_do_pedido', lambda n: {})
+    cancelado = client.get('/pedidos/84282/situacao').get_json()['pedido']
+    da_view = client.get('/pedidos/83554/situacao').get_json()['pedido']
+
+    assert set(cancelado['entrega_endereco']) == set(da_view['entrega_endereco'])

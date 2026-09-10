@@ -1174,14 +1174,55 @@ def _resposta_situacao_erro(exc: Exception) -> Tuple[Any, int]:
     return jsonify(ok=False, error=str(exc)), 422
 
 
+def _aplicar_endereco(pedidos: list, linhas: list) -> None:
+    """Poe ``entrega_endereco`` em cada pedido normalizado, **no lugar**.
+
+    Aqui, e nao dentro do ``situacao_pedidos.py``: aquele arquivo e' PORTE do
+    ``situacao_pedidos_service.py`` do OrcaView e um teste compara os dois funcao por
+    funcao. Endereco e' consumo desta API (e da fachada MCP); a tela mostra o dela por
+    outro caminho. Este modulo e o ``situacao_pedidos_hana`` sao os dois lugares deste
+    repo que nao sao portados — e' por isso que a decoracao mora num deles.
+
+    Casa por ``DocEntry`` (a chave interna, 1:1 com a linha da view); pedido sem linha
+    crua correspondente recebe o endereco vazio, com as MESMAS chaves — nunca ``None``
+    solto, que viraria ``KeyError`` em quem le.
+    """
+    por_docentry = {r.get('DocEntry'): r for r in linhas}
+    for p in pedidos:
+        crua = por_docentry.get(p.get('doc_entry')) or {}
+        p['entrega_endereco'] = sit_ped_hana.endereco_entrega_efetivo(crua)
+
+
+def _resumir(pedidos: list) -> list:
+    """``resumir()`` do nucleo + os 3 campos de entrega, ja resolvidos.
+
+    O ``resumir`` corta para as colunas da tela (``CAMPOS_RESUMO``, que e' do porte e
+    nao pode ganhar campo daqui). Os tres entram DEPOIS, nesta camada.
+
+    **Sao os tres ja resolvidos, de proposito** (D4, decisao do Marcelo em 10/09): quem
+    esta no perfil ``resumo`` — o default da lista — nao recebe o ShipTo, entao nao tem
+    como escolher errado. ``entrega_difere`` vai junto porque desenha o selo da tela,
+    **nao** porque alguem deva decidir com ele.
+    """
+    resumidos = sit_ped.resumir(pedidos)
+    for r, p in zip(resumidos, pedidos):
+        e = p.get('entrega_endereco') or {}
+        r['entrega_linha'] = e.get('linha')
+        r['entrega_cidade_uf'] = sit_ped_hana.cidade_uf(e)
+        r['entrega_difere'] = bool(e.get('difere_do_ponto_de_entrega'))
+    return resumidos
+
+
 def _situacao_recorte() -> Tuple[dict, list]:
     """Recorte inteiro da view: ``(dashboard, pedidos_com_alerta)``.
 
     Uma unica ida ao :func:`fetch_status_pedidos` alimenta os dois -- e ela mesma passa
-    pelo cache, entao as tres consultas do plano respondem sobre o MESMO retrato.
+    pelo cache, entao as tres consultas do plano respondem sobre o MESMO retrato. O
+    endereco de entrega entra aqui, sobre as mesmas linhas cruas.
     """
     linhas = sit_ped_hana.fetch_status_pedidos(recarregar=_flag_query('recarregar'))
     dashboard = sit_ped.montar_dashboard(linhas)
+    _aplicar_endereco(dashboard['pedidos'], linhas)
     return dashboard, sit_ped.com_alerta(dashboard['pedidos'])
 
 
@@ -1235,7 +1276,7 @@ def situacao_pedidos_lista():
         logger.error("[SIT_PED] falha inesperada na lista: %s", exc)
         return jsonify(ok=False, error='falha ao montar a situacao dos pedidos'), 502
 
-    itens = sit_ped.resumir(filtrados) if _campos_resumo(True) else filtrados
+    itens = _resumir(filtrados) if _campos_resumo(True) else filtrados
     logger.info("[SIT_PED] lista: %d de %d (bloqueio=%s status=%s montador=%s busca=%s).",
                 len(itens), recorte['kpis']['total'], request.args.get('bloqueio'),
                 request.args.get('status'), request.args.get('montador'),
@@ -1308,7 +1349,7 @@ def situacao_pedido_unico(numero: str):
             pedido=n, chave=campo, total=len(achados),
         ), 409
 
-    pedido = sit_ped.resumir(achados)[0] if _campos_resumo(False) else achados[0]
+    pedido = _resumir(achados)[0] if _campos_resumo(False) else achados[0]
     return jsonify(ok=True,
                    gerado_em=sit_ped.now_br().isoformat(timespec='seconds'),
                    cache_idade_s=sit_ped_hana.idade_do_cache_s(),
@@ -1365,7 +1406,7 @@ def _situacao_fora_da_view(n: int, campo: str):
         logger.info("[SIT_PED] pedido %s cancelado no SAP (fora da view).", n)
         pedido = _pedido_cancelado_ordr(n, info)
         if _campos_resumo(False):
-            pedido = sit_ped.resumir([pedido])[0]
+            pedido = _resumir([pedido])[0]
         return jsonify(ok=True,
                        gerado_em=sit_ped.now_br().isoformat(timespec='seconds'),
                        cache_idade_s=sit_ped_hana.idade_do_cache_s(),
@@ -1404,7 +1445,17 @@ def _pedido_cancelado_ordr(n: int, info: dict) -> dict:
             'DocTotal': info.get('valor_total'), 'DocCur': info.get('moeda'),
             'Financeiro': 'Cancelado', 'Producao': 'Cancelado', 'Entrega': 'Cancelado',
             'StatusPedido': 'Cancelado'}
-    return sit_ped.com_alerta(sit_ped.normalizar([crua]))[0]
+    # D5: o endereco vem da RDR12 daquele DocNum, nao de nulos. Pedido cancelado
+    # tambem tem endereco, e a chave nao pode faltar so aqui — ha teste comparando as
+    # chaves dos dois caminhos. Best-effort: SAP fora nao derruba a resposta de "este
+    # pedido esta cancelado", que e' o que a rota veio dizer.
+    try:
+        crua.update(sit_ped_hana.fetch_endereco_do_pedido(n))
+    except Exception as exc:
+        logger.warning("[SIT_PED] endereco do pedido cancelado %s indisponivel: %s", n, exc)
+    pedido = sit_ped.com_alerta(sit_ped.normalizar([crua]))[0]
+    _aplicar_endereco([pedido], [{**crua, 'DocEntry': pedido.get('doc_entry')}])
+    return pedido
 
 
 # ---------------------------------------------------------------------------

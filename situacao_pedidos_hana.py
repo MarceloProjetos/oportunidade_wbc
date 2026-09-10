@@ -382,6 +382,46 @@ def endereco_entrega_efetivo(r: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def cidade_uf(e: dict[str, Any]) -> str | None:
+    """``'JUIZ DE FORA-MG'`` — o par pronto, para o perfil ``resumo`` nao ter de juntar
+    dois campos (e nao ter duas montagens do mesmo texto no repo)."""
+    return "-".join(p for p in (e.get("cidade"), e.get("uf")) if p) or None
+
+
+def fetch_endereco_do_pedido(doc_num: int) -> dict[str, Any]:
+    """A RDR12 de UM pedido, por DocNum — o caminho do pedido **CANCELADO**.
+
+    A view exclui cancelado, entao esse pedido nao passa pelo recorte e nao tem de onde
+    tirar o endereco. Cancelado tambem tem endereco, e a chave ``entrega_endereco`` nao
+    pode faltar so nele (ha teste comparando as chaves dos dois caminhos) — decisao do
+    Marcelo em 10/09 (D5): le a RDR12 daquele DocEntry em vez de emitir nulos.
+
+    Caminho raro (a rota so chega aqui quando o pedido esta fora da view), uma linha,
+    conexao aberta e fechada na hora — o mesmo desenho do recorte. Devolve ``{}`` quando
+    o DocNum nao existe; **quem chama trata SAPIndisponivel**: o endereco nao vale
+    derrubar a resposta de "este pedido esta cancelado".
+    """
+    schema = _schema()
+    conn = _conectar()
+    try:
+        sel = ", ".join(f'a."{c}"' for grupo in ENDERECO_COLS.values()
+                        for c in grupo.values())
+        linhas = _linhas(
+            conn,
+            f'SELECT {sel} FROM "{schema}"."ORDR" o '
+            f'LEFT JOIN "{schema}"."RDR12" a ON a."DocEntry" = o."DocEntry" '
+            f'WHERE o."DocNum" = ?', (int(doc_num),))
+        if not linhas:
+            return {}
+        _injetar_municipios(conn, schema, linhas)
+        return linhas[0]
+    finally:
+        try:
+            conn.close()
+        except Exception as e:
+            logger.debug("Falha ao fechar conexão HANA (ignorada): %s", e)
+
+
 def _buscar_no_hana() -> list[dict[str, Any]]:
     """Uma ida ao HANA: conta, confere o volume, seleciona e converte os tipos."""
     schema = _schema()
