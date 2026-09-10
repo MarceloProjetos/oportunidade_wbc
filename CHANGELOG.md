@@ -3,6 +3,39 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-10] — Endereco de entrega no recorte da Situacao dos Pedidos (B1) + o teste diffavel que estava pulando calado
+
+O SELECT do recorte ganha `LEFT JOIN RDR12 a ON a."DocEntry" = v."DocEntry"` e 18 colunas
+de endereco: 9 do Local de Entrega (`*DlvryP`) e 9 do Ponto de Entrega/ShipTo (`*S`).
+Ninguem consome ainda — a regra de precedencia e a publicacao sao as fases B3/B4.
+
+- **Mapa `ENDERECO_COLS` explicito.** `StrNoDlvrP` nao tem o "y" e `BldDlvryP` convive com
+  `BuildingS`: um loop de sufixo produz nome errado (armadilha de 13/08 no OrcaView). Ha
+  teste cravando cada nome, e que `StrNoDlvryP` **nao** existe.
+- **LEFT, nunca INNER.** Em 10/09 nenhum dos 266 pedidos do recorte estava sem linha na
+  RDR12 — mas basta um para o INNER apagar um pedido da lista sem erro nenhum.
+- **A OCNT continua FORA do join** (`County` vazio mata a consulta com "invalid number").
+  O nome do municipio sai de um SELECT a parte, na B2.
+- **Custo medido em producao**, 3 rodadas alternadas: mediana **142 ms antes, 107 ms
+  depois** — dentro do ruido (a 1a execucao paga o plano: 486 ms). Com o cache de 120 s,
+  isto e' pago no maximo 1x a cada 2 min.
+
+### O teste diffavel estava PULANDO calado desde 08/09
+
+`_caminho_v117()` procurava `web_orcaview_V117`, pasta renomeada para **V118** na migracao
+de 08/09: os 20 testes que protegem o nucleo portado viraram `skip` em dev — o contrario
+do que existem para fazer. Religado (V118 primeiro, V117 depois): a suite saiu de 1616
+para **1639 passando**, com os skips caindo de 29 para 9. **O nucleo portado nao tinha
+divergido** nesses dois dias.
+
+O guarda religado pegou de imediato que **a lista de colunas do SELECT tambem e' contrato**
+entre os dois repos. Decisao: as 18 colunas de endereco sao **extensao legitima da .11**
+(`COLUNAS_SO_DA_11`), nao divergencia — a tela mostra o endereco na aba Logistica por outro
+caminho (`fetch_pedido_report`, RDR12 por `DocEntry`), e leva-las para o V118 custaria 18
+colunas x ~267 linhas em toda abertura da tela, sem ninguem ler. Para a lista de excecoes
+nao virar um saco que abafa divergencia de verdade, um teste novo cobra o contrario: coluna
+declarada la tem de estar mesmo no SELECT.
+
 ## [2026-09-10] — `/status` em dois niveis: o `STATUS_ID` de baixo privilegio (A1 do PLANO_STATUS_E_ENDERECO_ENTREGA)
 
 Medido em producao em 10/09 as 11:43, com um `curl` da maquina do Marcelo e **sem header

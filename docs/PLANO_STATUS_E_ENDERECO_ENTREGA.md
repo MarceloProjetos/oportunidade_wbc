@@ -1,6 +1,6 @@
 # Plano — Fechar o `/status`, abrir o endereço de entrega
 
-> **Status: B0 ✅ e A1 ✅ concluídas (10/09).** As 8 decisões estão fechadas, e a
+> **Status: B0, A1 e B1 ✅ concluídas (10/09).** As 8 decisões estão fechadas, e a
 > medição da B0 no HANA de produção confirmou as 21 colunas, o caso do 84348 e **zero
 > divergência** na régua dos 3 caracteres — a D8 fechou sozinha. O único insumo que falta
 > é o `STATUS_ID`, que o Marcelo gera na A3. Com o `flask` e o `apscheduler` instalados
@@ -250,6 +250,14 @@ tem sequer como escolher errado.
    comparando as chaves dos dois caminhos. → `entrega_endereco` tem de existir também lá.
 5. **O combinado de compatibilidade** (`API_SITUACAO_PEDIDOS.md` §12) permite campo novo
    sem aviso, mas proíbe mudar nome ou tipo de campo existente. → Tudo aqui é aditivo.
+7. **A lista de colunas do SELECT também é contrato entre os repos** — e o teste que
+   cobra isso (`test_situacao_pedidos_diffavel.py`) estava **pulando calado desde
+   08/09**: ele procurava a pasta `web_orcaview_V117`, renomeada para V118 na migração.
+   Religado na B1 (a suíte foi de 1616 para 1639 passando, com os *skips* caindo de 29
+   para 9) — e, boa notícia, **o núcleo portado não tinha divergido** nesses dois dias.
+   As 18 colunas de endereço ficam declaradas como **extensão legítima da .11**
+   (`COLUNAS_SO_DA_11`), com um teste contrário para a lista de exceções não virar um
+   saco que abafa divergência de verdade.
 6. **Volume.** A B0 mediu **266 pedidos** no recorte (o ~237 era de 24/08). Hoje são
    ~74 KB no `resumo` e ~237 KB no `completo`; esta mudança soma ~**+28 KB** e
    ~**+67 KB** — a `linha` pronta pesa mais que um flag, e é o preço de não deixar
@@ -260,7 +268,7 @@ tem sequer como escolher errado.
 | Fase | Entrega | Dono |
 | --- | --- | --- |
 | **B0** | ✅ **CONCLUÍDA 10/09** — resultados em §2.3. 21/21 colunas conferem · 84348 = DocEntry 19763 (JF contra BH) · 266 pedidos, 86% caem no padrão · **zero** linha com 1–2 caracteres (fecha a D8) · achados novos: CEP em 2 formatos e caixa de cidade inconsistente | eu |
-| **B1** | `STATUS_PEDIDO_COLS` + `LEFT JOIN "RDR12" a ON a."DocEntry" = v."DocEntry"` (LEFT, nunca INNER — pedido sem RDR12 não pode sumir do recorte). Medir o custo da consulta antes e depois | eu |
+| **B1** | ✅ **CONCLUÍDA 10/09** — 18 colunas de endereço + `LEFT JOIN "RDR12"` por `DocEntry`, com o mapa `ENDERECO_COLS` explícito. **Custo medido no HANA de produção** (3 rodadas alternadas): mediana 142 ms antes, 107 ms depois — **o delta está dentro do ruído** (a 1ª execução paga o plano: 486 ms); com o cache de 120 s, pago no máximo 1×/2 min. Ninguém consome ainda: a regra é a B3 | eu |
 | **B2** | Município: coleta dos `AbsId` do recorte + um `SELECT` na OCNT, cache no mesmo TTL de 120 s. Fora do JOIN (§2.5.2) | eu |
 | **B3** | `endereco_entrega_efetivo()` em `situacao_pedidos_hana.py` — a regra da §2.2, com teste dos quatro casos: os dois preenchidos e diferentes · só ShipTo · nenhum dos dois · **Local de Entrega com 1–2 caracteres** (cai no padrão) | eu |
 | **B4** | Publicar: objeto no `completo`, os 3 campos resolvidos no `resumo`, decoração em `api.py`. **Pedido cancelado lê a RDR12 desse DocEntry** (D5) — a chave nunca vem nula por preguiça, e a paridade de chaves entre os dois caminhos continua testada | eu |
