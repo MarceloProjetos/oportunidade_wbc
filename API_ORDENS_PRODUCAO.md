@@ -288,7 +288,11 @@ Invoke-RestMethod "http://192.168.7.11:8077/ordens-producao/129850/status" `
 ## 9. Suporte
 
 - Endpoint de saúde, aberto e sem chave: `GET http://192.168.7.11:8077/health`
-- Diagnóstico completo: `GET http://192.168.7.11:8077/status`
+- Diagnóstico: `GET http://192.168.7.11:8077/status` — **sem credencial** ele traz só
+  saúde (`ok`, `healthy`, um booleano por check, `alerts` contado, `restrito: true`).
+  Para o payload completo mande a `X-API-Key` desta API **ou** o `STATUS_ID`, que
+  abre só o diagnóstico e responde 401 em todo o resto. O código do `?strict=1` é o
+  mesmo nos dois casos, então monitor que decide pelo status code não muda nada.
 - Dúvida, campo faltando ou erro `502`/`503`: falar com o Marcelo (TI).
 
 Se um `motivo` de erro não estiver claro o suficiente para ser mostrado ao usuário final,

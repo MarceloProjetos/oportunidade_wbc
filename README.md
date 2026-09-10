@@ -713,8 +713,8 @@ Dois endpoints para checagem (exemplos no PowerShell):
 
 - **`GET /health`** — *liveness* leve (a API está de pé?). Sem chave, sem checagem externa —
   rápido e sempre disponível.
-- **`GET /status`** — diagnóstico **sob demanda** (**aberto, sem chave** — pode abrir no
-  navegador; roda só quando chamado, sem polling): conexões com **SAP**, **SQL Server (WBC)** e **Supabase** (com
+- **`GET /status`** — diagnóstico **sob demanda**, em **dois níveis** (roda só quando
+  chamado, sem polling; veja a seção seguinte): conexões com **SAP**, **SQL Server (WBC)** e **Supabase** (com
   latência `ms`), **sinal indireto do agendador** (idade da última carga de oportunidades;
   `stale` se > 35 min na janela comercial → `OrcaView-Scheduler` pode ter caído), **tarefa
   legada "Integração WBC"** (`scheduled_task`: desativada em 08/09/2026, vem `retired=true` e
@@ -740,7 +740,47 @@ curl.exe -s -o NUL -w "%{http_code}" "http://192.168.7.11:8077/status?strict=1"
 Campos úteis do JSON: `ok` (conexões verdes), `healthy` (`ok` e sem `alerts`),
 `checks.*.ms` (latência), `scheduler.stale`, `system.disk_low`, `alerts[]`.
 
-> **No navegador:** `/status` abre direto (`http://192.168.7.11:8077/status`). Os **demais**
+### `STATUS_ID` — quem vê o quê no `/status`
+
+Desde 10/09/2026 o `/status` responde em **dois níveis**. Quem chega **sem credencial**
+recebe a **visão mínima**; o payload completo pede a `OS_API_KEY` **ou** o `STATUS_ID`.
+
+| Quem | Credencial | Recebe |
+| --- | --- | --- |
+| Monitor, watchdog, navegador anônimo | nenhuma | `ok`, `healthy`, `restrito: true`, um booleano por check e `alerts` como **contagem** |
+| Outra equipe, OrçaView, você | **`STATUS_ID`** | O payload completo |
+| Quem já tem a chave da API | `OS_API_KEY` | O payload completo (nada mudou) |
+
+**Por que:** o payload completo publica o `host:porta` do HANA e do SQL Server, a URL do
+Supabase, hostname/IP/versão do Windows e do Python, o caminho de instalação e o nível de
+patch da máquina — um mapa da integração para qualquer um na LAN.
+
+**O `STATUS_ID` abre o `/status` e mais nada.** Em qualquer outra rota ele responde
+**401**; é por isso que ele pode ser entregue a quem só precisa monitorar, sem dar junto
+a chave que escreve no SAP e abre o painel WBC. Trocá-lo também não derruba os cookies do
+painel, como a troca da `OS_API_KEY` derruba.
+
+```powershell
+# gerar (uma vez), e gravar como STATUS_ID no .env da .11
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+
+# visão mínima — é o que o monitor precisa, e não vaza topologia
+curl.exe -s "http://192.168.7.11:8077/status"
+
+# completo, com o ID (o header, o Bearer e o ?key= valem, como na chave da API)
+curl.exe -s -H "X-API-Key: SEU_STATUS_ID" "http://192.168.7.11:8077/status"
+```
+
+> **O código HTTP não depende da credencial.** `?strict=1` responde 503 para servidor
+> degradado com ou sem ID — é o que mantém funcionando o monitor que decide pelo código
+> (o watchdog do `.90` chama `?checks=worker&strict=1` sem credencial nenhuma).
+>
+> **Sem `STATUS_ID` no `.env`**, só a `OS_API_KEY` abre o completo. E, como no resto da
+> API, **sem `OS_API_KEY` configurada tudo cai aberto** — o campo `api_auth` do payload é
+> quem denuncia esse estado.
+
+> **No navegador:** `/status` abre direto (`http://192.168.7.11:8077/status`), na visão
+> mínima. Os **demais**
 > endpoints exigem a chave — no navegador, passe por query string `?key=SUA_CHAVE` (ex.:
 > `…/oportunidades/info?key=SUA_CHAVE`). O `-H "X-API-Key: ..."` é parâmetro do **curl**
 > (terminal) e **não** funciona colado na barra de endereço do navegador.

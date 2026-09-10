@@ -148,7 +148,7 @@ Ele é **agregado** de propósito: como as flags são por item (§2.1), um boole
 | Endpoint | O que faz | Chave? |
 | --- | --- | --- |
 | `GET /health` | A API está de pé? | não |
-| `GET /status` | Diagnóstico (SAP, SQL, Supabase, latências) | não |
+| `GET /status` | Diagnóstico (SAP, SQL, Supabase, latências) | **dois níveis** — sem credencial vem a visão mínima (`ok`, `healthy`, um booleano por check, `alerts` contado, `restrito: true`); o completo pede a `X-API-Key` **ou** o `STATUS_ID`, que abre só esta rota. Peça o `STATUS_ID` ao Marcelo se você monitora |
 | `GET /ordens-servico/disponiveis` | Pedidos com OS criada no SAP | sim |
 | `GET /ordens-servico/{nped}` | Detalhe/resumo (§3.2) | sim |
 | `POST /ordens-servico/{nped}/sincronizar` | Sincroniza o pedido e devolve o resumo | sim |

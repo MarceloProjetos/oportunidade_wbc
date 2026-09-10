@@ -85,8 +85,15 @@ importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não impor
   script direto → `ModuleNotFoundError: scripts` → serviço PAUSED.
 - **Entry de produção da API é `python api.py`** (sobe waitress + log em `logs/api.log`).
   `waitress-serve api:app` funciona mas NÃO configura o log em arquivo. Não renomear `app`.
-- `/health` = liveness leve e aberto; `/status` = diagnóstico profundo aberto
-  (`?checks=`, `?strict=1` → 503 se degradado). Demais rotas exigem `X-API-Key`.
+- `/health` = liveness leve e aberto; `/status` = diagnóstico **em dois níveis** (desde
+  10/09/2026): sem credencial vem a visão mínima (`_status_publico`); o completo pede
+  `OS_API_KEY` **ou** `STATUS_ID` (credencial de baixo privilégio, entregue à outra
+  equipe — `_autorizado()` **não** a aceita, e há teste cravando 401 nas outras rotas).
+  **O código HTTP não depende da credencial** — o watchdog do `.90` chama
+  `?checks=worker&strict=1` sem nada e decide pelo código. A redução mora em `api.py`;
+  `monitoring.py` fica intacto porque `collect_status`/`SELECTABLE_CHECKS` são contrato
+  entre repos. Segue valendo o resto: `?checks=`, `?strict=1` → 503 se degradado, e as
+  demais rotas exigem `X-API-Key`.
 - Escritas têm **rate-limit in-process** (`RATE_SYNC_OS_MAX`, `RATE_FORCE_OPORT_MAX`) e
   **locks**: `_sync_lock` (thread) p/ OS, `oportunidades_sync_lock` (arquivo, cross-process,
   409 se ocupado) p/ carga completa.
