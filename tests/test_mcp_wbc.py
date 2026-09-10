@@ -14,7 +14,11 @@ import os
 
 import pytest
 
-pytest.importorskip('mcp')
+# `mcp.server.fastmcp`, e nao `mcp`: o pacote mcp **2.x** instala e importa, mas
+# renomeou o FastMCP para MCPServer — o guard antigo passava e o modulo estourava
+# ModuleNotFoundError na coleta (42 erros na suite local). A .11 roda o 1.x, entao
+# la estes testes continuam rodando.
+pytest.importorskip('mcp.server.fastmcp')
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CAMINHO = os.path.join(RAIZ, 'mcp', 'mcp_server.py')

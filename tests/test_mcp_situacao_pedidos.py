@@ -19,7 +19,11 @@ from typing import Any
 
 import pytest
 
-pytest.importorskip('mcp')
+# `mcp.server.fastmcp`, e nao `mcp`: o pacote mcp **2.x** instala e importa, mas
+# renomeou o FastMCP para MCPServer — o guard antigo passava e o modulo estourava
+# ModuleNotFoundError na coleta (42 erros na suite local). A .11 roda o 1.x, entao
+# la estes testes continuam rodando.
+pytest.importorskip('mcp.server.fastmcp')
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CAMINHO = os.path.join(RAIZ, 'mcp', 'mcp_server.py')
@@ -285,3 +289,79 @@ def test_post_usa_o_mesmo_tratamento(fachada, monkeypatch):
     monkeypatch.setattr(fachada.httpx, 'post', lambda *a, **k: _Resp(404))
     r = fachada._post('/ordens-servico/1/sincronizar')
     assert 'dica' in r
+
+
+# --- endereco de entrega (B5) ------------------------------------------------
+# A API resolve o endereco; a fachada so nao pode PERDE-LO no caminho — e era o que
+# acontecia quando um filtro por montador/vendedor obrigava a buscar o `completo`.
+
+_END_COMPLETO = {
+    'fonte': 'local_entrega', 'difere_do_ponto_de_entrega': True,
+    'cidade': 'JUIZ DE FORA', 'uf': 'MG',
+    'linha': 'AVENIDA DEUSDEDITH SALGADO, 4010 - SALVATERRA, 36033-000 JUIZ DE FORA-MG',
+    'ponto_entrega': {'cidade': 'BELO HORIZONTE', 'uf': 'MG',
+                      'linha': 'AV NOSSA SENHORA DO CARMO, 279 - CARMO, '
+                               '30330-000 BELO HORIZONTE-MG'},
+}
+
+
+@pytest.fixture
+def carteira_com_endereco(fachada, monkeypatch):
+    """A API devolvendo o `completo` — com o endereço como OBJETO, não como escalares."""
+    def _fake(path, params=None):
+        base = _carteira(3)
+        for p in base['pedidos']:
+            p['entrega_endereco'] = dict(_END_COMPLETO)
+        return base
+
+    monkeypatch.setattr(fachada, '_get', _fake)
+
+
+def test_panorama_resumo_com_filtro_nao_perde_o_endereco(fachada, carteira_com_endereco):
+    """O furo que a B5 fechou: `campos=resumo` + filtro busca o `completo` na API e
+    projeta de volta. Sem tratar o endereço na projeção, a MESMA tool respondia com
+    endereço sem filtro e sem endereço com filtro."""
+    r = fachada.panorama_pedidos(campos='resumo', montador='barros')
+    p = r['pedidos'][0]
+
+    assert p['entrega_cidade_uf'] == 'JUIZ DE FORA-MG'
+    assert p['entrega_linha'].endswith('JUIZ DE FORA-MG')
+    assert p['entrega_difere'] is True
+    assert 'entrega_endereco' not in p, 'o objeto inteiro é do perfil completo'
+    assert 'BELO HORIZONTE' not in str(p), 'o ShipTo não pode vazar para o resumo'
+
+
+def test_panorama_completo_mantem_o_objeto_inteiro(fachada, carteira_com_endereco):
+    """No `completo` o consumidor recebe tudo, inclusive o ponto_entrega como referência."""
+    p = fachada.panorama_pedidos(campos='completo')['pedidos'][0]
+    assert p['entrega_endereco']['ponto_entrega']['cidade'] == 'BELO HORIZONTE'
+
+
+def test_o_resumo_do_endereco_e_o_mesmo_venha_de_onde_vier(fachada):
+    """As duas formas da API têm de produzir os mesmos 3 campos."""
+    do_resumo = {'entrega_linha': _END_COMPLETO['linha'],
+                 'entrega_cidade_uf': 'JUIZ DE FORA-MG', 'entrega_difere': True}
+    assert (fachada._endereco_resumido(do_resumo)
+            == fachada._endereco_resumido({'entrega_endereco': dict(_END_COMPLETO)}))
+
+
+def test_sem_endereco_as_tres_chaves_existem(fachada):
+    """`None`/`False`, nunca KeyError em quem lê."""
+    vazio = fachada._endereco_resumido({})
+    assert set(vazio) == {'entrega_linha', 'entrega_cidade_uf', 'entrega_difere'}
+    assert vazio['entrega_linha'] is None and vazio['entrega_difere'] is False
+    # cidade sem uf (e vice-versa) não pode virar "SANTOS-" nem "-SP"
+    assert fachada._endereco_resumido(
+        {'entrega_endereco': {'cidade': 'SANTOS'}})['entrega_cidade_uf'] == 'SANTOS'
+    assert fachada._endereco_resumido(
+        {'entrega_endereco': {'uf': 'SP'}})['entrega_cidade_uf'] == 'SP'
+
+
+def test_as_docstrings_dizem_que_o_endereco_JA_e_o_de_despacho(fachada):
+    """É a docstring que o modelo lê. Sem este aviso ele procura o ShipTo e responde a
+    cidade do cadastro — que em 24 dos pedidos de hoje é outra."""
+    tools = {t.name: t.description for t in asyncio.run(fachada.mcp.list_tools())}
+    assert 'ponto_entrega' in tools['situacao_pedido']
+    assert 'cadastro do cliente' in tools['situacao_pedido']
+    for nome in ('pedidos_bloqueados', 'panorama_pedidos'):
+        assert 'entrega' in tools[nome].lower(), nome

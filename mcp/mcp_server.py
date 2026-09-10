@@ -144,12 +144,18 @@ def _post(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 
 @mcp.tool()
 def verificar_saude(checks: str = "", strict: bool = False) -> Dict[str, Any]:
-    """Diagnóstico de saúde do servidor de integração SAP/WBC (endpoint /status, aberto).
+    """Diagnóstico de saúde do servidor de integração SAP/WBC (endpoint /status).
 
     Retorna conexões (SAP HANA, SQL Server/WBC, Supabase, com latência), o sinal do
     agendador de oportunidades, o estado da tarefa agendada "Integração WBC"
     (scheduled_task) e métricas de sistema (CPU/memória/disco). Use para responder
     "o servidor de integração está saudável?" ou "algum alerta agora?".
+
+    Desde 10/09/2026 o ``/status`` responde em dois níveis. Esta tool manda a
+    ``SIS_API_KEY``, então recebe o payload **completo**. Se a resposta vier com
+    ``restrito: true`` — só ``ok``, ``healthy``, um booleano por check e ``alerts`` como
+    número —, é porque a chave não chegou: diga que o diagnóstico veio **reduzido por
+    falta de credencial**, não que o servidor parou de informar.
 
     Args:
         checks: subconjunto opcional de checagens (ex.: "sap,sql,tarefa"). Vazio = todas.
@@ -395,6 +401,13 @@ def situacao_pedido(pedido: int, chave: str = "docnum") -> Dict[str, Any]:
     O campo ``alerta_liberacao`` traz o texto "Mais de 10 dias preso no financeiro (N
     dias)" quando o pedido estourou o limite, e ``null`` quando não estourou.
 
+    **Endereço de entrega:** ``entrega_endereco`` traz o endereço de **despacho JÁ
+    RESOLVIDO** — é para lá que a mercadoria vai. Responda com ele. O
+    ``entrega_endereco.ponto_entrega`` aninhado é o cadastro do cliente, **não** o
+    destino: em 24 dos pedidos de hoje ele aponta para outra cidade, e responder por ele
+    manda a carga para o lugar errado. ``difere_do_ponto_de_entrega: true`` serve para
+    você AVISAR que há um local de entrega separado, não para escolher entre os dois.
+
     Args:
         pedido: número do pedido (DocNum, ex.: 84260).
         chave: ``"docnum"`` (default) ou ``"docentry"``.
@@ -422,6 +435,10 @@ def pedidos_bloqueados(bloqueio: str = "qualquer", status: str = "aberto") -> Di
 
     Os ``kpis`` e a lista de ``montadores`` da resposta são sempre do **recorte inteiro**,
     não do filtro — quantos pedidos voltaram está em ``total_filtrado``.
+
+    Cada pedido traz ``entrega_linha`` e ``entrega_cidade_uf``: é o endereço de despacho
+    **já resolvido**. ``entrega_difere: true`` diz que o pedido tem um local de entrega
+    separado do cadastro do cliente — é informação para avisar, não escolha a fazer.
 
     Args:
         bloqueio: ``qualquer`` (default, travado em pelo menos uma etapa), ``financeiro``,
@@ -474,10 +491,33 @@ def _panorama_filtrar(pedidos: List[Dict[str, Any]], montador: str, vendedor: st
     return saida
 
 
+def _endereco_resumido(p: Dict[str, Any]) -> Dict[str, Any]:
+    """Os 3 campos de entrega do perfil ``resumo``, venha o pedido de qual perfil vier.
+
+    A API entrega o endereço em duas formas: o ``resumo`` já traz ``entrega_linha`` /
+    ``entrega_cidade_uf`` / ``entrega_difere``; o ``completo`` traz o objeto
+    ``entrega_endereco``. O panorama busca ora um, ora outro (um filtro por
+    montador/vendedor obriga o completo, porque esses campos só existem lá) — **sem esta
+    função, pedir ``campos="resumo"`` COM filtro devolveria a lista sem endereço nenhum**,
+    e a mesma tool responderia coisas diferentes conforme o usuário tivesse filtrado.
+    """
+    if "entrega_linha" in p:
+        return {k: p.get(k) for k in ("entrega_linha", "entrega_cidade_uf", "entrega_difere")}
+    e = p.get("entrega_endereco") or {}
+    cidade_uf = "-".join(x for x in (e.get("cidade"), e.get("uf")) if x) or None
+    return {"entrega_linha": e.get("linha"), "entrega_cidade_uf": cidade_uf,
+            "entrega_difere": bool(e.get("difere_do_ponto_de_entrega"))}
+
+
 def _panorama_projetar(pedidos: List[Dict[str, Any]], extras: tuple) -> List[Dict[str, Any]]:
-    """Reduz cada pedido do completo às colunas do resumo (+ os campos filtrados)."""
+    """Reduz cada pedido do completo às colunas do resumo (+ os campos filtrados).
+
+    O endereço vem por :func:`_endereco_resumido`, e não pela lista de chaves: no
+    ``completo`` ele é um objeto com outro nome, então copiar por nome o perderia.
+    """
     chaves = _PANORAMA_CAMPOS_RESUMO + extras
-    return [{k: p.get(k) for k in chaves if k in p} for p in pedidos]
+    return [{**{k: p.get(k) for k in chaves if k in p}, **_endereco_resumido(p)}
+            for p in pedidos]
 
 
 @mcp.tool(annotations=_ANOTACAO_LEITURA)
@@ -504,13 +544,19 @@ def panorama_pedidos(campos: str = "resumo", limite: int = _PANORAMA_LIMITE_PADR
     a lista é parcial e ofereça filtrar por montador/vendedor ou só atrasados. Os
     indicadores continuam certos mesmo com a lista cortada.
 
+    Cada pedido traz o endereço de despacho **já resolvido** (``entrega_linha``,
+    ``entrega_cidade_uf``, ``entrega_difere`` no resumo; o objeto ``entrega_endereco`` no
+    completo). Nunca responda pelo ``ponto_entrega``: ele é o cadastro do cliente, e em
+    24 dos pedidos de hoje aponta para outra cidade.
+
     ``cache_idade_s`` diz há quantos segundos o retrato foi tirado (o serviço guarda a
     consulta por 2 minutos). Se precisar de dado do instante, diga isso ao usuário em vez
     de fingir que é tempo real.
 
     Args:
-        campos: ``resumo`` (default — as 10 colunas da tela + o alerta dos 10 dias) ou
-            ``completo`` (~40 campos por pedido, ~4× maior; pede o teto baixo ou um filtro).
+        campos: ``resumo`` (default — as 10 colunas da tela, o alerta dos 10 dias e o
+            endereço de entrega resolvido) ou ``completo`` (~40 campos por pedido, ~4×
+            maior; pede o teto baixo ou um filtro).
         limite: teto de pedidos na lista (default 40; 0 = sem teto, só com filtro).
         montador: filtra pelo nome do montador (pedaço, sem acento). Vazio = todos.
         vendedor: filtra pelo nome do vendedor (pedaço, sem acento). Vazio = todos.
