@@ -1,10 +1,9 @@
 # Plano — Fechar o `/status`, abrir o endereço de entrega
 
-> **Status: nada implementado — mas destravado.** Plano escrito em 2026-09-10 a partir de
-> duas medições reais do mesmo dia (o payload do `/status` da .11 puxado sem chave
-> nenhuma, e o pedido 84348 na tela de Pedidos). **As 8 decisões estão fechadas** (D1, D3,
-> D4, D6 em 10/09; D5, D7, D8 logo depois). O único insumo que falta é o `STATUS_ID`, que
-> o Marcelo gera na A3 — e ele não bloqueia nem a A1 nem a B0.
+> **Status: B0 ✅ concluída (10/09) · A1 em andamento.** As 8 decisões estão fechadas, e a
+> medição da B0 no HANA de produção confirmou as 21 colunas, o caso do 84348 e **zero
+> divergência** na régua dos 3 caracteres — a D8 fechou sozinha. O único insumo que falta
+> é o `STATUS_ID`, que o Marcelo gera na A3.
 
 Duas frentes independentes na API 8077 da `192.168.7.11`, que podem subir no mesmo deploy
 ou em deploys separados:
@@ -164,7 +163,37 @@ regra do `_entrega_efetiva()` que já roda em produção no OrçaView
 (`web_orcaview_V118/backend/services/pedido_report.py`), **com a régua dos 3 caracteres
 somada por decisão dele** — ver D8.
 
-### 2.3 O que passa a sair
+### 2.3 O que a B0 mediu no HANA de produção (10/09)
+
+Duas passadas de leitura no `SBOALTAMIRAPROD`, sobre o recorte inteiro da view:
+
+| Medida | Número | O que muda |
+| --- | --- | --- |
+| Colunas `*DlvryP` e `*S` na RDR12 | **21 de 21 conferem** | A grafia irregular do V118 está certa; nenhum mapa a corrigir |
+| Pedido **84348** | DocEntry **19763** · Local = `AVENIDA DEUSDEDITH SALGADO, 4010`, **JUIZ DE FORA** · ShipTo = `AV NOSSA SENHORA DO CARMO, 279`, **BELO HORIZONTE** | O caso de ouro do smoke está confirmado no banco |
+| Pedidos no recorte | **266** (não 237 — aquele número era de 24/08) | Volume 12% maior que o estimado |
+| Com Local de Entrega | **38 (14,3%)** | — |
+| Caem no padrão (ShipTo) | **228 (85,7%)** | O "70%" dele era conservador: são **86%** |
+| **Entregam em cidade diferente do ShipTo** | **24 (9,0%)** | **São 24 pedidos hoje em que despachar pelo ShipTo erra a cidade** |
+| Linhas com 1–2 caracteres | **0** | ✅ **Fecha a D8** — a régua ≥3 fica só na .11, documentada |
+| Pedidos sem Local **e** sem ShipTo | **0 de 266** | `entrega_endereco` nunca vem vazio — dá para prometer isso no contrato |
+| `CountyS` preenchido | **266 de 266** (e `CntyDlvryP` em 38 de 38) | O lookup na OCNT sempre resolve; `municipio` praticamente nunca é `null` |
+
+**Dois achados que mudam o código:**
+
+1. **O CEP vem em dois formatos, nas duas colunas.** `ZipDlvryP`: 4 com hífen, 33 sem
+   (`'36033000'`). `ZipCodeS`: 147 com hífen, 117 sem. Se a API repassar como veio, quem
+   consome recebe `36033000` num pedido e `30330-000` no outro, **no mesmo campo**. →
+   **A API normaliza para `NNNNN-NNN`** quando há 8 dígitos; qualquer outra coisa passa
+   como veio (não inventar CEP).
+2. **A caixa da cidade é inconsistente entre as duas colunas** — `CityDlvryP` =
+   `'BELO HORIZONTE'` contra `CityS` = `'Belo Horizonte'` no 84317, `'SANTOS'` contra
+   `'Santos'` no 84284. → O flag `difere_do_ponto_de_entrega` **não** pode ser comparação
+   de strings de cidade: ele é *"existe Local de Entrega preenchido"*, que é exatamente a
+   regra do selo da tela. Dos 38 com Local, **24 mudam de cidade e 14 são outro endereço
+   na mesma cidade** — o selo aparece nos 38, e está certo assim.
+
+### 2.4 O que passa a sair
 
 **Perfil `completo`** (hoje 35 campos → 36):
 
@@ -199,7 +228,7 @@ O `ponto_entrega` **só existe no `completo`**, e a documentação vai dizer com
 letras: *é referência cadastral, não destino de despacho*. Quem estiver no `resumo` não
 tem sequer como escolher errado.
 
-### 2.4 Fatos que travam o desenho
+### 2.5 Fatos que travam o desenho
 
 1. **`situacao_pedidos.py` é PORTE do `situacao_pedidos_service.py` do OrçaView**, e
    `tests/test_situacao_pedidos_diffavel.py` compara os dois função por função. → O
@@ -216,17 +245,18 @@ tem sequer como escolher errado.
    comparando as chaves dos dois caminhos. → `entrega_endereco` tem de existir também lá.
 5. **O combinado de compatibilidade** (`API_SITUACAO_PEDIDOS.md` §12) permite campo novo
    sem aviso, mas proíbe mudar nome ou tipo de campo existente. → Tudo aqui é aditivo.
-6. **Volume.** Recorte medido em 24/08: ~237 pedidos, ~74 KB no `resumo` e ~237 KB no
-   `completo`. Estimativa desta mudança: **+25 KB** no `resumo` (a `linha` pronta pesa
-   mais que um flag) e **+60 KB** no `completo`.
+6. **Volume.** A B0 mediu **266 pedidos** no recorte (o ~237 era de 24/08). Hoje são
+   ~74 KB no `resumo` e ~237 KB no `completo`; esta mudança soma ~**+28 KB** e
+   ~**+67 KB** — a `linha` pronta pesa mais que um flag, e é o preço de não deixar
+   ninguém escolher.
 
-### 2.5 Fases da frente B
+### 2.6 Fases da frente B
 
 | Fase | Entrega | Dono |
 | --- | --- | --- |
-| **B0** | Medir no HANA, no recorte inteiro: (a) as 12 colunas `*DlvryP` e as 9 `*S` do **84348**; (b) **quantos dos ~237 pedidos têm Local de Entrega preenchido** — confere o "70% no padrão" que ele estimou; (c) **quantas linhas têm 1–2 caracteres** nesses campos — zero significa que a régua fica só na .11 e eu sigo; qualquer coisa acima disso eu levo a ele antes de tocar no V118 (D8) | eu |
+| **B0** | ✅ **CONCLUÍDA 10/09** — resultados em §2.3. 21/21 colunas conferem · 84348 = DocEntry 19763 (JF contra BH) · 266 pedidos, 86% caem no padrão · **zero** linha com 1–2 caracteres (fecha a D8) · achados novos: CEP em 2 formatos e caixa de cidade inconsistente | eu |
 | **B1** | `STATUS_PEDIDO_COLS` + `LEFT JOIN "RDR12" a ON a."DocEntry" = v."DocEntry"` (LEFT, nunca INNER — pedido sem RDR12 não pode sumir do recorte). Medir o custo da consulta antes e depois | eu |
-| **B2** | Município: coleta dos `AbsId` do recorte + um `SELECT` na OCNT, cache no mesmo TTL de 120 s. Fora do JOIN (§2.4.2) | eu |
+| **B2** | Município: coleta dos `AbsId` do recorte + um `SELECT` na OCNT, cache no mesmo TTL de 120 s. Fora do JOIN (§2.5.2) | eu |
 | **B3** | `endereco_entrega_efetivo()` em `situacao_pedidos_hana.py` — a regra da §2.2, com teste dos quatro casos: os dois preenchidos e diferentes · só ShipTo · nenhum dos dois · **Local de Entrega com 1–2 caracteres** (cai no padrão) | eu |
 | **B4** | Publicar: objeto no `completo`, os 3 campos resolvidos no `resumo`, decoração em `api.py`. **Pedido cancelado lê a RDR12 desse DocEntry** (D5) — a chave nunca vem nula por preguiça, e a paridade de chaves entre os dois caminhos continua testada | eu |
 | **B5** | MCP: `situacao_pedido` já é `completo` por default; `panorama_pedidos` ganha `entrega_cidade_uf` + `entrega_difere` no resumo. Docstrings das tools dizendo que **o endereço da resposta já é o de despacho** — senão o modelo procura o ShipTo e responde a cidade errada | eu |
@@ -246,7 +276,8 @@ tem sequer como escolher errado.
 | **D5** | `entrega_endereco` no caminho do pedido cancelado | ✅ **decidido 10/09 — lê a RDR12** desse DocEntry (uma linha, caminho raro). A chave nunca vem nula por preguiça |
 | **D6** | Incluir o Local de Saída (`*GIP`) e o endereço de cobrança | ✅ **decidido 10/09 — não agora.** Fica registrado para quando alguém pedir |
 | **D7** | Restringir 8077 / 8078 / 8079 no firewall a IPs conhecidos | ✅ **decidido 10/09 — agora não.** Fica registrado; o `STATUS_ID` já tira a razão mais urgente de fechar a porta |
-| **D8** | A régua dos 3 caracteres diverge do V118 | ✅ **decidido 10/09 — régua ≥3 vale na .11.** O `_entrega_efetiva()` do OrçaView aceita qualquer texto não-branco. Se a B0 achar **zero** linha com 1–2 caracteres, fica só na .11 e a diferença vai documentada. **Se achar alguma, eu volto com o número antes de tocar no V118** — mexer lá muda a tela e o PDF, e isso passa pelo olho dele |
+| **D8** | A régua dos 3 caracteres diverge do V118 | ✅ **fechada pela B0 (10/09): zero divergência.** Nenhuma das 266 linhas tem 1–2 caracteres nos campos do Local de Entrega, então a régua ≥3 **fica só na .11**, documentada, e o V118 não é tocado. A diferença é teórica hoje — se um dia aparecer, o `_entrega_efetiva()` de lá é que precisa ser revisto |
+| **D9** | Formato do CEP na resposta | ✅ **decidido pela medição:** as duas colunas trazem os dois formatos (`ZipDlvryP` 4 com hífen / 33 sem; `ZipCodeS` 147 / 117). A API **normaliza para `NNNNN-NNN`** quando há 8 dígitos e passa o resto como veio |
 
 ---
 
@@ -256,7 +287,7 @@ Nada que bloqueie o começo. O que fica com ele:
 
 1. **Gerar o `STATUS_ID`** e gravar no `.env` da .11 (`python -c "import secrets; print(secrets.token_urlsafe(32))"`) — só na fase **A3**, depois que o código estiver pronto.
 2. **Restart dos serviços na .11** depois de cada pull (A3, A4 e B7) — o pull eu faço por WinRM.
-3. **Um retorno na D8**, e só se a B0 achar linha com 1–2 caracteres. Se der zero, sigo sem perguntar.
+3. ~~Um retorno na D8~~ — **não precisa mais**: a B0 deu zero, a régua fica só na .11.
 
 ---
 
