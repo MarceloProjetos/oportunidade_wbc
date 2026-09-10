@@ -891,11 +891,21 @@ def test_oport_sincronizar_falha_logica_502(client, monkeypatch):
 def test_autorizado_usa_compare_digest(client, monkeypatch):
     """A chave é comparada em tempo constante: `==` curto-circuita no 1º byte
     diferente e o tempo vaza quantos bytes o palpite acertou (e aceitamos a chave
-    por query string, então o ataque é um GET em loop)."""
+    por query string, então o ataque é um GET em loop).
+
+    Em 2026-09-10 a comparação saiu do `_autorizado` para o `_confere` (que o
+    `/status` reusa para o STATUS_ID), então é lá que se olha — e se confere que o
+    `_autorizado` **delega**, senão a garantia se perderia calada no dia em que
+    alguém reintroduzisse um `==` aqui.
+    """
     import inspect
-    fonte = inspect.getsource(apimod._autorizado)
-    assert 'compare_digest' in fonte
-    assert 'enviado == chave' not in fonte
+    fonte_confere = inspect.getsource(apimod._confere)
+    assert 'compare_digest' in fonte_confere
+    fonte_autorizado = inspect.getsource(apimod._autorizado)
+    assert '_confere(' in fonte_autorizado
+    for f in (fonte_autorizado, fonte_confere):
+        assert 'enviado == chave' not in f
+        assert 'enviado == esperado' not in f
 
 
 @pytest.mark.parametrize('chave,enviado,esperado', [

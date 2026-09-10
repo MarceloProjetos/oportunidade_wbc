@@ -37,10 +37,16 @@ qualquer um na LAN.
 - **Sem flag no `.env`**: `STATUS_ID` e' credencial, da familia de `OS_API_KEY` e
   `SIS_MCP_TOKEN` — nao ha `STATUS_*_ENABLED`. Rollback = `git revert` + restart.
 
-> ⚠️ **Os 6 testes novos nao rodaram nesta maquina**: o Python 3.14 local nao tem `flask`,
-> entao `tests/test_api.py` pula inteiro (gap antigo do ambiente — o mesmo vale para
-> `apscheduler` e `mcp`). A logica da reducao foi verificada campo a campo contra o fonte
-> real (nao uma copia), e o resto se prova na .11, na fase A3.
+- **O refactor quebrou um teste antigo, e o conserto e' mais forte que o original.**
+  `test_autorizado_usa_compare_digest` inspecionava o FONTE do `_autorizado` atras de
+  `compare_digest` — que mudou para o `_confere`. Agora ele olha o `_confere` **e** exige
+  que o `_autorizado` delegue: sem essa segunda asserção, a garantia de tempo constante
+  se perderia calada no dia em que alguem reintroduzisse um `==` ali.
+
+> Nota de ambiente: `flask` e `apscheduler` foram instalados no Python 3.14 local em
+> 10/09 (a pedido do Marcelo) — a suite saiu de **1165 para 1616 testes passando, zero
+> falha**. Sobram 42 erros de `ModuleNotFoundError: mcp` nos testes da fachada, que
+> continuam intocados de proposito (ver a memoria do `mcp` 2.x local).
 
 ## [2026-09-08] — `install_wbc_services.bat` nao rebaixa mais o worker para MANUAL (o boot da .11 o deixaria parado)
 
