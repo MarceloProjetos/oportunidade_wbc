@@ -1,6 +1,9 @@
 hdbcli==2.29.23
 supabase==2.31.0
-pandas==2.2.3
+# 2.3.3 e nao 2.2.3: a 2.2.3 NAO tem roda para o cp314, e a .11 vai para o Python
+# 3.14 (docs/PLANO_PYTHON_314_NA_11.md). A 2.3.3 instala nos DOIS (3.12 de hoje e
+# 3.14 de amanha) — e' o que permite subir o pacote antes do interpretador.
+pandas==2.3.3
 python-dotenv==1.2.2
 pyodbc==5.3.0
 apscheduler==3.10.4
