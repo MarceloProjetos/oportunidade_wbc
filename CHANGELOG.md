@@ -3,6 +3,47 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-11] — O NSSM para de renomear: agora ele ZERA o log a cada start
+
+Decisao do Marcelo, depois do inventario da entrada abaixo: *"nao quero NSSM renomeia,
+quero que apaga o antigo"*.
+
+**O NSSM nao tem essa opcao.** A rotacao dele e' renomear, e so; nao existe parametro de
+retencao ("guardar so N"). O que existe e' **`AppStdoutCreationDisposition`**: o default
+`4` (OPEN_ALWAYS) faz o NSSM abrir em modo append, e o `2` (CREATE_ALWAYS) faz ele
+**truncar** o arquivo a cada start do servico.
+
+Entao a configuracao dos 4 servicos que capturam stdout passou a ser:
+
+```
+AppRotateFiles 0                      (era 1)
+AppRotateBytes                        (resetado; era 5000000)
+AppStdoutCreationDisposition 2        (novo)
+AppStderrCreationDisposition 2        (novo)
+```
+
+Nunca mais existe arquivo renomeado, e cada log guarda no maximo o que saiu desde o
+ultimo start. **Com o reboot diario da .11 (~06:12) isso e' um dia** — limite natural,
+sem faxineiro nenhum.
+
+**Nao se perde historico:** o arquivo do NSSM e' so o stdout/stderr cru. O log que
+importa cada servico escreve por conta propria e ja se limpa sozinho — `logs\api.log` e
+`logs\scheduled_execution.log` (6 dias), `logs\wbcpython.log` (5 MB x 3). O do NSSM
+serve para o que escapa do logger: crash antes do logging subir.
+
+- `install_services.bat` e `install_wbc_services.bat` ajustados (valem em instalacao nova);
+- **`maintenance/ajustar_logs_nssm.bat`** (novo) aplica nos servicos **JA instalados**, que
+  e' o caso da .11 — o `install_*.bat` nao os alcanca. Ele **nao reinicia nada** de
+  proposito: vale no proximo start (reboot diario ou `deploy_update.bat`). Confere o que
+  gravou com `nssm get` e lista os renomeados que ja existam.
+
+> ⚠️ **Nao deu para verificar o nome do parametro nesta maquina** — nao ha `nssm` aqui e
+> nao ha WinRM para a .11. O script trata a falha: se o `nssm set` recusar, ele imprime
+> `AVISO ... (nssm antigo?)`, e o `nssm get` no fim mostra o que de fato ficou gravado.
+> Se aparecer aviso, e' porque a build do NSSM da .11 nao tem o parametro — e ai o
+> caminho e' o que o `OrcaView-MCP` ja faz: tirar o `AppStdout`/`AppStderr` e deixar so o
+> log do Python.
+
 ## [2026-09-11] — Os logs que o NSSM renomeia nunca eram apagados
 
 Pergunta do Marcelo: "os logs da .11 apagam sozinhos apos 6 dias, correto?". **So tres

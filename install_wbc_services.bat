@@ -51,8 +51,14 @@ nssm set OrcaView-WBC-Painel AppDirectory "%PROJ%"
 nssm set OrcaView-WBC-Painel Start SERVICE_AUTO_START
 nssm set OrcaView-WBC-Painel AppStdout "%PROJ%\logs\wbc_painel_service.log"
 nssm set OrcaView-WBC-Painel AppStderr "%PROJ%\logs\wbc_painel_service.log"
-nssm set OrcaView-WBC-Painel AppRotateFiles 1
-nssm set OrcaView-WBC-Painel AppRotateBytes 5000000
+REM Sem rotacao: o NSSM "rotaciona" RENOMEANDO (api_service-2026-....log) e NUNCA apaga
+REM o renomeado - eles se acumulariam para sempre. CreationDisposition 2 (CREATE_ALWAYS)
+REM ZERA o arquivo a cada start do servico; com o reboot diario da .11 (~06:12) cada um
+REM guarda no maximo um dia. O historico de verdade esta no log do PYTHON (logs\wbcpython.log), que
+REM rotaciona e apaga sozinho.
+nssm set OrcaView-WBC-Painel AppRotateFiles 0
+nssm set OrcaView-WBC-Painel AppStdoutCreationDisposition 2
+nssm set OrcaView-WBC-Painel AppStderrCreationDisposition 2
 
 echo === Worker da Integracao WBC (OrcaView-WBC-Worker) ===
 REM Inicio: MANUAL so na PRIMEIRA instalacao (antes da virada, com o legado ainda ligado).
@@ -71,8 +77,14 @@ nssm set OrcaView-WBC-Worker Start %WORKER_START%
 nssm set OrcaView-WBC-Worker AppStopMethodConsole 60000
 nssm set OrcaView-WBC-Worker AppStdout "%PROJ%\logs\wbc_worker_service.log"
 nssm set OrcaView-WBC-Worker AppStderr "%PROJ%\logs\wbc_worker_service.log"
-nssm set OrcaView-WBC-Worker AppRotateFiles 1
-nssm set OrcaView-WBC-Worker AppRotateBytes 5000000
+REM Sem rotacao: o NSSM "rotaciona" RENOMEANDO (api_service-2026-....log) e NUNCA apaga
+REM o renomeado - eles se acumulariam para sempre. CreationDisposition 2 (CREATE_ALWAYS)
+REM ZERA o arquivo a cada start do servico; com o reboot diario da .11 (~06:12) cada um
+REM guarda no maximo um dia. O historico de verdade esta no log do PYTHON (logs\wbcpython.log), que
+REM rotaciona e apaga sozinho.
+nssm set OrcaView-WBC-Worker AppRotateFiles 0
+nssm set OrcaView-WBC-Worker AppStdoutCreationDisposition 2
+nssm set OrcaView-WBC-Worker AppStderrCreationDisposition 2
 
 echo.
 echo Registrados com a pasta: %PROJ%

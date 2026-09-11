@@ -40,8 +40,14 @@ nssm set     OrcaView-Scheduler AppDirectory "%PROJ%"
 nssm set     OrcaView-Scheduler Start SERVICE_AUTO_START
 nssm set     OrcaView-Scheduler AppStdout "%PROJ%\logs\scheduler_service.log"
 nssm set     OrcaView-Scheduler AppStderr "%PROJ%\logs\scheduler_service.log"
-nssm set     OrcaView-Scheduler AppRotateFiles 1
-nssm set     OrcaView-Scheduler AppRotateBytes 5000000
+REM Sem rotacao: o NSSM "rotaciona" RENOMEANDO (api_service-2026-....log) e NUNCA apaga
+REM o renomeado - eles se acumulariam para sempre. CreationDisposition 2 (CREATE_ALWAYS)
+REM ZERA o arquivo a cada start do servico; com o reboot diario da .11 (~06:12) cada um
+REM guarda no maximo um dia. O historico de verdade esta no log do PYTHON (logs\scheduled_execution.log), que
+REM rotaciona e apaga sozinho.
+nssm set     OrcaView-Scheduler AppRotateFiles 0
+nssm set     OrcaView-Scheduler AppStdoutCreationDisposition 2
+nssm set     OrcaView-Scheduler AppStderrCreationDisposition 2
 
 echo === API (ordens de servico / Painel de Sincronizacao) ===
 nssm install OrcaView-OS-API "%PROJ%\run_api.bat"
@@ -49,8 +55,14 @@ nssm set     OrcaView-OS-API AppDirectory "%PROJ%"
 nssm set     OrcaView-OS-API Start SERVICE_AUTO_START
 nssm set     OrcaView-OS-API AppStdout "%PROJ%\logs\api_service.log"
 nssm set     OrcaView-OS-API AppStderr "%PROJ%\logs\api_service.log"
-nssm set     OrcaView-OS-API AppRotateFiles 1
-nssm set     OrcaView-OS-API AppRotateBytes 5000000
+REM Sem rotacao: o NSSM "rotaciona" RENOMEANDO (api_service-2026-....log) e NUNCA apaga
+REM o renomeado - eles se acumulariam para sempre. CreationDisposition 2 (CREATE_ALWAYS)
+REM ZERA o arquivo a cada start do servico; com o reboot diario da .11 (~06:12) cada um
+REM guarda no maximo um dia. O historico de verdade esta no log do PYTHON (logs\api.log), que
+REM rotaciona e apaga sozinho.
+nssm set     OrcaView-OS-API AppRotateFiles 0
+nssm set     OrcaView-OS-API AppStdoutCreationDisposition 2
+nssm set     OrcaView-OS-API AppStderrCreationDisposition 2
 
 echo === Painel da Integracao WBC (FastAPI, PAINEL_PORTA do .env) ===
 nssm install OrcaView-WBC-Painel "%PROJ%\run_wbc_painel.bat"
@@ -58,8 +70,14 @@ nssm set     OrcaView-WBC-Painel AppDirectory "%PROJ%"
 nssm set     OrcaView-WBC-Painel Start SERVICE_AUTO_START
 nssm set     OrcaView-WBC-Painel AppStdout "%PROJ%\logs\wbc_painel_service.log"
 nssm set     OrcaView-WBC-Painel AppStderr "%PROJ%\logs\wbc_painel_service.log"
-nssm set     OrcaView-WBC-Painel AppRotateFiles 1
-nssm set     OrcaView-WBC-Painel AppRotateBytes 5000000
+REM Sem rotacao: o NSSM "rotaciona" RENOMEANDO (api_service-2026-....log) e NUNCA apaga
+REM o renomeado - eles se acumulariam para sempre. CreationDisposition 2 (CREATE_ALWAYS)
+REM ZERA o arquivo a cada start do servico; com o reboot diario da .11 (~06:12) cada um
+REM guarda no maximo um dia. O historico de verdade esta no log do PYTHON (logs\wbcpython.log), que
+REM rotaciona e apaga sozinho.
+nssm set     OrcaView-WBC-Painel AppRotateFiles 0
+nssm set     OrcaView-WBC-Painel AppStdoutCreationDisposition 2
+nssm set     OrcaView-WBC-Painel AppStderrCreationDisposition 2
 
 echo === Worker da Integracao WBC (MANUAL ate a virada; parada limpa de ate 60 s) ===
 nssm install OrcaView-WBC-Worker "%PROJ%\run_wbc_worker.bat"
@@ -68,8 +86,14 @@ nssm set     OrcaView-WBC-Worker Start SERVICE_DEMAND_START
 nssm set     OrcaView-WBC-Worker AppStopMethodConsole 60000
 nssm set     OrcaView-WBC-Worker AppStdout "%PROJ%\logs\wbc_worker_service.log"
 nssm set     OrcaView-WBC-Worker AppStderr "%PROJ%\logs\wbc_worker_service.log"
-nssm set     OrcaView-WBC-Worker AppRotateFiles 1
-nssm set     OrcaView-WBC-Worker AppRotateBytes 5000000
+REM Sem rotacao: o NSSM "rotaciona" RENOMEANDO (api_service-2026-....log) e NUNCA apaga
+REM o renomeado - eles se acumulariam para sempre. CreationDisposition 2 (CREATE_ALWAYS)
+REM ZERA o arquivo a cada start do servico; com o reboot diario da .11 (~06:12) cada um
+REM guarda no maximo um dia. O historico de verdade esta no log do PYTHON (logs\wbcpython.log), que
+REM rotaciona e apaga sozinho.
+nssm set     OrcaView-WBC-Worker AppRotateFiles 0
+nssm set     OrcaView-WBC-Worker AppStdoutCreationDisposition 2
+nssm set     OrcaView-WBC-Worker AppStderrCreationDisposition 2
 
 echo === Iniciando os servicos (o worker NAO) ===
 nssm start OrcaView-Scheduler
