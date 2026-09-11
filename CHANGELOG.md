@@ -3,6 +3,64 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-11] — Os logs que o NSSM renomeia nunca eram apagados
+
+Pergunta do Marcelo: "os logs da .11 apagam sozinhos apos 6 dias, correto?". **So tres
+deles.** O inventario que a pergunta rendeu:
+
+| Arquivo | Politica | Apaga sozinho? |
+| --- | --- | --- |
+| `api.log`, `scheduled_execution.log`, `mcp_service.log` | `TimedRotatingFileHandler`, meia-noite, `backupCount=6` | **sim**, 6 dias |
+| `wbcpython.log` (worker) | `RotatingFileHandler`, 5 MB x 3 backups | nao e' por dia |
+| `api_service.log`, `scheduler_service.log`, `wbc_painel_service.log`, `wbc_worker_service.log` | NSSM (`AppRotateBytes 5000000`) | **NAO** |
+
+**O NSSM nao apaga: ele RENOMEIA.** Passou de 5 MB, o arquivo vira
+`api_service-2026-09-11T07-55-00.log` e comeca outro — o renomeado fica para sempre. E o
+faxineiro (`maintenance/disco_limpeza.ps1`) nao pegava nenhum deles: o filtro era
+`*.log.*`, que casa com o padrao do Python (`api.log.2026-09-05`) e **nao** com o do NSSM,
+que termina em `.log` liso.
+
+**A correcao nao adivinha o formato do nome do NSSM** (ele muda entre versoes): varre
+`*.log` **e** `*.log.*` e protege os arquivos VIVOS por NOME (`-Preservar`, novo parametro
+de `Apagar-Arquivos`). Duas redes, e a de cima ja bastaria:
+
+- **idade** — log vivo esta sendo escrito agora, entao nunca fica mais velho que o corte;
+- **nome** — se um servico estiver PARADO, o log dele congela e envelhece, e e' justamente
+  ali que esta a evidencia de por que ele parou. Esse nao se apaga.
+
+Testado sem rodar o script inteiro (ele mexe no cache do Windows Update): a funcao foi
+extraida do FONTE por AST e exercitada contra arquivos de mentira — apagou os 4
+rotacionados velhos (dos dois padroes) e preservou os 3 vivos-por-nome com 30 dias mais o
+1 rotacionado recente. Sintaxe conferida pelo parser e o arquivo segue ASCII puro (o
+cabecalho pede, por causa do PowerShell 5.1 sem BOM).
+
+**Segue manual e dry-run por padrao** — so apaga com `-Confirmar`. O
+`disco_relatorio.ps1` ja media a pasta `logs/` inteira, entao nao precisou mudar.
+
+**Armadilha de leitura que vale registrar:** o `TimedRotatingFileHandler` so apaga
+**quando rotaciona** — nao ha faxineiro rodando. Servico parado = nada rotaciona = nada e'
+apagado. (A pasta `logs/` da maquina de desenvolvimento ainda tem
+`scheduled_execution.log.2026-06-23`, de junho, exatamente por isso.) E o
+`EVENTOS_RETENCAO_DIAS=6` do `.env` **nao e' log**: e' a faxina dos eventos de decisao no
+SQLite do worker.
+
+## [2026-09-11] — pandas 2.2.3 -> 2.3.3 (F0 da migracao para o Python 3.14)
+
+A 2.2.3 **nao tem roda para o cp314**, e a .11 vai para o 3.14
+(`docs/PLANO_PYTHON_314_NA_11.md`). A 2.3.3 instala no 3.12 de hoje **e** no 3.14 de
+amanha — e' o que permite subir o pacote antes do interpretador, em dois passos: se algo
+quebrar depois deste deploy e' o pandas; se quebrar depois da troca do interpretador e' o
+Python. Juntos custariam um dia de bissecao.
+
+Das 22 dependencias dos dois `requirements.txt`, **este pin era o unico bloqueio** — 20 ja
+rodavam no 3.14.7, inclusive `hdbcli==2.29.23` (o pin exato), `pyodbc==5.3.0` e `pydantic`;
+`waitress`, `pymssql` e `mcp<2` tem roda cp314 (3.0.2 / 2.4.1 / 1.30.0).
+
+**Provado em producao no mesmo dia:** depois do deploy, o agendador de oportunidades
+rodou as 07:55:26 com `last_status: "sucesso"` — e e' ele o maior usuario de pandas do
+repo (HANA -> DataFrame -> Supabase). O `wbcpython` **nao importa pandas** em lugar
+nenhum; pandas so vive em `db_utils`, `extract_*`, `pipeline_core` e `sap_connection`.
+
 ## [2026-09-10] — A Situacao dos Pedidos passa a dizer PARA ONDE a mercadoria vai (B3-B7)
 
 O SAP guarda **dois** enderecos de entrega no mesmo pedido: o Ponto de Entrega (ShipTo,

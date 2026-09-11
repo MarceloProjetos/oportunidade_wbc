@@ -10,8 +10,10 @@
       3. C:\Windows\Logs\CBS\*.log e *.cab com mais de -DiasLogs dias
       4. C:\ProgramData\Microsoft\Windows\WER (relatorios de erro)
       5. Lixeira de todos os usuarios
-      6. C:\Python\ServidorIntegracaoSAP\logs\*.log.* rotacionados com mais de -DiasLogs dias
-         (o api.log/scheduler.log atuais NAO sao tocados)
+      6. C:\Python\ServidorIntegracaoSAP\logs\ - TODO log rotacionado com mais de -DiasLogs
+         dias, seja do Python (api.log.2026-09-05) ou do NSSM
+         (api_service-2026....log). Os arquivos VIVOS sao protegidos por NOME
+         (LOGS_VIVOS) e pela idade - log vivo nunca fica velho.
       7. C:\WindowsAzure\Logs via o clean_azure_logs.ps1 que ja existe ao lado (KeepDays 1)
     NAO toca: shadow copies, backups, exports, state, pastas do SAP, arquivos em uso (pulados
     em silencio), nenhuma pasta e apagada (so arquivos).
@@ -62,13 +64,14 @@ function Apagar-Arquivos {
         [string]$Caminho,
         [string]$Filtro = '*',
         [int]$IdadeDias = 0,
-        [switch]$Recurse
+        [switch]$Recurse,
+        [string[]]$Preservar = @()   # nomes exatos que NUNCA se apaga
     )
     if (-not $Caminho -or $Caminho.Length -lt 8) { Write-LimpLog "RECUSADO caminho curto: '$Caminho'"; return }
     if (-not (Test-Path -LiteralPath $Caminho)) { Write-LimpLog ('{0}: pasta nao existe ({1})' -f $Rotulo, $Caminho); return }
     $limite = (Get-Date).AddDays(-$IdadeDias)
     $itens = Get-ChildItem -LiteralPath $Caminho -File -Force -Filter $Filtro -Recurse:$Recurse -ErrorAction SilentlyContinue |
-        Where-Object { $_.LastWriteTime -lt $limite }
+        Where-Object { $_.LastWriteTime -lt $limite -and $Preservar -notcontains $_.Name }
     $bytes = ($itens | Measure-Object Length -Sum).Sum
     if (-not $bytes) { $bytes = 0 }
     Write-LimpLog ('{0}: {1} arquivo(s), {2:N2} GB ({3})' -f $Rotulo, @($itens).Count, ($bytes/1GB), $Caminho)
@@ -119,8 +122,26 @@ if ($Confirmar) {
     try { Clear-RecycleBin -DriveLetter C -Force -ErrorAction Stop; $script:Liberado += $lixBytes } catch { Write-LimpLog ('   Lixeira: ' + $_.Exception.Message) }
 }
 
-# 6. Logs rotacionados do app (api.log.2026-08-01 etc.; o arquivo atual nao casa com o filtro)
-Apagar-Arquivos -Rotulo '6. ServidorIntegracaoSAP logs rotacionados' -Caminho 'C:\Python\ServidorIntegracaoSAP\logs' -Filtro '*.log.*' -IdadeDias $DiasLogs
+# 6. Logs rotacionados do ServidorIntegracaoSAP.
+#
+#    O filtro era '*.log.*', que pega o padrao do PYTHON (api.log.2026-09-05) e deixava
+#    passar o do NSSM (api_service-2026-09-11T07-55-00.log) - e o NSSM, ao "rotacionar",
+#    so RENOMEIA: ele nunca apaga o renomeado. Esses cresciam para sempre.
+#
+#    Nao se tenta adivinhar o formato do nome do NSSM (muda entre versoes): varre '*.log'
+#    e '*.log.*' e protege os arquivos VIVOS por NOME. Duas redes, e a de cima ja basta:
+#      - IDADE: log vivo esta sendo escrito agora, entao nunca fica mais velho que o corte;
+#      - NOME: se um servico estiver PARADO, o log dele congela e envelhece - e e'
+#        justamente ali que esta a evidencia de por que ele parou. Esse nao se apaga.
+$LOGS_VIVOS = @(
+    'api.log', 'scheduled_execution.log', 'mcp_service.log', 'wbcpython.log',
+    'api_service.log', 'scheduler_service.log', 'wbc_painel_service.log', 'wbc_worker_service.log'
+)
+$LOGS_SIS = 'C:\Python\ServidorIntegracaoSAP\logs'
+foreach ($filtro in @('*.log', '*.log.*')) {
+    Apagar-Arquivos -Rotulo "6. ServidorIntegracaoSAP logs rotacionados ($filtro)" -Caminho $LOGS_SIS -Filtro $filtro -IdadeDias $DiasLogs -Preservar $LOGS_VIVOS
+}
+
 
 # 7. Logs do agente Azure - reusa o script que ja existe (ele mesmo pula arquivos em uso)
 $azure = Join-Path $PSScriptRoot 'clean_azure_logs.ps1'
