@@ -608,7 +608,14 @@ class WorkerIntegracao:
         # é sempre 6 e todo caminho termina nele. Um pedido esquecido de antes
         # do deploy não pode virar um ciclo largo na primeira volta do worker
         # novo, sem ninguém ter pedido de novo.
-        self._tracking.limpar_janela(motivo="Devolvida ao padrão na partida do worker.")
+        #
+        # Só quando há o que devolver. Limpar sempre gravava "Devolvida ao
+        # padrão na partida do worker" mesmo numa base em que ninguém nunca
+        # pediu nada — e o card mostra esse texto como "Último pedido:", que é
+        # exatamente a impressão errada para quem abre a tela pela primeira vez.
+        # Visto na .11 em 11/09/2026, na primeira subida com o card no ar.
+        if self._tracking.janela_pedida().estado is not EstadoDaJanela.OCIOSO:
+            self._tracking.limpar_janela(motivo="Devolvida ao padrão na partida do worker.")
         logger.info(
             "Worker iniciado (intervalo de %ds; expediente %s, %s–%s). %s",
             intervalo,

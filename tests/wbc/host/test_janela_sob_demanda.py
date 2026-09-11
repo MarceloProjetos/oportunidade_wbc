@@ -247,6 +247,37 @@ class TestODestinoDoPedido:
         assert tracking.janela_pedida().estado is EstadoDaJanela.ARMADO
 
 
+class TestAPartidaDoWorker:
+    """O restart devolve a janela ao padrão — mas sem inventar um histórico.
+
+    `rodar_continuamente` não dá para exercitar em teste (agenda e bloqueia), e
+    o que importa aqui é a decisão, não o laço: limpar só quando há o que
+    limpar. O laço apenas repete estas duas linhas.
+    """
+
+    def test_um_pedido_armado_nao_sobrevive_ao_restart(self, tracking) -> None:
+        from wbcpython.tracking import LINHA_UNICA, PedidoDeJanela
+
+        tracking.armar_janela(24, por="joana")
+
+        if tracking.janela_pedida().estado is not EstadoDaJanela.OCIOSO:
+            tracking.limpar_janela(motivo="Devolvida ao padrão na partida do worker.")
+
+        with tracking.sessao() as s:
+            assert s.get(PedidoDeJanela, LINHA_UNICA).estado is EstadoDaJanela.OCIOSO
+
+    def test_base_sem_pedido_nenhum_nao_ganha_texto_de_devolucao(self, tracking) -> None:
+        """Limpar sempre escrevia "Devolvida ao padrão na partida do worker" numa
+        base em que ninguém nunca pediu nada — e o card mostra esse texto como
+        "Último pedido:". Quem abrisse a tela pela primeira vez leria que houve
+        um pedido que não houve. Visto na .11 em 11/09/2026.
+        """
+        if tracking.janela_pedida().estado is not EstadoDaJanela.OCIOSO:
+            tracking.limpar_janela(motivo="Devolvida ao padrão na partida do worker.")
+
+        assert tracking.janela_pedida().detalhe == ""
+
+
 class TestAuditoria:
     def test_a_execucao_registra_a_janela_e_o_teto_que_valeram(
         self, ambiente, tracking
