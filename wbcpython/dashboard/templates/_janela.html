@@ -140,10 +140,15 @@
           hx-confirm="Pedir uma janela maior faz o próximo ciclo criar, alterar e cancelar mais documentos no SAP. Confirma?"
         >
           <div class="filtros">
+            {# O limite vai no rótulo, e não numa linha de ajuda abaixo do
+               campo: `.filtros` alinha pelo rodapé, então um terceiro elemento
+               empurraria só este input para cima e ele sairia torto em relação
+               aos vizinhos. Todo `.campo` aqui tem a mesma estrutura — rótulo
+               e input, nada mais. #}
             <label class="campo">
-              <span>Olhar para trás</span>
-              {# O `max` do servidor é que manda (`validar_meses`): este aqui só
-                 evita o engano fácil de digitar 36 e descobrir depois. #}
+              <span>Olhar para trás (máx. {{ maximo }} meses)</span>
+              {# O `max` daqui evita o engano fácil de digitar 36 e descobrir
+                 depois; quem manda é o `validar_meses` do servidor. #}
               <input
                 type="number"
                 name="meses"
@@ -152,7 +157,6 @@
                 step="1"
                 value="{{ maximo }}"
               />
-              <span class="janela-ajuda">meses, no máximo {{ maximo }}</span>
             </label>
             <label class="campo">
               <span>Seu nome</span>

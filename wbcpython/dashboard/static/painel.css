@@ -1035,11 +1035,6 @@ pre.console.alta {
   margin-bottom: 0;
 }
 
-#janela .janela-ajuda {
-  font: 400 12px/1.3 var(--mono);
-  color: var(--tinta-fraquissima);
-}
-
 /* Os dois botoes de resposta ficam lado a lado, e nao empilhados: sao as duas
  * metades de uma pergunta so.
  *
