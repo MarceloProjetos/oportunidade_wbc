@@ -3,6 +3,55 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-11] — A .11 acorda o .90 no boot (Wake-on-LAN)
+
+Pedido do Marcelo: quando a .11 ligar, ela liga o ALTSERVIDOR-IA (.90), que sobe o
+OrcaView sozinho. **O lado do .90 ja existia** e nao foi tocado — ele tem autologon e a
+tarefa `OrcaView Stack AtLogon`, que roda `tools\ops\subir_stack_boot.ps1` do
+`web_orcaview_V118` 60s depois do logon (com guarda anti-instancia-dupla e backup das
+sessoes do WhatsApp). Faltava so o primeiro elo: **acordar a maquina**.
+
+A corrente completa:
+
+```
+.11 liga -> tarefa OrcaView-WOL-AltservidorIA (boot + 30s)
+         -> wake_altservidor_ia.py manda o magic packet
+         -> .90 acorda -> autologon (~16s) -> AtLogon (+60s)
+         -> npm run start:all-detailed  = OrcaView no ar
+```
+
+**Arquivos novos:**
+
+- `wake_altservidor_ia.py` — so biblioteca padrao (roda no Python 3.12 da .11 sem
+  instalar nada). Monta o magic packet de 102 bytes (`0xFF` x6 + MAC x16) e manda em UDP
+  nos 2 broadcasts x portas 9/7 x 3 repeticoes, **reenviando a rodada** a cada
+  `--reenviar` segundos ate o .90 responder ao ping ou a janela `--wait` acabar. Se o IP
+  ja responde, sai na hora dizendo que a maquina esta ligada. `--log` grava em arquivo
+  (tarefa agendada nao tem console) e corta em 1 MB.
+- `install_wol_task.ps1` — registra a tarefa como SYSTEM, gatilho no boot + 30s, janela
+  de 600s reenviando a cada 60s, log em `logs\wol_altservidor_ia.log`. Idempotente;
+  `-Desinstalar` remove.
+
+**Dois detalhes que valem mais que o codigo:**
+
+1. O broadcast do .90 e **192.168.7.255**, nao .0.255 — a mascara e /21, a faixa termina
+   em .7.255. A .11 (192.168.7.11) esta dentro dessa faixa: mesma rede, o broadcast chega.
+2. O reenvio nao e paranoia: no boot a placa da .11 ainda esta subindo, e broadcast que
+   sai antes da porta do switch convergir se perde. Uma rodada custa 1,2 KB.
+
+**A .11 reinicia todo dia ~06:12**, entao na pratica isto vira "liga o .90 toda manha".
+Se o .90 tiver sido desligado de proposito, o proximo reboot da .11 religa —
+`install_wol_task.ps1 -Desinstalar` e a saida.
+
+**PENDENTE, e nao da para testar por software:** os 2 itens da BIOS do .90 —
+`Power On By PCI-E` = Enabled e `ErP Ready` = **Disabled**. Com ErP ligado a placa-mae
+corta a energia da placa de rede no S5 e o Windows **continua reportando "Wake on Magic
+Packet: habilitado" do mesmo jeito**; o diagnostico pelo SO da verde e a maquina nao
+acorda. Enquanto esses dois nao forem confirmados, a corrente acima e teoria a partir do
+elo 3. (E se o cenario for queda de energia: algumas placas perdem o armamento do WOL
+quando falta luz — ai quem resolve e `Restore on AC Power Loss = Power On`, na mesma
+visita a BIOS.)
+
 ## [2026-09-11] — O NSSM para de renomear: agora ele ZERA o log a cada start
 
 Decisao do Marcelo, depois do inventario da entrada abaixo: *"nao quero NSSM renomeia,
