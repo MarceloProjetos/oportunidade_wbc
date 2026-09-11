@@ -192,6 +192,32 @@ class Settings(BaseSettings):
     #: represados numa única execução.
     limite_de_escrita_por_ciclo: int = Field(default=200, alias="LIMITE_DE_ESCRITA_POR_CICLO")
 
+    #: Maior janela que alguém pode pedir pela tela do painel, em meses.
+    #:
+    #: A janela sob demanda (`docs/PLANO_JANELA_SOB_DEMANDA.md`) existe para
+    #: vendas alcançar uma oportunidade antiga sem restart e sem TI. Este é o
+    #: limite do que a tela aceita; o teto de escrita do ciclo cresce junto,
+    #: por banda — ver `domain/janela.py`.
+    janela_maxima: int = Field(
+        default=24, ge=1, le=120, alias="JANELA_MAXIMA"
+    )
+
+    #: Teto de escrita que nenhuma banda ultrapassa.
+    #:
+    #: Separado do escalonamento de propósito: é a rede embaixo dele, para o dia
+    #: em que alguém aumentar `JANELA_MAXIMA` sem refazer a conta do pior caso.
+    teto_absoluto_de_escrita: int = Field(
+        default=2000, ge=1, alias="TETO_ABSOLUTO_DE_ESCRITA"
+    )
+
+    #: Quanto tempo a pergunta "quer rodar outro ciclo?" fica de pé, em minutos.
+    #:
+    #: Passado o prazo, a janela volta ao padrão e o log registra onde o ciclo
+    #: estendido parou. Quinze minutos é a escolha do Marcelo (11/09/2026).
+    janela_espera_minutos: int = Field(
+        default=15, ge=1, alias="JANELA_ESPERA_MINUTOS",
+    )
+
     #: Retenção dos eventos de **decisão** do acompanhamento, em dias. O worker
     #: apaga os mais velhos uma vez por dia (`wbcpython faxina` faz o mesmo à
     #: mão). Ação, erro e reprocessamento nunca são apagados. `0` desliga.

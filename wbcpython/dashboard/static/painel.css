@@ -1017,3 +1017,38 @@ pre.console.alta {
   background: var(--acento);
   color: var(--painel);
 }
+
+/* Card "Janela de busca" (aba Executar).
+ *
+ * Prosa, e nao formulario: a `.resumo` do catalogo e escopada em `.comando`,
+ * que e uma acao. Aqui o texto explica para quem e de vendas o que a janela
+ * faz, e precisa de largura de leitura — dai o `max-width` em ch, o unico
+ * lugar da tela que tem um. */
+#janela .janela-texto {
+  margin: 0 0 10px;
+  font-size: 14.5px;
+  max-width: 78ch;
+  color: var(--tinta-fraca);
+}
+
+#janela .janela-texto:last-of-type {
+  margin-bottom: 0;
+}
+
+#janela .janela-ajuda {
+  font: 400 12px/1.3 var(--mono);
+  color: var(--tinta-fraquissima);
+}
+
+/* Os dois botoes de resposta ficam lado a lado, e nao empilhados: sao as duas
+ * metades de uma pergunta so.
+ *
+ * `bottom` e nao `top`: um dos formularios tem campos com rotulo em cima e o
+ * outro so tem o botao. Alinhados pelo topo, os dois botoes saiam em alturas
+ * diferentes — e duas respostas a mesma pergunta em degrau leem como duas
+ * coisas sem relacao. */
+#janela .comando {
+  display: inline-block;
+  vertical-align: bottom;
+  margin-right: 12px;
+}

@@ -247,6 +247,10 @@ def resumo_de_execucao(execucao: Execucao) -> dict[str, Any]:
         "Processados": execucao.processados,
         "Sucessos": execucao.sucessos,
         "Erros": execucao.erros,
+        # Desde que a janela virou pedido, "este ciclo escreveu 600 documentos"
+        # só faz sentido ao lado de "ele rodou com 12 meses". `None` é execução
+        # anterior à coluna — e "—" diz isso melhor do que um 6 inventado.
+        "Janela": f"{execucao.meses_da_janela} meses" if execucao.meses_da_janela else "—",
     }
 
 

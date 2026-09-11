@@ -779,6 +779,77 @@ def _cmd_faxina(settings: Settings, *, dias: int | None) -> int:
     return 0
 
 
+def _cmd_janela(
+    settings: Settings,
+    *,
+    armar: int | None,
+    limpar: bool,
+    por: str,
+) -> int:
+    """Mostra, arma ou limpa o pedido de janela estendida.
+
+    O painel é o caminho normal — este comando existe para operar a .11 quando a
+    tela não está de pé (durante um deploy, por exemplo) e para conferir o
+    estado sem abrir o navegador.
+    """
+    from wbcpython.domain import janela as jn
+    from wbcpython.tracking import RepositorioTracking
+
+    _preparar_log(settings)
+    relatar = logging.getLogger("wbcpython.acompanhamento").info
+    alertar = logging.getLogger("wbcpython.acompanhamento").warning
+    tracking = RepositorioTracking.a_partir_da_url(settings.tracking.db_url.get_secret_value())
+
+    if limpar:
+        tracking.limpar_janela(motivo="Limpada pela linha de comando.")
+        relatar(f"{OK}Janela de volta ao padrão de {settings.meses_de_janela} meses.")
+        return 0
+
+    if armar is not None:
+        try:
+            meses = jn.validar_meses(
+                armar, padrao=settings.meses_de_janela, maximo=settings.janela_maxima
+            )
+        except ValueError as exc:
+            alertar(f"{AVISO}{exc}")
+            return 2
+        teto = jn.teto_de_escrita(
+            meses,
+            padrao=settings.meses_de_janela,
+            base=settings.limite_de_escrita_por_ciclo,
+            absoluto=settings.teto_absoluto_de_escrita,
+        )
+        tracking.armar_janela(meses, por=por)
+        relatar(
+            f"{OK}Janela de {meses} meses armada para a próxima passada do ciclo "
+            f"(teto de {teto} escrita(s)). Depois dela, volta a "
+            f"{settings.meses_de_janela} meses sozinha."
+        )
+        return 0
+
+    pedido = tracking.janela_pedida()
+    if pedido.estado is jn.EstadoDaJanela.OCIOSO:
+        relatar(f"Janela no padrão: {settings.meses_de_janela} meses.")
+        if pedido.detalhe:
+            relatar(f"Último pedido: {pedido.detalhe}")
+        return 0
+    if pedido.estado is jn.EstadoDaJanela.ARMADO:
+        relatar(
+            f"Janela de {pedido.meses} meses ARMADA para a próxima passada "
+            f"(pedida por {pedido.pedido_por})."
+        )
+        return 0
+    relatar(
+        f"Janela de {pedido.meses} meses AGUARDANDO resposta: {pedido.faltaram} "
+        f"oportunidade(s) ficaram de fora. {pedido.detalhe}"
+    )
+    relatar(
+        "Os ciclos automáticos seguem no padrão. Responda no painel, ou rearme "
+        "com `--armar`; sem resposta, o pedido vence sozinho."
+    )
+    return 0
+
+
 def _cmd_pesos(
     settings: Settings, *, pedido: int | None, orcamento: str | None, simular: bool
 ) -> int:
@@ -1060,6 +1131,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="retenção em dias (padrão: EVENTOS_RETENCAO_DIAS do .env)",
     )
 
+    p_janela = sub.add_parser(
+        "janela",
+        help="mostra, arma ou limpa o pedido de janela estendida do próximo ciclo",
+    )
+    p_janela.add_argument(
+        "--armar",
+        type=int,
+        metavar="MESES",
+        help="arma a janela estendida para a próxima passada (volta ao padrão depois)",
+    )
+    p_janela.add_argument(
+        "--limpar",
+        action="store_true",
+        help="devolve a janela ao padrão agora",
+    )
+    p_janela.add_argument(
+        "--por",
+        default="linha de comando",
+        metavar="QUEM",
+        help="quem está pedindo, para a auditoria (padrão: 'linha de comando')",
+    )
+
     args = parser.parse_args(argv)
 
     if args.comando is None:
@@ -1092,6 +1185,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_datas_de_abertura(settings)
     if args.comando == "faxina":
         return _cmd_faxina(settings, dias=getattr(args, "dias", None))
+    if args.comando == "janela":
+        return _cmd_janela(
+            settings,
+            armar=getattr(args, "armar", None),
+            limpar=getattr(args, "limpar", False),
+            por=getattr(args, "por", "linha de comando"),
+        )
     if args.comando == "pesos":
         return _cmd_pesos(
             settings,

@@ -104,6 +104,12 @@
   <div class="bloco"><div class="vazio">Carregando…</div></div>
 </div>
 
+{# Primeiro de todos: e o unico controle desta aba que quem e de vendas
+   procura, e ele muda o que TODOS os comandos abaixo vao varrer. #}
+<div id="janela" hx-get="/fragmentos/janela" hx-trigger="load" hx-swap="outerHTML">
+  <div class="bloco"><div class="vazio">Carregando…</div></div>
+</div>
+
 <div class="bloco">
   <header>
     <h2>Leitura e diagnóstico</h2>

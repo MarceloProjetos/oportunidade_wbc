@@ -22,11 +22,14 @@ from sqlalchemy import Engine, create_engine, delete, func, inspect, select, tex
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from wbcpython.domain import janela as jn
+from wbcpython.domain.janela import EstadoDaJanela
 from wbcpython.tracking.modelos import (
     Acompanhamento,
     Base,
     Evento,
     Execucao,
+    PedidoDeJanela,
     StatusExecucao,
     StatusIntegracao,
     TipoEvento,
@@ -36,6 +39,31 @@ from wbcpython.tracking.modelos import (
 logger = logging.getLogger(__name__)
 
 TRAVA_WORKER = "worker_integracao"
+
+#: A única linha de `pedido_de_janela` — ver a docstring do modelo.
+LINHA_UNICA = 1
+
+
+def _tornar_ocioso(pedido: PedidoDeJanela, agora: datetime) -> None:
+    """Volta o pedido ao padrão, preservando `detalhe` e `meses`.
+
+    `meses` fica para trás de propósito: é o que a tela mostra em "a última
+    janela estendida foi de N meses". Ele não tem efeito nenhum em `OCIOSO` —
+    quem decide a janela nesse estado é o `MESES_DE_JANELA` da configuração.
+    """
+    pedido.estado = EstadoDaJanela.OCIOSO
+    pedido.faltaram = 0
+    pedido.tentativas = 0
+    pedido.expira_em = None
+    pedido.atualizado_em = agora
+
+
+def _minutos(pedido: PedidoDeJanela) -> str:
+    """O prazo que venceu, em texto, para a linha de log."""
+    if pedido.expira_em is None or pedido.atualizado_em is None:
+        return "prazo"
+    minutos = round((pedido.expira_em - pedido.atualizado_em).total_seconds() / 60)
+    return f"{minutos} min"
 
 
 class TravaNaoObtida(RuntimeError):
@@ -389,6 +417,8 @@ class RepositorioTracking:
         erros: int,
         status: StatusExecucao = StatusExecucao.CONCLUIDA,
         detalhe: str = "",
+        meses_da_janela: int | None = None,
+        teto_de_escrita: int | None = None,
     ) -> None:
         with self._sessao() as s, s.begin():
             execucao = s.get(Execucao, execucao_id)
@@ -400,11 +430,157 @@ class RepositorioTracking:
             execucao.erros = erros
             execucao.status = status
             execucao.detalhe = detalhe
+            # `None` é "não informado" e preserva o que já estava lá: quem
+            # chamar sem estes campos (um teste antigo, uma rota que só corrige
+            # o resumo) não apaga a auditoria da janela.
+            if meses_da_janela is not None:
+                execucao.meses_da_janela = meses_da_janela
+            if teto_de_escrita is not None:
+                execucao.teto_de_escrita = teto_de_escrita
 
     def ultimas_execucoes(self, *, limite: int = 20) -> list[Execucao]:
         consulta = select(Execucao).order_by(Execucao.inicio.desc()).limit(limite)
         with self._sessao() as s:
             return list(s.scalars(consulta))
+
+    # ------------------------------------------------- janela sob demanda
+
+    def janela_pedida(self, *, agora: datetime | None = None) -> PedidoDeJanela:
+        """O pedido de janela corrente, já com a expiração aplicada.
+
+        A expiração é preguiçosa — acontece aqui, na leitura — porque entre um
+        ciclo e outro nada roda para vigiar o relógio. É o mesmo desenho da
+        trava vencida em `_adquirir_trava`: quem chega depois do prazo é quem
+        limpa. Painel e worker chamam este método, então qualquer um dos dois
+        serve de gatilho, e a tela nunca mostra uma pergunta que já venceu.
+        """
+        agora = agora or datetime.now()
+        with self._sessao() as s, s.begin():
+            pedido = s.get(PedidoDeJanela, LINHA_UNICA)
+            if pedido is None:
+                pedido = PedidoDeJanela(id=LINHA_UNICA, estado=EstadoDaJanela.OCIOSO)
+                s.add(pedido)
+                s.flush()
+                return pedido
+            if jn.expirou(pedido.estado, pedido.expira_em, agora=agora):
+                # A frase de onde o ciclo parou é preservada e recebe o aviso —
+                # expirar calado apagaria justamente o que alguém precisaria ler
+                # para decidir se rearma.
+                logger.warning(
+                    "Janela de %d meses devolvida ao padrão: ninguém respondeu em %s. %s",
+                    pedido.meses,
+                    _minutos(pedido),
+                    pedido.detalhe or "(sem registro do ponto de parada)",
+                )
+                pedido.detalhe = (
+                    f"Expirou sem resposta. {pedido.detalhe}".strip()
+                    if pedido.detalhe
+                    else "Expirou sem resposta."
+                )
+                _tornar_ocioso(pedido, agora)
+            return pedido
+
+    def armar_janela(self, meses: int, *, por: str, agora: datetime | None = None) -> PedidoDeJanela:
+        """Arma a janela estendida para a **próxima** passada do ciclo.
+
+        Zera tentativas e faltaram: um pedido novo não herda o placar do
+        anterior, senão o terceiro erro de ontem devolveria o pedido de hoje no
+        primeiro tropeço.
+        """
+        agora = agora or datetime.now()
+        with self._sessao() as s, s.begin():
+            pedido = s.get(PedidoDeJanela, LINHA_UNICA) or PedidoDeJanela(id=LINHA_UNICA)
+            pedido.estado = EstadoDaJanela.ARMADO
+            pedido.meses = meses
+            pedido.pedido_por = por
+            pedido.pedido_em = agora
+            pedido.faltaram = 0
+            pedido.tentativas = 0
+            pedido.expira_em = None
+            pedido.detalhe = ""
+            pedido.atualizado_em = agora
+            s.add(pedido)
+            s.flush()
+            return pedido
+
+    def limpar_janela(self, *, motivo: str, agora: datetime | None = None) -> PedidoDeJanela:
+        """Devolve a janela ao padrão, guardando por quê.
+
+        Chamado de quatro lugares que são a mesma coisa vista de ângulos
+        diferentes: o ciclo cumpriu, o usuário desistiu, o worker reiniciou, ou
+        as tentativas acabaram. Todos terminam em `OCIOSO` — é isso que garante
+        que a janela larga nunca fica ligada por esquecimento.
+        """
+        agora = agora or datetime.now()
+        with self._sessao() as s, s.begin():
+            pedido = s.get(PedidoDeJanela, LINHA_UNICA) or PedidoDeJanela(id=LINHA_UNICA)
+            pedido.detalhe = motivo
+            _tornar_ocioso(pedido, agora)
+            s.add(pedido)
+            s.flush()
+            return pedido
+
+    def janela_aguardando_resposta(
+        self,
+        *,
+        faltaram: int,
+        detalhe: str,
+        espera: timedelta,
+        agora: datetime | None = None,
+    ) -> PedidoDeJanela:
+        """O ciclo estendido bateu no teto: guarda o ponto de parada e pergunta.
+
+        Enquanto está aqui, os ciclos automáticos voltam ao padrão — quem lê
+        `janela_do_ciclo` no worker só enxerga janela estendida em `ARMADO`. Sem
+        isso, o worker seguiria varrendo a janela larga a cada intervalo
+        enquanto a pergunta espera resposta.
+        """
+        agora = agora or datetime.now()
+        with self._sessao() as s, s.begin():
+            pedido = s.get(PedidoDeJanela, LINHA_UNICA) or PedidoDeJanela(id=LINHA_UNICA)
+            pedido.estado = EstadoDaJanela.AGUARDANDO
+            pedido.faltaram = faltaram
+            pedido.detalhe = detalhe
+            pedido.tentativas = 0
+            pedido.expira_em = agora + espera
+            pedido.atualizado_em = agora
+            s.add(pedido)
+            s.flush()
+            return pedido
+
+    def registrar_erro_da_janela(
+        self,
+        *,
+        detalhe: str,
+        limite: int,
+        agora: datetime | None = None,
+    ) -> PedidoDeJanela:
+        """Um ciclo estendido falhou: conta a tentativa e decide se devolve.
+
+        O pedido **não** é consumido por um erro — uma queda de rede no meio do
+        ciclo não pode custar o pedido de quem está esperando. Mas um erro que
+        se repete não pode virar um ciclo pesado a cada intervalo do worker: no
+        `limite`, a janela volta ao padrão com o erro registrado.
+        """
+        agora = agora or datetime.now()
+        with self._sessao() as s, s.begin():
+            pedido = s.get(PedidoDeJanela, LINHA_UNICA) or PedidoDeJanela(id=LINHA_UNICA)
+            pedido.tentativas += 1
+            pedido.detalhe = detalhe
+            pedido.atualizado_em = agora
+            if pedido.tentativas >= limite:
+                logger.warning(
+                    "Janela de %d meses devolvida ao padrão após %d tentativa(s) com erro: %s",
+                    pedido.meses,
+                    pedido.tentativas,
+                    detalhe,
+                )
+                tentativas = pedido.tentativas
+                _tornar_ocioso(pedido, agora)
+                pedido.detalhe = f"Devolvida após {tentativas} tentativa(s) com erro. {detalhe}"
+            s.add(pedido)
+            s.flush()
+            return pedido
 
     # ----------------------------------------------------------------- trava
 

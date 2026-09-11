@@ -19,6 +19,14 @@ from wbcpython.config import Settings
 from wbcpython.host import worker as mod_worker
 from wbcpython.tracking import RepositorioTracking
 
+#: A janela ja resolvida que o ciclo passa ao leitor.
+#:
+#: Desde a janela sob demanda, quem le informa a janela do ciclo em vez de
+#: `_ler_pendentes` consultar o worker: e o `_janela_do_ciclo` que decide se
+#: vale o padrao ou o pedido armado. Com `--orcamento`, o leitor troca este
+#: valor pela janela dirigida — e e isso que estes testes fixam.
+MESES_DO_CICLO = 6
+
 
 @pytest.fixture
 def cortes(monkeypatch: pytest.MonkeyPatch) -> list[tuple[date, str | None]]:
@@ -48,7 +56,7 @@ def _worker(tmp_path, **env) -> mod_worker.WorkerIntegracao:
 class TestJanelaDirigida:
     def test_com_orcamento_usa_a_janela_maior(self, cortes, tmp_path) -> None:
         w = _worker(tmp_path, meses_de_janela=6, meses_de_janela_dirigida=12)
-        w._ler_pendentes(orcamento="00124045")
+        w._ler_pendentes(meses=MESES_DO_CICLO, orcamento="00124045")
 
         desde, _ = cortes[0]
         assert desde == mod_worker.janela_padrao(meses=12)
@@ -57,21 +65,21 @@ class TestJanelaDirigida:
         """O ciclo inteiro não pode dobrar de tamanho por tabela: varrer 12
         meses a cada volta é outra decisão, e não foi esta."""
         w = _worker(tmp_path, meses_de_janela=6, meses_de_janela_dirigida=12)
-        w._ler_pendentes(orcamento=None)
+        w._ler_pendentes(meses=MESES_DO_CICLO, orcamento=None)
 
         desde, _ = cortes[0]
         assert desde == mod_worker.janela_padrao(meses=6)
 
     def test_a_janela_dirigida_e_configuravel(self, cortes, tmp_path) -> None:
         w = _worker(tmp_path, meses_de_janela=6, meses_de_janela_dirigida=24)
-        w._ler_pendentes(orcamento="00124045")
+        w._ler_pendentes(meses=MESES_DO_CICLO, orcamento="00124045")
 
         assert cortes[0][0] == mod_worker.janela_padrao(meses=24)
 
     def test_o_numero_continua_chegando_ao_repositorio(self, cortes, tmp_path) -> None:
         """Alargar a janela não pode virar "varre tudo": o filtro por número é
         o que mantém a leitura barata."""
-        _worker(tmp_path)._ler_pendentes(orcamento="00124045")
+        _worker(tmp_path)._ler_pendentes(meses=MESES_DO_CICLO, orcamento="00124045")
 
         assert cortes[0][1] == "00124045"
 
@@ -81,7 +89,7 @@ class TestJanelaDirigida:
         """O silêncio era o defeito: quem pede um orçamento pelo número espera
         uma resposta sobre ele, e não um resumo vazio."""
         with caplog.at_level(logging.WARNING, logger="wbcpython.host.worker"):
-            _worker(tmp_path)._ler_pendentes(orcamento="00100000")
+            _worker(tmp_path)._ler_pendentes(meses=MESES_DO_CICLO, orcamento="00100000")
 
         mensagens = " ".join(r.getMessage() for r in caplog.records)
         assert "00100000" in mensagens
@@ -93,7 +101,7 @@ class TestJanelaDirigida:
         """Janela vazia num ciclo normal é rotina, e aviso rotineiro deixa de
         ser lido."""
         with caplog.at_level(logging.WARNING, logger="wbcpython.host.worker"):
-            _worker(tmp_path)._ler_pendentes(orcamento=None)
+            _worker(tmp_path)._ler_pendentes(meses=MESES_DO_CICLO, orcamento=None)
 
         assert not [r for r in caplog.records if "não encontrado" in r.getMessage()]
 

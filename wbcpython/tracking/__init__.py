@@ -9,23 +9,27 @@ from wbcpython.tracking.modelos import (
     Base,
     Evento,
     Execucao,
+    PedidoDeJanela,
     StatusExecucao,
     StatusIntegracao,
     TipoEvento,
     Trava,
 )
 from wbcpython.tracking.repositorio import (
+    LINHA_UNICA,
     TRAVA_WORKER,
     RepositorioTracking,
     TravaNaoObtida,
 )
 
 __all__ = [
+    "LINHA_UNICA",
     "TRAVA_WORKER",
     "Acompanhamento",
     "Base",
     "Evento",
     "Execucao",
+    "PedidoDeJanela",
     "RepositorioTracking",
     "StatusExecucao",
     "StatusIntegracao",

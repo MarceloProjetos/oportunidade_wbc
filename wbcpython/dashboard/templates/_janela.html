@@ -1,0 +1,164 @@
+{#
+  O card "Janela de busca": até onde o ciclo olha para trás.
+
+  Quem usa esta tela é de vendas, não de TI. Por isso a ajuda fala de
+  oportunidade e de data de abertura, e não de `MESES_DE_JANELA`, `.env` ou
+  restart — e por isso ela fica visível, não atrás de um "saiba mais".
+
+  Três aparências, uma por estado do pedido (`domain/janela.py`): no padrão,
+  armada, e a pergunta de quando o ciclo estourou o teto.
+#}
+<div class="bloco" id="janela">
+  <header>
+    <h2>Janela de busca</h2>
+    {% if pedido.estado.value == "armado" %}
+      <span class="etiqueta atencao">{{ pedido.meses }} meses na próxima passada</span>
+    {% elif pedido.estado.value == "aguardando" %}
+      <span class="etiqueta perigo">esperando resposta</span>
+    {% else %}
+      <span class="etiqueta calma">{{ padrao }} meses (padrão)</span>
+    {% endif %}
+  </header>
+
+  <div class="corpo">
+    {% if pedido.estado.value == "aguardando" %}
+      {# F4 — a pergunta. O ciclo estendido encontrou mais do que cabe numa
+         passada; parou, gravou tudo, e a decisão volta para quem pediu. #}
+      <div class="aviso atencao">
+        <div>
+          <strong>A janela de {{ pedido.meses }} meses encontrou mais do que cabe num ciclo.</strong>
+          Ficaram <strong>{{ pedido.faltaram }}</strong> oportunidade(s) sem avaliar.
+          {% if pedido.detalhe %}<br />{{ pedido.detalhe }}{% endif %}
+          <br />
+          Enquanto isto espera, o ciclo automático segue nos {{ padrao }} meses de sempre.
+          Sem resposta em {{ espera_minutos }} minutos, a janela volta ao padrão sozinha.
+        </div>
+      </div>
+    {% elif pedido.estado.value == "armado" %}
+      <div class="aviso atencao">
+        <div>
+          <strong>Armada para a próxima passada do ciclo.</strong>
+          {{ pedido.meses }} meses, teto de {{ teto }} escrita(s) no SAP — pedida por
+          {{ pedido.pedido_por }}{% if pedido.pedido_em %}
+            em {{ pedido.pedido_em.strftime("%d/%m/%Y às %H:%M") }}{% endif %}.
+          <br />
+          Depois dela, a janela volta a {{ padrao }} meses sozinha.
+          {% if fora_do_expediente %}
+            <br />
+            <strong>O worker está fora do expediente agora</strong> ({{ expediente }}),
+            então o efeito aparece na próxima vez que ele rodar.
+          {% endif %}
+        </div>
+      </div>
+    {% else %}
+      <p class="janela-texto">
+        O ciclo olha para trás <strong>{{ padrao }} meses</strong>, contados pela
+        <strong>data de abertura da oportunidade no SAP</strong> — não pela data em que o
+        orçamento mudou. Uma oportunidade aberta há mais tempo não entra no ciclo nem que o
+        orçamento dela tenha sido alterado ontem; é para alcançá-la que existe este campo.
+      </p>
+      <p class="janela-texto">
+        Pedir uma janela maior vale só para a <strong>próxima passada</strong>: feita ela,
+        tudo volta a {{ padrao }} meses sozinho. Quanto maior a janela, mais documentos o
+        ciclo pode criar no SAP de uma vez — por isso o teto de escrita cresce junto, e por
+        isso a senha do painel é pedida aqui.
+      </p>
+      {% if pedido.detalhe %}
+        <p class="janela-texto"><em>Último pedido:</em> {{ pedido.detalhe }}</p>
+      {% endif %}
+    {% endif %}
+
+    {% if not pode_escrever %}
+      <div class="aviso {{ 'erro' if producao else 'atencao' }}">
+        <div><strong>Indisponível neste painel.</strong> {{ motivo }}</div>
+      </div>
+    {% else %}
+      {% if pedido.estado.value == "aguardando" %}
+        <form
+          class="comando"
+          hx-post="/fragmentos/janela/continuar"
+          hx-target="#janela"
+          hx-swap="outerHTML"
+          hx-disabled-elt="find button"
+          hx-confirm="Rodar outro ciclo com {{ pedido.meses }} meses? Ele cria, altera e cancela documentos no SAP."
+        >
+          <div class="filtros">
+            <label class="campo">
+              <span>Seu nome</span>
+              <input type="text" name="solicitante" placeholder="fica no histórico" />
+            </label>
+            <label class="campo">
+              <span>Senha do painel</span>
+              <input type="password" name="senha" />
+            </label>
+            <button class="acao perigosa" type="submit">Rodar outro ciclo</button>
+          </div>
+        </form>
+        <form
+          class="comando"
+          hx-post="/fragmentos/janela/limpar"
+          hx-target="#janela"
+          hx-swap="outerHTML"
+          hx-disabled-elt="find button"
+        >
+          <div class="filtros">
+            <button class="acao" type="submit">Voltar para {{ padrao }} meses</button>
+          </div>
+        </form>
+      {% elif pedido.estado.value == "armado" %}
+        <form
+          class="comando"
+          hx-post="/fragmentos/janela/limpar"
+          hx-target="#janela"
+          hx-swap="outerHTML"
+          hx-disabled-elt="find button"
+        >
+          <div class="filtros">
+            <button class="acao" type="submit">Cancelar o pedido</button>
+          </div>
+        </form>
+      {% else %}
+        <form
+          class="comando"
+          hx-post="/fragmentos/janela/armar"
+          hx-target="#janela"
+          hx-swap="outerHTML"
+          hx-disabled-elt="find button"
+          hx-confirm="Pedir uma janela maior faz o próximo ciclo criar, alterar e cancelar mais documentos no SAP. Confirma?"
+        >
+          <div class="filtros">
+            <label class="campo">
+              <span>Olhar para trás</span>
+              {# O `max` do servidor é que manda (`validar_meses`): este aqui só
+                 evita o engano fácil de digitar 36 e descobrir depois. #}
+              <input
+                type="number"
+                name="meses"
+                min="{{ padrao }}"
+                max="{{ maximo }}"
+                step="1"
+                value="{{ maximo }}"
+              />
+              <span class="janela-ajuda">meses, no máximo {{ maximo }}</span>
+            </label>
+            <label class="campo">
+              <span>Seu nome</span>
+              <input type="text" name="solicitante" placeholder="fica no histórico" />
+            </label>
+            <label class="campo">
+              <span>Senha do painel</span>
+              <input type="password" name="senha" />
+            </label>
+            <button class="acao perigosa" type="submit">Armar para a próxima passada</button>
+          </div>
+        </form>
+        <p class="janela-texto">
+          Antes de armar, vale rodar <strong>Verificar pendentes</strong> aqui embaixo com a
+          janela já armada: ele mostra o que o ciclo faria, sem tocar em nada no SAP.
+        </p>
+      {% endif %}
+    {% endif %}
+
+    {% if erro %}<div class="aviso erro"><div>{{ erro }}</div></div>{% endif %}
+  </div>
+</div>

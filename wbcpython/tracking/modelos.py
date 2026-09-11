@@ -36,6 +36,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from wbcpython.domain.janela import EstadoDaJanela
+
 
 def _enum(tipo: type[enum.StrEnum], nome: str) -> Enum:
     """Coluna de enumeração que devolve o próprio enum na leitura.
@@ -211,11 +213,81 @@ class Execucao(Base):
     erros: Mapped[int] = mapped_column(Integer, default=0)
     detalhe: Mapped[str] = mapped_column(Text, default="")
 
+    #: Com que janela e com que teto esta execução rodou.
+    #:
+    #: Anuláveis porque a base já existia antes da janela sob demanda, e o
+    #: `_acrescentar_colunas_novas` só acrescenta coluna anulável — execuções
+    #: antigas ficam com `None`, que aqui quer dizer "não registrado", e não 0.
+    #:
+    #: Registradas porque, desde que a janela mudou de constante para pedido, "o
+    #: ciclo das 14h37 escreveu 600 documentos" só faz sentido ao lado de "ele
+    #: rodou com 12 meses". Sem isso, a auditoria de uma leva grande obriga a
+    #: cruzar o log com o estado atual do pedido — que já mudou.
+    meses_da_janela: Mapped[int | None] = mapped_column(Integer, default=None)
+    teto_de_escrita: Mapped[int | None] = mapped_column(Integer, default=None)
+
     @property
     def duracao_segundos(self) -> float | None:
         if self.fim is None:
             return None
         return (self.fim - self.inicio).total_seconds()
+
+
+class PedidoDeJanela(Base):
+    """O pedido de janela estendida — uma linha só, sempre a de `id=1`.
+
+    Por que no banco, e não numa variável: o painel e o worker são **processos
+    separados** (serviços NSSM distintos na .11). Não há memória compartilhada
+    entre eles, e o acompanhamento é o único lugar que os dois já tocam — a
+    tabela `travas` ao lado já coordena os dois pelo mesmo caminho.
+
+    Por que não no `state/wbc_worker.stop`, que é o precedente de sinal
+    painel→worker: aquele arquivo carrega um bit ("pare"). Aqui é preciso um
+    valor com dono, data, contador de tentativas e prazo de resposta — e ele
+    precisa aparecer na tela, que lê o banco e não o disco.
+
+    Uma linha só porque o pedido é um estado global do worker, não uma fila:
+    dois pedidos simultâneos não teriam significado (a próxima passada é uma).
+    O `id` fixo deixa a chave primária impedir a segunda linha, em vez de uma
+    regra em código que alguém pode esquecer de aplicar.
+    """
+
+    __tablename__ = "pedido_de_janela"
+
+    #: Sempre `LINHA_UNICA`. Ver a docstring: é a chave primária que garante a
+    #: unicidade, não uma convenção.
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+
+    estado: Mapped[EstadoDaJanela] = mapped_column(
+        _enum(EstadoDaJanela, "estado_da_janela"), default=EstadoDaJanela.OCIOSO
+    )
+
+    #: A janela pedida, em meses. Sem significado quando o estado é `OCIOSO` —
+    #: aí quem manda é o `MESES_DE_JANELA` da configuração.
+    meses: Mapped[int] = mapped_column(Integer, default=0)
+
+    pedido_por: Mapped[str] = mapped_column(String(120), default="")
+    pedido_em: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+
+    #: Quantas oportunidades ficaram de fora quando o ciclo bateu no teto — o
+    #: número que a pergunta na tela mostra.
+    faltaram: Mapped[int] = mapped_column(Integer, default=0)
+
+    #: Ciclos estendidos que terminaram com erro. Três consecutivos devolvem o
+    #: pedido: erro de rede não pode custar o pedido, mas erro persistente não
+    #: pode virar ciclo pesado a cada 180 s.
+    tentativas: Mapped[int] = mapped_column(Integer, default=0)
+
+    #: Prazo da resposta, só em `AGUARDANDO`. `ARMADO` não expira de propósito:
+    #: um pedido feito às 19h de sexta só é atendido na segunda, porque o worker
+    #: não roda fora do expediente.
+    expira_em: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+
+    #: Onde o último ciclo estendido parou, ou o erro que o derrubou. É o que
+    #: sobra quando o pedido expira — sem isto, a expiração seria silenciosa.
+    detalhe: Mapped[str] = mapped_column(Text, default="")
+
+    atualizado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
 
 class Trava(Base):

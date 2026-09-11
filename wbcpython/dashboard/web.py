@@ -51,6 +51,8 @@ from wbcpython.dashboard.dados import (
     registrar_reprocessamento,
     resumo_de_execucao,
 )
+from wbcpython.domain import janela as jn
+from wbcpython.domain.janela import EstadoDaJanela
 from wbcpython.host.worker import janela_padrao
 from wbcpython.tracking import RepositorioTracking, StatusIntegracao, TipoEvento
 
@@ -298,7 +300,12 @@ def criar_app(
         marcado. Ele repinta a cada 30 s, e sem isso a marca sumiria sozinha
         pouco depois do clique.
         """
-        kpis = calcular_kpis(repo.listar(limite=TETO_DE_LINHAS, aberto_desde=_janela(config, tudo)))
+        kpis = calcular_kpis(
+            repo.listar(
+                limite=TETO_DE_LINHAS,
+                aberto_desde=_janela(config, tudo, _meses_em_vigor()),
+            )
+        )
         classe, texto = SAUDE[kpis.saude]
         return render(
             request,
@@ -344,7 +351,7 @@ def criar_app(
                 status=_status(status),
                 busca=busca.strip(),
                 limite=TETO_DE_LINHAS,
-                aberto_desde=_janela(config, tudo),
+                aberto_desde=_janela(config, tudo, _meses_em_vigor()),
             ),
             corte,
         )
@@ -550,6 +557,138 @@ def criar_app(
             ritmo=RITMO_DA_EXECUCAO,
         )
 
+    def _meses_em_vigor() -> int:
+        """A janela que o próximo ciclo vai usar — padrão, ou a que foi armada."""
+        pedido = repo.janela_pedida()
+        if pedido.estado is EstadoDaJanela.ARMADO:
+            return pedido.meses
+        return config.meses_de_janela
+
+    def _cartao_da_janela(request: Request, *, erro: str = "") -> HTMLResponse:
+        """Desenha o card da janela no estado em que ele está agora.
+
+        Todas as rotas da janela terminam aqui, inclusive as que recusam: é o
+        card inteiro que volta no `hx-swap`, então quem errou a senha continua
+        vendo o estado real, com a recusa ao lado — e não um aviso solto no
+        lugar onde estava o controle.
+        """
+        pedido = repo.janela_pedida()
+        agora = datetime.now()
+        return render(
+            request,
+            "_janela.html",
+            pedido=pedido,
+            padrao=config.meses_de_janela,
+            maximo=config.janela_maxima,
+            espera_minutos=config.janela_espera_minutos,
+            teto=jn.teto_de_escrita(
+                pedido.meses or config.meses_de_janela,
+                padrao=config.meses_de_janela,
+                base=config.limite_de_escrita_por_ciclo,
+                absoluto=config.teto_absoluto_de_escrita,
+            ),
+            pode_escrever=config.painel_pode_escrever,
+            motivo=_por_que_nao_escreve(config),
+            producao=config.targets_production,
+            fora_do_expediente=not (
+                config.e_dia_de_trabalho(agora.date())
+                and config.dentro_do_horario_do_worker(agora.time())
+            ),
+            expediente=(
+                f"{config.dias_de_trabalho_por_extenso}, "
+                f"{config.worker_horario_inicio.strftime('%H:%M')}–"
+                f"{config.worker_horario_fim.strftime('%H:%M')}"
+            ),
+            erro=erro,
+        )
+
+    @app.get("/fragmentos/janela", response_class=HTMLResponse)
+    def fragmento_janela(request: Request) -> HTMLResponse:
+        return _cartao_da_janela(request)
+
+    @app.post("/fragmentos/janela/armar", response_class=HTMLResponse)
+    async def armar_janela(request: Request) -> HTMLResponse:
+        """Arma a janela estendida para a próxima passada do ciclo.
+
+        Pede senha (decisão 5 do plano): armar não escreve no SAP com as
+        próprias mãos, mas é a causa direta de centenas de escritas
+        irreversíveis — está do lado de lá da mesma linha que separa "ver" de
+        "mandar executar" no resto desta tela.
+        """
+        form = await request.form()
+        negativa = _autorizar(config, form, "Armar a janela")
+        if negativa:
+            return _cartao_da_janela(request, erro=negativa)
+        try:
+            meses = jn.validar_meses(
+                int(str(form.get("meses") or "0")),
+                padrao=config.meses_de_janela,
+                maximo=config.janela_maxima,
+            )
+        except ValueError as exc:
+            # `int()` e `validar_meses` erram com a mesma exceção de propósito:
+            # "abc" e "36" são o mesmo problema para quem está na tela — o
+            # número não serve —, e a frase do domínio já explica o limite.
+            return _cartao_da_janela(request, erro=str(exc))
+
+        solicitante = str(form.get("solicitante") or "").strip()
+        repo.armar_janela(meses, por=solicitante)
+        repo.registrar_evento(
+            "(ciclo)",
+            tipo=TipoEvento.REPROCESSAMENTO,
+            mensagem=(
+                f"Janela de {meses} meses armada pelo painel por {solicitante}, "
+                f"para a próxima passada."
+            ),
+            detalhes={"solicitante": solicitante, "meses": meses},
+        )
+        return _cartao_da_janela(request)
+
+    @app.post("/fragmentos/janela/continuar", response_class=HTMLResponse)
+    async def continuar_janela(request: Request) -> HTMLResponse:
+        """A resposta "sim" à pergunta: rearma a mesma janela por mais um ciclo.
+
+        Pede senha como o armar, e pela mesma razão — este é o botão que libera
+        a próxima leva de escritas no SAP.
+        """
+        form = await request.form()
+        negativa = _autorizar(config, form, "Rodar outro ciclo")
+        if negativa:
+            return _cartao_da_janela(request, erro=negativa)
+        pedido = repo.janela_pedida()
+        if pedido.estado is not EstadoDaJanela.AGUARDANDO:
+            # A pergunta venceu (ou outra pessoa respondeu) entre a tela e o
+            # clique. Rearmar aqui seria decidir por conta própria uma leva de
+            # escritas que ninguém acabou de autorizar.
+            return _cartao_da_janela(
+                request,
+                erro="A pergunta já não está de pé — o pedido venceu ou alguém respondeu antes.",
+            )
+        solicitante = str(form.get("solicitante") or "").strip()
+        repo.armar_janela(pedido.meses, por=solicitante)
+        repo.registrar_evento(
+            "(ciclo)",
+            tipo=TipoEvento.REPROCESSAMENTO,
+            mensagem=(
+                f"Novo ciclo com a janela de {pedido.meses} meses autorizado por "
+                f"{solicitante} ({pedido.faltaram} oportunidade(s) tinham ficado de fora)."
+            ),
+            detalhes={"solicitante": solicitante, "meses": pedido.meses},
+        )
+        return _cartao_da_janela(request)
+
+    @app.post("/fragmentos/janela/limpar", response_class=HTMLResponse)
+    async def limpar_janela(request: Request) -> HTMLResponse:
+        """Volta ao padrão agora.
+
+        **Não** pede senha, de propósito, e é a única rota da janela assim:
+        desarmar só reduz o que o próximo ciclo vai escrever. Exigir senha para
+        frear seria transformar a proteção em obstáculo justamente no botão que
+        alguém aperta quando se assustou com o número.
+        """
+        repo.limpar_janela(motivo="Cancelada no painel.")
+        return _cartao_da_janela(request)
+
     @app.post("/fragmentos/comandos/executar", response_class=HTMLResponse)
     async def executar(request: Request) -> HTMLResponse:
         """Dispara um comando.
@@ -567,7 +706,7 @@ def criar_app(
         valores = {c.nome: str(form.get(c.nome) or "") for c in comando.campos}
 
         if comando.protegido:
-            negativa = _autorizar(config, form, comando)
+            negativa = _autorizar(config, form, comando.rotulo)
             if negativa:
                 return render(request, "_aviso.html", tipo="erro", texto=negativa)
         if comando.id == "pesos":
@@ -668,7 +807,7 @@ def _por_que_nao_escreve(config: Settings) -> str:
     return ""
 
 
-def _autorizar(config: Settings, form: Any, comando: cmd.Comando) -> str:
+def _autorizar(config: Settings, form: Any, rotulo: str) -> str:
     """Vazio quando pode seguir; o motivo da recusa quando não pode.
 
     Devolve texto, e não um fragmento pronto, para poder ser testada sem montar
@@ -682,7 +821,7 @@ def _autorizar(config: Settings, form: Any, comando: cmd.Comando) -> str:
     # `compare_digest` e não `==`: comparar string vaza tempo, e do outro lado
     # há uma rede interna inteira.
     if not secrets.compare_digest(informada, config.painel_senha.get_secret_value()):
-        return f"Senha incorreta. “{comando.rotulo}” não foi executado."
+        return f"Senha incorreta. “{rotulo}” não foi executado."
     return ""
 
 
@@ -701,15 +840,20 @@ def _conferir_alvo_do_peso(valores: dict[str, str]) -> str:
     return ""
 
 
-def _janela(config: Settings, tudo: int) -> date | None:
+def _janela(config: Settings, tudo: int, meses: int | None = None) -> date | None:
     """`None` = mostrar o histórico inteiro, inclusive o que o ciclo já não olha.
 
     O corte é o **mesmo** do worker (`OOPR.OpenDate`): quando a janela encolheu
     de 6 para 3 meses, 167 orçamentos de maio continuaram no painel como se o
     ciclo ainda os avaliasse. Duas telas sobre o mesmo assunto não podem dar
     números diferentes.
+
+    `meses` carrega a janela **em vigor**, que desde a janela sob demanda pode
+    ser maior que a do `.env`. Sem isto, armar 24 meses mudaria o que o ciclo
+    varre sem mudar o que a lista mostra — e a tela esconderia justamente as
+    oportunidades antigas que alguém acabou de pedir para alcançar.
     """
-    return None if tudo else janela_padrao(meses=config.meses_de_janela)
+    return None if tudo else janela_padrao(meses=meses or config.meses_de_janela)
 
 
 def _status(rotulo: str) -> StatusIntegracao | None:

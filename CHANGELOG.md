@@ -3,6 +3,45 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-11] — Janela de busca sob demanda: a tela arma, o ciclo devolve
+
+`MESES_DE_JANELA` deixa de ser so uma constante do `.env` lida no arranque. Pela aba
+"Executar" do painel 8079, alguem de vendas pede ate **24 meses** para a PROXIMA passada do
+ciclo, sem restart e sem TI — e a janela volta ao padrao de 6 sozinha. Plano completo em
+`docs/PLANO_JANELA_SOB_DEMANDA.md`; decisoes em `docs/wbc/DECISOES.md`.
+
+**O furo que isso resolve.** "Abre 24 meses por um ciclo e volta" nao funcionava: o
+`LIMITE_DE_ESCRITA_POR_CICLO` (200) corta o ciclo no meio, e 24 meses represam muito mais
+que os ~1.785 da janela de 6. O ciclo escreveria 200 e o resto nunca sairia. Decisao do
+Marcelo: o teto **cresce por banda** — 3x ate 12 meses, 6x ate 18, **9x** ate 24 (1.800
+escritas), limitado pelo `TETO_ABSOLUTO_DE_ESCRITA` (2.000) — e, se o ciclo estourar o teto,
+ele para, grava tudo e **pergunta** na tela se deve rodar outro.
+
+**O que mudou no worker.** A janela era congelada em `self._meses` na construcao; agora e
+resolvida a cada ciclo (`_janela_do_ciclo`). Era esse congelamento que fazia toda mudanca
+exigir restart. Cada execucao registra com o que rodou: colunas novas `meses_da_janela` e
+`teto_de_escrita` em `execucoes` (anulaveis; execucoes antigas ficam `None`, nao 0).
+
+**Tres estados** (`wbcpython/domain/janela.py`, tabela `pedido_de_janela` de uma linha):
+`ocioso` -> `armado` -> `aguardando`. Em `aguardando` os ciclos automaticos **voltam ao
+padrao** — sem isso o worker varreria 24 meses a cada 180s enquanto ninguem responde. A
+pergunta vence em **15 min** (`JANELA_ESPERA_MINUTOS`) e, ao vencer, o log diz onde o ciclo
+parou: o orcamento da retomada e quantas ficaram.
+
+**O que NAO consome o pedido:** o ensaio (`--simular`) e o `--orcamento`. O ensaio usa a
+janela estendida de proposito — e com ele que se ve o tamanho do estrago —, e consumir ali
+faria "conferir antes" ser a maneira de perder o pedido. Erro no ciclo tambem nao consome:
+conta tentativa, e na terceira devolve.
+
+**Senha:** armar e "rodar outro ciclo" exigem `PAINEL_SENHA`; **limpar nao** — frear so
+reduz o que o proximo ciclo escreve. Restart e deploy sempre devolvem ao padrao.
+
+Novo: `wbcpython janela [--ver|--armar N|--limpar]`. A lista do painel passa a seguir a
+janela armada (duas telas sobre o mesmo assunto nao podem dar numeros diferentes), e a aba
+"Execucoes" ganhou a coluna Janela. `painel.css?v=20260911`.
+
+Suite do WBC: 1.093 testes (+41). **Nada rodou na .11** — falta `git pull` + restart.
+
 ## [2026-09-11] — Plano: janela de busca sob demanda (so documentacao)
 
 `docs/PLANO_JANELA_SOB_DEMANDA.md`: plano para tirar `MESES_DE_JANELA` do `.env` e

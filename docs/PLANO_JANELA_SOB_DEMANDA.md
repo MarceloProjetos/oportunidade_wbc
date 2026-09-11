@@ -1,7 +1,9 @@
 # PLANO — Janela de busca sob demanda (Integração WBC)
 
-> **Status em 2026-09-11:** nada implementado. F0–F5 a fazer. Decisão 1 (critério de
-> devolução) fechada pelo Marcelo; 7 decisões abertas, todas com recomendação.
+> **Status em 2026-09-11:** **F0–F5 implementadas e com testes** (1.093 na suíte do WBC,
+> +41 novos). Nada disso rodou na .11 ainda: falta o `git pull` + restart dos serviços, que
+> são do Marcelo. Todas as 8 decisões estão fechadas — a 7 saiu do "expira às 20:00" para
+> **15 minutos**, por decisão dele.
 
 Tirar `MESES_DE_JANELA` de "constante de `.env` que só muda com restart" e transformá-la
 num **pedido pontual, feito pela tela do painel**, que se gasta sozinho e volta ao padrão.
@@ -118,7 +120,7 @@ Duas regras que sustentam o resto:
 
 ## §4 Fases
 
-### F0 — Janela relida a cada ciclo
+### F0 — Janela relida a cada ciclo ✅
 **O que passa a ser possível:** nada, para o usuário. O comportamento fica idêntico ao de
 hoje — e é esse o critério de aceite.
 
@@ -131,7 +133,7 @@ hoje — e é esse o critério de aceite.
 > ⚠️ **Risco desta fase:** é a única que mexe no caminho quente do worker sem entregar nada
 > visível. Se ela quebrar, quebra a integração inteira. Vai sozinha, e vai primeiro.
 
-### F1 — O pedido existe, sem tela
+### F1 — O pedido existe, sem tela ✅
 **O que passa a ser possível:** armar uma janela estendida pela CLI e ver o worker obedecer.
 
 - tabela de uma linha no acompanhamento com: janela pedida, estado, quem pediu, quando,
@@ -140,7 +142,7 @@ hoje — e é esse o critério de aceite.
 - comandos `wbcpython janela --ver | --armar N | --limpar`;
 - volta a `ocioso` no arranque do worker (fato 8 do desenho: restart sempre zera).
 
-### F2 — Teto escalonado por banda
+### F2 — Teto escalonado por banda ✅
 **O que passa a ser possível:** um ciclo de 24 meses escreve até 1.800 documentos em vez de
 parar em 200.
 
@@ -148,7 +150,7 @@ parar em 200.
 - teto duro absoluto acima do escalonamento (decisão 8);
 - o log do ciclo passa a dizer a janela **e** o teto que está valendo.
 
-### F3 — O card no painel
+### F3 — O card no painel ✅
 **O que passa a ser possível:** alguém de vendas arma 24 meses sozinho, pelo navegador.
 
 - card "Janela de busca" no painel 8079, com o estado atual sempre visível;
@@ -158,7 +160,7 @@ parar em 200.
 - exige `PAINEL_SENHA` (decisão 5), como todo comando que chega ao SAP;
 - enquanto armado: mostra o valor pedido, quem pediu e quando.
 
-### F4 — A pergunta
+### F4 — A pergunta ✅
 **O que passa a ser possível:** o ciclo que estourou o teto não morre calado — ele devolve a
 decisão para quem pediu.
 
@@ -167,7 +169,7 @@ decisão para quem pediu.
   oportunidades" + botões **Rodar outro ciclo** e **Voltar para 6 meses**;
 - "Rodar outro ciclo" também exige senha — é escrita nova no SAP.
 
-### F5 — Fechar as bordas
+### F5 — Fechar as bordas ✅
 **O que passa a ser possível:** confiar que a janela estendida nunca fica ligada sozinha.
 
 - expiração automática do estado `aguardando` (decisão 7);
@@ -179,43 +181,42 @@ decisão para quem pediu.
 
 ## §5 Decisões
 
+Todas fechadas.
+
 **1 · Critério de devolução — ✅ decidido (Marcelo, 11/09/2026).**
 Não é "um ciclo e volta". O teto de escrita cresce por banda (3×, 6×, 9×); se o ciclo
 estourar esse teto, ele para, grava tudo e **pergunta** se o usuário quer rodar outro ciclo.
 Cumprido sem estourar, volta a 6 sozinho.
 
-**2 · Multiplicador da quarta banda — aberto.**
-3× e 6× estão ditos. "E assim por diante" admite duas leituras: aritmética (3, 6, **9**) ou
-dobra (3, 6, **12**).
-**Recomendado: 9×** (1.800 escritas) — mantém o passo constante e o pior caso previsível.
+**2 · Multiplicador da quarta banda — ✅ 9× (Marcelo, 11/09/2026).**
+Progressão aritmética (3, 6, 9), não dobra: 1.800 escritas no pior caso, com passo constante
+e previsível para quem mexer nos números depois.
 
-**3 · Ciclo estendido que termina com erro — aberto.**
-**Recomendado: não consumir o pedido**, com teto de 3 tentativas. Um erro de rede não pode
+**3 · Ciclo estendido que termina com erro — ✅ não consome o pedido**, com teto de 3 tentativas. Um erro de rede não pode
 custar o pedido; um erro persistente não pode virar loop de ciclo pesado a cada 180 s.
 
-**4 · A janela estendida vale para "Verificar pendentes" e "Simular um ciclo"? — aberto.**
-**Recomendado: sim, para os dois.** São os dois comandos que não escrevem no SAP, e é com
+**4 · A janela estendida vale para "Verificar pendentes" e "Simular um ciclo"? — ✅ sim, para os dois.** São os dois comandos que não escrevem no SAP, e é com
 eles que se enxerga o tamanho do estrago antes de autorizá-lo. O card deve sugerir
 "Verificar pendentes" antes de armar.
 
-**5 · Armar exige `PAINEL_SENHA`? — aberto.**
-**Recomendado: sim.** Armar 24 meses não escreve no SAP diretamente, mas é a causa direta de
+**5 · Armar exige `PAINEL_SENHA`? — ✅ sim** (e "rodar outro ciclo" também; **limpar não**). Armar 24 meses não escreve no SAP diretamente, mas é a causa direta de
 até 1.800 escritas irreversíveis. O painel já separa "quem entra" (cookie da `OS_API_KEY`)
 de "quem manda escrever" (senha); este botão é do segundo grupo.
 
-**6 · Tabela nova no acompanhamento? — aberto.**
-**Recomendado: sim** — uma tabela de uma linha, mais duas colunas anuláveis em `execucoes`.
+**6 · Tabela nova no acompanhamento? — ✅ sim**: `pedido_de_janela`, uma linha (`id=1`), mais
+duas colunas anuláveis em `execucoes`.
 A justificativa (a regra é não inchar sem ela): é estado compartilhado entre dois processos,
 com ciclo de vida próprio e necessidade de auditoria. Não cabe em `Execucao.detalhe`, e o
 arquivo `state/wbc_worker.stop` — o precedente de sinal painel→worker — carrega um bit, não
 um valor com dono, data e contador.
 
-**7 · Validade do estado `aguardando` sem resposta — aberto.**
-**Recomendado: expira no fim do expediente (20:00) do mesmo dia.** Pergunta sem resposta não
-pode virar uma janela armada esperando por dias.
+**7 · Validade do estado `aguardando` sem resposta — ✅ 15 minutos (Marcelo, 11/09/2026).**
+Ajustado da recomendação original ("fim do expediente"), que era longa demais. Vencido o prazo,
+a janela volta ao padrão e o log registra **onde o ciclo parou** — o orçamento da retomada e
+quantas ficaram —, para que a expiração nunca seja silenciosa. `JANELA_ESPERA_MINUTOS` no `.env`.
 
-**8 · Teto duro absoluto — aberto.**
-**Recomendado: 2.000 escritas**, acima de qualquer banda. O escalonamento é uma regra; o teto
+**8 · Teto duro absoluto — ✅ 2.000 escritas**, acima de qualquer banda
+(`TETO_ABSOLUTO_DE_ESCRITA`). O escalonamento é uma regra; o teto
 duro é a rede embaixo dela, para o dia em que alguém mexer nos multiplicadores.
 
 ---

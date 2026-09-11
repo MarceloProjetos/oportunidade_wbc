@@ -1816,3 +1816,58 @@ depois esbarrou na regra 1996.
 `Users` do SL é `OpenType` e expõe os UDFs do `OUSR`; a PATCH funciona como em qualquer
 entidade (UDFs no metadata desde o 9.1 PL05). `maintenance/liberar_cancelamento_orcaview.py`
 faz o mesmo a partir da .11, se precisar repetir noutro usuário.
+
+## Janela sob demanda: o teto escalonado, e a pergunta quando nem ele basta
+
+**Problema (11/09/2026).** `MESES_DE_JANELA` vivia só no `.env`, lida no arranque e congelada
+em `self._meses`. Ir de 6 para 24 meses — o que vendas precisa para alcançar uma oportunidade
+antiga — exigia editar o `.env` na .11 e reiniciar o serviço. Pedido do Marcelo: virar um campo
+na tela, com padrão de 6, teto de 24, valendo para a próxima passada e voltando sozinho.
+
+**O furo do desenho ingênuo.** "Abre 24 meses por um ciclo e volta" não funciona: o
+`LIMITE_DE_ESCRITA_POR_CICLO` (200) corta o ciclo no meio, e com ~1.785 oportunidades já na
+janela de 6 meses, 24 meses represa muito mais. O ciclo escreveria 200, a janela voltaria a 6, e
+o resto nunca seria escrito — o pedido se gastaria sem ter feito o que foi pedido.
+
+**Decisão do Marcelo.** O teto de escrita cresce por banda, e o ciclo pergunta quando o estoura:
+
+| Janela pedida | Multiplicador | Teto no ciclo |
+| --- | --- | --- |
+| até 6 meses (padrão) | 1× | 200 |
+| 7 a 12 | 3× | 600 |
+| 13 a 18 | 6× | 1.200 |
+| 19 a 24 | 9× | 1.800 |
+
+Quarta banda em **9×** (progressão aritmética), não 12× (dobra): passo constante mantém o pior
+caso previsível para quem mexer nos números depois. Acima de tudo isso há um teto duro
+(`TETO_ABSOLUTO_DE_ESCRITA`, 2.000), que é a rede para o dia em que alguém aumentar a
+`JANELA_MAXIMA` sem refazer a conta.
+
+**Os três estados** (`domain/janela.py`), e por que são três e não dois: `ARMADO` é "a próxima
+passada usa a janela larga"; `AGUARDANDO` é "um ciclo largo já rodou, estourou o teto e espera
+resposta". Sem a separação, o worker continuaria varrendo 24 meses a cada 180 s enquanto a
+pergunta espera — o ciclo pesado rodando sozinho, que é o que o desenho existe para evitar. Em
+`AGUARDANDO` os ciclos automáticos voltam ao padrão.
+
+**Prazo da pergunta: 15 minutos** (Marcelo, 11/09). Vencido, a janela volta ao padrão e o log
+registra onde o ciclo parou — expirar calado apagaria justamente o que alguém leria para decidir
+se rearma. `ARMADO` **não** expira por tempo: um pedido feito às 19h de sexta só é atendido na
+segunda, porque o worker não roda fora do expediente.
+
+**O que não consome o pedido:** o ensaio (`--simular`) e o `--orcamento`. O ensaio **usa** a
+janela estendida de propósito — é com ele que se vê quantos documentos o ciclo criaria —, e
+consumir ali faria "conferir antes" ser a maneira de perder o pedido. O `--orcamento` roda na
+janela dirigida, que é outra coisa. Erro no ciclo também não consome: conta uma tentativa, e na
+terceira devolve (queda de rede não pode custar o pedido; erro teimoso não pode virar ciclo
+pesado a cada intervalo).
+
+**Onde o pedido mora:** tabela `pedido_de_janela` do acompanhamento, uma linha (`id=1`). Painel e
+worker são serviços NSSM separados, sem memória compartilhada, e o acompanhamento é o único
+lugar que os dois já tocam — a tabela `travas` ao lado já coordena os dois pelo mesmo caminho. O
+`state/wbc_worker.stop`, o outro precedente de sinal painel→worker, carrega um bit; aqui é
+preciso valor, dono, data, contador e prazo, e tudo isso precisa aparecer na tela.
+
+**Senha:** armar e "rodar outro ciclo" exigem `PAINEL_SENHA`; **limpar não**. Armar não escreve
+no SAP com as próprias mãos, mas é a causa direta de até 1.800 escritas irreversíveis. Frear só
+reduz o que o próximo ciclo escreve — exigir senha ali transformaria a proteção em obstáculo no
+botão que alguém aperta quando se assustou com o número.

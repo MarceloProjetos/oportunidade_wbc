@@ -27,6 +27,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from wbcpython.application.processar import ACOES_DE_ESCRITA, ProcessadorDeOrcamento
 from wbcpython.config import Settings
+from wbcpython.domain import janela as jn
+from wbcpython.domain.janela import EstadoDaJanela
 from wbcpython.host.parada import PedidoDeParada
 from wbcpython.infrastructure.hana.oportunidades import RepositorioOportunidadesHana
 from wbcpython.infrastructure.service_layer.client import ServiceLayerClient
@@ -61,6 +63,11 @@ logger = logging.getLogger(__name__)
 #: O legado montava esta data misturando -6 meses para o ano e -9 para o mês, o
 #: que dava um corte imprevisível. Aqui é um número só, explícito e ajustável.
 MESES_DE_JANELA = 6
+
+#: Quantos ciclos estendidos seguidos podem falhar antes de o pedido ser
+#: devolvido ao padrão. Erro de rede não pode custar o pedido de quem está
+#: esperando; erro que se repete não pode virar ciclo pesado a cada intervalo.
+TENTATIVAS_ANTES_DE_DEVOLVER = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +138,15 @@ class WorkerIntegracao:
         # `None` deixa a configuração decidir, como no teto de escrita: é ela
         # que o operador ajusta sem tocar em código.
         self._meses = meses_de_janela if meses_de_janela is not None else settings.meses_de_janela
+        #: Janela e teto pedidos **no construtor** vencem o pedido guardado no
+        #: acompanhamento, e desligam a máquina de estados deste worker.
+        #:
+        #: Quem constrói um worker com números explícitos está dizendo "rode
+        #: exatamente assim" — um teste, ou um comando que já sabe o que quer.
+        #: Deixar um pedido pendente sequestrar esse worker faria a chamada
+        #: mentir, e faria o pedido ser consumido por um ciclo que ninguém
+        #: associou a ele.
+        self._janela_fixa = meses_de_janela is not None
         # `None` deixa a configuração decidir — é ela que o operador ajusta sem
         # tocar em código quando quiser acelerar ou frear a recuperação.
         #: Por que o worker está parado — ver `_ciclo_agendado`. Guarda o
@@ -187,7 +203,96 @@ class WorkerIntegracao:
             logger.warning("Ciclo ignorado: %s", exc)
             return ResultadoExecucao()
 
-    def _ler_pendentes(self, *, orcamento: str | None) -> list[dict[str, Any]]:
+    def _janela_do_ciclo(self) -> jn.Janela:
+        """Resolve a janela **deste** ciclo — e é por isso que ela não é lida no arranque.
+
+        Antes da janela sob demanda, `self._meses` era decidido uma vez, na
+        construção do worker, e o processo carregava esse número até reiniciar.
+        Agora o pedido pode ser armado pela tela a qualquer momento, e um valor
+        congelado significaria "o painel aceitou, mas só vale depois do próximo
+        restart" — exatamente o que este trabalho existe para eliminar.
+
+        Só `ARMADO` estende a janela. Em `AGUARDANDO` o ciclo volta ao padrão de
+        propósito: a pergunta está de pé, e continuar varrendo a janela larga a
+        cada intervalo seria o ciclo pesado rodando sozinho, sem ninguém ter
+        respondido.
+        """
+        config = self._settings
+        padrao = self._meses
+        base = self._limite_de_escrita
+        if self._janela_fixa:
+            return jn.Janela(padrao, base)
+
+        pedido = self._tracking.janela_pedida()
+        if pedido.estado is not EstadoDaJanela.ARMADO:
+            return jn.Janela(padrao, base)
+
+        return jn.Janela(
+            pedido.meses,
+            jn.teto_de_escrita(
+                pedido.meses,
+                padrao=padrao,
+                base=base,
+                absoluto=config.teto_absoluto_de_escrita,
+            ),
+            estendida=True,
+        )
+
+    def _devolver_janela(
+        self,
+        janela: jn.Janela,
+        *,
+        faltaram: int,
+        erro: str = "",
+        onde_parou: str = "",
+    ) -> None:
+        """Fecha o pedido segundo o que o ciclo estendido conseguiu fazer.
+
+        As três saídas do plano, nesta ordem de precedência:
+
+        * **erro** — não consome o pedido; conta a tentativa. No limite, devolve.
+        * **bateu no teto** — guarda o ponto de parada e pergunta se quer outro
+          ciclo. Os automáticos voltam ao padrão enquanto a pergunta espera.
+        * **cumpriu** — volta ao padrão sozinho, que é o comportamento que o
+          pedido promete a quem o armou.
+        """
+        if not janela.estendida:
+            return
+        config = self._settings
+        if erro:
+            self._tracking.registrar_erro_da_janela(
+                detalhe=erro, limite=TENTATIVAS_ANTES_DE_DEVOLVER
+            )
+            return
+        if faltaram > 0:
+            self._tracking.janela_aguardando_resposta(
+                faltaram=faltaram,
+                detalhe=onde_parou,
+                espera=timedelta(minutes=config.janela_espera_minutos),
+            )
+            logger.warning(
+                "Janela de %d meses: o teto de %d escrita(s) foi atingido e %d "
+                "oportunidade(s) ficaram de fora. Os ciclos automáticos voltam a %d "
+                "meses; o painel pergunta se deve rodar outro ciclo estendido "
+                "(a pergunta vence em %d min). %s",
+                janela.meses,
+                janela.teto,
+                faltaram,
+                self._meses,
+                config.janela_espera_minutos,
+                onde_parou,
+            )
+            return
+        self._tracking.limpar_janela(
+            motivo=f"Cumprida: a janela de {janela.meses} meses coube num ciclo."
+        )
+        logger.info(
+            "Janela de %d meses cumprida num ciclo — de volta ao padrão de %d meses.",
+            janela.meses,
+            self._meses,
+        )
+
+    def _ler_pendentes(self, *, orcamento: str | None, meses: int) -> list[dict[str, Any]]:
         """Lê a janela no HANA — e falha o ciclo se o HANA não responder.
 
         Não há queda para o Service Layer de propósito. Um fallback silencioso
@@ -208,7 +313,7 @@ class WorkerIntegracao:
             # módulo. Ler de uma company e escrever noutra seria desastroso.
             company_db=self._settings.service_layer.company_db,
         )
-        meses = self._settings.meses_de_janela_dirigida if orcamento else self._meses
+        meses = self._settings.meses_de_janela_dirigida if orcamento else meses
         try:
             encontrados = repositorio.pendentes_de_integracao(
                 desde=janela_padrao(meses=meses), orcamento=orcamento
@@ -238,6 +343,12 @@ class WorkerIntegracao:
     ) -> ResultadoExecucao:
         execucao_id = self._tracking.iniciar_execucao()
         processados = sucessos = erros = escritas = com_acao = 0
+        # A janela é resolvida **por ciclo**, e uma vez só: relê-la no meio da
+        # passada faria o teto mudar debaixo do laço se alguém armasse um pedido
+        # enquanto o ciclo roda.
+        janela = self._janela_do_ciclo()
+        faltaram = 0
+        onde_parou = ""
 
         try:
             with ServiceLayerClient(
@@ -263,7 +374,7 @@ class WorkerIntegracao:
                 # pedido já resolvidos. Ver
                 # `infrastructure.hana.oportunidades`: pelo Service Layer isto
                 # custava ~90 requisições paginadas mais quatro por orçamento.
-                pendentes = self._ler_pendentes(orcamento=orcamento)
+                pendentes = self._ler_pendentes(orcamento=orcamento, meses=janela.meses)
 
                 # As situações do WBC também vêm em lote: uma consulta para a
                 # janela inteira, no lugar de 1.785 de 29 ms cada. Com elas, a
@@ -292,12 +403,10 @@ class WorkerIntegracao:
                     )
 
                 logger.info(
-                    "%d oportunidade(s) a avaliar (janela: OpenDate >= %s, "
-                    "%d meses; teto de escrita: %d).",
+                    "%d oportunidade(s) a avaliar (janela: OpenDate >= %s, %s).",
                     len(pendentes),
-                    janela_padrao(meses=self._meses).isoformat(),
-                    self._meses,
-                    self._limite_de_escrita,
+                    janela_padrao(meses=janela.meses).isoformat(),
+                    janela,
                 )
 
                 if somente_leitura:
@@ -311,15 +420,22 @@ class WorkerIntegracao:
                     if self.parada_solicitada():
                         logger.info("Parada solicitada — ciclo interrompido.")
                         break
-                    if escritas >= self._limite_de_escrita:
+                    if escritas >= janela.teto:
                         # O teto é de escrita, não de leitura: a avaliação da
                         # janela inteira é barata, criar documentos no SAP não é.
                         # Parar aqui deixa o resto para o próximo ciclo.
+                        faltaram = len(pendentes) - processados
+                        # O orçamento da vez é o ponto de retomada, e é o que
+                        # sobra na tela quando a pergunta expira sem resposta.
+                        onde_parou = (
+                            f"Parou no orçamento {oportunidade['U_ORCNUM_WBC']}; "
+                            f"{faltaram} oportunidade(s) não avaliadas."
+                        )
                         logger.warning(
                             "Teto de %d escrita(s) por ciclo atingido — %d "
                             "oportunidade(s) ficaram para o próximo ciclo.",
-                            self._limite_de_escrita,
-                            len(pendentes) - processados,
+                            janela.teto,
+                            faltaram,
                         )
                         break
 
@@ -351,7 +467,15 @@ class WorkerIntegracao:
                 erros=erros + 1,
                 status=StatusExecucao.FALHOU,
                 detalhe=f"{type(exc).__name__}: {exc}",
+                meses_da_janela=janela.meses,
+                teto_de_escrita=janela.teto,
             )
+            if orcamento is None and not somente_leitura:
+                self._devolver_janela(
+                    janela,
+                    faltaram=faltaram,
+                    erro=f"{type(exc).__name__}: {exc}",
+                )
             return ResultadoExecucao(processados, sucessos, erros + 1, com_acao, escritas)
 
         resultado = ResultadoExecucao(processados, sucessos, erros, com_acao, escritas)
@@ -361,7 +485,16 @@ class WorkerIntegracao:
             sucessos=sucessos,
             erros=erros,
             detalhe=resultado.resumo,
+            meses_da_janela=janela.meses,
+            teto_de_escrita=janela.teto,
         )
+        # Duas exclusões deliberadas. `--orcamento` roda na janela dirigida, que
+        # é outra coisa: consumir o pedido ali gastaria por um orçamento o que
+        # foi pedido para a janela inteira. E o ensaio **usa** a janela estendida
+        # de propósito — é com ele que se vê o tamanho do estrago antes de
+        # autorizá-lo —, mas não pode consumir o pedido que ainda vai valer.
+        if orcamento is None and not somente_leitura:
+            self._devolver_janela(janela, faltaram=faltaram, onde_parou=onde_parou)
         logger.info(resultado.resumo)
         return resultado
 
@@ -471,6 +604,11 @@ class WorkerIntegracao:
         # Um pedido de parada esquecido (do deploy que acabou de nos religar, ou
         # de alguém que parou o worker à mão) não pode derrubar o processo novo.
         self._pedido_de_parada.limpar(motivo="partida do worker")
+        # A janela estendida não sobrevive a um restart, por desenho: o padrão
+        # é sempre 6 e todo caminho termina nele. Um pedido esquecido de antes
+        # do deploy não pode virar um ciclo largo na primeira volta do worker
+        # novo, sem ninguém ter pedido de novo.
+        self._tracking.limpar_janela(motivo="Devolvida ao padrão na partida do worker.")
         logger.info(
             "Worker iniciado (intervalo de %ds; expediente %s, %s–%s). %s",
             intervalo,
