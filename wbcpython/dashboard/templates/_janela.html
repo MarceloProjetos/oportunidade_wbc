@@ -68,11 +68,24 @@
       {% endif %}
     {% endif %}
 
-    {% if not pode_escrever %}
-      <div class="aviso {{ 'erro' if producao else 'atencao' }}">
+    {% if not pode_armar %}
+      <div class="aviso erro">
         <div><strong>Indisponível neste painel.</strong> {{ motivo }}</div>
       </div>
     {% else %}
+      {% if producao and pedido.estado.value != "aguardando" %}
+        {# O card é exceção ao bloqueio de produção dos demais comandos: armar
+           não dispara ciclo nenhum, o worker já roda sozinho aqui. Mas quem
+           arma precisa saber que o ciclo seguinte escreve de verdade — a
+           exceção é sobre qual porta se atravessa, não sobre avisar menos. #}
+        <div class="aviso atencao">
+          <div>
+            <strong>Este painel está apontado para produção ({{ company_db }}).</strong>
+            O próximo ciclo cria, altera e cancela documentos de verdade no SAP, e isso
+            não se desfaz. A janela maior só muda quanto ele alcança para trás.
+          </div>
+        </div>
+      {% endif %}
       {% if pedido.estado.value == "aguardando" %}
         <form
           class="comando"

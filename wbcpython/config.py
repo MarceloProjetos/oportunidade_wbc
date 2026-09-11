@@ -453,6 +453,28 @@ class Settings(BaseSettings):
         """
         return bool(self.painel_senha.get_secret_value()) and not self.targets_production
 
+    @property
+    def painel_pode_armar_janela(self) -> bool:
+        """Armar a janela é a exceção deliberada ao bloqueio de produção.
+
+        A guarda acima existe para impedir que um clique **dispare** um ciclo de
+        escrita em produção. Armar não dispara nada: o worker já roda sozinho
+        ali a cada `WORKER_INTERVAL_SECONDS`, escrevendo no SAP, com ou sem
+        pedido. O que o pedido muda é **quão para trás** esse ciclo automático
+        olha — não se ele existe.
+
+        Amarrar as duas coisas foi engano na primeira versão (11/09/2026), e
+        deixou a feature inútil justamente onde ela serve: na .11 o card
+        aparecia sem controle nenhum, e armar voltava a ser terminal, que é o
+        "chamar o TI" que este trabalho existia para eliminar. Corrigido com o
+        ok do Marcelo no mesmo dia.
+
+        A senha continua obrigatória, e aqui ela é a única guarda — por isso é
+        conferida como pré-condição, e não só comparada: com `PAINEL_SENHA`
+        vazia, `compare_digest("", "")` deixaria passar quem não digitasse nada.
+        """
+        return bool(self.painel_senha.get_secret_value())
+
     service_layer: ServiceLayerSettings = Field(default_factory=ServiceLayerSettings)
     wbc_sql: WbcSqlSettings = Field(default_factory=WbcSqlSettings)
     hana: HanaSettings = Field(default_factory=HanaSettings)

@@ -1,9 +1,13 @@
 # PLANO — Janela de busca sob demanda (Integração WBC)
 
-> **Status em 2026-09-11:** **F0–F5 implementadas e com testes** (1.093 na suíte do WBC,
-> +41 novos). Nada disso rodou na .11 ainda: falta o `git pull` + restart dos serviços, que
-> são do Marcelo. Todas as 8 decisões estão fechadas — a 7 saiu do "expira às 20:00" para
-> **15 minutos**, por decisão dele.
+> **Status em 2026-09-11:** **no ar na .11** — worker e painel com o código novo, conferido
+> pelo log do ciclo #742 e pelas rotas do painel. 1.098 testes verdes.
+>
+> Uma correção depois do primeiro deploy: o card subiu **sem o formulário de armar**, porque
+> estava amarrado ao `painel_pode_escrever`, falso em produção por desenho. Armar virou
+> exceção a esse bloqueio (só a senha guarda), com o ok do Marcelo. **Pende um segundo
+> `git pull` + restart**, e confirmar que `PAINEL_SENHA` está preenchida no `.env` da .11 —
+> sem ela o card continua travado, agora dizendo isso na tela.
 
 Tirar `MESES_DE_JANELA` de "constante de `.env` que só muda com restart" e transformá-la
 num **pedido pontual, feito pela tela do painel**, que se gasta sozinho e volta ao padrão.
@@ -199,7 +203,8 @@ custar o pedido; um erro persistente não pode virar loop de ciclo pesado a cada
 eles que se enxerga o tamanho do estrago antes de autorizá-lo. O card deve sugerir
 "Verificar pendentes" antes de armar.
 
-**5 · Armar exige `PAINEL_SENHA`? — ✅ sim** (e "rodar outro ciclo" também; **limpar não**). Armar 24 meses não escreve no SAP diretamente, mas é a causa direta de
+**5 · Armar exige `PAINEL_SENHA`? — ✅ sim** (e "rodar outro ciclo" também; **limpar não**),
+**e é exceção ao bloqueio de produção** (corrigido em 11/09, depois do deploy). Armar 24 meses não escreve no SAP diretamente, mas é a causa direta de
 até 1.800 escritas irreversíveis. O painel já separa "quem entra" (cookie da `OS_API_KEY`)
 de "quem manda escrever" (senha); este botão é do segundo grupo.
 

@@ -1871,3 +1871,19 @@ preciso valor, dono, data, contador e prazo, e tudo isso precisa aparecer na tel
 no SAP com as próprias mãos, mas é a causa direta de até 1.800 escritas irreversíveis. Frear só
 reduz o que o próximo ciclo escreve — exigir senha ali transformaria a proteção em obstáculo no
 botão que alguém aperta quando se assustou com o número.
+
+**Armar é exceção ao bloqueio de produção** (corrigido em 11/09/2026, no mesmo dia, com o ok do
+Marcelo). A primeira versão amarrou o card ao `painel_pode_escrever`, que é falso por desenho
+quando o painel aponta para produção — e na .11 o card subiu com a ajuda e **sem controle
+nenhum**: armar voltava a ser terminal, que é o "chamar o TI" que o trabalho existia para
+eliminar. O erro foi juntar duas guardas diferentes. A de produção (`RISCOS_PRODUCAO.md`)
+existe para impedir que um clique **dispare** um ciclo de escrita; armar não dispara nada — o
+worker já roda sozinho em produção a cada `WORKER_INTERVAL_SECONDS`, e o pedido só muda **quão
+para trás** esse ciclo automático olha. `Settings.painel_pode_armar_janela` é a pré-condição do
+card, e pede só a senha. Os comandos do catálogo (inclusive "Ciclo de integração") **seguem
+bloqueados** em produção — há teste cravando os dois lados.
+
+Consequência que a senha passa a carregar sozinha: sem o bloqueio de produção na frente, ela é
+a **única** guarda do armar. Com `PAINEL_SENHA` vazia, `compare_digest("", "")` é verdadeiro e
+quem não digitasse nada passaria — por isso a senha é conferida como pré-condição (existe?),
+e não apenas comparada. Teste: `test_senha_vazia_nao_vira_porta_aberta`.

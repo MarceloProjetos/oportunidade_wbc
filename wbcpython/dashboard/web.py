@@ -587,9 +587,10 @@ def criar_app(
                 base=config.limite_de_escrita_por_ciclo,
                 absoluto=config.teto_absoluto_de_escrita,
             ),
-            pode_escrever=config.painel_pode_escrever,
-            motivo=_por_que_nao_escreve(config),
+            pode_armar=config.painel_pode_armar_janela,
+            motivo=_por_que_nao_arma(config),
             producao=config.targets_production,
+            company_db=config.service_layer.company_db,
             fora_do_expediente=not (
                 config.e_dia_de_trabalho(agora.date())
                 and config.dentro_do_horario_do_worker(agora.time())
@@ -616,7 +617,7 @@ def criar_app(
         "mandar executar" no resto desta tela.
         """
         form = await request.form()
-        negativa = _autorizar(config, form, "Armar a janela")
+        negativa = _autorizar(config, form, "Armar a janela", e_janela=True)
         if negativa:
             return _cartao_da_janela(request, erro=negativa)
         try:
@@ -652,7 +653,7 @@ def criar_app(
         a próxima leva de escritas no SAP.
         """
         form = await request.form()
-        negativa = _autorizar(config, form, "Rodar outro ciclo")
+        negativa = _autorizar(config, form, "Rodar outro ciclo", e_janela=True)
         if negativa:
             return _cartao_da_janela(request, erro=negativa)
         pedido = repo.janela_pedida()
@@ -786,6 +787,22 @@ def criar_app(
     return app
 
 
+FALTA_SENHA = (
+    "Falta definir PAINEL_SENHA no .env. Sem ela o painel não executa comando "
+    "que escreve: o padrão de um campo esquecido não pode ser liberar."
+)
+
+
+def _por_que_nao_arma(config: Settings) -> str:
+    """Vazio quando dá para armar a janela; o motivo quando não dá.
+
+    Só uma condição, e não duas: armar é exceção ao bloqueio de produção (ver
+    `Settings.painel_pode_armar_janela`). A senha continua sendo exigida, e aqui
+    ela é a **única** guarda.
+    """
+    return "" if config.painel_pode_armar_janela else FALTA_SENHA
+
+
 def _por_que_nao_escreve(config: Settings) -> str:
     """A tela explica **qual** das duas guardas fechou a porta.
 
@@ -800,20 +817,27 @@ def _por_que_nao_escreve(config: Settings) -> str:
             "frente — ver RISCOS_PRODUCAO.md."
         )
     if not config.painel_senha.get_secret_value():
-        return (
-            "Falta definir PAINEL_SENHA no .env. Sem ela o painel não executa comando "
-            "que escreve: o padrão de um campo esquecido não pode ser liberar."
-        )
+        return FALTA_SENHA
     return ""
 
 
-def _autorizar(config: Settings, form: Any, rotulo: str) -> str:
+def _autorizar(
+    config: Settings, form: Any, rotulo: str, *, e_janela: bool = False
+) -> str:
     """Vazio quando pode seguir; o motivo da recusa quando não pode.
 
     Devolve texto, e não um fragmento pronto, para poder ser testada sem montar
     requisição — e porque quem renderiza é a rota, que tem o `render`.
+
+    `e_janela` troca a pré-condição pela do armar, que não é barrado em
+    produção. O resto — nome para auditar, senha conferida com `compare_digest`
+    — é idêntico de propósito: a exceção é sobre **qual** porta se atravessa,
+    não sobre atravessar sem chave.
     """
-    if not config.painel_pode_escrever:
+    if e_janela:
+        if not config.painel_pode_armar_janela:
+            return _por_que_nao_arma(config)
+    elif not config.painel_pode_escrever:
         return _por_que_nao_escreve(config)
     if not str(form.get("solicitante") or "").strip():
         return "Informe quem está executando — a ação precisa ser auditável."

@@ -233,3 +233,105 @@ class TestALista:
         repo.armar_janela(24, por="joana")
 
         assert "00099001" in cliente.get("/fragmentos/oportunidades").text
+
+
+class TestAExcecaoDeProducao:
+    """Armar é a única coisa desta tela que atravessa o bloqueio de produção.
+
+    A primeira versão (11/09/2026) amarrou o card ao `painel_pode_escrever`, que
+    é falso por desenho quando o painel aponta para produção. Resultado na .11:
+    o card aparecia com a ajuda e **sem controle nenhum** — a feature morria
+    exatamente onde serve, e armar voltava a ser terminal. Estes testes são o
+    que impede isso de voltar.
+    """
+
+    @pytest.fixture
+    def producao(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
+        monkeypatch.setenv("TRACKING_DB_URL", f"sqlite:///{tmp_path}/painel.db")
+        monkeypatch.setenv("SL_COMPANY_DB", "SBOALTAMIRAPROD")
+        monkeypatch.setenv("PAINEL_SENHA", SENHA)
+        monkeypatch.setenv("LOG_FILE", "")
+        return Settings()
+
+    def test_em_producao_o_card_continua_armavel(
+        self, producao: Settings, repo: RepositorioTracking
+    ) -> None:
+        cliente = TestClient(criar_app(settings=producao, tracking=repo))
+
+        resposta = cliente.post(
+            "/fragmentos/janela/armar",
+            data={"meses": "24", "solicitante": "joana", "senha": SENHA},
+        )
+
+        assert resposta.status_code == 200
+        assert repo.janela_pedida().estado is EstadoDaJanela.ARMADO
+
+    def test_em_producao_o_card_avisa_que_a_escrita_e_de_verdade(
+        self, producao: Settings, repo: RepositorioTracking
+    ) -> None:
+        """A exceção é sobre qual porta se atravessa, não sobre avisar menos."""
+        cliente = TestClient(criar_app(settings=producao, tracking=repo))
+
+        corpo = cliente.get("/fragmentos/janela").text
+
+        assert "apontado para produção" in corpo
+        assert "SBOALTAMIRAPROD" in corpo
+        assert "não se desfaz" in corpo
+
+    def test_os_comandos_do_catalogo_seguem_bloqueados_em_producao(
+        self, producao: Settings, repo: RepositorioTracking
+    ) -> None:
+        """A exceção é só do armar. Disparar um ciclo pela tela continua fora.
+
+        São coisas diferentes: o worker já roda sozinho em produção, e armar só
+        muda quanto ele alcança para trás. "Executar ciclo agora" é o clique que
+        o `RISCOS_PRODUCAO.md` barrou, e ele continua barrado.
+        """
+        cliente = TestClient(criar_app(settings=producao, tracking=repo))
+
+        resposta = cliente.post(
+            "/fragmentos/comandos/executar",
+            data={"comando": "ciclo", "solicitante": "joana", "senha": SENHA},
+        )
+
+        assert "apontado para produção" in resposta.text
+
+
+class TestSemSenhaConfigurada:
+    @pytest.fixture
+    def sem_senha(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
+        monkeypatch.setenv("TRACKING_DB_URL", f"sqlite:///{tmp_path}/painel.db")
+        monkeypatch.setenv("SL_COMPANY_DB", "SBOALTAMIRAHOMOLOG")
+        monkeypatch.setenv("PAINEL_SENHA", "")
+        monkeypatch.setenv("LOG_FILE", "")
+        return Settings()
+
+    def test_senha_vazia_nao_vira_porta_aberta(
+        self, sem_senha: Settings, repo: RepositorioTracking
+    ) -> None:
+        """A armadilha que a pré-condição existe para fechar.
+
+        Com `PAINEL_SENHA` vazia, `compare_digest("", "")` é **verdadeiro**:
+        quem não digitasse nada passaria. Como armar não tem mais o bloqueio de
+        produção na frente, a senha é a única guarda — e uma guarda que aprova
+        o campo em branco não é guarda.
+        """
+        cliente = TestClient(criar_app(settings=sem_senha, tracking=repo))
+
+        resposta = cliente.post(
+            "/fragmentos/janela/armar",
+            data={"meses": "24", "solicitante": "joana", "senha": ""},
+        )
+
+        assert "PAINEL_SENHA" in resposta.text
+        assert repo.janela_pedida().estado is EstadoDaJanela.OCIOSO
+
+    def test_o_card_diz_o_que_falta(
+        self, sem_senha: Settings, repo: RepositorioTracking
+    ) -> None:
+        corpo = TestClient(criar_app(settings=sem_senha, tracking=repo)).get(
+            "/fragmentos/janela"
+        ).text
+
+        assert "Indisponível neste painel" in corpo
+        assert "PAINEL_SENHA" in corpo

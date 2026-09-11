@@ -3,6 +3,31 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-11] — Janela sob demanda: armar vira excecao ao bloqueio de producao
+
+Correcao do deploy de hoje. O card "Janela de busca" subiu na .11 **sem o formulario de
+armar**: estava amarrado ao `painel_pode_escrever`, que e falso por desenho quando o painel
+aponta para producao. Quem e de vendas via a ajuda e nenhum controle — armar voltava a ser
+`wbcpython janela --armar` no terminal, que e o "chamar o TI" que o trabalho existia para
+eliminar.
+
+O erro foi juntar duas guardas diferentes. A de producao (`RISCOS_PRODUCAO.md`) existe para
+impedir que um clique **dispare** um ciclo de escrita. Armar nao dispara nada: o worker ja
+roda sozinho em producao a cada `WORKER_INTERVAL_SECONDS`, e o pedido so muda **quao para
+tras** esse ciclo automatico olha.
+
+Novo `Settings.painel_pode_armar_janela`: pede so a senha, e nao olha o alvo. Os comandos do
+catalogo (inclusive "Ciclo de integracao") **seguem bloqueados** em producao — ha teste
+cravando os dois lados. Em producao o card ganhou aviso proprio de que o proximo ciclo
+escreve documentos de verdade e que isso nao se desfaz.
+
+Consequencia que a senha passa a carregar sozinha: sem o bloqueio de producao na frente, ela e
+a **unica** guarda do armar. Com `PAINEL_SENHA` vazia, `compare_digest("", "")` e verdadeiro e
+quem nao digitasse nada passaria — por isso ela e conferida como pre-condicao (existe?), e nao
+apenas comparada.
+
+Suite do WBC: 1.098 testes (+5). Pende um segundo pull + restart na .11.
+
 ## [2026-09-11] — Janela de busca sob demanda: a tela arma, o ciclo devolve
 
 `MESES_DE_JANELA` deixa de ser so uma constante do `.env` lida no arranque. Pela aba
