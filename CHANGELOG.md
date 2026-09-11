@@ -3,6 +3,18 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-11] — Plano: janela de busca sob demanda (so documentacao)
+
+`docs/PLANO_JANELA_SOB_DEMANDA.md`: plano para tirar `MESES_DE_JANELA` do `.env` e
+transforma-la num pedido feito pela tela do painel 8079 — ate 24 meses, valendo para a
+proxima passada e voltando a 6 sozinha. Nenhum codigo alterado.
+
+O ponto que o plano existe para resolver: `LIMITE_DE_ESCRITA_POR_CICLO` (200) corta o
+ciclo no meio, entao "abre 24 meses por um ciclo" escreveria 200 e abandonaria o resto.
+Decisao do Marcelo: o teto cresce por banda (3x ate 12 meses, 6x ate 18, 9x ate 24) e,
+se o ciclo estourar o teto, ele para, grava tudo e **pergunta** se o usuario quer outro
+ciclo. Sete decisoes seguem abertas, todas com recomendacao no documento.
+
 ## [2026-09-11] — A .11 acorda o .90 no boot (Wake-on-LAN)
 
 Pedido do Marcelo: quando a .11 ligar, ela liga o ALTSERVIDOR-IA (.90), que sobe o
