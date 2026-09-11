@@ -37,12 +37,13 @@ serve para o que escapa do logger: crash antes do logging subir.
   proposito: vale no proximo start (reboot diario ou `deploy_update.bat`). Confere o que
   gravou com `nssm get` e lista os renomeados que ja existam.
 
-> ⚠️ **Nao deu para verificar o nome do parametro nesta maquina** — nao ha `nssm` aqui e
-> nao ha WinRM para a .11. O script trata a falha: se o `nssm set` recusar, ele imprime
-> `AVISO ... (nssm antigo?)`, e o `nssm get` no fim mostra o que de fato ficou gravado.
-> Se aparecer aviso, e' porque a build do NSSM da .11 nao tem o parametro — e ai o
-> caminho e' o que o `OrcaView-MCP` ja faz: tirar o `AppStdout`/`AppStderr` e deixar so o
-> log do Python.
+> ✅ **Aplicado na .11 em 11/09, 08:4x** — o `ajustar_logs_nssm.bat` rodou sem nenhum
+> `AVISO` e o `nssm get` confirmou `AppStdoutCreationDisposition = 2` nos quatro
+> servicos. (O nome do parametro nao pode ser verificado antes: nao ha `nssm` na maquina
+> de desenvolvimento nem WinRM para a .11 — por isso o script foi escrito para tratar a
+> recusa e conferir com `nssm get` no fim. A build de la aceita.) Zero renomeados a
+> limpar. **Vale no proximo start** de cada servico: o reboot diario das ~06:12 ou o
+> `deploy_update.bat` da migracao do Python.
 
 ## [2026-09-11] — Os logs que o NSSM renomeia nunca eram apagados
 
