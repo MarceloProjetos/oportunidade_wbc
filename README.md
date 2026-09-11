@@ -774,6 +774,21 @@ curl.exe -s -H "X-API-Key: SEU_STATUS_ID" "http://192.168.7.11:8077/status"
 > **O código HTTP não depende da credencial.** `?strict=1` responde 503 para servidor
 > degradado com ou sem ID — é o que mantém funcionando o monitor que decide pelo código
 > (o watchdog do `.90` chama `?checks=worker&strict=1` sem credencial nenhuma).
+
+> [!WARNING]
+> **A falta do ID não dá erro — dá campo vazio.** Sem credencial a resposta continua
+> `200`, com `ok` e `healthy` certos; o que some é o `system` (CPU, memória, disco,
+> host), o `ms` de cada check, o `windows_update` e o texto dos `alerts` (vira contagem).
+> Quem monta tela com esses campos vê **"—"** e um `✅` ao lado, o que parece problema de
+> tela e não de credencial.
+>
+> Aconteceu conosco em 10/09/2026: o painel de servidores do OrçaView ficou com
+> `CPU: —` e `Memória: — usada` porque um dos caminhos de chamada ainda ia sem
+> credencial. **Se a sua tela lê `system`, `ms` ou `windows_update`, você precisa do
+> `STATUS_ID`.** Se você só olha o código HTTP, não precisa de nada.
+>
+> O campo `restrito: true` na resposta é justamente o sinal de que você está na visão
+> reduzida — dá para tratar isso na sua tela em vez de mostrar vazio.
 >
 > **Sem `STATUS_ID` no `.env`**, só a `OS_API_KEY` abre o completo. E, como no resto da
 > API, **sem `OS_API_KEY` configurada tudo cai aberto** — o campo `api_auth` do payload é
