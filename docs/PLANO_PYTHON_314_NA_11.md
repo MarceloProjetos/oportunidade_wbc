@@ -153,7 +153,7 @@ Tudo cumprido em 11 e 14/09. Resta **uma** decisão, sem pressa:
 | **pandas** | agendador 07:40:21 `sucesso` — DataFrame → Supabase |
 | **mcp / fastmcp** | 8078 respondendo; o próprio diagnóstico veio por ele |
 | Painel WBC (FastAPI) | 8079 → 303 |
-| Suíte na `.11`, no 3.14 | **1749 passed**, 29 skipped, 2 falhas explicadas (abaixo) |
+| Suíte na `.11`, no 3.14 | **1749 passed**, 29 skipped, 2 falhas explicadas (abaixo) — hoje **1744 / 0**, sem os órfãos |
 
 Memória caiu de 43.5% para **30.6%** depois da virada.
 
@@ -183,6 +183,13 @@ vindo antes do `pip`, os 5 serviços subiriam num Python sem dependência nenhum
    dentro da suíte inteira: `logging` é estado global e algum teste anterior deixou um
    handler que engoliu o registro do `httpx`. E o que mudou a ordem de coleta na `.11`
    foram justamente os 2 órfãos a mais. Fragilidade antiga, não migração.
+
+
+✅ **Resolvidas no mesmo dia.** Os 2 órfãos foram apagados da `.11` e a suíte de lá ficou
+**1744 passed, 29 skipped, 0 falhas**. A aritmética confirma o diagnóstico sem deixar dúvida:
+sumiram **7 testes coletados** (1780 → 1773) — os 6 que passavam e o 1 que falhava do arquivo
+órfão — e a `TestRuido` **voltou ao verde sozinha**, sem ninguém tocar nela. Era a ordem de
+coleta mesmo.
 
 ### Uma coisa a mais na `.11`
 

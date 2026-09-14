@@ -141,7 +141,7 @@ Migrada. `system.python` = **3.14.7**, os 5 servicos no ar, e a F3 do
 | Service Layer | `wbcpython check-sap` → `[ok] Conexao OK (SBOALTAMIRAPROD)` |
 | `pandas` 2.3.3 | agendador 07:40:21 `sucesso` (DataFrame → Supabase) |
 | `mcp`/`fastmcp` | 8078 respondendo |
-| Suite NA .11, no 3.14 | **1749 passed**, 29 skipped, 2 falhas explicadas |
+| Suite NA .11, no 3.14 | **1749 passed**, 29 skipped, 2 falhas explicadas — hoje **1744 / 0** |
 
 Memoria caiu de 43,5% para **30,6%** depois da virada. O unico pin que bloqueava era o
 `pandas==2.2.3` (sem roda cp314), trocado na entrada de 11/09.
@@ -170,6 +170,11 @@ rodam no antigo) → **so entao** reiniciar.
 - `tests/wbc/test_logs.py::TestRuido`: **passa sozinha** no mesmo 3.14.7; so quebra na
   suite inteira, porque `logging` e' estado global e algum teste anterior deixou um
   handler que engoliu o registro. Os 2 orfaos a mais e' que mudaram a ordem de coleta.
+
+✅ **Resolvidas no mesmo dia:** os 2 orfaos foram apagados da .11 e a suite de la ficou
+**1744 passed, 29 skipped, 0 falhas**. A aritmetica confirma o diagnostico: sumiram **7 testes
+coletados** (1780 → 1773) — os 6 que passavam e o 1 que falhava do arquivo orfao — e a
+`TestRuido` **voltou ao verde sozinha**, sem ninguem tocar nela. Era a ordem de coleta mesmo.
 
 `pytest==8.3.5` e `ruff==0.15.20` foram instalados no 3.14 da .11 (o deploy nunca os
 instala — sao do `requirements-dev.txt`): e' o que permitiu rodar a suite la antes do
