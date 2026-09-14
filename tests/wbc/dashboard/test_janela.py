@@ -1,13 +1,13 @@
 """O cartão "Janela de busca" no painel — armar, responder e limpar.
 
-Desde 14/09/2026 o cartão **não pede senha** (decisão do Marcelo): ele existe
-para vendas usar sozinho, e uma senha de painel no caminho empurrava todo mundo
-de volta para o TI. O que fica é o nome de quem pediu — que não autoriza nada,
-só responde "quem mandou?" semanas depois.
+Duas guardas, para dois problemas: a **senha** autoriza, o **nome** audita. A
+senha saiu por algumas horas em 14/09/2026, em nome da simplicidade, e voltou no
+mesmo dia — sem o bloqueio de produção na frente, ela é a única coisa entre um
+clique e centenas de escritas irreversíveis.
 
-O que estes testes seguram, e que nenhum teste de unidade pega: que essa dispensa
-não vaze para os comandos do catálogo, que continuam exigindo senha e continuam
-bloqueados em produção.
+O que estes testes seguram, e que nenhum teste de unidade pega: que a exceção ao
+bloqueio de **produção** (essa, sim, permanente) não vaze para os comandos do
+catálogo, que continuam bloqueados ali.
 """
 
 from __future__ import annotations
@@ -88,11 +88,12 @@ class TestOCartao:
 
 
 class TestArmar:
-    def test_arma_sem_senha(self, cliente: TestClient, repo: RepositorioTracking) -> None:
-        """O ponto da mudança: o nome basta."""
+    def test_arma_com_nome_e_senha(
+        self, cliente: TestClient, repo: RepositorioTracking
+    ) -> None:
         resposta = cliente.post(
             "/fragmentos/janela/armar",
-            data={"meses": "24", "solicitante": "joana"},
+            data={"meses": "24", "solicitante": "joana", "senha": SENHA},
         )
 
         assert resposta.status_code == 200
@@ -101,15 +102,22 @@ class TestArmar:
         assert pedido.meses == 24
         assert pedido.pedido_por == "joana"
 
-    def test_sem_nome_nao_arma(self, cliente: TestClient, repo: RepositorioTracking) -> None:
-        """O nome não autoriza; ele audita.
-
-        Com a senha fora do caminho, é a única coisa que sobra para responder
-        "quem mandou?" depois de uma leva de centenas de documentos.
-        """
+    def test_sem_senha_nao_arma(self, cliente: TestClient, repo: RepositorioTracking) -> None:
+        """Armar não escreve no SAP com as próprias mãos, mas é a causa direta
+        de centenas de escritas irreversíveis."""
         resposta = cliente.post(
             "/fragmentos/janela/armar",
-            data={"meses": "24", "solicitante": ""},
+            data={"meses": "24", "solicitante": "joana", "senha": "errada"},
+        )
+
+        assert "Senha incorreta" in resposta.text
+        assert repo.janela_pedida().estado is EstadoDaJanela.OCIOSO
+
+    def test_sem_nome_nao_arma(self, cliente: TestClient, repo: RepositorioTracking) -> None:
+        """Senha autoriza; nome audita. Uma não responde pela outra."""
+        resposta = cliente.post(
+            "/fragmentos/janela/armar",
+            data={"meses": "24", "solicitante": "", "senha": SENHA},
         )
 
         assert "auditável" in resposta.text
@@ -122,7 +130,7 @@ class TestArmar:
         passa por aqui igual."""
         resposta = cliente.post(
             "/fragmentos/janela/armar",
-            data={"meses": "120", "solicitante": "joana"},
+            data={"meses": "120", "solicitante": "joana", "senha": SENHA},
         )
 
         assert "máximo de 24" in resposta.text
@@ -133,7 +141,7 @@ class TestArmar:
     ) -> None:
         resposta = cliente.post(
             "/fragmentos/janela/armar",
-            data={"meses": "abc", "solicitante": "joana"},
+            data={"meses": "abc", "solicitante": "joana", "senha": SENHA},
         )
 
         assert resposta.status_code == 200
@@ -147,21 +155,28 @@ class TestResponderAPergunta:
         repo.armar_janela(24, por="joana")
         repo.janela_aguardando_resposta(faltaram=340, detalhe="", espera=timedelta(minutes=15))
 
-        cliente.post("/fragmentos/janela/continuar", data={"solicitante": "joana"})
+        cliente.post(
+            "/fragmentos/janela/continuar",
+            data={"solicitante": "joana", "senha": SENHA},
+        )
 
         pedido = repo.janela_pedida()
         assert pedido.estado is EstadoDaJanela.ARMADO
         assert pedido.meses == 24
 
-    def test_continuar_tambem_quer_saber_quem_pediu(
+    def test_continuar_exige_senha(
         self, cliente: TestClient, repo: RepositorioTracking
     ) -> None:
+        """É o botão que libera a próxima leva de escritas — mesma porta do armar."""
         repo.armar_janela(24, por="joana")
         repo.janela_aguardando_resposta(faltaram=340, detalhe="", espera=timedelta(minutes=15))
 
-        resposta = cliente.post("/fragmentos/janela/continuar", data={"solicitante": ""})
+        resposta = cliente.post(
+            "/fragmentos/janela/continuar",
+            data={"solicitante": "joana", "senha": "errada"},
+        )
 
-        assert "auditável" in resposta.text
+        assert "Senha incorreta" in resposta.text
         assert repo.janela_pedida().estado is EstadoDaJanela.AGUARDANDO
 
     def test_continuar_recusa_quando_a_pergunta_ja_nao_esta_de_pe(
@@ -172,7 +187,10 @@ class TestResponderAPergunta:
         Rearmar aqui seria liberar uma leva de escritas que ninguém acabou de
         autorizar — a tela mostrava um estado que já não existe.
         """
-        resposta = cliente.post("/fragmentos/janela/continuar", data={"solicitante": "joana"})
+        resposta = cliente.post(
+            "/fragmentos/janela/continuar",
+            data={"solicitante": "joana", "senha": SENHA},
+        )
 
         assert "já não está de pé" in resposta.text
         assert repo.janela_pedida().estado is EstadoDaJanela.OCIOSO
@@ -201,14 +219,13 @@ class TestEmProducao:
         monkeypatch.setenv("LOG_FILE", "")
         return Settings()
 
-    def test_arma_em_producao_sem_senha(
-        self, producao: Settings, repo: RepositorioTracking
-    ) -> None:
+    def test_arma_em_producao(self, producao: Settings, repo: RepositorioTracking) -> None:
+        """A exceção que permanece: produção não barra o armar — só a senha guarda."""
         cliente = TestClient(criar_app(settings=producao, tracking=repo))
 
         resposta = cliente.post(
             "/fragmentos/janela/armar",
-            data={"meses": "24", "solicitante": "joana"},
+            data={"meses": "24", "solicitante": "joana", "senha": SENHA},
         )
 
         assert resposta.status_code == 200
@@ -252,15 +269,25 @@ class TestSemSenhaNoEnv:
         monkeypatch.setenv("LOG_FILE", "")
         return Settings()
 
-    def test_a_janela_funciona_sem_painel_senha(
+    def test_senha_vazia_nao_vira_porta_aberta(
         self, sem_senha: Settings, repo: RepositorioTracking
     ) -> None:
-        """`PAINEL_SENHA` deixou de ter qualquer papel aqui."""
+        """A armadilha que a pré-condição existe para fechar.
+
+        Com `PAINEL_SENHA` vazia, `compare_digest("", "")` é **verdadeiro**:
+        quem não digitasse nada passaria. Como armar não tem o bloqueio de
+        produção na frente, a senha é a única guarda — e guarda que aprova
+        campo em branco não é guarda.
+        """
         cliente = TestClient(criar_app(settings=sem_senha, tracking=repo))
 
-        cliente.post("/fragmentos/janela/armar", data={"meses": "24", "solicitante": "joana"})
+        resposta = cliente.post(
+            "/fragmentos/janela/armar",
+            data={"meses": "24", "solicitante": "joana", "senha": ""},
+        )
 
-        assert repo.janela_pedida().estado is EstadoDaJanela.ARMADO
+        assert "PAINEL_SENHA" in resposta.text
+        assert repo.janela_pedida().estado is EstadoDaJanela.OCIOSO
 
     def test_os_comandos_do_catalogo_continuam_recusando(
         self, sem_senha: Settings, repo: RepositorioTracking
@@ -296,3 +323,25 @@ class TestALista:
         repo.armar_janela(24, por="joana")
 
         assert "00099001" in cliente.get("/fragmentos/oportunidades").text
+
+
+class TestOCartaoDeConexoes:
+    """SAP e HANA dividem um cartão, com dois botões.
+
+    Eram dois cartões quase idênticos — mesmo selo, mesma demora, uma linha
+    de texto cada — e a grade ficava com sete onde cabem seis.
+    """
+
+    def test_o_cartao_aponta_para_o_alternativo(self) -> None:
+        from wbcpython.dashboard import comandos as cmd
+
+        assert cmd.POR_ID["check-sap"].alternativo == "check-hana"
+        assert cmd.POR_ID["check-hana"].oculto
+
+    def test_o_alternativo_nao_ganha_cartao_proprio(self, cliente: TestClient) -> None:
+        """Senão a grade volta a ter sete cartões."""
+        corpo = cliente.get("/fragmentos/comandos").text
+
+        assert 'name="comando" value="check-hana"' not in corpo
+        assert corpo.count('name="comando" value="check-sap"') == 1
+        assert corpo.count('name="alternativo"') == 1

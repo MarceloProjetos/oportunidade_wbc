@@ -203,12 +203,11 @@ custar o pedido; um erro persistente não pode virar loop de ciclo pesado a cada
 eles que se enxerga o tamanho do estrago antes de autorizá-lo. O card deve sugerir
 "Verificar pendentes" antes de armar.
 
-**5 · Armar exige `PAINEL_SENHA`? — ✅ NÃO** (revisto em 14/09/2026).
-Passou por três estados em três dias: exigia senha (11/09), virou exceção ao bloqueio de
-produção (11/09) e perdeu a senha (14/09), a pedido do Marcelo — o cartão é para vendas usar
-sozinho. Resta o **nome de quem pediu**, obrigatório, que audita sem autorizar. Sem guarda
-técnica, quem tem o cookie do painel arma com um clique; os comandos do catálogo seguem com
-senha e bloqueados em produção. Armar 24 meses não escreve no SAP diretamente, mas é a causa direta de
+**5 · Armar exige `PAINEL_SENHA`? — ✅ sim.**
+Passou por quatro estados: exigia senha (11/09), virou exceção ao bloqueio de produção (11/09),
+perdeu a senha em nome da simplicidade (14/09, manhã) e recuperou-a no mesmo dia (14/09, tarde),
+depois que o ensaio de 13 meses mostrou 144 escritas com pedidos de mais de R$ 1 milhão. A
+exceção ao bloqueio de **produção** permanece — o que voltou foi só a senha. Armar 24 meses não escreve no SAP diretamente, mas é a causa direta de
 até 1.800 escritas irreversíveis. O painel já separa "quem entra" (cookie da `OS_API_KEY`)
 de "quem manda escrever" (senha); este botão é do segundo grupo.
 

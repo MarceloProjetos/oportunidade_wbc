@@ -1883,18 +1883,16 @@ para trás** esse ciclo automático olha. `Settings.painel_pode_armar_janela` é
 card, e pede só a senha. Os comandos do catálogo (inclusive "Ciclo de integração") **seguem
 bloqueados** em produção — há teste cravando os dois lados.
 
-**A senha saiu do armar em 14/09/2026**, um dia depois de entrar, por decisão do Marcelo:
-*"sem senha e com menos textos — torne o acesso mais simples"*. O cartão existe para vendas
-usar sozinho, e uma senha de painel no caminho empurrava todo mundo de volta para o TI — que é
-exatamente o que este trabalho existia para eliminar. Quem alcança o painel já passou pela
-`OS_API_KEY`.
+**A senha saiu e voltou em 14/09/2026.** Saiu de manhã, a pedido do Marcelo (*"sem senha e
+com menos textos — torne o acesso mais simples"*), e voltou à tarde, por decisão dele depois de
+ver o ensaio de 13 meses: 144 escritas, com pedidos de mais de R$ 1 milhão. Sem o bloqueio de
+produção na frente, a senha é a **única** coisa entre um clique e essas escritas.
 
-Fica registrado o que isso custa, porque foi dito na hora e é o tipo de coisa que se esquece:
-**não sobra guarda técnica no armar.** Quem tem o cookie do painel pode disparar as escritas
-medidas no ensaio de 13 meses (144, incluindo pedidos de mais de R$ 1 milhão) com um clique e
-uma confirmação do navegador. O que resta é o **nome de quem pediu**, obrigatório — ele não
-autoriza nada, só responde "quem mandou?" semanas depois, e sem ele o evento no acompanhamento
-diria "(não informado)".
+Fica a mecânica que a volta trouxe: a senha é conferida como **pré-condição** (`PAINEL_SENHA`
+existe?), e não apenas comparada — com ela vazia, `compare_digest("", "")` é verdadeiro e quem
+não digitasse nada passaria. Teste: `test_senha_vazia_nao_vira_porta_aberta`.
+
+O que **não** voltou é o bloqueio de produção no armar: essa exceção é permanente.
 
 A dispensa é **só do armar** e não vaza: os comandos do catálogo, "Ciclo de integração"
 incluído, seguem exigindo `PAINEL_SENHA` e seguem bloqueados em produção. Há teste cravando os

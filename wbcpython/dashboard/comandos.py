@@ -96,6 +96,18 @@ class Comando:
     campos: tuple[Campo, ...] = ()
     demora: str = ""
     aviso: str = ""
+    #: Id de um segundo comando oferecido no MESMO cartão, por um segundo botão.
+    #:
+    #: Existe porque dois testes de conexão viraram dois cartões quase idênticos
+    #: — mesmo selo, mesma demora, uma linha de texto cada — e a grade ficou com
+    #: sete cartões onde cabem seis. "Testar as conexões" é uma pergunta só, com
+    #: duas respostas possíveis; o cartão reflete isso.
+    alternativo: str = ""
+
+    #: Não ganha cartão próprio: existe para ser o `alternativo` de outro.
+    #: Continua em `POR_ID`, porque é ele que o executor dispara.
+    oculto: bool = False
+
     #: Exceção deliberada à senha, e a única: o ensaio.
     #:
     #: A senha protege o SAP. Exigi-la de um comando que não o toca custaria
@@ -174,10 +186,14 @@ CATALOGO: tuple[Comando, ...] = (
     ),
     Comando(
         id="check-sap",
-        rotulo="Testar conexão com o SAP",
-        resumo="Abre uma sessão no Service Layer. Só leitura.",
+        rotulo="Testar as conexões",
+        resumo=(
+            "O Service Layer (abre uma sessão) e o HANA (diz em qual schema as views "
+            "existem). Só leitura."
+        ),
         argv=("check-sap",),
         demora="alguns segundos",
+        alternativo="check-hana",
     ),
     Comando(
         id="check-hana",
@@ -185,6 +201,7 @@ CATALOGO: tuple[Comando, ...] = (
         resumo="Conecta e diz em qual schema as views existem. Só leitura.",
         argv=("check-hana",),
         demora="alguns segundos",
+        oculto=True,
     ),
     Comando(
         id="ciclo",

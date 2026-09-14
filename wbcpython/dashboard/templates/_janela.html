@@ -49,11 +49,17 @@
     {% endif %}
   {% endif %}
 
-  {% if pedido.estado.value == "aguardando" %}
+  {% if not pode_armar %}
+    <p class="alerta">{{ motivo }}</p>
+  {% elif pedido.estado.value == "aguardando" %}
     <div class="filtros">
       <label class="campo">
         <span>Seu nome</span>
         <input type="text" name="solicitante" placeholder="fica no histórico" />
+      </label>
+      <label class="campo">
+        <span>Senha do painel</span>
+        <input type="password" name="senha" />
       </label>
       <button
         class="acao perigosa"
@@ -91,6 +97,10 @@
       <label class="campo">
         <span>Seu nome</span>
         <input type="text" name="solicitante" placeholder="fica no histórico" />
+      </label>
+      <label class="campo">
+        <span>Senha do painel</span>
+        <input type="password" name="senha" />
       </label>
       <button class="acao perigosa" type="submit">Armar</button>
     </div>

@@ -14,14 +14,14 @@ Como cartao da grade ele herda a forma dos vizinhos e para de parecer tela de co
 Quatro paragrafos viraram um: o que precisa ficar claro e **data de abertura** e **volta
 sozinha**; o resto esta no plano.
 
-**A senha saiu do armar**, um dia depois de entrar. O cartao existe para vendas usar sozinho,
-e uma senha de painel no caminho empurrava todo mundo de volta para o TI. Quem alcanca o
-painel ja passou pela `OS_API_KEY`.
+**A senha saiu e voltou no mesmo dia.** Saiu de manha, em nome da simplicidade; voltou a tarde,
+por decisao do Marcelo depois de ver o ensaio de 13 meses (144 escritas, com pedidos de mais de
+R$ 1 milhao). Sem o bloqueio de producao na frente, ela e a unica coisa entre um clique e essas
+escritas. O **nome** continua obrigatorio ao lado dela: senha autoriza, nome audita.
 
-Fica registrado o que custa: **nao sobra guarda tecnica no armar**. Quem tem o cookie do painel
-dispara as escritas medidas no ensaio de 13 meses (144, com pedidos de mais de R$ 1 milhao) com
-um clique e uma confirmacao do navegador. O que resta e o **nome de quem pediu**, obrigatorio —
-audita sem autorizar.
+Tambem nesta leva: "Verificar pendentes" passa a vir ANTES da "Janela de busca" (ensaia, depois
+arma), e "Testar conexao com o SAP" + "Testar o HANA" viram UM cartao com dois botoes. A grade
+fecha em 6 cartoes.
 
 A dispensa e so do armar e nao vaza: os comandos do catalogo, "Ciclo de integracao" incluido,
 seguem exigindo `PAINEL_SENHA` e seguem bloqueados em producao. `Settings.painel_pode_armar_janela`

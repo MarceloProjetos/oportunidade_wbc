@@ -92,6 +92,16 @@
           </button>
         {% endif %}
       </div>
+    {% elif c.alternativo %}
+      {# Dois botões, um cartão: "Testar as conexões" é uma pergunta só com duas
+         respostas. O `name="alternativo"` só é enviado pelo botão clicado — é
+         assim que a rota sabe qual dos dois comandos rodar. #}
+      <div class="filtros">
+        <button class="acao" type="submit">{{ c.argv[0] | replace("check-", "") | upper }}</button>
+        <button class="acao" type="submit" name="alternativo" value="1">
+          {{ por_id[c.alternativo].argv[0] | replace("check-", "") | upper }}
+        </button>
+      </div>
     {% else %}
       <div class="filtros">
         <button class="acao" type="submit">Executar</button>
@@ -113,14 +123,19 @@
     <span class="carimbo">nenhum documento do SAP é criado, alterado ou cancelado</span>
   </header>
   <div class="corpo grade-comandos">
-    {# A janela é o primeiro cartão da grade, ao lado de "Verificar pendentes":
-       são os dois passos do mesmo gesto — ensaiar a janela e depois armá-la.
-       Como cartão da grade, e não como bloco à parte, ela herda a forma dos
-       vizinhos e para de parecer uma tela de configuração. #}
-    <div id="janela" hx-get="/fragmentos/janela" hx-trigger="load" hx-swap="outerHTML">
-      <div class="comando"><div class="vazio">Carregando…</div></div>
-    </div>
-    {% for c in leitura %}{{ formulario(c, true, ritmo) }}{% endfor %}
+    {% for c in leitura %}
+      {{ formulario(c, true, ritmo) }}
+      {% if c.id == "pendentes" %}
+        {# A janela vem logo DEPOIS de "Verificar pendentes", e não antes: são os
+           dois passos do mesmo gesto, na ordem em que se faz. Ensaiar a janela
+           ali ao lado e só então armá-la aqui é exatamente o que o cartão pede.
+           Como cartão da grade, e não como bloco à parte, ela herda a forma dos
+           vizinhos e para de parecer uma tela de configuração. #}
+        <div id="janela" hx-get="/fragmentos/janela" hx-trigger="load" hx-swap="outerHTML">
+          <div class="comando"><div class="vazio">Carregando…</div></div>
+        </div>
+      {% endif %}
+    {% endfor %}
   </div>
 </div>
 

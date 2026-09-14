@@ -547,8 +547,9 @@ def criar_app(
         return render(
             request,
             "_comandos.html",
-            leitura=[c for c in cmd.CATALOGO if not c.protegido],
-            escrita=[c for c in cmd.CATALOGO if c.protegido],
+            leitura=[c for c in cmd.CATALOGO if not c.protegido and not c.oculto],
+            escrita=[c for c in cmd.CATALOGO if c.protegido and not c.oculto],
+            por_id=cmd.POR_ID,
             escolhido=escolhido,
             pode_escrever=config.painel_pode_escrever,
             motivo=_por_que_nao_escreve(config),
@@ -563,24 +564,6 @@ def criar_app(
         if pedido.estado is EstadoDaJanela.ARMADO:
             return pedido.meses
         return config.meses_de_janela
-
-    def _quem_pediu(form: Any) -> tuple[str, str]:
-        """Quem está armando, e a recusa quando não dá para saber.
-
-        A senha saiu daqui em 14/09/2026, por decisão do Marcelo: o card é para
-        vendas usar sozinho, e uma senha de painel no caminho empurrava todo
-        mundo de volta para o TI — que é o que este trabalho existia para
-        eliminar. Quem alcança o painel já passou pela `OS_API_KEY`.
-
-        O nome fica. Ele não autoriza nada; ele responde "quem mandou?" semanas
-        depois, e é a única coisa que o evento no acompanhamento tem para
-        oferecer. Sem ele, a auditoria de uma leva de centenas de documentos
-        diz "(não informado)".
-        """
-        nome = str(form.get("solicitante") or "").strip()
-        if not nome:
-            return "", "Informe quem está pedindo — a ação precisa ser auditável."
-        return nome, ""
 
     def _cartao_da_janela(request: Request, *, erro: str = "") -> HTMLResponse:
         """Desenha o card da janela no estado em que ele está agora.
@@ -597,6 +580,8 @@ def criar_app(
             padrao=config.meses_de_janela,
             maximo=config.janela_maxima,
             producao=config.targets_production,
+            pode_armar=config.painel_pode_armar_janela,
+            motivo=_por_que_nao_arma(config),
             erro=erro,
         )
 
@@ -614,9 +599,10 @@ def criar_app(
         "mandar executar" no resto desta tela.
         """
         form = await request.form()
-        solicitante, negativa = _quem_pediu(form)
+        negativa = _autorizar(config, form, "Armar a janela", e_janela=True)
         if negativa:
             return _cartao_da_janela(request, erro=negativa)
+        solicitante = str(form.get("solicitante") or "").strip()
         try:
             meses = jn.validar_meses(
                 int(str(form.get("meses") or "0")),
@@ -649,9 +635,10 @@ def criar_app(
         a próxima leva de escritas no SAP.
         """
         form = await request.form()
-        solicitante, negativa = _quem_pediu(form)
+        negativa = _autorizar(config, form, "Rodar outro ciclo", e_janela=True)
         if negativa:
             return _cartao_da_janela(request, erro=negativa)
+        solicitante = str(form.get("solicitante") or "").strip()
         pedido = repo.janela_pedida()
         if pedido.estado is not EstadoDaJanela.AGUARDANDO:
             # A pergunta venceu (ou outra pessoa respondeu) entre a tela e o
@@ -698,6 +685,11 @@ def criar_app(
         comando = cmd.POR_ID.get(str(form.get("comando") or ""))
         if comando is None:
             return render(request, "_aviso.html", tipo="erro", texto="Comando desconhecido.")
+        if form.get("alternativo") and comando.alternativo:
+            # O segundo botão do cartão. A troca vem **antes** da leitura dos
+            # campos: cada comando declara os seus, e montar o argv com os do
+            # outro daria uma linha que a CLI recusa.
+            comando = cmd.POR_ID[comando.alternativo]
 
         valores = {c.nome: str(form.get(c.nome) or "") for c in comando.campos}
 
@@ -806,16 +798,33 @@ def _por_que_nao_escreve(config: Settings) -> str:
     return ""
 
 
-def _autorizar(config: Settings, form: Any, rotulo: str) -> str:
+def _por_que_nao_arma(config: Settings) -> str:
+    """Vazio quando dá para armar a janela; o motivo quando não dá.
+
+    Uma condição só, e não duas: armar é exceção ao bloqueio de produção (ver
+    `Settings.painel_pode_armar_janela`). A senha continua, e aqui ela é a
+    **única** guarda.
+    """
+    return "" if config.painel_pode_armar_janela else FALTA_SENHA
+
+
+def _autorizar(
+    config: Settings, form: Any, rotulo: str, *, e_janela: bool = False
+) -> str:
     """Vazio quando pode seguir; o motivo da recusa quando não pode.
 
     Devolve texto, e não um fragmento pronto, para poder ser testada sem montar
     requisição — e porque quem renderiza é a rota, que tem o `render`.
 
-    Vale para os comandos do catálogo. A janela **não** passa por aqui desde
-    14/09/2026 — ver `_quem_pediu`.
+    `e_janela` troca a pré-condição pela do armar, que não é barrado em
+    produção. O resto — nome para auditar, senha conferida com `compare_digest`
+    — é idêntico de propósito: a exceção é sobre **qual** porta se atravessa,
+    não sobre atravessar sem chave.
     """
-    if not config.painel_pode_escrever:
+    if e_janela:
+        if not config.painel_pode_armar_janela:
+            return _por_que_nao_arma(config)
+    elif not config.painel_pode_escrever:
         return _por_que_nao_escreve(config)
     if not str(form.get("solicitante") or "").strip():
         return "Informe quem está executando — a ação precisa ser auditável."
