@@ -90,6 +90,16 @@ class Acao(Enum):
     VINCULAR_DOCUMENTO_A_OPORTUNIDADE = "vincular_documento_a_oportunidade"
 
 
+#: As acoes que criam, alteram ou refazem um PEDIDO no SAP.
+#:
+#: Mora no dominio, e nao so em `application/processar.py`, porque desde
+#: 14/09/2026 e o dominio que decide quando elas nao valem — ver
+#: `EstadoIntegracao.fora_da_janela_padrao`.
+ACOES_DE_PEDIDO = frozenset(
+    {Acao.CRIAR_PEDIDO, Acao.ATUALIZAR_PEDIDO, Acao.CANCELAR_E_RECRIAR_PEDIDO}
+)
+
+
 @dataclass(frozen=True, slots=True)
 class EstadoIntegracao:
     """Retrato do que o WBC diz e do que o SAP já tem, para um orçamento."""
@@ -116,6 +126,22 @@ class EstadoIntegracao:
     #: `CardCode` do pedido vigente no SAP. É o equivalente do `ChecaPNPedido`
     #: legado: comparado com `parceiro_novo`, diz se a troca já foi aplicada.
     parceiro_pedido_sap: str = ""
+
+    #: A oportunidade e mais antiga que a janela PADRAO do ciclo.
+    #:
+    #: So acontece num ciclo de janela estendida (`docs/PLANO_JANELA_SOB_DEMANDA.md`):
+    #: num ciclo normal, tudo que e lido esta dentro da janela por construcao.
+    #:
+    #: Quando verdadeiro, a decisao sai **sem as acoes de pedido**. Regra de
+    #: negocio do Marcelo (14/09/2026): alcancar para tras serve para acertar
+    #: cotacao e oportunidade de negocios antigos; **criar pedido** para um
+    #: negocio de mais de seis meses e outra coisa — o ensaio de 13 meses
+    #: mostrou pedidos de mais de R$ 1 milhao nascendo de oportunidades de 2025,
+    #: que alguem pode ja ter resolvido a mao no SAP nesse tempo.
+    #:
+    #: Cotacao continua valendo, inclusive o cancelamento no encerramento: ela
+    #: e proposta, nao compromisso.
+    fora_da_janela_padrao: bool = False
 
     # Revisão corrente no WBC
     revisao_wbc: str = ""
@@ -341,7 +367,47 @@ def decidir(estado: EstadoIntegracao) -> Decisao:
     Reproduz a ordem de avaliação do `Main` legado, que é significativa: os
     ramos são mutuamente exclusivos até o último, e dentro dele as ações se
     acumulam.
+
+    Fora da janela padrão, a decisão sai sem as ações de **pedido** — ver
+    `_sem_pedido`. O corte é aplicado aqui, e não no processador, para que a
+    prévia (`wbcpython pendentes`) mostre exatamente o que o ciclo faria: as
+    duas chamam esta função, e um filtro na execução deixaria o ensaio
+    prometendo pedidos que o ciclo não criaria.
     """
+    return _sem_pedido(estado, _decidir(estado))
+
+
+def _sem_pedido(estado: EstadoIntegracao, decisao: Decisao) -> Decisao:
+    """Tira as ações de pedido quando a oportunidade está fora da janela padrão.
+
+    Filtrar depois, e não espalhar a condição pelos ramos, é deliberado: a
+    máquina de estados continua sendo a leitura do legado, ramo a ramo, e a
+    regra nova fica num lugar só — onde dá para lê-la inteira.
+
+    `VINCULAR_DOCUMENTO_A_OPORTUNIDADE` fica: ele só age se alguma ação anterior
+    produziu documento (ver `processar.py`), então sem pedido ele vincula a
+    cotação — que é o que um ciclo de cotação faz de qualquer forma.
+    """
+    if not estado.fora_da_janela_padrao:
+        return decisao
+    restantes = tuple(a for a in decisao.acoes if a not in ACOES_DE_PEDIDO)
+    if len(restantes) == len(decisao.acoes):
+        return decisao
+    return Decisao(
+        acoes=restantes,
+        regra=f"{decisao.regra}+sem_pedido_fora_da_janela",
+        motivos=(
+            *decisao.motivos,
+            (
+                "Oportunidade mais antiga que a janela padrão: a janela estendida "
+                "acerta cotação e oportunidade, e não cria nem altera pedido."
+            ),
+        ),
+    )
+
+
+def _decidir(estado: EstadoIntegracao) -> Decisao:
+    """A máquina de estados propriamente dita — ver `decidir`."""
     if not estado.processavel:
         return Decisao(
             regra="sitcode_abaixo_do_minimo",

@@ -3,6 +3,36 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-14] — Janela estendida nao cria nem altera pedido
+
+Regra de negocio do Marcelo, depois do ensaio de 13 meses em producao: das 144 escritas que
+o ciclo faria, varias eram **criar pedido** para oportunidades de 2025 — uma somando R$ 1,26
+milhao em linhas, outra R$ 372 mil.
+
+Agora, quando a oportunidade e mais antiga que a janela **padrao**, o ciclo acerta **cotacao e
+oportunidade** e nao toca em pedido. Alcancar para tras serve para arrumar proposta e espelho
+de status de negocio antigo; abrir pedido de negocio de mais de seis meses e outra decisao, e
+alguem pode ja te-lo resolvido a mao no SAP nesse tempo.
+
+Continua valendo fora da janela: criar/atualizar/cancelar **cotacao** — inclusive o
+`cancelar_cotacao_no_encerramento`, que e o caso mais comum do ensaio —, alem de
+`atualizar_status_oportunidade` e `marcar_oportunidade_perdida`. Sai `criar_pedido`,
+`atualizar_pedido` e `cancelar_e_recriar_pedido`: as tres, porque alterar e recriar tambem
+mexem num documento de compromisso.
+
+A regra mora no **dominio** (`_sem_pedido`, em `domain/sitcode.py`), e nao no processador: a
+previa e o ciclo chamam a mesma `decidir`, entao o ensaio ja mostra o efeito. Um filtro na
+execucao deixaria a previa prometendo pedidos que o ciclo nao criaria.
+
+`EstadoIntegracao.fora_da_janela_padrao` e calculado por `montar_estado`, comparando
+`OOPR.OpenDate` com o corte da janela padrao. **Sem `OpenDate` a resposta e "dentro"**: na
+duvida, o comportamento e o de sempre — data ausente virando bloqueio silencioso faria um
+ciclo NORMAL parar de criar pedidos sem ninguem entender por que.
+
+Num ciclo normal a regra nao morde: nada que e lido e anterior ao corte.
+
+Suite do WBC: 1.141 testes (+14).
+
 ## [2026-09-14] — Janela de busca: cartao simples, sem senha
 
 Pedido do Marcelo: *"poderia ser um card dentro de Leitura e diagnostico, sem senha e com

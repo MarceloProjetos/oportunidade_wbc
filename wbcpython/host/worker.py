@@ -368,6 +368,11 @@ class WorkerIntegracao:
                     parceiros=RepositorioParceirosServiceLayer(cliente),
                     fator_de_embarque=self._settings.fator_de_peso_de_embarque,
                     somente_leitura=somente_leitura,
+                    # Sempre a janela PADRÃO, mesmo num ciclo estendido: é ela
+                    # que separa "acertar cotação de negócio antigo" de "criar
+                    # pedido de negócio antigo". Num ciclo normal nada é
+                    # anterior a este corte, e a regra não morde.
+                    corte_de_pedido=janela_padrao(meses=self._meses),
                 )
 
                 # A leitura vem do HANA, numa consulta só, com cotação e

@@ -24,6 +24,7 @@ from wbcpython.domain import cotacao as regras_cotacao
 from wbcpython.domain import pedido as regras_pedido
 from wbcpython.domain.linhas import FATOR_DE_EMBARQUE, ResultadoLinhas
 from wbcpython.domain.mapeamento import montar_payload_orcdetalhe
+from wbcpython.domain.sitcode import ACOES_DE_PEDIDO as _ACOES_DE_PEDIDO
 from wbcpython.domain.sitcode import Acao, Decisao, EstadoIntegracao, decidir
 from wbcpython.infrastructure.service_layer.documentos import (
     RepositorioDocumentosVenda,
@@ -75,9 +76,10 @@ ACOES_DE_DOCUMENTO = frozenset(
 ACOES_DE_COTACAO = frozenset(
     {Acao.CRIAR_COTACAO, Acao.ATUALIZAR_COTACAO, Acao.CANCELAR_E_RECRIAR_COTACAO}
 )
-ACOES_DE_PEDIDO = frozenset(
-    {Acao.CRIAR_PEDIDO, Acao.ATUALIZAR_PEDIDO, Acao.CANCELAR_E_RECRIAR_PEDIDO}
-)
+#: Importado do domínio: é lá que a regra de "fora da janela padrão não cria
+#: pedido" precisa do conjunto, e duas listas iguais divergem na primeira ação
+#: nova.
+ACOES_DE_PEDIDO = _ACOES_DE_PEDIDO
 
 #: Ações que escrevem no SAP. É o que o teto por ciclo limita — ler a janela
 #: inteira custa centésimos de segundo no HANA; criar documentos, não.
@@ -163,6 +165,7 @@ class ProcessadorDeOrcamento:
         gravar_snapshot: bool = True,
         fator_de_embarque: Decimal = FATOR_DE_EMBARQUE,
         somente_leitura: bool = False,
+        corte_de_pedido: date | None = None,
     ) -> None:
         self._wbc = wbc
         self._orcdetalhe = orcdetalhe
@@ -176,6 +179,10 @@ class ProcessadorDeOrcamento:
         #: Folga de embalagem sobre o peso líquido da árvore — ver
         #: `domain.linhas._peso_unitario`. Vem da configuração no worker.
         self._fator_de_embarque = fator_de_embarque
+        #: Primeiro dia da janela PADRÃO. Oportunidade anterior a ele não ganha
+        #: pedido — ver `EstadoIntegracao.fora_da_janela_padrao`. `None` desliga
+        #: a regra, que é o que um teste ou um caso pontual espera.
+        self._corte_de_pedido = corte_de_pedido
         #: Ensaio: decide e registra tudo, mas não executa nenhuma ação.
         #:
         #: A garantia não vem de filtrar ações uma a uma — vem de o único
@@ -325,6 +332,7 @@ class ProcessadorDeOrcamento:
             _OrcamentoResumido(orcnum=orcnum, sitcode=sitcode, revisao=revisao),
             oportunidade,
             fonte_de_documentos(oportunidade, self._documentos),
+            corte_de_pedido=self._corte_de_pedido,
         )
         decisao = decidir(estado)
         if decisao.tem_acao:
@@ -354,7 +362,10 @@ class ProcessadorDeOrcamento:
         self, orcamento: OrcamentoWbc, oportunidade: dict[str, Any]
     ) -> EstadoIntegracao:
         return montar_estado(
-            orcamento, oportunidade, fonte_de_documentos(oportunidade, self._documentos)
+            orcamento,
+            oportunidade,
+            fonte_de_documentos(oportunidade, self._documentos),
+            corte_de_pedido=self._corte_de_pedido,
         )
 
     # ------------------------------------------------------------- execução
@@ -1009,6 +1020,8 @@ def montar_estado(
     orcamento: OrcamentoWbc,
     oportunidade: dict[str, Any],
     documentos: RepositorioDocumentosVenda,
+    *,
+    corte_de_pedido: date | None = None,
 ) -> EstadoIntegracao:
     """Reúne, num único retrato, o que o WBC diz e o que o SAP já tem.
 
@@ -1034,4 +1047,21 @@ def montar_estado(
         alterado=str(oportunidade.get("U_INO_Update") or "N").upper() == "Y",
         parceiro_atual=str(oportunidade.get("CardCode") or ""),
         parceiro_novo=str(oportunidade.get("U_INO_PN_Correc") or ""),
+        # `corte_de_pedido` é o primeiro dia da janela PADRÃO. Num ciclo normal
+        # nenhuma oportunidade lida é anterior a ele — o corte só morde quando a
+        # janela foi estendida. Ver `EstadoIntegracao.fora_da_janela_padrao`.
+        fora_da_janela_padrao=_fora_da_janela(oportunidade, corte_de_pedido),
     )
+
+
+def _fora_da_janela(oportunidade: dict[str, Any], corte: date | None) -> bool:
+    """A oportunidade abriu antes do corte da janela padrão.
+
+    Sem `OpenDate` a resposta é **não**: na dúvida, o comportamento é o de
+    sempre. Uma data ausente não pode virar um bloqueio silencioso de pedido
+    num ciclo normal.
+    """
+    if corte is None:
+        return False
+    abertura = _data(oportunidade.get("OpenDate"))
+    return abertura is not None and abertura < corte

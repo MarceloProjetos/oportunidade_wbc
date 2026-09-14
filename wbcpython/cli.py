@@ -482,6 +482,10 @@ def _cmd_pendentes(
     else:
         meses = settings.meses_de_janela
     corte = janela_padrao(meses=meses)
+    # O corte do PEDIDO é o da janela padrão, não o da janela ensaiada: é o que
+    # o ciclo vai aplicar, e uma prévia que prometesse pedidos fora dele mentiria
+    # justamente onde ela existe para não mentir.
+    corte_de_pedido = janela_padrao(meses=settings.meses_de_janela)
     if meses_pedidos is not None:
         relatar(
             f"Janela de ENSAIO: {meses} meses (desde {corte.isoformat()}). "
@@ -563,6 +567,7 @@ def _cmd_pendentes(
                     _OrcamentoResumido(orcnum, situacao[0], situacao[1]),
                     oportunidade,
                     fonte_de_documentos(oportunidade, documentos),
+                    corte_de_pedido=corte_de_pedido,
                 )
                 decisao = decidir(estado)
                 acoes = tuple(a.value for a in decisao.acoes)
@@ -587,7 +592,10 @@ def _cmd_pendentes(
                         )
                         continue
                     estado = montar_estado(
-                        orc, oportunidade, fonte_de_documentos(oportunidade, documentos)
+                        orc,
+                        oportunidade,
+                        fonte_de_documentos(oportunidade, documentos),
+                        corte_de_pedido=corte_de_pedido,
                     )
                     decisao = decidir(estado)
                     acoes = tuple(a.value for a in decisao.acoes)

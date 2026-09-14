@@ -76,6 +76,14 @@ a janela**:
 | 13 a 18 meses | 6× | 1.200 |
 | 19 a 24 meses | 9× | 1.800 |
 
+### Fora da janela padrão, só cotação
+
+Desde 14/09/2026: quando a oportunidade é mais antiga que a janela **padrão**, o ciclo
+acerta **cotação e oportunidade** e **não cria nem altera pedido**. Veio do ensaio de 13
+meses, que mostrou pedidos de mais de R$ 1 milhão nascendo de oportunidades de 2025.
+
+A regra vive em `_sem_pedido`, no domínio, para que a prévia e o ciclo digam a mesma coisa.
+
 ### Máquina de estados
 
 ```

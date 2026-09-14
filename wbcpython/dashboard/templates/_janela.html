@@ -44,6 +44,10 @@
       Até onde o ciclo olha para trás, pela <strong>data de abertura da oportunidade</strong>
       no SAP. Vale para a próxima passada e volta a {{ padrao }} meses sozinha.
     </p>
+    <p class="resumo">
+      Além de {{ padrao }} meses, o ciclo só acerta <strong>cotação e oportunidade</strong>:
+      pedido ele não cria nem altera.
+    </p>
     {% if producao %}
       <p class="alerta">O ciclo seguinte escreve de verdade no SAP.</p>
     {% endif %}

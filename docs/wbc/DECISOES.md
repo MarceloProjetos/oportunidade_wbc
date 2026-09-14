@@ -1897,3 +1897,35 @@ O que **não** voltou é o bloqueio de produção no armar: essa exceção é pe
 A dispensa é **só do armar** e não vaza: os comandos do catálogo, "Ciclo de integração"
 incluído, seguem exigindo `PAINEL_SENHA` e seguem bloqueados em produção. Há teste cravando os
 dois lados (`TestEmProducao`, `TestSemSenhaNoEnv`).
+
+## Janela estendida não cria nem altera pedido
+
+**Decisão do Marcelo, 14/09/2026**, depois de ver o ensaio de 13 meses em produção: das 144
+escritas que o ciclo faria, várias eram **criar pedido** para oportunidades de 2025 — uma
+delas somando R$ 1,26 milhão em linhas, outra R$ 372 mil.
+
+A regra: quando a oportunidade é mais antiga que a janela **padrão**, o ciclo acerta
+**cotação e oportunidade** e não toca em pedido. Alcançar para trás serve para arrumar
+proposta e espelho de status de negócio antigo; abrir um pedido de um negócio de mais de
+seis meses é outra decisão, e alguém pode já tê-lo resolvido à mão no SAP nesse tempo.
+
+O que continua valendo fora da janela: criar, atualizar e cancelar **cotação** (inclusive o
+`cancelar_cotacao_no_encerramento`, que é o caso mais comum do ensaio — dezenas de
+orçamentos cancelados no WBC com a cotação ainda aberta no SAP), `atualizar_status_oportunidade`
+e `marcar_oportunidade_perdida`. O que sai: `criar_pedido`, `atualizar_pedido` e
+`cancelar_e_recriar_pedido` — as três, porque alterar e recriar também mexem num documento de
+compromisso.
+
+**Onde a regra mora: no domínio** (`_sem_pedido`, em `domain/sitcode.py`), e não no
+processador. A prévia (`wbcpython pendentes`) e o ciclo chamam a mesma `decidir`; um filtro na
+execução deixaria o ensaio prometendo pedidos que o ciclo não criaria — a mentira que o ensaio
+existe para não contar. O `EstadoIntegracao` ganhou `fora_da_janela_padrao`, e
+`montar_estado` o calcula comparando `OOPR.OpenDate` com o corte.
+
+**Sem `OpenDate`, a resposta é "dentro".** Na dúvida, o comportamento é o de sempre: uma data
+ausente virando bloqueio silencioso faria um ciclo **normal** deixar de criar pedidos sem
+ninguém entender por quê.
+
+`VINCULAR_DOCUMENTO_A_OPORTUNIDADE` fica na decisão: ele só age se alguma ação anterior
+produziu documento, então sem pedido ele vincula a cotação — que é o que um ciclo de cotação
+faz de qualquer forma.
