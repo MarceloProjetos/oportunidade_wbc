@@ -5,6 +5,22 @@
   separados, com aviso e senha — misturar "testar a conexão" com "criar pedidos
   de verdade" na mesma lista é convite a clicar no errado.
 #}
+{# Cabeça de um comando: título e selos. Vive num macro próprio porque o cartão
+   de conexões desenha DUAS — a dele e a do comando que divide o cartão. #}
+{% macro cabeca(c) %}
+  <div class="comando-cabeca">
+    <h3>{{ c.rotulo }}</h3>
+    {% if c.escreve %}
+      <span class="etiqueta perigo">escreve no SAP</span>
+    {% elif c.escreve_tracking %}
+      <span class="etiqueta atencao">escreve no acompanhamento</span>
+    {% else %}
+      <span class="etiqueta calma">só leitura</span>
+    {% endif %}
+    {% if c.demora %}<span class="etiqueta tempo">{{ c.demora }}</span>{% endif %}
+  </div>
+{% endmacro %}
+
 {% macro formulario(c, pode, ritmo) %}
   <form
     class="comando"
@@ -17,17 +33,7 @@
   >
     <input type="hidden" name="comando" value="{{ c.id }}" />
 
-    <div class="comando-cabeca">
-      <h3>{{ c.rotulo }}</h3>
-      {% if c.escreve %}
-        <span class="etiqueta perigo">escreve no SAP</span>
-      {% elif c.escreve_tracking %}
-        <span class="etiqueta atencao">escreve no acompanhamento</span>
-      {% else %}
-        <span class="etiqueta calma">só leitura</span>
-      {% endif %}
-      {% if c.demora %}<span class="etiqueta tempo">{{ c.demora }}</span>{% endif %}
-    </div>
+    {{ cabeca(c) }}
 
     <p class="resumo">{{ c.resumo }}</p>
     {% if c.aviso %}<p class="alerta">{{ c.aviso }}</p>{% endif %}
@@ -93,14 +99,22 @@
         {% endif %}
       </div>
     {% elif c.alternativo %}
-      {# Dois botões, um cartão: "Testar as conexões" é uma pergunta só com duas
-         respostas. O `name="alternativo"` só é enviado pelo botão clicado — é
-         assim que a rota sabe qual dos dois comandos rodar. #}
+      {# Dois comandos dividem o cartão, empilhados — cada um com seu título,
+         seus selos e seu botão. Um rótulo guarda-chuva com dois botões tornava
+         os dois testes indistinguíveis: quem procurava o HANA não o achava.
+
+         O `name="alternativo"` só é enviado pelo botão que foi clicado; é assim
+         que a rota sabe qual dos dois rodar. #}
       <div class="filtros">
-        <button class="acao" type="submit">{{ c.argv[0] | replace("check-", "") | upper }}</button>
-        <button class="acao" type="submit" name="alternativo" value="1">
-          {{ por_id[c.alternativo].argv[0] | replace("check-", "") | upper }}
-        </button>
+        <button class="acao" type="submit">Executar</button>
+      </div>
+      {% set outro = por_id[c.alternativo] %}
+      <div class="comando-extra">
+        {{ cabeca(outro) }}
+        <p class="resumo">{{ outro.resumo }}</p>
+        <div class="filtros">
+          <button class="acao" type="submit" name="alternativo" value="1">Executar</button>
+        </div>
       </div>
     {% else %}
       <div class="filtros">

@@ -510,3 +510,46 @@ class TestCicloSimulado:
         real = next(c for c in cmd.CATALOGO if c.id == "ciclo")
         assert real.escreve and real.protegido
         assert "--simular" not in real.argv
+
+class TestCartaoCompartilhado:
+    """SAP e HANA dividem um cartao; cada metade tem o seu botao.
+
+    O que so este teste pega: o segundo botao precisa disparar o OUTRO comando.
+    Um `name` errado no HTML faria os dois botoes rodarem `check-sap`, e a tela
+    continuaria parecendo certa -- dois titulos, dois botoes, e o HANA nunca
+    testado.
+    """
+
+    def test_o_botao_de_baixo_dispara_o_alternativo(
+        self, cliente: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        chamadas = _sem_disparar(monkeypatch)
+
+        cliente.post(
+            "/fragmentos/comandos/executar",
+            data={"comando": "check-sap", "alternativo": "1"},
+        )
+
+        assert chamadas[0][0] == "check-hana"
+
+    def test_o_botao_de_cima_dispara_o_proprio(
+        self, cliente: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        chamadas = _sem_disparar(monkeypatch)
+
+        cliente.post("/fragmentos/comandos/executar", data={"comando": "check-sap"})
+
+        assert chamadas[0][0] == "check-sap"
+
+    def test_alternativo_em_comando_que_nao_tem_e_ignorado(
+        self, cliente: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Um POST a mao com `alternativo` nao pode trocar comando nenhum."""
+        chamadas = _sem_disparar(monkeypatch)
+
+        cliente.post(
+            "/fragmentos/comandos/executar",
+            data={"comando": "env", "alternativo": "1"},
+        )
+
+        assert chamadas[0][0] == "env"
