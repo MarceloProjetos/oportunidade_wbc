@@ -2,7 +2,7 @@
 
 Este script é **somente leitura**. Ele não escreve nada, em lugar nenhum — nem no
 Supabase, nem no HANA, nem em arquivo. É a rede de segurança do risco número um
-do projeto, escrito no ``mobile_orcaview_V3/docs/PLANO_VENDAS_BI.md`` §4 e §8:
+do projeto, escrito no ``mobile_orcaview_V4/docs/PLANO_VENDAS_BI.md`` §4 e §8:
 **fonte dupla de verdade**. A tela do celular mostra dinheiro (faturamento e
 pedidos da empresa) a partir de três tabelinhas agregadas no Supabase; se o
 pipeline da ``.11`` errar uma soma, nada quebra, nenhum log acende, e o número

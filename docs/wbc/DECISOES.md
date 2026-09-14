@@ -1814,8 +1814,11 @@ depois esbarrou na regra 1996.
 `Superuser = tNO` — a autorização de editar o cadastro bastou): `PATCH Users(144)`
 `{"U_INO_CancelaPedido":"S","U_INO_AlteraPeso":"S"}` → 204, conferido no `OUSR`. O objeto
 `Users` do SL é `OpenType` e expõe os UDFs do `OUSR`; a PATCH funciona como em qualquer
-entidade (UDFs no metadata desde o 9.1 PL05). `maintenance/liberar_cancelamento_orcaview.py`
-faz o mesmo a partir da .11, se precisar repetir noutro usuário.
+entidade (UDFs no metadata desde o 9.1 PL05). Havia um `maintenance/liberar_cancelamento_orcaview.py`
+para isso; cumprida a tarefa, ele saiu na faxina de 14/09/2026 — era um script de **escrita em
+produção** vivendo no repo para um uso que não se repete. Se precisar repetir noutro usuário,
+a receita é esta: `PATCH Users(<id>)` com `{"U_INO_CancelaPedido":"S"}` pela sessão do SL
+(ou a tela de Usuários do B1, que é mais simples e não pede código).
 
 ## Janela sob demanda: o teto escalonado, e a pergunta quando nem ele basta
 

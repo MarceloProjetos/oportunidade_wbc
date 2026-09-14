@@ -47,7 +47,7 @@ O pacote `wbcpython/` (ex-projeto WBCPython, importado em 2026-09-08) tem guia p
 | `tests/` | pytest; `test_<modulo>.py` espelha o módulo. `tests/wbc/` = suíte do pacote `wbcpython` (mesma árvore dele) |
 | `docs/wbc/` | Docs do WBC: `README.md` (como rodar), `DECISOES.md`, `APRENDIZADOS.md`, `RISCOS_PRODUCAO.md`, `PROGRESS.md` (diário), `ai_spec/00_index.md` (onde a spec antiga mora hoje) |
 | `sql/hana/` | View HANA `VW_INO_OPORTUNIDADE_INTEGRACAO` que o worker lê (DDL de referência) |
-| `run_wbc_worker.bat` · `run_wbc_painel.bat` | Wrappers NSSM do worker e do painel (cwd = raiz, venv-ou-sistema, UTF-8) |
+| `run_wbc_painel.bat` | Wrapper NSSM do painel (cwd = raiz, venv-ou-sistema, UTF-8). **O worker não tem wrapper** — o NSSM chama o `python.exe` direto, ver o gotcha |
 
 Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api.py` orquestra e
 importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não importa nada da raiz).

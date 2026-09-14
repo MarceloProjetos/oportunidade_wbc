@@ -649,7 +649,7 @@ instalador próprio — `install_mcp_service.bat`):
 | **Agendador** | carga de **oportunidades** a cada 30 min (07–18h, dias úteis) | `run_scheduler.bat` | `OrcaView-Scheduler` |
 | **API / Painel de Sincronização** | endpoints em `:8077`; `GET /` leva ao painel WBC (a entrada), a página de OS/Oportunidades fica em `/sincronizar` | `run_api.bat` | `OrcaView-OS-API` |
 | **Painel WBC** | a porta de entrada, em `:8079` (`PAINEL_PORTA`) — lê só o acompanhamento | `run_wbc_painel.bat` | `OrcaView-WBC-Painel` |
-| **Worker WBC** | cotação/pedido no SAP a partir do WBC, a cada 3 min no expediente — **escreve em produção** | `run_wbc_worker.bat` | `OrcaView-WBC-Worker` (manual até a virada) |
+| **Worker WBC** | cotação/pedido no SAP a partir do WBC, a cada 3 min no expediente — **escreve em produção** | `python.exe -m wbcpython worker` (sem wrapper) | `OrcaView-WBC-Worker` |
 
 **Entrada única:** abrir `http://192.168.7.11:8077` leva ao painel WBC (ou, se o serviço dele
 estiver parado, mostra o aviso e o botão para o Painel de Sincronização). O Painel de
@@ -853,9 +853,8 @@ ServidorIntegracaoSAP/
 ├── install_monitor_task.ps1     # Registra a tarefa do monitor (a cada 10 min, SYSTEM)
 ├── run_scheduler.bat            # Wrapper p/ Task Scheduler / NSSM (agendador, boot 24/7)
 ├── run_api.bat                  # Wrapper p/ Task Scheduler / NSSM (API, boot 24/7)
-├── run_wbc_worker.bat           # Wrapper NSSM do worker WBC (parada limpa de até 60 s)
 ├── run_wbc_painel.bat           # Wrapper NSSM do painel WBC (PAINEL_HOST:PAINEL_PORTA)
-├── install_services.bat         # Registra agendador + API + painel WBC + worker WBC (manual) no NSSM
+├── install_services.bat         # Registra agendador + API no NSSM (os outros 3 têm instalador próprio)
 ├── deploy_update.bat            # Atualiza a .11: para os 5 serviços, git pull, pip se preciso, religa
 ├── docs/                        # Planos deste repo · docs/wbc/ = guia, decisões e histórico do WBC
 ├── requirements.txt             # Dependências Python

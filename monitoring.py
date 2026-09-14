@@ -322,7 +322,7 @@ def _wbc_tracking_db_path() -> Optional[str]:
 
     ``None`` when the URL is not a file-backed SQLite (PostgreSQL, ``:memory:``): the check
     then reports itself unavailable instead of guessing. Relative paths are resolved from
-    the project root — the worker runs with cwd = root (``run_wbc_worker.bat``), so both
+    the project root — the worker runs with cwd = root (NSSM ``AppDirectory``), so both
     read the same file.
     """
     url = (get_settings().wbc_tracking_db_url or '').strip()

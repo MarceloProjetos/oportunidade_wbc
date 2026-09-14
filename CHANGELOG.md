@@ -184,6 +184,53 @@ elo 3. (E se o cenario for queda de energia: algumas placas perdem o armamento d
 quando falta luz — ai quem resolve e `Restore on AC Power Loss = Power On`, na mesma
 visita a BIOS.)
 
+## [2026-09-14] — Faxina de encerramento: 4 arquivos mortos e uma armadilha de deploy
+
+Varredura do repo inteiro (231 arquivos) atras de plano encerrado, script sem dono e
+codigo morto. O achado que justificou a faxina **nao era lixo — era risco**:
+
+### ⚠️ Dois instaladores instalavam os MESMOS servicos, e divergiam
+
+`install_services.bat` instalava os quatro (Scheduler, OS-API, WBC-Painel, WBC-Worker) e
+`install_wbc_services.bat` instalava os dois do WBC de novo. Nao era so duplicacao: o
+primeiro registrava o worker com **`run_wbc_worker.bat`** e o segundo com o **`python.exe`
+direto**. Rodar o `install_services.bat` hoje **desfaria calado** a decisao de 08/09 — com o
+`.bat` no meio, o Ctrl+C do NSSM morre no "Terminate batch job (Y/N)?" e a parada do worker
+so termina quando o NSSM mata a arvore aos 60 s (foi a trava de 30 min do ciclo #133).
+
+Agora cada servico tem UM instalador: o `install_services.bat` cuida do Scheduler e da API,
+e aponta para os outros dois (`install_mcp_service.bat`, `install_wbc_services.bat`). Com o
+worker sem wrapper, o `run_wbc_worker.bat` ficou orfao e saiu.
+
+### Removidos
+
+| Arquivo | Por que |
+| --- | --- |
+| `run_wbc_worker.bat` | orfao: o NSSM chama o `python.exe` direto desde 08/09 |
+| `sondagem_windows_update.ps1` | sondagem exploratoria de 16/07; virou o `windows_update.py`, zero referencia |
+| `maintenance/ajustar_logs_nssm.bat` | one-shot aplicado em 11/09; os instaladores ja gravam `AppRotateFiles 0` + `CreationDisposition 2` |
+| `maintenance/liberar_cancelamento_orcaview.py` | one-shot aplicado em 09/09 (PATCH `Users(144)` → 204, `DECISOES.md`). Era **escrita em producao** morando no repo para um uso que nao se repete; a receita ficou na DECISOES |
+
+### O que NAO saiu, e por que
+
+- **Os 7 planos de `docs/`.** Encerrado nao e' morto: sao eles que explicam as invariantes
+  que o `CLAUDE.md` cita ("nasce `false`", "fail-closed", "`OCNT` fora do JOIN"). Apagar
+  troca 150 KB por alguem refazendo uma decisao ja tomada.
+- **`docs/wbc/ai_spec/00_index.md`** — cheguei a apagar e devolvi: 9 arquivos apontam para
+  ele, e e' justamente por a spec original NAO existir que o ponteiro tem valor.
+- **`maintenance/conferir_vendas_bi.py`** — parece orfao (ninguem importa), mas e' a rede de
+  seguranca da fonte dupla de verdade do BI de vendas: numero errado ali nao acende log
+  nenhum, so aparece bonito no celular de quem decide. So corrigi a referencia
+  (`mobile_orcaview_V3` → `V4`).
+- **`monitor_wbc_task.ps1` / `install_monitor_task.ps1`** — a tarefa legada esta desativada,
+  mas `WBC_TASK_MONITOR=true` e' o rollback documentado.
+- **`wake_altservidor_ia.py` / `install_wol_task.ps1`** — em producao: e' a .11 que acorda o
+  .90 no boot.
+- **`sql/`** — DDL de referencia, incluindo as migracoes datadas ja aplicadas: e' o historico
+  de como o schema chegou onde esta.
+
+Suite depois da faxina: **1754 passed**, 12 skipped.
+
 ## [2026-09-14] — A .11 roda Python 3.14.7
 
 Migrada. `system.python` = **3.14.7**, os 5 servicos no ar, e a F3 do

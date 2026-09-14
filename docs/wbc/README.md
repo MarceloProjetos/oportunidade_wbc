@@ -59,9 +59,10 @@ WBCPython 0.1.0
 ambiente=prod | company_db=SBOALTAMIRAPROD (PRODUÇÃO) | schema_hana=SBOALTAMIRAPROD | trava_de_escrita_em_producao=DESATIVADA
 ```
 
-Na .11 worker e painel são serviços NSSM (`install_services.bat`): `OrcaView-WBC-Worker`
-(`run_wbc_worker.bat`; **manual até a virada**, parada limpa de até 60 s) e
-`OrcaView-WBC-Painel` (`run_wbc_painel.bat`; automático). Atualização pelo
+Na .11 worker e painel são serviços NSSM (`install_wbc_services.bat`): `OrcaView-WBC-Worker`
+(o NSSM chama o `python.exe` **direto**, sem `.bat` no meio — é o que faz o Ctrl+C chegar
+ao Python e a parada terminar em segundos) e `OrcaView-WBC-Painel` (`run_wbc_painel.bat`;
+automático). Atualização pelo
 `deploy_update.bat` — o worker só religa se estava rodando.
 
 Dependências: as do `requirements.txt` da raiz (pydantic-settings, sqlalchemy, pymssql,
