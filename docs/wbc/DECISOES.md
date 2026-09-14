@@ -1883,7 +1883,19 @@ para trás** esse ciclo automático olha. `Settings.painel_pode_armar_janela` é
 card, e pede só a senha. Os comandos do catálogo (inclusive "Ciclo de integração") **seguem
 bloqueados** em produção — há teste cravando os dois lados.
 
-Consequência que a senha passa a carregar sozinha: sem o bloqueio de produção na frente, ela é
-a **única** guarda do armar. Com `PAINEL_SENHA` vazia, `compare_digest("", "")` é verdadeiro e
-quem não digitasse nada passaria — por isso a senha é conferida como pré-condição (existe?),
-e não apenas comparada. Teste: `test_senha_vazia_nao_vira_porta_aberta`.
+**A senha saiu do armar em 14/09/2026**, um dia depois de entrar, por decisão do Marcelo:
+*"sem senha e com menos textos — torne o acesso mais simples"*. O cartão existe para vendas
+usar sozinho, e uma senha de painel no caminho empurrava todo mundo de volta para o TI — que é
+exatamente o que este trabalho existia para eliminar. Quem alcança o painel já passou pela
+`OS_API_KEY`.
+
+Fica registrado o que isso custa, porque foi dito na hora e é o tipo de coisa que se esquece:
+**não sobra guarda técnica no armar.** Quem tem o cookie do painel pode disparar as escritas
+medidas no ensaio de 13 meses (144, incluindo pedidos de mais de R$ 1 milhão) com um clique e
+uma confirmação do navegador. O que resta é o **nome de quem pediu**, obrigatório — ele não
+autoriza nada, só responde "quem mandou?" semanas depois, e sem ele o evento no acompanhamento
+diria "(não informado)".
+
+A dispensa é **só do armar** e não vaza: os comandos do catálogo, "Ciclo de integração"
+incluído, seguem exigindo `PAINEL_SENHA` e seguem bloqueados em produção. Há teste cravando os
+dois lados (`TestEmProducao`, `TestSemSenhaNoEnv`).

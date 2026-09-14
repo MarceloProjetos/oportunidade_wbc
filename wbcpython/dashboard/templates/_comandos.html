@@ -113,16 +113,15 @@
     <span class="carimbo">nenhum documento do SAP é criado, alterado ou cancelado</span>
   </header>
   <div class="corpo grade-comandos">
+    {# A janela é o primeiro cartão da grade, ao lado de "Verificar pendentes":
+       são os dois passos do mesmo gesto — ensaiar a janela e depois armá-la.
+       Como cartão da grade, e não como bloco à parte, ela herda a forma dos
+       vizinhos e para de parecer uma tela de configuração. #}
+    <div id="janela" hx-get="/fragmentos/janela" hx-trigger="load" hx-swap="outerHTML">
+      <div class="comando"><div class="vazio">Carregando…</div></div>
+    </div>
     {% for c in leitura %}{{ formulario(c, true, ritmo) }}{% endfor %}
   </div>
-</div>
-
-{# Logo DEPOIS da leitura, e antes da execução: é essa a ordem em que se usa a
-   tela. Primeiro se ensaia a janela em "Verificar pendentes", ali em cima;
-   depois se arma, aqui; e só então o ciclo escreve. Armar antes de ensaiar é
-   justamente o que o card pede para não fazer. #}
-<div id="janela" hx-get="/fragmentos/janela" hx-trigger="load" hx-swap="outerHTML">
-  <div class="bloco"><div class="vazio">Carregando…</div></div>
 </div>
 
 <div class="bloco">

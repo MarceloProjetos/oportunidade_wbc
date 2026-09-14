@@ -3,6 +3,32 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-14] — Janela de busca: cartao simples, sem senha
+
+Pedido do Marcelo: *"poderia ser um card dentro de Leitura e diagnostico, sem senha e com
+menos textos — torne o acesso mais simples"*.
+
+O bloco a parte virou o **primeiro cartao da grade de "Leitura e diagnostico"**, ao lado de
+"Verificar pendentes": sao os dois passos do mesmo gesto — ensaiar a janela e depois arma-la.
+Como cartao da grade ele herda a forma dos vizinhos e para de parecer tela de configuracao.
+Quatro paragrafos viraram um: o que precisa ficar claro e **data de abertura** e **volta
+sozinha**; o resto esta no plano.
+
+**A senha saiu do armar**, um dia depois de entrar. O cartao existe para vendas usar sozinho,
+e uma senha de painel no caminho empurrava todo mundo de volta para o TI. Quem alcanca o
+painel ja passou pela `OS_API_KEY`.
+
+Fica registrado o que custa: **nao sobra guarda tecnica no armar**. Quem tem o cookie do painel
+dispara as escritas medidas no ensaio de 13 meses (144, com pedidos de mais de R$ 1 milhao) com
+um clique e uma confirmacao do navegador. O que resta e o **nome de quem pediu**, obrigatorio —
+audita sem autorizar.
+
+A dispensa e so do armar e nao vaza: os comandos do catalogo, "Ciclo de integracao" incluido,
+seguem exigindo `PAINEL_SENHA` e seguem bloqueados em producao. `Settings.painel_pode_armar_janela`
+morreu junto com a senha.
+
+Suite do WBC: 1.107 testes.
+
 ## [2026-09-11] — Janela sob demanda: armar vira excecao ao bloqueio de producao
 
 Correcao do deploy de hoje. O card "Janela de busca" subiu na .11 **sem o formulario de
