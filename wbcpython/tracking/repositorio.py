@@ -443,6 +443,40 @@ class RepositorioTracking:
         with self._sessao() as s:
             return list(s.scalars(consulta))
 
+    def nomes_que_ja_pediram(self, *, limite: int = 20) -> list[str]:
+        """Quem já armou a janela antes, do mais recente para o mais antigo.
+
+        É a queda do cartão quando a lista de perfis do OrçaView não vem (a API
+        local fora do ar): o campo continua oferecendo nomes, só que os que já
+        passaram por aqui. Vazio no primeiro uso, e melhora sozinho.
+
+        Sai dos **eventos**, e não de uma coluna nova: `pedido_de_janela` é uma
+        linha só e guarda apenas o último. O histórico de verdade já está no
+        `detalhes` de cada reprocessamento — usá-lo custa um parse de JSON e
+        nenhuma tabela nova.
+        """
+        consulta = (
+            select(Evento.detalhes)
+            .where(Evento.tipo == TipoEvento.REPROCESSAMENTO, Evento.detalhes != "")
+            .order_by(Evento.id.desc())
+            .limit(limite * 10)
+        )
+        vistos: dict[str, None] = {}
+        with self._sessao() as s:
+            for bruto in s.scalars(consulta):
+                try:
+                    nome = (json.loads(bruto) or {}).get("solicitante") or ""
+                except (ValueError, TypeError):
+                    # Evento antigo, ou `detalhes` que não é objeto. Não é erro:
+                    # nem todo reprocessamento foi gravado com solicitante.
+                    continue
+                nome = nome.strip()
+                if nome and nome not in vistos:
+                    vistos[nome] = None
+                    if len(vistos) >= limite:
+                        break
+        return list(vistos)
+
     # ------------------------------------------------- janela sob demanda
 
     def janela_pedida(self, *, agora: datetime | None = None) -> PedidoDeJanela:

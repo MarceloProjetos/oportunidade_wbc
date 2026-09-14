@@ -207,6 +207,11 @@ def _checar_rate(bucket: str, limite: int):
 # Supabase client (service_role) for reading the log — created on demand and reused.
 _supabase_client = None
 
+#: Cache da lista de perfis ativos: ``(momento, nomes)``. A lista muda em meses;
+#: o painel a pede a cada repintura do cartao. Ver ``usuarios_ativos``.
+_usuarios_cache: Optional[Tuple[float, List[str]]] = None
+USUARIOS_CACHE_S = 600
+
 
 def _supabase():
     global _supabase_client
@@ -737,6 +742,51 @@ def historico_limpar():
         logger.error("Erro ao limpar histórico: %s", exc)
         return jsonify(ok=False, error='falha ao limpar o historico'), 502
     return jsonify(ok=True, removed=removidos)
+
+
+@app.get('/usuarios-ativos')
+@requer_chave
+def usuarios_ativos():
+    """Nomes dos perfis ATIVOS do OrcaView (``app_profiles``). Exige X-API-Key.
+
+    Existe para o painel WBC oferecer uma lista em vez de um campo de texto livre
+    no "Seu nome" -- o campo que audita quem armou a janela de busca. Texto livre
+    virava "j", "joana" e "Joana Silva" no mesmo historico, o que estraga
+    justamente a pergunta que o campo existe para responder.
+
+    Mora aqui, e nao no painel, de proposito: o ``wbcpython`` nao conhece o
+    Supabase e nao deve passar a conhecer (``wbcpython/dashboard/__init__``). A
+    API ja tem o cliente e a credencial; o painel chama por localhost.
+
+    So o nome sai. Email, papel e ``slp_code`` nao servem para preencher um campo
+    de auditoria, e uma lista de e-mails da equipe atras de uma chave
+    compartilhada e exposicao sem contrapartida.
+
+    O cache existe porque a lista muda em meses e a tela e repintada o tempo
+    todo; sem ele, cada recarga do painel custaria uma ida ao Supabase (1,2 s
+    medidos na .11 em 14/09/2026).
+    """
+    global _usuarios_cache
+    agora = time.time()
+    if _usuarios_cache and agora - _usuarios_cache[0] < USUARIOS_CACHE_S:
+        return jsonify(ok=True, items=_usuarios_cache[1], cache_idade_s=int(agora - _usuarios_cache[0]))
+    try:
+        res = (
+            _supabase().table('app_profiles')
+            .select('full_name').eq('active', True).order('full_name').execute()
+        )
+    except Exception as exc:
+        logger.error("Erro ao listar perfis ativos: %s", exc)
+        # 502 e nao 500: quem falhou foi o Supabase, e o painel trata isto caindo
+        # para o historico local dele em vez de mostrar erro na tela.
+        return jsonify(ok=False, error='falha ao consultar os perfis'), 502
+    nomes = [
+        (linha.get('full_name') or '').strip()
+        for linha in (res.data or [])
+        if (linha.get('full_name') or '').strip()
+    ]
+    _usuarios_cache = (agora, nomes)
+    return jsonify(ok=True, items=nomes, cache_idade_s=0)
 
 
 @app.get('/ordens-servico/disponiveis')

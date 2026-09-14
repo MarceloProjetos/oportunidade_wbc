@@ -45,6 +45,7 @@ from wbcpython.config import Settings, get_settings
 from wbcpython.dashboard import comandos as cmd
 from wbcpython.dashboard import dados
 from wbcpython.dashboard import previsao as prev
+from wbcpython.dashboard import usuarios
 from wbcpython.dashboard.dados import (
     calcular_kpis,
     linha_para_tabela,
@@ -582,6 +583,7 @@ def criar_app(
             producao=config.targets_production,
             pode_armar=config.painel_pode_armar_janela,
             motivo=_por_que_nao_arma(config),
+            nomes=usuarios.sugestoes(config, repo),
             erro=erro,
         )
 

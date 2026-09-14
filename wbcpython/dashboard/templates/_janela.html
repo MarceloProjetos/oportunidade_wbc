@@ -55,7 +55,16 @@
     <div class="filtros">
       <label class="campo">
         <span>Seu nome</span>
-        <input type="text" name="solicitante" placeholder="fica no histórico" />
+        {# `list` e não `<select>`: a lista vem do OrçaView pela API ao lado, e
+           quando ela não vem o campo precisa continuar aceitando um nome
+           digitado — um `<select>` vazio travaria o cartão. #}
+        <input
+          type="text"
+          name="solicitante"
+          list="janela-nomes"
+          autocomplete="off"
+          placeholder="{{ 'escolha ou digite' if nomes else 'fica no histórico' }}"
+        />
       </label>
       <label class="campo">
         <span>Senha do painel</span>
@@ -96,7 +105,16 @@
       </label>
       <label class="campo">
         <span>Seu nome</span>
-        <input type="text" name="solicitante" placeholder="fica no histórico" />
+        {# `list` e não `<select>`: a lista vem do OrçaView pela API ao lado, e
+           quando ela não vem o campo precisa continuar aceitando um nome
+           digitado — um `<select>` vazio travaria o cartão. #}
+        <input
+          type="text"
+          name="solicitante"
+          list="janela-nomes"
+          autocomplete="off"
+          placeholder="{{ 'escolha ou digite' if nomes else 'fica no histórico' }}"
+        />
       </label>
       <label class="campo">
         <span>Senha do painel</span>
@@ -107,4 +125,13 @@
   {% endif %}
 
   {% if erro %}<p class="alerta">{{ erro }}</p>{% endif %}
+
+  {# Perfis ativos do OrçaView primeiro; depois quem já armou a janela e não é
+     perfil. Um `<datalist>` só sugere — quem precisar de um nome fora da lista
+     continua digitando. #}
+  {% if nomes %}
+    <datalist id="janela-nomes">
+      {% for nome in nomes %}<option value="{{ nome }}"></option>{% endfor %}
+    </datalist>
+  {% endif %}
 </form>

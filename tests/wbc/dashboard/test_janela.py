@@ -356,3 +356,32 @@ class TestCartoesCompartilhados:
         corpo = cliente.get("/fragmentos/comandos").text
 
         assert corpo.count('name="alternativo"') == len(self.PARES)
+
+
+class TestAListaDeNomes:
+    def test_o_campo_oferece_os_nomes(
+        self, cliente: TestClient, repo: RepositorioTracking, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from wbcpython.dashboard import usuarios
+
+        usuarios._cache = None
+        monkeypatch.setattr(usuarios, "_da_api", lambda _c: ["Joana Silva"])
+
+        corpo = cliente.get("/fragmentos/janela").text
+
+        assert 'list="janela-nomes"' in corpo
+        assert '<option value="Joana Silva">' in corpo
+
+    def test_sem_nomes_o_campo_segue_aceitando_texto(
+        self, cliente: TestClient, repo: RepositorioTracking, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`<datalist>` e nao `<select>`: sem lista, o cartao nao pode travar."""
+        from wbcpython.dashboard import usuarios
+
+        usuarios._cache = None
+        monkeypatch.setattr(usuarios, "_da_api", lambda _c: [])
+
+        corpo = cliente.get("/fragmentos/janela").text
+
+        assert 'name="solicitante"' in corpo
+        assert "<datalist" not in corpo

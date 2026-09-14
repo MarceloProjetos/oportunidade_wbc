@@ -1396,3 +1396,59 @@ def test_status_alias_worker_e_wbc_continua_sendo_o_sql_server(client, monkeypat
                         lambda only=None: capturado.update(only=only) or {'ok': True, 'alerts': []})
     assert client.get('/status?checks=worker,wbc,integracao_wbc').status_code == 200
     assert capturado['only'] == {'wbc_worker', 'sql_server'}
+
+
+# ----- /usuarios-ativos (lista de nomes para o cartao da janela) -----
+
+def test_usuarios_ativos_devolve_so_o_nome(client, monkeypatch):
+    """Nome e o que preenche o campo. E-mail e papel da equipe atras de uma
+    chave compartilhada seria exposicao sem contrapartida."""
+    apimod._usuarios_cache = None
+    registro = _stub_supabase(monkeypatch, [
+        {'full_name': 'Joana Silva'},
+        {'full_name': 'Carlos Andrade'},
+    ])
+    body = client.get('/usuarios-ativos').get_json()
+    assert body['ok'] is True
+    assert body['items'] == ['Joana Silva', 'Carlos Andrade']
+    assert registro[0] == 'full_name'
+
+
+def test_usuarios_ativos_descarta_nome_vazio(client, monkeypatch):
+    """Perfil sem `full_name` viraria uma opcao em branco no <datalist>."""
+    apimod._usuarios_cache = None
+    _stub_supabase(monkeypatch, [
+        {'full_name': 'Joana Silva'},
+        {'full_name': '   '},
+        {'full_name': None},
+    ])
+    assert client.get('/usuarios-ativos').get_json()['items'] == ['Joana Silva']
+
+
+def test_usuarios_ativos_usa_o_cache(client, monkeypatch):
+    """A lista muda em meses e a tela repinta o tempo todo: sem cache, cada
+    recarga do painel custaria uma ida ao Supabase (1,2 s medidos na .11)."""
+    apimod._usuarios_cache = None
+    _stub_supabase(monkeypatch, [{'full_name': 'Joana Silva'}])
+    client.get('/usuarios-ativos')
+
+    def _explode():
+        raise AssertionError('nao deveria consultar o Supabase de novo')
+
+    monkeypatch.setattr(apimod, '_supabase', _explode)
+    body = client.get('/usuarios-ativos').get_json()
+    assert body['items'] == ['Joana Silva']
+
+
+def test_usuarios_ativos_devolve_502_quando_o_supabase_falha(client, monkeypatch):
+    """502 e nao 500: quem falhou foi o Supabase, e o painel trata isso caindo
+    para o historico local em vez de mostrar erro na tela."""
+    apimod._usuarios_cache = None
+
+    def _falha():
+        raise RuntimeError('supabase fora')
+
+    monkeypatch.setattr(apimod, '_supabase', _falha)
+    resposta = client.get('/usuarios-ativos')
+    assert resposta.status_code == 502
+    assert resposta.get_json()['ok'] is False
