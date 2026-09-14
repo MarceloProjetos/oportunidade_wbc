@@ -178,6 +178,7 @@ CATALOGO: tuple[Comando, ...] = (
         resumo="Para qual company DB e schema a aplicação está apontada.",
         argv=("env",),
         demora="imediato",
+        alternativo="doctor",
     ),
     Comando(
         id="doctor",
@@ -185,6 +186,7 @@ CATALOGO: tuple[Comando, ...] = (
         resumo="Configuração, dependências opcionais e prontidão de cada fase.",
         argv=("doctor",),
         demora="imediato",
+        oculto=True,
     ),
     Comando(
         id="check-sap",

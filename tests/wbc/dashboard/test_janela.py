@@ -325,23 +325,34 @@ class TestALista:
         assert "00099001" in cliente.get("/fragmentos/oportunidades").text
 
 
-class TestOCartaoDeConexoes:
-    """SAP e HANA dividem um cartão, com dois botões.
+class TestCartoesCompartilhados:
+    """Dois pares de comandos dividem um cartão cada: SAP+HANA e Ambiente+doctor.
 
-    Eram dois cartões quase idênticos — mesmo selo, mesma demora, uma linha
-    de texto cada — e a grade ficava com sete onde cabem seis.
+    Eram quatro cartões quase idênticos — mesmo selo, mesma demora, uma linha de
+    texto cada. Juntos viram dois, e cada metade mantém título, selos e botão
+    próprios: são comandos diferentes, não variações de um só.
     """
 
-    def test_o_cartao_aponta_para_o_alternativo(self) -> None:
+    PARES = (("check-sap", "check-hana"), ("env", "doctor"))
+
+    @pytest.mark.parametrize(("dono", "outro"), PARES)
+    def test_o_cartao_aponta_para_o_alternativo(self, dono: str, outro: str) -> None:
         from wbcpython.dashboard import comandos as cmd
 
-        assert cmd.POR_ID["check-sap"].alternativo == "check-hana"
-        assert cmd.POR_ID["check-hana"].oculto
+        assert cmd.POR_ID[dono].alternativo == outro
+        assert cmd.POR_ID[outro].oculto
 
-    def test_o_alternativo_nao_ganha_cartao_proprio(self, cliente: TestClient) -> None:
-        """Senão a grade volta a ter sete cartões."""
+    @pytest.mark.parametrize(("dono", "outro"), PARES)
+    def test_o_alternativo_nao_ganha_cartao_proprio(
+        self, cliente: TestClient, dono: str, outro: str
+    ) -> None:
+        """Senão a grade volta a ter um cartão por comando."""
         corpo = cliente.get("/fragmentos/comandos").text
 
-        assert 'name="comando" value="check-hana"' not in corpo
-        assert corpo.count('name="comando" value="check-sap"') == 1
-        assert corpo.count('name="alternativo"') == 1
+        assert f'name="comando" value="{outro}"' not in corpo
+        assert corpo.count(f'name="comando" value="{dono}"') == 1
+
+    def test_ha_um_botao_alternativo_por_par(self, cliente: TestClient) -> None:
+        corpo = cliente.get("/fragmentos/comandos").text
+
+        assert corpo.count('name="alternativo"') == len(self.PARES)

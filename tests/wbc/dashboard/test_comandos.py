@@ -549,7 +549,7 @@ class TestCartaoCompartilhado:
 
         cliente.post(
             "/fragmentos/comandos/executar",
-            data={"comando": "env", "alternativo": "1"},
+            data={"comando": "pendentes", "alternativo": "1"},
         )
 
-        assert chamadas[0][0] == "env"
+        assert chamadas[0][0] == "pendentes"
