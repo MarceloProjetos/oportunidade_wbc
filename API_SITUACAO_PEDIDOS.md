@@ -175,6 +175,9 @@ Mande um único pedido com estes três itens — nada aqui é auto-serviço:
    a partir do IP de origem que você vai usar.
 2. **A chave da API** (`X-API-Key`), se for usar REST.
 3. **O token do MCP** (`Bearer`), se for usar MCP.
+4. **O `STATUS_ID`**, se você for **monitorar** a saúde do servidor (§5.3). É uma
+   credencial separada e de baixo privilégio: abre o diagnóstico completo e **só ele** —
+   nas rotas de dados responde `401`.
 
 > **A chave e o token não estão neste documento e nunca devem estar.** Guarde-os em
 > variável de ambiente ou cofre de segredos — **nunca** em código versionado, e **nunca**
@@ -389,6 +392,34 @@ Este pedido é o caso comum (**86%**): sem Local de Entrega próprio, `entrega_d
   voltaram na sua chamada está em **`total_filtrado`**.
 - **Filtro que não casa com nada devolve `200` com `"pedidos": []`**, nunca 404. "Não há
   nada bloqueado" é uma resposta legítima.
+
+### 5.3 Saúde: `GET /health` e `GET /status`
+
+Duas rotas fora do fluxo de dados, para quem monitora.
+
+| Rota | Para que serve | Credencial |
+| --- | --- | --- |
+| `GET /health` | "A API está de pé?" — resposta minúscula e rápida | **nenhuma** |
+| `GET /status` | Diagnóstico: SAP HANA, SQL Server, Supabase, latências, agendador, disco | **dois níveis** (abaixo) |
+
+O `/status` responde em **dois níveis**, desde 10/09/2026:
+
+- **Sem credencial** vem a visão mínima — `ok`, `healthy`, um booleano por check,
+  `alerts` como **número** (não a lista) e `restrito: true`. Dá para monitorar com isso.
+- **Com credencial** vem o payload completo. Serve a `X-API-Key` desta API **ou** o
+  `STATUS_ID`.
+
+```bash
+curl -s http://192.168.7.11:8077/health
+curl -s -H "X-API-Key: $STATUS_ID" http://192.168.7.11:8077/status
+curl -s "http://192.168.7.11:8077/status?checks=sap&strict=1" -o /dev/null -w '%{http_code}\n'
+```
+
+⚠️ **O código HTTP não muda com a credencial.** Com `?strict=1` o `/status` responde
+**503** quando algo está degradado e **200** quando não — igual nos dois níveis. Se o seu
+monitor decide pelo status code, ele funciona **sem credencial nenhuma**; o `STATUS_ID` só
+muda o que você lê no corpo. `?checks=sap,sql_server,...` limita o diagnóstico ao que
+interessa e deixa a resposta mais rápida.
 
 ---
 
@@ -890,5 +921,5 @@ mudou de tipo, ou qualquer número que divirja da tela do OrçaView de forma con
 
 ---
 
-*Servidor de Integração SAP · `192.168.7.11` · atualizado em 2026-09-03.*
+*Servidor de Integração SAP · `192.168.7.11` · atualizado em 2026-09-14.*
 *Runbook interno: `docs/PLANO_SITUACAO_PEDIDOS_MCP.md`.*
