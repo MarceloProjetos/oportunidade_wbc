@@ -5,6 +5,61 @@
   porque aqui tem alguém olhando e esperando terminar. Quando termina, o
   polling para sozinho: um console parado não precisa consultar o servidor.
 #}
+
+{# O histórico vem ANTES da saída, e não depois: a saída de um comando
+   tem centenas de linhas e empurra a tabela para fora da tela. Quem abre
+   a aba quer primeiro saber O QUE rodou e se deu certo; o texto da
+   execução é o detalhe de uma das linhas dessa tabela. #}
+{% if historico | length > (1 if not atual else 0) %}
+  <div class="bloco">
+    <header>
+      <h2>Comandos executados pelo painel</h2>
+      <span class="carimbo">{{ historico | length }} nesta sessão</span>
+    </header>
+    <div class="rolagem">
+      <table>
+        <thead>
+          <tr>
+            <th class="mono">Início</th>
+            <th>Comando</th>
+            <th>Quem pediu</th>
+            <th class="num">Duração</th>
+            <th>Situação</th>
+            <th>Saída</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in historico %}
+            <tr>
+              <td class="mono">{{ e.inicio.strftime('%d/%m %H:%M:%S') }}</td>
+              <td class="mono">{{ e.linha }}</td>
+              <td>{{ e.solicitante }}</td>
+              <td class="num">{{ '%.1f'|format(e.duracao) }}s</td>
+              <td>
+                <span
+                  class="etiqueta {{ {'ok': 'calma', 'falhou': 'perigo', 'interrompida': 'atencao', 'rodando': 'atencao'}[e.situacao] }}"
+                  >{{ e.situacao }}</span
+                >
+              </td>
+              <td>
+                <a href="#" hx-get="/fragmentos/execucao/{{ e.id }}" hx-target="#console">ver</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {# O histórico vive na memória do painel: reiniciar o processo o zera. O
+       rastro que dura está no log em arquivo e no histórico do orçamento. #}
+    <div class="corpo">
+      <p class="nota">
+        Esta lista está na memória do painel e some ao reiniciá-lo. O rastro que dura é o
+        log em arquivo (aba “Log”) e o histórico de cada orçamento.
+      </p>
+    </div>
+  </div>
+{% endif %}
+
 {% if atual %}
   <div
     class="bloco"
@@ -78,52 +133,3 @@
   </div>
 {% endif %}
 
-{% if historico | length > (1 if not atual else 0) %}
-  <div class="bloco">
-    <header>
-      <h2>Comandos executados pelo painel</h2>
-      <span class="carimbo">{{ historico | length }} nesta sessão</span>
-    </header>
-    <div class="rolagem">
-      <table>
-        <thead>
-          <tr>
-            <th class="mono">Início</th>
-            <th>Comando</th>
-            <th>Quem pediu</th>
-            <th class="num">Duração</th>
-            <th>Situação</th>
-            <th>Saída</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for e in historico %}
-            <tr>
-              <td class="mono">{{ e.inicio.strftime('%d/%m %H:%M:%S') }}</td>
-              <td class="mono">{{ e.linha }}</td>
-              <td>{{ e.solicitante }}</td>
-              <td class="num">{{ '%.1f'|format(e.duracao) }}s</td>
-              <td>
-                <span
-                  class="etiqueta {{ {'ok': 'calma', 'falhou': 'perigo', 'interrompida': 'atencao', 'rodando': 'atencao'}[e.situacao] }}"
-                  >{{ e.situacao }}</span
-                >
-              </td>
-              <td>
-                <a href="#" hx-get="/fragmentos/execucao/{{ e.id }}" hx-target="#console">ver</a>
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {# O histórico vive na memória do painel: reiniciar o processo o zera. O
-       rastro que dura está no log em arquivo e no histórico do orçamento. #}
-    <div class="corpo">
-      <p class="nota">
-        Esta lista está na memória do painel e some ao reiniciá-lo. O rastro que dura é o
-        log em arquivo (aba “Log”) e o histórico de cada orçamento.
-      </p>
-    </div>
-  </div>
-{% endif %}
