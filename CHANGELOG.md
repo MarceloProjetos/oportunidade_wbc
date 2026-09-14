@@ -128,6 +128,56 @@ elo 3. (E se o cenario for queda de energia: algumas placas perdem o armamento d
 quando falta luz — ai quem resolve e `Restore on AC Power Loss = Power On`, na mesma
 visita a BIOS.)
 
+## [2026-09-14] — A .11 roda Python 3.14.7
+
+Migrada. `system.python` = **3.14.7**, os 5 servicos no ar, e a F3 do
+`docs/PLANO_PYTHON_314_NA_11.md` passou inteira em producao:
+
+| O que | Prova |
+| --- | --- |
+| `hdbcli` (HANA) | check `sap` 24 ms |
+| `pyodbc` (SQL Server) | check `sql_server` 8 ms — e' `pyodbc.connect`, nao um ping |
+| `pymssql` (WBCCAD) | worker ciclo 863: 1729 orcamentos, nenhum erro |
+| Service Layer | `wbcpython check-sap` → `[ok] Conexao OK (SBOALTAMIRAPROD)` |
+| `pandas` 2.3.3 | agendador 07:40:21 `sucesso` (DataFrame → Supabase) |
+| `mcp`/`fastmcp` | 8078 respondendo |
+| Suite NA .11, no 3.14 | **1749 passed**, 29 skipped, 2 falhas explicadas |
+
+Memoria caiu de 43,5% para **30,6%** depois da virada. O unico pin que bloqueava era o
+`pandas==2.2.3` (sem roda cp314), trocado na entrada de 11/09.
+
+### ⚠️ O PATH nao chega aos servicos sem REBOOT
+
+O achado que vale guardar. Depois de instalar o 3.14 e ve-lo primeiro no
+`where.exe python`, **um `deploy_update.bat` inteiro rodou e os servicos continuaram no
+3.12** (`system.python: 3.12.10`, `uptime_s: 94`). O Windows so entrega o `PATH` novo aos
+**servicos** quando o Gerenciador de Servicos rele o ambiente — no reboot. `nssm restart`
+nao basta: o servico herda o ambiente que o SCM ja tinha.
+
+Isso abriu uma janela perigosa: **3.14 primeiro no PATH, `site-packages` vazio, e a .11
+reinicia sozinha as 06:12.** Se o reboot tivesse vindo antes do `pip`, os 5 servicos
+subiriam sem dependencia nenhuma.
+
+**Ordem segura, para a proxima:** instalar → `del state\deps.sha256` →
+`deploy_update.bat` (o `pip` instala no interpretador novo enquanto os servicos ainda
+rodam no antigo) → **so entao** reiniciar.
+
+### As 2 falhas da suite nao sao do 3.14
+
+- `test_export_os_json.py`: o modulo e o teste foram **apagados do repo** na faxina
+  `842bf02`; continuam em disco na .11 como orfaos (`??` no `git status`). Codigo morto
+  testando codigo morto.
+- `tests/wbc/test_logs.py::TestRuido`: **passa sozinha** no mesmo 3.14.7; so quebra na
+  suite inteira, porque `logging` e' estado global e algum teste anterior deixou um
+  handler que engoliu o registro. Os 2 orfaos a mais e' que mudaram a ordem de coleta.
+
+`pytest==8.3.5` e `ruff==0.15.20` foram instalados no 3.14 da .11 (o deploy nunca os
+instala — sao do `requirements-dev.txt`): e' o que permitiu rodar a suite la antes do
+reboot.
+
+**O 3.12 fica instalado** ate um dia limpo de observacao (D4 do plano). Rollback enquanto
+isso: tirar o 3.14 da frente do `PATH` + reboot.
+
 ## [2026-09-11] — O NSSM para de renomear: agora ele ZERA o log a cada start
 
 Decisao do Marcelo, depois do inventario da entrada abaixo: *"nao quero NSSM renomeia,

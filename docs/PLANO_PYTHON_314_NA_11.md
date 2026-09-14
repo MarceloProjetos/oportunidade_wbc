@@ -1,8 +1,11 @@
 # Plano — Python 3.14 na .11
 
-> **Status: nada feito.** Plano escrito em 2026-09-11 a partir de medições do mesmo dia.
-> Decisão do Marcelo: **em dois passos** (pacotes hoje, Python amanhã sem ninguém) e
-> **sem venv**.
+> **Status: MIGRADA em 14/09/2026.** Os 5 serviços da `.11` rodam em **Python 3.14.7**,
+> e a F3 passou inteira em produção (§7). Aberta só a **D4**: quando desinstalar o 3.12,
+> que segue instalado como rollback.
+>
+> Plano escrito em 2026-09-11. Decisão do Marcelo: **em dois passos** (pacotes primeiro,
+> Python depois) e **sem venv** — as duas se provaram certas.
 
 A `.11` roda **Python 3.12.10** (medido no `/status`), com os 5 serviços no Python do
 sistema — não há venv lá, de propósito. A pergunta era o que quebra ao ir para o 3.14.7.
@@ -68,11 +71,11 @@ erro cosmético.
 
 | Fase | O quê | Quando | Dono |
 | --- | --- | --- | --- |
-| **F0** | **Bump do pandas** `2.2.3` → `2.3.3` no `requirements.txt`, commit, deploy normal. Roda **no 3.12 de hoje** | agora | eu escrevo, deploy dele |
-| **F1** | Instalar o **3.14.7** na `.11`, **mantendo o 3.12**, e pôr o 3.14 primeiro no `PATH` | amanhã, sem ninguém | dele |
-| **F2** | `del state\deps.sha256` + `deploy_update.bat` (ou `pip install -r` nos dois requirements) e subir os 5 serviços | junto da F1 | dele |
-| **F3** | **Smoke dos 3 caminhos que os testes não cobrem** | logo depois | meu |
-| **F4** | 1 dia de observação e, só então, decidir se desinstala o 3.12 | depois | dele |
+| **F0** | ✅ **11/09** — `pandas` `2.2.3` → `2.3.3`, deploy no 3.12. Provado no mesmo dia: o agendador rodou às 07:55:26 com `sucesso` | 11/09 | feito |
+| **F1** | ✅ **14/09** — instalado **for all users** em `C:\Program Files\Python314`, 3.12 mantido. `where.exe python` com o 3.14 na frente | 14/09 | dele |
+| **F2** | ✅ **14/09** — `del state\deps.sha256` + deploy. O `pip` foi para o `Python314`, conferido por um `import` de todas as 19 dependências, `mcp.server.fastmcp` incluído | 14/09 | dele |
+| **F3** | ✅ **14/09** — os três passaram em produção, mais a suíte na própria `.11` (§7) | 14/09 | meu |
+| **F4** | ⏳ **em observação desde 14/09** — o 3.12 fica instalado até um dia limpo | depois | dele |
 
 ### Por que F0 separada
 
@@ -123,6 +126,63 @@ Conferir qual está valendo: **`where.exe python`** (o primeiro da lista é o qu
 2. **F1 + F2 amanhã**: instalar o 3.14.7, ajustar o `PATH`, apagar o `state\deps.sha256` e
    rodar o deploy. **Não desinstalar o 3.12.**
 3. Me avisar quando subir, para eu rodar a F3.
+
+---
+
+
+---
+
+## 7. Resultado (14/09/2026)
+
+**Migrada.** `system.python` da `.11` = **3.14.7**, os 5 serviços no ar.
+
+### A F3, provada em produção
+
+| O quê | Prova |
+| --- | --- |
+| **hdbcli** (HANA) | check `sap` ✅ 24 ms |
+| **pyodbc** (SQL Server) | check `sql_server` ✅ 8 ms — é `pyodbc.connect`, não um ping |
+| **pymssql** (WBCCAD) | worker ciclo 863: 1729 orçamentos, **nenhum erro** |
+| **Service Layer** | `python -m wbcpython check-sap` → `[ok] Conexão OK (company_db=SBOALTAMIRAPROD)` |
+| **pandas** | agendador 07:40:21 `sucesso` — DataFrame → Supabase |
+| **mcp / fastmcp** | 8078 respondendo; o próprio diagnóstico veio por ele |
+| Painel WBC (FastAPI) | 8079 → 303 |
+| Suíte na `.11`, no 3.14 | **1749 passed**, 29 skipped, 2 falhas explicadas (abaixo) |
+
+Memória caiu de 43.5% para **30.6%** depois da virada.
+
+### ⚠️ O que ninguém tinha previsto: o PATH não chega aos serviços sem reboot
+
+Depois de instalar o 3.14 e vê-lo primeiro no `where.exe python`, **um `deploy_update.bat`
+inteiro rodou e os serviços continuaram no 3.12** (`system.python: 3.12.10`, com
+`uptime_s: 94`). O Windows só entrega o `PATH` novo aos **serviços** quando o Gerenciador
+de Serviços relê o ambiente — ou seja, **no reboot**. `nssm restart` não basta: o serviço
+herda o ambiente que o SCM já tinha.
+
+Isso criou uma janela perigosa que passou despercebida por minutos: **3.14 primeiro no
+PATH, `site-packages` vazio, e a `.11` reinicia sozinha às 06:12.** Se o reboot tivesse
+vindo antes do `pip`, os 5 serviços subiriam num Python sem dependência nenhuma.
+
+**A ordem segura, para a próxima:** instalar → `del state\deps.sha256` → `deploy_update.bat`
+(o `pip` instala no interpretador novo enquanto os serviços ainda rodam no antigo) →
+**só então** reiniciar. O deploy do meio é o que fecha a janela.
+
+### As 2 falhas da suíte — nenhuma é do 3.14
+
+1. **`test_export_os_json.py`** — `export_os_json.py` e o teste dele foram **apagados do
+   repo** na faxina `842bf02` ("JSON export CLI no longer used"). Continuam em disco na
+   `.11` como órfãos (`??` no `git status`), o pytest os coleta e eles quebram contra um
+   `Settings` que não tem mais `os_status_table`. Código morto testando código morto.
+2. **`tests/wbc/test_logs.py::TestRuido`** — **passa sozinha** no mesmo 3.14.7. Só quebra
+   dentro da suíte inteira: `logging` é estado global e algum teste anterior deixou um
+   handler que engoliu o registro do `httpx`. E o que mudou a ordem de coleta na `.11`
+   foram justamente os 2 órfãos a mais. Fragilidade antiga, não migração.
+
+### Uma coisa a mais na `.11`
+
+`pytest==8.3.5` e `ruff==0.15.20` foram instalados no 3.14 de lá (o deploy nunca os
+instalou — são do `requirements-dev.txt`). A máquina passou a conseguir se autotestar, que
+é o que permitiu rodar a suíte antes do reboot.
 
 ---
 
