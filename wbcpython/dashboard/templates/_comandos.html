@@ -23,7 +23,7 @@
 
 {% macro formulario(c, pode, ritmo) %}
   <form
-    class="comando"
+    class="comando{% if c.alternativo %} comando-duplo{% endif %}"
     hx-post="/fragmentos/comandos/executar"
     hx-target="#console"
     hx-disabled-elt="find button"

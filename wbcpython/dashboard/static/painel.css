@@ -1048,22 +1048,26 @@ pre.console.alta {
   margin-right: 12px;
 }
 
-/* A segunda metade de um cartao compartilhado (SAP e HANA).
+/* A segunda metade de um cartao compartilhado (SAP+HANA, Ambiente+doctor).
  *
  * O traco existe para separar dois comandos DIFERENTES que dividem a mesma
- * caixa: sem ele, o segundo titulo parece subtitulo do primeiro. O `margin-top:
- * auto` empurra o bloco para baixo, de modo que os cartoes vizinhos da grade
- * continuem com os botoes na mesma linha de base. */
-.comando .comando-extra {
-  margin-top: auto;
+ * caixa: sem ele, o segundo titulo parece subtitulo do primeiro.
+ *
+ * `.comando-duplo` existe para DESLIGAR o `margin-top: auto` que o `.filtros`
+ * de um cartao normal usa para alinhar os botoes pelo rodape. Num cartao de
+ * duas secoes esse empurrao se divide entre as duas e abre um vao no meio --
+ * visto na .11 em 14/09, com a grade em quatro colunas: o "Executar" do SAP
+ * ficava longe do texto dele e colado no titulo do HANA. Aqui o conteudo flui
+ * de cima para baixo, e a sobra fica embaixo, como em qualquer cartao. */
+.comando-duplo .filtros {
+  margin-top: 12px;
+}
+
+.comando-duplo .comando-extra {
+  margin-top: 16px;
   padding-top: 16px;
   border-top: 1px solid var(--traco);
   display: flex;
   flex-direction: column;
   gap: 10px;
-}
-
-/* Dentro do bloco, quem empurra e o proprio bloco -- nao o `.filtros`. */
-.comando .comando-extra .filtros {
-  margin-top: 0;
 }
