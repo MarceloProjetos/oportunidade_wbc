@@ -45,7 +45,7 @@ O pacote `wbcpython/` (ex-projeto WBCPython, importado em 2026-09-08) tem guia p
 | `web/sincronizar.html` | Painel de Sincronização, servido em `GET /sincronizar` (link "⇄ Integração WBC" via `GET /painel-wbc`) |
 | `web/entrada.html` | `GET /`: sonda o painel WBC e redireciona; fallback com o botão para `/sincronizar` |
 | `tests/` | pytest; `test_<modulo>.py` espelha o módulo. `tests/wbc/` = suíte do pacote `wbcpython` (mesma árvore dele) |
-| `docs/wbc/` | Docs do WBC: `README.md` (como rodar), `DECISOES.md`, `APRENDIZADOS.md`, `RISCOS_PRODUCAO.md`, `PROGRESS.md` (diário), `ai_spec/00_index.md` (onde a spec antiga mora hoje) |
+| `docs/wbc/` | Docs do WBC: `README.md` (como rodar), `DECISOES.md`, `APRENDIZADOS.md`, `RISCOS_PRODUCAO.md`, `ai_spec/00_index.md` (onde a spec antiga mora hoje) |
 | `sql/hana/` | View HANA `VW_INO_OPORTUNIDADE_INTEGRACAO` que o worker lê (DDL de referência) |
 | `run_wbc_painel.bat` | Wrapper NSSM do painel (cwd = raiz, venv-ou-sistema, UTF-8). **O worker não tem wrapper** — o NSSM chama o `python.exe` direto, ver o gotcha |
 
@@ -75,7 +75,7 @@ importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não impor
 ## NÃO reler (não é fonte, ou raramente muda)
 
 - `CHANGELOG.md` (histórico longo) e `README.md` inteiro — no README, vá direto à seção pela busca do heading.
-- `docs/wbc/PROGRESS.md` (89 KB de diário) e `docs/wbc/DECISOES.md` inteiro — só pela busca do heading.
+- `docs/wbc/DECISOES.md` inteiro (97 KB) — só pela busca do heading.
 - `exports/` (dados de cliente), `logs/`, `state/`, `.locks/` — runtime/gerados.
 - `install_*.bat/.ps1`, `run_*.bat`, `maintenance/` — só para tarefas de deploy/operação.
 

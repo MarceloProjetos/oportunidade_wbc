@@ -210,6 +210,7 @@ worker sem wrapper, o `run_wbc_worker.bat` ficou orfao e saiu.
 | `sondagem_windows_update.ps1` | sondagem exploratoria de 16/07; virou o `windows_update.py`, zero referencia |
 | `maintenance/ajustar_logs_nssm.bat` | one-shot aplicado em 11/09; os instaladores ja gravam `AppRotateFiles 0` + `CreationDisposition 2` |
 | `maintenance/liberar_cancelamento_orcaview.py` | one-shot aplicado em 09/09 (PATCH `Users(144)` → 204, `DECISOES.md`). Era **escrita em producao** morando no repo para um uso que nao se repete; a receita ficou na DECISOES |
+| `docs/wbc/PROGRESS.md` (87 KB) | decisao dele: o diario sessao a sessao do WBCPython, o unico doc cujo conteudo nao vira invariante. O *porque* de cada escolha ja mora no `DECISOES.md`; o *quando* esta no `git log` e aqui. Saiu com as 6 referencias vivas ajustadas — inclusive uma que o `wbcpython` imprimia na tela |
 
 ### O que NAO saiu, e por que
 

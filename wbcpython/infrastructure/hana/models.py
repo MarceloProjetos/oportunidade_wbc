@@ -1,8 +1,9 @@
 """Modelos das views nativas do SAP HANA.
 
 Estas views existem **apenas no schema de produção** — confirmado por consulta
-ao catálogo do HANA (`SYS.VIEWS`) nos dois ambientes. Ver a decisão registrada
-em `ai_spec/02_data_model.md` e no `PROGRESS.md`.
+ao catálogo do HANA (`SYS.VIEWS`) nos dois ambientes. A decisão está registrada
+em `docs/wbc/DECISOES.md` (a `ai_spec/` original não veio para este repositório —
+ver `docs/wbc/ai_spec/00_index.md`).
 
 Os campos abaixo foram tirados do **catálogo real** (`SYS.VIEW_COLUMNS`), não de
 suposição — uma versão anterior deste módulo chutou nomes de coluna e falhou

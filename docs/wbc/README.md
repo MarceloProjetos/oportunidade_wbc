@@ -227,5 +227,4 @@ wbcpython/
 | `RETOMADA.md` | o estado e as perguntas abertas na época do standalone |
 | `COMO_TESTAR_HOMOLOGACAO.md` | roteiro de teste em dez passos, por risco |
 | `DEFEITOS_LEGADO.md` | o que o C# fazia errado e o que se preservou de propósito |
-| `PROGRESS.md` | o diário completo, sessão a sessão |
 | `ai_spec/00_index.md` | onde mora hoje o que a especificação original regia |

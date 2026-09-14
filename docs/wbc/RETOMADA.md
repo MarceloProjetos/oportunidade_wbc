@@ -8,8 +8,9 @@
 
 Este arquivo existe para que uma sessão nova (ou outra pessoa) consiga continuar
 sem depender do que ficou na cabeça de alguém. Leia este, depois
-`APRENDIZADOS.md` e `DECISOES.md`. O `PROGRESS.md` é o diário completo — útil
-para entender *como* se chegou aqui, não para começar.
+`APRENDIZADOS.md` e `DECISOES.md` — é lá que mora o *porquê* de cada escolha.
+(Havia um `PROGRESS.md`, o diário sessão a sessão; saiu na faxina de 14/09/2026,
+com o projeto em produção. O histórico continua no `git log` e no `CHANGELOG.md`.)
 
 ## Onde tudo está
 

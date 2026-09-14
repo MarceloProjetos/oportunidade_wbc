@@ -1069,7 +1069,7 @@ def _docnum(documento: object) -> int | None:
 
 def _cmd_nao_implementado(nome: str, fase: str) -> int:
     print(f"O comando '{nome}' ainda não foi implementado ({fase}).")
-    print("Consulte PROGRESS.md para ver o andamento e qual é a próxima fase.")
+    print("Consulte docs/wbc/DECISOES.md e o CHANGELOG.md para ver o andamento.")
     return 2
 
 

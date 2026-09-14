@@ -58,8 +58,8 @@ def test_em_qual_schema_as_views_existem(repositorio: RepositorioViewsHanaSql) -
     """Responde à pergunta em aberto — e imprime o resultado para registro.
 
     Não falha se as views não estiverem no schema configurado: o objetivo é
-    *descobrir* onde elas estão, e essa informação precisa chegar ao PROGRESS.md
-    mesmo quando a resposta é "não estão aqui".
+    *descobrir* onde elas estão, e essa informação precisa chegar ao
+    `docs/wbc/DECISOES.md` mesmo quando a resposta é "não estão aqui".
     """
     resultado = repositorio.views_existem()
 
@@ -72,7 +72,7 @@ def test_em_qual_schema_as_views_existem(repositorio: RepositorioViewsHanaSql) -
     if not any(resultado.values()):
         pytest.skip(
             f"Nenhuma das views existe no schema '{repositorio.schema}'. "
-            f"Registre isso no PROGRESS.md: o acesso de leitura ao schema de "
+            f"Registre isso em docs/wbc/DECISOES.md: o acesso de leitura ao schema de "
             f"produção passa a ser o padrão confirmado do projeto."
         )
 
