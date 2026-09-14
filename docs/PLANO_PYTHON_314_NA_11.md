@@ -7,7 +7,7 @@
 > Plano escrito em 2026-09-11. Decisão do Marcelo: **em dois passos** (pacotes primeiro,
 > Python depois) e **sem venv** — as duas se provaram certas.
 
-A `.11` roda **Python 3.12.10** (medido no `/status`), com os 5 serviços no Python do
+A `.11` **rodava** Python 3.12.10 (medido no `/status`), com os 5 serviços no Python do
 sistema — não há venv lá, de propósito. A pergunta era o que quebra ao ir para o 3.14.7.
 
 **Resposta curta: um pin.**
@@ -54,8 +54,13 @@ erro cosmético.
    `state\deps.sha256` antes** (ou rodar o `pip` à mão) é obrigatório no dia da virada.
 3. **Os 5 serviços pegam o `python` do `PATH`.** Os `run_*.bat` fazem
    `if exist "venv\Scripts\python.exe" … else set "PY=python"`. Sem venv, quem decide é o
-   `PATH` — e o NSSM lê o ambiente **no start do serviço**, então mudar o `PATH` só vale
-   depois de reiniciar os serviços (o que o deploy já faz).
+   `PATH`.
+
+   > ❌ **Este item estava ERRADO, e foi o erro que mais custou.** Eu escrevi que
+   > "mudar o `PATH` vale depois de reiniciar os serviços (o que o deploy já faz)".
+   > **Não vale.** Quem entrega o ambiente ao serviço é o Gerenciador de Serviços, e
+   > ele só relê o `PATH` do sistema **no reboot** — um `deploy_update.bat` inteiro
+   > rodou e os serviços continuaram no 3.12. Ver §7.
 4. **Duas coisas ali escrevem em PRODUÇÃO no SAP:** `ordens_producao_sl.py` (status de OP)
    e o **worker do `wbcpython`** (cotação, pedido, oportunidade). O worker roda 06:30–19:00
    em dias úteis.
@@ -88,11 +93,11 @@ descobrir qual dos dois foi.
 | O quê | Como | Prova |
 | --- | --- | --- |
 | `hdbcli` | tool MCP `situacao_pedido 84348` | lê o HANA e resolve o endereço |
-| `pyodbc` | `GET /oportunidades/info` | conta as linhas do SQL Server |
-| `pymssql` | `python -m wbcpython pendentes` (**só leitura**) | lê o WBCCAD sem escrever |
-| Service Layer | `python -m wbcpython doctor` | autentica no SL sem criar documento |
+| `pyodbc` | `GET /status?checks=sql_server` | é `pyodbc.connect` de verdade, não um ping |
+| `pymssql` | o ciclo do worker no `/status` | lê o WBCCAD sem escrever |
+| Service Layer | `python -m wbcpython check-sap` | autentica no SL sem criar documento. **`doctor` NÃO serve** — ele não acessa a rede |
 | Os 5 serviços | `/health`, `/status` com o `STATUS_ID`, `:8078` → 401, `:8079` → 303 | sobem e respondem |
-| Suíte | `python -m pytest -q` na `.11` | 1661 verdes **no Python novo** |
+| Suíte | `python -m pytest -q` na `.11` | verde **no Python novo** — deu **1749 passed** (§7) |
 
 ---
 
@@ -103,9 +108,12 @@ Sem venv, o rollback é o `PATH`:
 1. Voltar o **3.12** para a frente do `PATH` (por isso ele **não** pode ser desinstalado na
    virada);
 2. `del state\deps.sha256`;
-3. `deploy_update.bat` — reinstala no 3.12 e reinicia os 5.
+3. `deploy_update.bat` — reinstala no 3.12;
+4. **reiniciar a máquina** — sem isso os serviços seguem no 3.14 (§7).
 
-Conferir qual está valendo: **`where.exe python`** (o primeiro da lista é o que vale).
+Conferir qual está valendo: **`where.exe python`** diz o do console; **quem manda nos
+serviços é o `system.python` do `/status`**, e os dois discordam entre o `PATH` novo e o
+reboot.
 
 ---
 
@@ -122,12 +130,10 @@ Conferir qual está valendo: **`where.exe python`** (o primeiro da lista é o qu
 
 ## 6. O que eu preciso do Marcelo
 
-1. **Deploy da F0** (o bump do pandas) — eu commito, ele roda o `deploy_update.bat`.
-2. **F1 + F2 amanhã**: instalar o 3.14.7, ajustar o `PATH`, apagar o `state\deps.sha256` e
-   rodar o deploy. **Não desinstalar o 3.12.**
-3. Me avisar quando subir, para eu rodar a F3.
+Tudo cumprido em 11 e 14/09. Resta **uma** decisão, sem pressa:
 
----
+- **D4 — desinstalar o 3.12**, depois de um dia limpo de observação. Enquanto ele
+  estiver na máquina, o rollback custa um `PATH` e um reboot.
 
 
 ---
