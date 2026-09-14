@@ -129,6 +129,18 @@ CATALOGO: tuple[Comando, ...] = (
                 rotulo="Orçamento (opcional)",
                 ajuda="Avalia só este. Em branco, a janela inteira.",
             ),
+            # O ensaio da janela maior **antes** de armá-la.
+            #
+            # Sem este campo, descobrir o que 13 meses fariam exigia armar o
+            # pedido — e o ciclo automático pode disparar em menos de um
+            # intervalo, escrevendo em produção o que ninguém chegou a ler. Aqui
+            # a janela é só um parâmetro de leitura: nada é gravado, e o ciclo
+            # segue na janela em vigor.
+            Campo(
+                nome="meses",
+                rotulo="Ensaiar com outra janela (opcional)",
+                ajuda="Ex.: 13. Só para ver o resultado — não arma nada.",
+            ),
             Campo(
                 nome="com-acao",
                 rotulo="Listar só quem resultaria em escrita",
@@ -320,9 +332,19 @@ def montar_argv(comando: Comando, valores: dict[str, str]) -> list[str]:
 
 
 def _ajustar_exportar(comando: Comando, argv: list[str], arquivo_do_retrato: str) -> list[str]:
-    """`--exportar` na tela é caixa; na CLI é opção com caminho."""
+    """`--exportar` na tela é caixa; na CLI é opção com caminho.
+
+    Um ensaio (`--meses`) **nunca** exporta, mesmo com a caixa marcada. A aba
+    "Próximo ciclo" existe para mostrar o que a próxima passada vai fazer;
+    gravar ali o retrato de uma janela que ninguém armou faria a tela prometer
+    um ciclo que não vai acontecer — e é justamente essa aba que alguém lê para
+    decidir se deixa o worker rodar.
+    """
     if comando.id != "pendentes" or "--exportar" not in argv:
         return argv
+    if "--meses" in argv:
+        posicao = argv.index("--exportar")
+        return argv[:posicao] + argv[posicao + 1 :]
     posicao = argv.index("--exportar")
     return argv[: posicao + 1] + [arquivo_do_retrato] + argv[posicao + 1 :]
 

@@ -389,6 +389,7 @@ def _cmd_pendentes(
     orcamento: str | None,
     apenas_com_acao: bool = False,
     exportar: str | None = None,
+    meses_pedidos: int | None = None,
 ) -> int:
     """Mostra o que um ciclo faria — **sem executar nada**.
 
@@ -434,6 +435,7 @@ def _cmd_pendentes(
         montar_estado,
         total_do_payload,
     )
+    from wbcpython.domain import janela as jn
     from wbcpython.domain.cotacao import linhas as linhas_da_cotacao
     from wbcpython.domain.pedido import linhas as linhas_do_pedido
     from wbcpython.domain.sitcode import decidir
@@ -464,8 +466,28 @@ def _cmd_pendentes(
     # argumentos — inclusive a dirigida do `--orcamento`. Uma prévia que olha
     # uma janela menor diria "nada a fazer" sobre um orçamento que o ciclo
     # seguinte vai atualizar, e é justamente a prévia que autoriza rodá-lo.
-    meses = settings.meses_de_janela_dirigida if orcamento else settings.meses_de_janela
+    #
+    # `meses` existe para a pergunta que a janela sob demanda criou: "o que
+    # aconteceria se eu pedisse 13 meses?". Sem ele, a única forma de descobrir
+    # era **armar** o pedido — e aí o ciclo automático já poderia disparar antes
+    # de alguém ler a resposta, escrevendo em produção o que ninguém conferiu.
+    # Aqui a janela entra por parâmetro e nada é gravado: a prévia continua
+    # sendo prévia.
+    if meses_pedidos is not None:
+        meses = jn.validar_meses(
+            meses_pedidos, padrao=settings.meses_de_janela, maximo=settings.janela_maxima
+        )
+    elif orcamento:
+        meses = settings.meses_de_janela_dirigida
+    else:
+        meses = settings.meses_de_janela
     corte = janela_padrao(meses=meses)
+    if meses_pedidos is not None:
+        relatar(
+            f"Janela de ENSAIO: {meses} meses (desde {corte.isoformat()}). "
+            f"Nada foi armado — o ciclo segue na janela em vigor."
+        )
+        relatar("")
     coletadas: list[LinhaDePrevisao] = []
     com_acao = 0
     total = 0
@@ -1073,6 +1095,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar="ARQUIVO.json",
         help="grava o retrato em JSON para a aba 'Próximo ciclo' do painel ler",
     )
+    p_prev.add_argument(
+        "--meses",
+        type=int,
+        metavar="N",
+        help=(
+            "ensaia com esta janela em vez da que está em vigor — para ver o que "
+            "uma janela maior faria ANTES de armá-la. Não arma nada."
+        ),
+    )
 
     p_ciclo = sub.add_parser("ciclo", help="executa um único ciclo de integração e sai")
     p_ciclo.add_argument("--orcamento", help="processa apenas este orçamento")
@@ -1174,6 +1205,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             orcamento=getattr(args, "orcamento", None),
             apenas_com_acao=getattr(args, "com_acao", False),
             exportar=getattr(args, "exportar", None),
+            meses_pedidos=getattr(args, "meses", None),
         )
     if args.comando == "dashboard":
         return _cmd_dashboard(
