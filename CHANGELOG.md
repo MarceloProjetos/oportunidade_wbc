@@ -193,7 +193,7 @@ Migrada. `system.python` = **3.14.7**, os 5 servicos no ar, e a F3 do
 | --- | --- |
 | `hdbcli` (HANA) | check `sap` 24 ms |
 | `pyodbc` (SQL Server) | check `sql_server` 8 ms — e' `pyodbc.connect`, nao um ping |
-| `pymssql` (WBCCAD) | worker ciclo 863: 1729 orcamentos, nenhum erro |
+| `pymssql` (WBCCAD) | worker **ciclo 976**: 1733 orcamentos, nenhum erro (o 863 era 3.12 — abaixo) |
 | Service Layer | `wbcpython check-sap` → `[ok] Conexao OK (SBOALTAMIRAPROD)` |
 | `pandas` 2.3.3 | agendador 07:40:21 `sucesso` (DataFrame → Supabase) |
 | `mcp`/`fastmcp` | 8078 respondendo |
@@ -201,6 +201,39 @@ Migrada. `system.python` = **3.14.7**, os 5 servicos no ar, e a F3 do
 
 Memoria caiu de 43,5% para **30,6%** depois da virada. O unico pin que bloqueava era o
 `pandas==2.2.3` (sem roda cp314), trocado na entrada de 11/09.
+
+### O worker ficou no 3.12 ate as 13:12 — e nada acusou
+
+A virada da manha levou **4** dos 5 servicos. O **worker** ficou no 3.12, escrevendo em
+producao, e nenhum sinal denunciou: o `/status` dizia `python: 3.14.7` (e' o do processo da
+API), os ciclos corriam sem erro, zero alerta.
+
+Causa, no `install_wbc_services.bat`: o worker e' o unico que **nao passa por um `.bat`** —
+o NSSM chama o `python.exe` direto, com o caminho absoluto em `Application`, resolvido por
+`where python` **no dia da instalacao** (de proposito: com o `.bat` no meio o Ctrl+C do NSSM
+morria no "Terminate batch job (Y/N)?", 08/09). Os outros 4 chamam `python` do PATH e migram
+sozinhos no reboot; ele nao migra nunca. Corrigido com
+`nssm set OrcaView-WBC-Worker Application "C:\Program Files\Python314\python.exe"`, apos a
+parada limpa por arquivo. O instalador e o CLAUDE.md ganharam o aviso.
+
+**Quem responde a verdade e' o processo, nao o `/status`:**
+`Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Select ProcessId, ExecutablePath`.
+
+Isso invalidou uma prova dada por boa: o `pymssql` no 3.14 estava creditado ao "ciclo 863",
+que era 3.12. A prova real e' o **ciclo 976** (13:14:31, no 3.14.7): 1733 orcamentos lidos do
+WBCCAD, zero erro.
+
+### O 3.12 saiu no mesmo dia (D4)
+
+Depois da manha limpa e de um reboot que subiu os 5 no 3.14. O bundle nao estava em nenhum
+`Uninstall` de HKLM — estava no **HKCU do `administrador`** (`Package Cache\{b6ce88eb-...}`),
+e o 3.14.7 esta no mesmo lugar: e' o padrao desta maquina. Sobraram as 2 entradas orfas do
+3.12 no PATH da maquina (assinatura conhecida do desinstalador), removidas lendo o valor
+**bruto** do registro e regravando com `-Type ExpandString` — o par
+`[Environment]::GetEnvironmentVariable/SetEnvironmentVariable` expandiria `%SystemRoot%` e
+gravaria REG_SZ.
+
+**O rollback barato acabou junto:** voltar ao 3.12 agora e' reinstalar Python em producao.
 
 ### ⚠️ O PATH nao chega aos servicos sem REBOOT
 

@@ -1,8 +1,8 @@
 # Plano — Python 3.14 na .11
 
-> **Status: MIGRADA em 14/09/2026.** Os 5 serviços da `.11` rodam em **Python 3.14.7**,
-> e a F3 passou inteira em produção (§7). Aberta só a **D4**: quando desinstalar o 3.12,
-> que segue instalado como rollback.
+> **Status: ENCERRADO em 14/09/2026.** Os 5 serviços da `.11` rodam em **Python 3.14.7**,
+> a F3 passou inteira em produção e o **3.12 foi desinstalado** no mesmo dia (§7).
+> Nenhuma fase aberta.
 >
 > Plano escrito em 2026-09-11. Decisão do Marcelo: **em dois passos** (pacotes primeiro,
 > Python depois) e **sem venv** — as duas se provaram certas.
@@ -80,7 +80,7 @@ erro cosmético.
 | **F1** | ✅ **14/09** — instalado **for all users** em `C:\Program Files\Python314`, 3.12 mantido. `where.exe python` com o 3.14 na frente | 14/09 | dele |
 | **F2** | ✅ **14/09** — `del state\deps.sha256` + deploy. O `pip` foi para o `Python314`, conferido por um `import` de todas as 19 dependências, `mcp.server.fastmcp` incluído | 14/09 | dele |
 | **F3** | ✅ **14/09** — os três passaram em produção, mais a suíte na própria `.11` (§7) | 14/09 | meu |
-| **F4** | ⏳ **em observação desde 14/09** — o 3.12 fica instalado até um dia limpo | depois | dele |
+| **F4** | ✅ **14/09** — manhã inteira + um reboot real no 3.14; o 3.12 saiu às 13:2x | 14/09 | dele |
 
 ### Por que F0 separada
 
@@ -103,6 +103,10 @@ descobrir qual dos dois foi.
 
 ## 4. Rollback
 
+> ⚠️ **Desde 14/09 13:2x isto é história:** o 3.12 saiu da máquina, então o rollback
+> barato descrito aqui **não existe mais** — voltar agora é reinstalar Python em
+> produção. Fica registrado porque é a receita para a próxima migração.
+
 Sem venv, o rollback é o `PATH`:
 
 1. Voltar o **3.12** para a frente do `PATH` (por isso ele **não** pode ser desinstalado na
@@ -124,16 +128,13 @@ reboot.
 | **D1** | Dois passos em vez de um | ✅ **dele, 11/09** — pacotes hoje no 3.12, Python amanhã. Isola as variáveis |
 | **D2** | Sem venv | ✅ **dele, 11/09.** Consequência aceita: o rollback passa a ser o `PATH`, e o 3.12 **fica instalado** até a F4 |
 | **D3** | Virar fora do expediente | ✅ decidido — o worker escreve no SAP das 06:30 às 19:00 |
-| **D4** | Desinstalar o 3.12 | **Aberta.** Recomendado: **só depois de 1 dia limpo** (F4). É a rede de segurança inteira |
+| **D4** | Desinstalar o 3.12 | ✅ **dele, 14/09.** Depois da manhã limpa E de um reboot que subiu os 5 no 3.14 — a prova que o plano pedia. **O rollback barato acabou junto**: voltar agora é reinstalar Python em produção |
 
 ---
 
 ## 6. O que eu preciso do Marcelo
 
-Tudo cumprido em 11 e 14/09. Resta **uma** decisão, sem pressa:
-
-- **D4 — desinstalar o 3.12**, depois de um dia limpo de observação. Enquanto ele
-  estiver na máquina, o rollback custa um `PATH` e um reboot.
+Nada — F0 a F4 cumpridas em 11 e 14/09.
 
 
 ---
@@ -148,7 +149,7 @@ Tudo cumprido em 11 e 14/09. Resta **uma** decisão, sem pressa:
 | --- | --- |
 | **hdbcli** (HANA) | check `sap` ✅ 24 ms |
 | **pyodbc** (SQL Server) | check `sql_server` ✅ 8 ms — é `pyodbc.connect`, não um ping |
-| **pymssql** (WBCCAD) | worker ciclo 863: 1729 orçamentos, **nenhum erro** |
+| **pymssql** (WBCCAD) | worker **ciclo 976** (13:14:31): 1733 orçamentos, **nenhum erro**. ⚠️ O ciclo 863, que eu tinha citado, era 3.12 — ver abaixo |
 | **Service Layer** | `python -m wbcpython check-sap` → `[ok] Conexão OK (company_db=SBOALTAMIRAPROD)` |
 | **pandas** | agendador 07:40:21 `sucesso` — DataFrame → Supabase |
 | **mcp / fastmcp** | 8078 respondendo; o próprio diagnóstico veio por ele |
@@ -190,6 +191,51 @@ vindo antes do `pip`, os 5 serviços subiriam num Python sem dependência nenhum
 sumiram **7 testes coletados** (1780 → 1773) — os 6 que passavam e o 1 que falhava do arquivo
 órfão — e a `TestRuido` **voltou ao verde sozinha**, sem ninguém tocar nela. Era a ordem de
 coleta mesmo.
+
+
+### ⚠️ O worker ficou para trás — e nada acusou
+
+A virada da manhã levou **4** dos 5 serviços para o 3.14. O **worker** ficou no 3.12 até
+as 13:12, escrevendo em produção o tempo todo, e **nenhum sinal denunciou**: o `/status`
+dizia `python: 3.14.7` (é o do processo da API), os ciclos corriam sem erro, não houve
+alerta.
+
+A causa está no `install_wbc_services.bat`: o worker é o único que **não passa por um
+`.bat`** — o NSSM chama o `python.exe` direto, com o caminho absoluto gravado em
+`Application`, resolvido por `where python` **no dia da instalação** (é de propósito: com o
+`.bat` no meio, o Ctrl+C do NSSM morria no *"Terminate batch job (Y/N)?"*, 08/09/2026). Os
+outros 4 chamam `python` do PATH e migram sozinhos no reboot; ele não migra nunca.
+
+Descoberto na véspera de desinstalar o 3.12 — que teria derrubado justamente o serviço que
+cria cotação e pedido no SAP. Correção, com a parada limpa por arquivo:
+
+```powershell
+nssm set OrcaView-WBC-Worker Application "C:\Program Files\Python314\python.exe"
+```
+
+**Quem responde a verdade é o processo, não o `/status`:**
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Select-Object ProcessId, ExecutablePath
+```
+
+Isso também **invalidou uma prova que eu tinha dado por boa**: o `pymssql` estava
+registrado como provado no 3.14 pelo "worker ciclo 863" — aquele ciclo era 3.12. A prova
+verdadeira é o **ciclo 976** (13:14:31, já no 3.14.7): 1733 orçamentos lidos do WBCCAD,
+zero erro.
+
+### O 3.12 saiu (D4 fechada, 14/09 13:2x)
+
+O bundle não estava em nenhum dos dois `Uninstall` de `HKLM` — estava no **`HKCU` do
+`administrador`** (`...\AppData\Local\Package Cache\{b6ce88eb-...}\python-3.12.10-amd64.exe
+/uninstall /quiet`). O 3.14.7 está no mesmo lugar, então é o padrão desta máquina: ao
+procurar um desinstalador de Python aqui, varra os três hives.
+
+Depois: `py -0p` lista só o 3.14, os 5 processos em `Python314`, `/health` ok. Sobraram as
+**2 entradas órfãs** do 3.12 no PATH da máquina — a mesma assinatura do desinstalador que
+já tinha aparecido no desktop — removidas lendo o valor **bruto** do registro e regravando
+com `-Type ExpandString` (o par `[Environment]::GetEnvironmentVariable/SetEnvironmentVariable`
+expandiria `%SystemRoot%` e gravaria `REG_SZ`).
 
 ### Uma coisa a mais na `.11`
 

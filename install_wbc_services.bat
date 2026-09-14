@@ -32,6 +32,14 @@ REM segura o Ctrl+C do NSSM no "Terminate batch job (Y/N)?" e a parada so termin
 REM NSSM mata a arvore ao fim do AppStopMethodConsole - o "nssm start" do deploy chegava
 REM durante o STOP_PENDING e era recusado (08/09/2026). Direto, o python recebe o Ctrl+C,
 REM termina o ciclo e sai em segundos. venv se existir; senao o python do PATH.
+REM
+REM ATENCAO - o preco disso: o caminho abaixo fica CONGELADO no dia em que este
+REM instalador roda. Os outros 4 servicos chamam "python" do PATH e seguem o
+REM interpretador da maquina sozinhos; o worker NAO. Trocou o Python da .11?
+REM rode este .bat de novo (ou nssm set OrcaView-WBC-Worker Application "<novo>\python.exe"),
+REM senao o worker continua no Python antigo, calado - e o /status nao denuncia,
+REM porque o system.python de la e o do processo da API. Em 14/09/2026 ele passou
+REM meio dia no 3.12 enquanto o resto da maquina ja estava no 3.14.
 set "PYEXE=%PROJ%\venv\Scripts\python.exe"
 if not exist "%PYEXE%" (
   set "PYEXE="

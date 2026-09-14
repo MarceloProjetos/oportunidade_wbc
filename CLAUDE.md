@@ -192,6 +192,19 @@ importa os 2 pipelines (oportunidades + OS) · `mcp/` só chama HTTP (não impor
 - **Nunca `git subtree add` do repo antigo `MCPs\WBCPython`**: o histórico dele versiona um
   `.env.bak` com senha e este repo é público. O import de 2026-09-08 foi por cópia, sem
   histórico, de propósito.
+- ⚠️⚠️ **O worker é o único dos 5 que NÃO passa por um `.bat`** — o NSSM chama o
+  `python.exe` **direto**, com o caminho absoluto em `Application`, resolvido por
+  `where python` **no dia em que o `install_wbc_services.bat` rodou** (é assim de
+  propósito: com o `.bat` no meio, o Ctrl+C do NSSM morria no "Terminate batch job (Y/N)?"
+  — 08/09/2026). **Consequência: trocar o Python da máquina não alcança o worker.** Os
+  outros 4 chamam `python` do PATH e migram sozinhos no reboot; ele fica no interpretador
+  antigo, **calado** — nada falha, nada alerta. Foi exatamente o que aconteceu na migração
+  para o 3.14 (14/09/2026): 4 serviços no 3.14.7 e o worker meio dia no 3.12, escrevendo em
+  produção. Depois de trocar o Python: `nssm set OrcaView-WBC-Worker Application
+  "<novo>\python.exe"` (ou rodar o `install_wbc_services.bat` de novo) — sempre com a
+  parada por arquivo antes. **Quem responde a verdade é o processo, não o `/status`:**
+  `Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Select ProcessId, ExecutablePath`
+  (o `system.python` do `/status` é o do processo da API, e diz 3.14 mesmo com o worker no 3.12).
 - **Parada limpa do worker é por ARQUIVO, não por Ctrl+C**: o `deploy_update.bat` grava
   `state\wbc_worker.stop` antes do `nssm stop`; o worker o vê entre orçamentos e entre ciclos,
   termina o que está fazendo e sai (apaga o arquivo ao religar). Parar à mão com segurança =
