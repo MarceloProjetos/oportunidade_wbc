@@ -18,7 +18,7 @@ não conta como existente, senão a integração nunca recriaria o que foi anula
 from __future__ import annotations
 
 import logging
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
 from typing import Any, Protocol
 
@@ -257,7 +257,36 @@ class RepositorioDocumentosVendaServiceLayer:
         `B1S-ReplaceCollectionsOnPatch` é o cabeçalho que o Service Layer expõe
         exatamente para isso: com ele, a coleção enviada substitui a existente,
         e o documento passa a ter só as linhas do orçamento atual.
+
+        **Dois `PATCH`, e a ordem importa** (medido em homologação, 15/09/2026,
+        cotação 101977 — ver `DECISOES.md`, "Preço unitário e desconto no PATCH"):
+
+        * Mandar só `LineTotal` numa linha que **já existia** faz o SAP manter o
+          `UnitPrice` da revisão anterior e fechar a conta com `DiscountPercent`.
+          Foi assim que a cotação 78264 (produção) saiu com "R$ 3.088,86 com
+          46,24% de desconto" numa linha de R$ 1.660,66 — total certo, unitário
+          e desconto errados na impressão do cliente.
+        * Mandar `UnitPrice` **muda** o unitário, mas o SAP recalcula o
+          `LineTotal` como `UnitPrice × Quantity` e ignora o enviado: com 4 casas
+          no preço, volta o centavo de diferença (`272 × 2600,0071 = 707.201,93`
+          contra `707.201,92`).
+        * Mandar só `LineTotal` numa linha cujo `UnitPrice` **já é** o certo faz
+          o SAP respeitar o `LineTotal`, com desconto 0,0000.
+
+        Daí o passo 1 gravar `UnitPrice = LineTotal ÷ Quantity` (4 casas) e o
+        passo 2 regravar as linhas como vieram, só com `LineTotal`. Linha nova
+        (criação, `POST`) não precisa disso: nasce com o unitário derivado e
+        desconto zero — por isso `criar` não passa por aqui.
         """
+        linhas = dados.get("DocumentLines")
+        if linhas:
+            passo1 = dict(dados)
+            passo1["DocumentLines"] = [_com_unitario(linha) for linha in linhas]
+            self._cliente.patch(
+                f"{tipo.value}({doc_entry})",
+                json=passo1,
+                headers={"B1S-ReplaceCollectionsOnPatch": "true"},
+            )
         self._cliente.patch(
             f"{tipo.value}({doc_entry})",
             json=dados,
@@ -349,3 +378,20 @@ class RepositorioDocumentosVendaServiceLayer:
         if atual is not None:
             self.cancelar(tipo, atual)
         return self.criar(tipo, dados)
+
+
+def _com_unitario(linha: dict[str, Any]) -> dict[str, Any]:
+    """A linha com `UnitPrice = LineTotal ÷ Quantity`, arredondado a 4 casas.
+
+    4 casas porque é o que o SAP guarda no preço; mandar mais é o SAP arredondar
+    por nós, sem dizer como. Linha sem `LineTotal` ou sem quantidade volta como
+    veio.
+    """
+    total = linha.get("LineTotal")
+    quantidade = linha.get("Quantity")
+    if total is None or not quantidade:
+        return linha
+    unitario = (Decimal(str(total)) / Decimal(str(quantidade))).quantize(
+        Decimal("0.0001"), rounding=ROUND_HALF_UP
+    )
+    return {**linha, "UnitPrice": float(unitario)}

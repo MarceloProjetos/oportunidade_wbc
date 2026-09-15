@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 
 import httpx
@@ -140,9 +141,43 @@ class TestAtualizacaoECancelamento:
         (R$ 69.656,20) para um orçamento de duas (R$ 52.079,03). Numa cotação
         que vai ao cliente, é valor errado no documento.
         """
+        g = Gravador([LOGIN, httpx.Response(204), httpx.Response(204)])
+        _docs(g).atualizar(
+            TipoDocumento.COTACAO, 42, {"DocumentLines": [{"Quantity": 1.0, "LineTotal": 10.0}]}
+        )
+        assert all(
+            r.headers["B1S-ReplaceCollectionsOnPatch"] == "true"
+            for r in g.requisicoes
+            if r.method == "PATCH"
+        )
+
+    def test_atualizar_grava_o_unitario_antes_e_o_total_depois(self) -> None:
+        """Dois PATCH, nesta ordem. Só `LineTotal` numa linha que já existia deixa
+        o `UnitPrice` velho e o SAP inventa desconto (cotação 78264: R$ 3.088,86
+        com 46,24% numa linha de R$ 1.660,66); só `UnitPrice` recalcula o total
+        com 4 casas e volta o centavo. `UnitPrice` primeiro, `LineTotal` depois,
+        e o SAP respeita os dois."""
+        g = Gravador([LOGIN, httpx.Response(204), httpx.Response(204)])
+        linhas = [
+            {"ItemCode": "I000003", "Quantity": 272.0, "LineTotal": 707201.92, "Weight1": 3.0},
+            {"ItemCode": "I000003", "Quantity": 1.0, "LineTotal": 1918.08},
+        ]
+        _docs(g).atualizar(TipoDocumento.COTACAO, 42, {"Comments": "x", "DocumentLines": linhas})
+
+        patches = [json.loads(r.content) for r in g.requisicoes if r.method == "PATCH"]
+        assert len(patches) == 2
+        passo1, passo2 = patches
+        assert [l["UnitPrice"] for l in passo1["DocumentLines"]] == [2600.0071, 1918.08]
+        assert passo1["DocumentLines"][0]["LineTotal"] == 707201.92, "o total vai nos dois"
+        assert passo1["DocumentLines"][0]["Weight1"] == 3.0, "o resto da linha não some"
+        assert passo1["Comments"] == "x"
+        assert "UnitPrice" not in passo2["DocumentLines"][0]
+        assert passo2 == {"Comments": "x", "DocumentLines": linhas}
+
+    def test_atualizar_sem_linhas_e_um_patch_so(self) -> None:
         g = Gravador([LOGIN, httpx.Response(204)])
-        _docs(g).atualizar(TipoDocumento.COTACAO, 42, {"DocumentLines": []})
-        assert g.requisicoes[-1].headers["B1S-ReplaceCollectionsOnPatch"] == "true"
+        _docs(g).atualizar(TipoDocumento.PEDIDO, 7, {"Comments": "só cabeçalho"})
+        assert g.metodos.count("PATCH") == 1
 
     def test_cancelar_usa_a_acao_dedicada(self) -> None:
         g = Gravador([LOGIN, httpx.Response(204)])

@@ -1,16 +1,14 @@
 # PLANO — Porta-paletes: quantidade lida do texto e total da linha por `LineTotal`
 
-> **Status em 2026-09-15 (fim da tarde): ✅ ENCERRADO — F0–F4 concluídas.** O worker da .11
-> roda o código novo em produção desde o restart do Marcelo (`/status`: worker ciclando, 0
-> falhas). **F3 fechou às 12:11 em `SBOALTAMIRAHOMOLOG`**: três orçamentos cobrindo `POST` de
-> cotação, `PATCH` de cotação e `POST` de pedido — **17 linhas relidas do SAP, `LineTotal ==
-> ORCVAL` em todas, zero centavos**; quantidades 16, 96, 168, 2 e 3; unidade UN nas linhas
-> novas. A conferência pós-`PATCH` pegou um `204` sem troca de linhas (R$ 11.093,32 de
-> diferença) e recriou a cotação — a rede de segurança funciona com o campo novo. Registro em
-> `docs/wbc/DECISOES.md`, "F3". A regra foi medida na base inteira (21.447 linhas) antes de ser
-> escrita: 6.442 linhas de porta-paletes, **6.299 lidas (97,8%)**, 143 sem número. Suíte:
-> **1.800 passando, 12 skips**. Resta só o acompanhamento natural: o primeiro porta-paletes
-> real em produção, visível nas linhas `[porta-paletes]` da aba Log.
+> **Status em 2026-09-15 (fim da tarde): F0–F4 concluídas; REABERTO pela F5.** Duas horas
+> depois do restart, o Marcelo trouxe a tela da cotação 78264: total certo, mas "unitário
+> R$ 3.088,86 com 46% de desconto" numa linha de R$ 1.660,66. Causa: no `PATCH` o SAP mantém o
+> `UnitPrice` da revisão anterior e fecha a conta com desconto. Correção medida em homologação
+> com seis payloads e provada com ciclo real: `atualizar` faz dois `PATCH`, `UnitPrice` antes e
+> `LineTotal` depois (DECISOES.md, "Preço unitário e desconto no PATCH"). **Pendem: pull +
+> restart na .11 e o reparo das 2 cotações de produção (78264, 78285), com o OK dele.**
+> F3 (12:11): 17 linhas relidas, `LineTotal == ORCVAL` em todas. Regra medida na base
+> inteira: 6.442 linhas de porta-paletes, **6.299 lidas (97,8%)**.
 >
 > O relato que motivou o plano descrevia a quantidade lida como "ficou" e a unidade CJ como
 > "revertida", mas em `master` não havia nada disso: o plano partiu do zero.
@@ -201,6 +199,24 @@ aceita WinRM). Prévia da janela antes: 1.540 avaliadas, 36 com escrita.
 - Acompanhamento: o primeiro porta-paletes real aparece na aba Log como `[porta-paletes]`;
   conferir quantidade, unitário e total no SAP quando passar. O aceite formal já é a F3.
 
+### F5 — Unitário e desconto no `PATCH`  *(minha)* — ✅ código 15/09 · ⏳ deploy + reparo
+
+**Meta:** documento atualizado sai com unitário = ORCVAL ÷ qtd, desconto 0 e total exato.
+
+- Reportado com a tela da cotação 78264 (`00123897`, rev. E): 6 linhas com desconto
+  inventado; varredura de produção achou mais uma (78285). Pedidos e criações, limpos.
+- **O que mordeu:** mandar só `LineTotal` no `PATCH` deixa o `UnitPrice` antigo; mandar
+  `UnitPrice` faz o SAP recalcular o total e o centavo volta; `DiscountPercent: 0` recalcula
+  o total pelo unitário antigo (total errado). A regra: se o `UnitPrice` muda, o SAP recalcula;
+  se não muda, respeita o `LineTotal`.
+- `RepositorioDocumentosVendaServiceLayer.atualizar`: passo 1 `UnitPrice = LineTotal ÷ qtd`
+  (4 casas) + resto da linha; passo 2 as linhas como o domínio montou. Domínio e `POST` iguais.
+- Provado com `ciclo --orcamento 00125058` em homologação: cotação atualizada (129.990,30 →
+  129.987,88, desconto 0) e pedido criado, os dois exatos. Testes: 3 novos em `test_documentos`.
+- ⏳ **Do Marcelo:** pull + restart do worker na .11; OK para o reparo das 2 cotações
+  (`reparar_desconto.py`, que reenvia as linhas pelo mesmo `atualizar`; o worker não as toca
+  de novo porque a revisão é a mesma).
+
 ---
 
 ## §4 Decisões
@@ -210,7 +226,9 @@ aceita WinRM). Prévia da janela antes: 1.540 avaliadas, 36 com escrita.
    "N Módulos" seguem em 1.
 2. **`LineTotal` no lugar de `Price` — ✅ decidido (Marcelo).** O SAP deriva o preço; o total
    bate por construção.
-3. **Enviar só `LineTotal`, sem `Price` — ✅ decidido (Marcelo, "segue as recomendações").**
+3. **Enviar só `LineTotal`, sem `Price` — ✅ decidido; revisado na F5.** Vale para a criação.
+   Na atualização vai `UnitPrice` num primeiro `PATCH` e `LineTotal` num segundo — nunca
+   `Price`, nunca `DiscountPercent`.
    Mandar os dois deixa o SL escolher a ordem em que aplica os campos, e a versão da .11 já
    mostrou comportamento irregular no `PATCH`. Um campo só tem uma verdade. Reabre se a F3
    mostrar que o SL ignora `LineTotal` sozinho.

@@ -2040,3 +2040,40 @@ Duas observações que ficam registradas:
 
 Decisão 3 (só `LineTotal`, sem `Price`) **fica fechada**: o SL respeitou `LineTotal` no `POST`
 de cotação, no `POST` de pedido e no `PATCH` que de fato trocou as linhas.
+
+## Preço unitário e desconto no `PATCH`: dois passos, `UnitPrice` antes e `LineTotal` depois
+
+Reportado pelo Marcelo no mesmo dia da virada para `LineTotal` (15/09/2026), com a tela da
+cotação **78264** (orçamento `00123897`, revisão E) em produção: linha 1 com "Preço unitário
+R$ 3.088,86, desconto 46,2371%, preço após desconto R$ 1.660,6667"; linhas 2 a 6, de uma
+unidade, com desconto de −7,72%. O total (R$ 13.827,44) estava **certo** — igual à soma do
+WBC — mas o unitário e o desconto estavam errados na impressão que vai ao cliente. Varredura
+de produção (só leitura): 23 documentos tocados no dia, **2 cotações** com o artefato (78264,
+6 linhas; 78285, 1 linha). Pedidos e cotações criadas do zero, limpos.
+
+**A causa.** Ao **atualizar** um documento (`PATCH` com `ReplaceCollectionsOnPatch`), o Service
+Layer mantém o `UnitPrice` que a linha já tinha (o valor da revisão anterior) e, recebendo só
+`LineTotal`, fecha a conta com `DiscountPercent`. A linha 7, nova, saiu certa. Na criação
+(`POST`) o problema não existe: a linha nasce com `UnitPrice = LineTotal ÷ Quantity` e
+desconto zero. O ensaio da F3 não pegou isso porque a conferência compara `LineTotal`, que
+estava certo — e porque ninguém olhou a coluna de desconto.
+
+**Medido em homologação** (cotação 101977, `00125442`, seis variantes de payload):
+
+| Payload no `PATCH` | `UnitPrice` | Desconto | `LineTotal` |
+|---|---|---|---|
+| só `LineTotal` (o que estava no ar) | o antigo | inventado | certo |
+| `LineTotal` + `DiscountPercent: 0` | o antigo | 0 | **recalculado do antigo** — total errado |
+| `UnitPrice` + `LineTotal` (unitário mudou) | certo | 0 | **`UnitPrice × qtd`**, o centavo volta |
+| só `LineTotal` com `UnitPrice` já certo na linha | mantido | 0 | certo |
+| **`UnitPrice`+`LineTotal`, depois só `LineTotal`** | certo | 0 | **certo** |
+
+A regra do SAP que sai daí: **se o `UnitPrice` muda, o `LineTotal` é recalculado a partir dele;
+se não muda, o `LineTotal` enviado é respeitado**. Por isso `atualizar` faz dois `PATCH`: o
+primeiro grava `UnitPrice = LineTotal ÷ Quantity` (4 casas, HALF_UP) junto com o resto da linha;
+o segundo regrava as linhas exatamente como o domínio montou, só com `LineTotal`. Provado com o
+ciclo real em homologação (`00125058`: cotação atualizada de 129.990,30 para 129.987,88, sem
+desconto; pedido criado no mesmo ciclo, idem). O domínio e o `POST` não mudam.
+
+Fica: a conferência pós-`PATCH` continua olhando só o total. Se um dia o unitário voltar a
+divergir, ela não vai apitar — é uma coluna a mais para olhar quando alguém reclamar da tela.

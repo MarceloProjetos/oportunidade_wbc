@@ -3,6 +3,25 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-15] — Atualizacao de documento: UnitPrice antes, LineTotal depois
+
+Incidente em producao no mesmo dia da virada: a cotacao 78264 (00123897, rev. E) saiu com
+"unitario R$ 3.088,86 e desconto 46,24%" numa linha de R$ 1.660,66, e desconto negativo em
+linhas de uma unidade. O total estava certo; o unitario e o desconto, nao. Causa: no PATCH o
+Service Layer mantem o `UnitPrice` da revisao anterior e fecha a conta com `DiscountPercent`
+quando so `LineTotal` vai. Medido em homologacao com seis payloads (tabela em
+`docs/wbc/DECISOES.md`, "Preco unitario e desconto no PATCH"): se o `UnitPrice` muda, o SAP
+recalcula o `LineTotal` a partir dele; se nao muda, respeita o `LineTotal`.
+
+- `RepositorioDocumentosVendaServiceLayer.atualizar` passa a fazer **dois PATCH**: o primeiro
+  com `UnitPrice = LineTotal / Quantity` (4 casas) em cada linha, o segundo com as linhas como
+  o dominio montou. Criacao (`POST`) nao muda: linha nova ja nasce com unitario derivado e
+  desconto zero. Provado com o ciclo real em homologacao (00125058: cotacao atualizada e
+  pedido criado, unitario certo, desconto 0, total exato).
+- Em producao ficaram **2 cotacoes** com o artefato (78264 e 78285); o worker nao as toca de
+  novo (mesma revisao). Reparo = reenviar as linhas pelo mesmo `atualizar`, com o OK do Marcelo.
+- Pende pull + restart do worker na .11.
+
 ## [2026-09-15] — F3: ensaio em homologacao fechou com zero centavos
 
 Ensaio da troca por `LineTotal` em `SBOALTAMIRAHOMOLOG` (trava de producao ativa; rodado da
