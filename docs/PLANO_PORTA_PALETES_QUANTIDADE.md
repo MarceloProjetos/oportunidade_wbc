@@ -5,8 +5,9 @@
 > R$ 3.088,86 com 46% de desconto" numa linha de R$ 1.660,66. Causa: no `PATCH` o SAP mantém o
 > `UnitPrice` da revisão anterior e fecha a conta com desconto. Correção medida em homologação
 > com seis payloads e provada com ciclo real: `atualizar` faz dois `PATCH`, `UnitPrice` antes e
-> `LineTotal` depois (DECISOES.md, "Preço unitário e desconto no PATCH"). **Pendem: pull +
-> restart na .11 e o reparo das 2 cotações de produção (78264, 78285), com o OK dele.**
+> `LineTotal` depois (DECISOES.md, "Preço unitário e desconto no PATCH"). Reparo em produção
+> feito às 14:10 com o OK dele: as duas já tinham sido recriadas pelo worker (78289, 78291,
+> limpas por construção); confirmadas. **Pende só o pull + restart do worker na .11.**
 > F3 (12:11): 17 linhas relidas, `LineTotal == ORCVAL` em todas. Regra medida na base
 > inteira: 6.442 linhas de porta-paletes, **6.299 lidas (97,8%)**.
 >
@@ -213,9 +214,10 @@ aceita WinRM). Prévia da janela antes: 1.540 avaliadas, 36 com escrita.
   (4 casas) + resto da linha; passo 2 as linhas como o domínio montou. Domínio e `POST` iguais.
 - Provado com `ciclo --orcamento 00125058` em homologação: cotação atualizada (129.990,30 →
   129.987,88, desconto 0) e pedido criado, os dois exatos. Testes: 3 novos em `test_documentos`.
-- ⏳ **Do Marcelo:** pull + restart do worker na .11; OK para o reparo das 2 cotações
-  (`reparar_desconto.py`, que reenvia as linhas pelo mesmo `atualizar`; o worker não as toca
-  de novo porque a revisão é a mesma).
+- ✅ Reparo em produção (14:10, autorizado): ao rodar, o worker já tinha recriado as duas
+  (78264 → 78289, 78285 → 78291) porque o vendedor seguiu editando no WBC; o reenvio confirmou
+  unitário certo, desconto 0, `DocTotal` inalterado. Nenhum documento vigente com o artefato.
+- ⏳ **Do Marcelo:** pull + restart do worker na .11 com o commit af8e9be.
 
 ---
 

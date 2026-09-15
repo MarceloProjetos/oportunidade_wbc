@@ -18,9 +18,10 @@ recalcula o `LineTotal` a partir dele; se nao muda, respeita o `LineTotal`.
   o dominio montou. Criacao (`POST`) nao muda: linha nova ja nasce com unitario derivado e
   desconto zero. Provado com o ciclo real em homologacao (00125058: cotacao atualizada e
   pedido criado, unitario certo, desconto 0, total exato).
-- Em producao ficaram **2 cotacoes** com o artefato (78264 e 78285); o worker nao as toca de
-  novo (mesma revisao). Reparo = reenviar as linhas pelo mesmo `atualizar`, com o OK do Marcelo.
-- Pende pull + restart do worker na .11.
+- Em producao ficaram **2 cotacoes** com o artefato (78264 e 78285). Antes do reparo o worker
+  ja as tinha recriado (78289 e 78291, limpas por construcao — `POST`); o reparo autorizado
+  reenviou as linhas das novas e confirmou unitario, desconto 0 e `DocTotal` inalterado.
+- Pende pull + restart do worker na .11 (se ainda nao feito).
 
 ## [2026-09-15] — F3: ensaio em homologacao fechou com zero centavos
 

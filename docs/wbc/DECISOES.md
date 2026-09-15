@@ -2077,3 +2077,10 @@ desconto; pedido criado no mesmo ciclo, idem). O domínio e o `POST` não mudam.
 
 Fica: a conferência pós-`PATCH` continua olhando só o total. Se um dia o unitário voltar a
 divergir, ela não vai apitar — é uma coluna a mais para olhar quando alguém reclamar da tela.
+
+**Desfecho em produção (15/09, 14:10).** Reparo autorizado pelo Marcelo e executado pelo mesmo
+`atualizar` corrigido. Ao rodar, as duas cotações com o artefato já estavam **canceladas**: o
+vendedor seguiu editando os orçamentos no WBC e o worker as recriou (78264 → 78289 às 13:56,
+78285 → 78291 às 14:05) — e cotação recriada nasce por `POST`, limpa por construção. O reparo
+reenviou as linhas das novas e confirmou: unitário = ORCVAL ÷ qtd, desconto 0, `DocTotal`
+inalterado (14.276,84 e 68.949,89). Nenhum documento vigente ficou com o artefato.
