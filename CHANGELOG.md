@@ -21,7 +21,9 @@ recalcula o `LineTotal` a partir dele; se nao muda, respeita o `LineTotal`.
 - Em producao ficaram **2 cotacoes** com o artefato (78264 e 78285). Antes do reparo o worker
   ja as tinha recriado (78289 e 78291, limpas por construcao — `POST`); o reparo autorizado
   reenviou as linhas das novas e confirmou unitario, desconto 0 e `DocTotal` inalterado.
-- Pende pull + restart do worker na .11 (se ainda nao feito).
+- Uma terceira (78287) foi tocada pelo codigo antigo as 13:56; o worker a recriou (78292) e o reparo
+  confirmou. Varredura final: zero vigentes com o artefato. Worker da .11 reiniciado as 14:11:50
+  com a correcao.
 
 ## [2026-09-15] — F3: ensaio em homologacao fechou com zero centavos
 

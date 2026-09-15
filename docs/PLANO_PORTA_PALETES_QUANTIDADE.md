@@ -1,13 +1,14 @@
 # PLANO — Porta-paletes: quantidade lida do texto e total da linha por `LineTotal`
 
-> **Status em 2026-09-15 (fim da tarde): F0–F4 concluídas; REABERTO pela F5.** Duas horas
+> **Status em 2026-09-15 (fim da tarde): F0–F5 concluídas.** Duas horas
 > depois do restart, o Marcelo trouxe a tela da cotação 78264: total certo, mas "unitário
 > R$ 3.088,86 com 46% de desconto" numa linha de R$ 1.660,66. Causa: no `PATCH` o SAP mantém o
 > `UnitPrice` da revisão anterior e fecha a conta com desconto. Correção medida em homologação
 > com seis payloads e provada com ciclo real: `atualizar` faz dois `PATCH`, `UnitPrice` antes e
 > `LineTotal` depois (DECISOES.md, "Preço unitário e desconto no PATCH"). Reparo em produção
 > feito às 14:10 com o OK dele: as duas já tinham sido recriadas pelo worker (78289, 78291,
-> limpas por construção); confirmadas. **Pende só o pull + restart do worker na .11.**
+> limpas por construção); confirmadas, mais a 78287 → 78292. Worker da .11 reiniciado às 14:11:50
+> com a correção. Varredura final em produção: zero vigentes com o artefato. **ENCERRADO.**
 > F3 (12:11): 17 linhas relidas, `LineTotal == ORCVAL` em todas. Regra medida na base
 > inteira: 6.442 linhas de porta-paletes, **6.299 lidas (97,8%)**.
 >
@@ -200,7 +201,7 @@ aceita WinRM). Prévia da janela antes: 1.540 avaliadas, 36 com escrita.
 - Acompanhamento: o primeiro porta-paletes real aparece na aba Log como `[porta-paletes]`;
   conferir quantidade, unitário e total no SAP quando passar. O aceite formal já é a F3.
 
-### F5 — Unitário e desconto no `PATCH`  *(minha)* — ✅ código 15/09 · ⏳ deploy + reparo
+### F5 — Unitário e desconto no `PATCH`  *(minha)* — ✅ 15/09 (código, deploy e reparo)
 
 **Meta:** documento atualizado sai com unitário = ORCVAL ÷ qtd, desconto 0 e total exato.
 
@@ -217,7 +218,8 @@ aceita WinRM). Prévia da janela antes: 1.540 avaliadas, 36 com escrita.
 - ✅ Reparo em produção (14:10, autorizado): ao rodar, o worker já tinha recriado as duas
   (78264 → 78289, 78285 → 78291) porque o vendedor seguiu editando no WBC; o reenvio confirmou
   unitário certo, desconto 0, `DocTotal` inalterado. Nenhum documento vigente com o artefato.
-- ⏳ **Do Marcelo:** pull + restart do worker na .11 com o commit af8e9be.
+- ✅ Pull + restart do worker na .11 às 14:11:50 (parada limpa por arquivo); commit af8e9be é das
+  13:47. Terceira cotação (78287 → 78292) tratada às 14:20; varredura final: zero vigentes.
 
 ---
 

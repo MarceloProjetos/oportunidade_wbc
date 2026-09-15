@@ -2083,4 +2083,8 @@ divergir, ela não vai apitar — é uma coluna a mais para olhar quando alguém
 vendedor seguiu editando os orçamentos no WBC e o worker as recriou (78264 → 78289 às 13:56,
 78285 → 78291 às 14:05) — e cotação recriada nasce por `POST`, limpa por construção. O reparo
 reenviou as linhas das novas e confirmou: unitário = ORCVAL ÷ qtd, desconto 0, `DocTotal`
-inalterado (14.276,84 e 68.949,89). Nenhum documento vigente ficou com o artefato.
+inalterado (14.276,84 e 68.949,89). Nenhum documento vigente ficou com o artefato. Uma terceira (78287, `00125706`,
+tocada às 13:56 pelo código antigo) apareceu na varredura seguinte; ao reparar (14:20,
+autorizado), o worker já a tinha recriado (78292, 14:17, código novo). Varredura final: **zero**
+documentos vigentes com desconto fantasma. O worker da .11 roda o código corrigido desde o
+restart das 14:11:50 (commit af8e9be é das 13:47).
