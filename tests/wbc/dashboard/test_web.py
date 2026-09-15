@@ -401,6 +401,38 @@ class TestLog:
         assert "1 linha(s) de erro" in texto
         assert 'class="log-linha ERROR"' in texto
 
+    def test_linha_com_tema_ganha_cor_e_selo(self, cliente: TestClient, tmp_path: Path) -> None:
+        """`[porta-paletes] ...` é o que a integração decidiu sobre a quantidade
+        da linha; no meio de mil linhas de ciclo, precisa saltar aos olhos e
+        filtrar num clique."""
+        log = tmp_path / "wbcpython.log"
+        log.write_text(
+            "2026-09-15 10:00:00 | INFO     | wbcpython.application.processar | "
+            "[porta-paletes] 00125442: Item 1: 272 módulos lidos do texto → Quantity 272\n"
+            "2026-09-15 10:00:01 | INFO     | wbcpython.host.worker | ciclo concluído\n",
+            encoding="utf-8",
+        )
+        texto = cliente.get("/fragmentos/log", params={"arquivo": str(log)}).text
+        assert 'class="log-linha INFO tema"' in texto
+        assert 'class="selo-tema" data-tema="porta-paletes"' in texto
+        assert "272 módulos lidos do texto" in texto
+        assert "[porta-paletes] 00125442" not in texto, "o tema vira selo, não fica no texto"
+        assert 'class="log-linha INFO"' in texto, "linha sem tema segue como sempre"
+
+    def test_o_filtro_de_texto_acha_o_tema(self, cliente: TestClient, tmp_path: Path) -> None:
+        """É o que o clique no selo faz: busca por `[tema]`."""
+        log = tmp_path / "wbcpython.log"
+        log.write_text(
+            "2026-09-15 10:00:00 | INFO     | w | [porta-paletes] 00125442: lido\n"
+            "2026-09-15 10:00:01 | INFO     | w | ciclo concluído\n",
+            encoding="utf-8",
+        )
+        texto = cliente.get(
+            "/fragmentos/log", params={"arquivo": str(log), "busca": "[porta-paletes]"}
+        ).text
+        assert "lido" in texto
+        assert "ciclo concluído" not in texto
+
     def test_filtra_por_nivel(self, cliente: TestClient, tmp_path: Path) -> None:
         log = tmp_path / "wbcpython.log"
         log.write_text(

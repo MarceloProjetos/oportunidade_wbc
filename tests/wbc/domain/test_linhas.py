@@ -19,6 +19,8 @@ from wbcpython.domain.linhas import (
     DEPOSITO_PADRAO,
     GRUPO_FALLBACK,
     composicao,
+    eh_porta_paletes,
+    quantidade_no_texto,
     resolver_linhas,
 )
 
@@ -79,7 +81,8 @@ class TestFallbackDeGrupo:
 
 
 class TestQuantidade:
-    """1 quando ORCPRDQTD for vazia, nula, inconsistente ou zero — e só aí."""
+    """1 quando ORCPRDQTD for vazia, nula, inconsistente ou zero — e o texto
+    não disser quantos módulos são."""
 
     @pytest.mark.parametrize("quantidade", [None, Decimal(0), Decimal(-5)])
     def test_quantidade_invalida_vira_um(self, quantidade) -> None:
@@ -89,14 +92,141 @@ class TestQuantidade:
     def test_quantidade_valida_e_respeitada(self) -> None:
         r = _linhas(_orcamento(_item(quantidade=Decimal(16), valor=Decimal(1600))))
         assert r.linhas[0]["Quantity"] == 16
-        assert r.linhas[0]["Price"] == pytest.approx(100.0)
+        assert r.linhas[0]["LineTotal"] == pytest.approx(1600.0)
 
     def test_o_total_da_linha_e_preservado(self) -> None:
         """ORCVAL é o total; qualquer que seja a quantidade, o total não muda."""
         for quantidade in (None, Decimal(4), Decimal(16)):
             r = _linhas(_orcamento(_item(quantidade=quantidade, valor=Decimal("41810.91"))))
-            linha = r.linhas[0]
-            assert linha["Quantity"] * linha["Price"] == pytest.approx(41810.91)
+            assert r.linhas[0]["LineTotal"] == pytest.approx(41810.91)
+
+
+class TestQuantidadeNoTexto:
+    """Porta-paletes lê "N Módulos" do ORCTXT — a coluna é nula na tabela inteira.
+
+    Relato de 15/09/2026: *"o item PORTA-PALETES sempre é criado como 01
+    unidade conjunto"*. Os textos abaixo são reais (base do WBC).
+    """
+
+    @pytest.mark.parametrize(
+        ("texto", "esperado"),
+        [
+            ("PORTA-PALETES 16 Módulos de estruturas metálicas", 16),
+            ("PORTA-PALETES ÁREA 1 10 Módulos de estruturas", 10),
+            ("PORTA-PALETES - OPÇÃO 1 14 Módulos de estruturas", 14),
+            ("Porta palete 16 modulos duplos", 16),
+            ("PORTAPALETES 03 MODULOS", 3),
+            ("PORTA-PALETES 3279 Módulos de estruturas metálicas, sendo: 3183 medindo", 3279),
+            ("PORTA-PALETES - FASE I - 04 NÍVEIS 59 Módulos de estruturas", 59),
+            ("PORTA-PALETES - OPÇÃO 2000 Kgf 56 Módulos", 56),
+            ("PORTA-PALETES 01 conjunto composto por 06 módulos, sendo", 6),
+            # Rótulo antes do nome: área, item, opção, galpão.
+            ("ÁREA: SECA  PORTA-PALETES 226 Módulos de estruturas", 226),
+            ("ITEM 02 - PORTA-PALETES 04 Módulos de estruturas", 4),
+            ("OPÇÃO 02 - PORTA-PALETES 59 Módulos", 59),
+            ("DW WORLD STG - RCK- 002A  PORTA-PALETES 84 Módulos", 84),
+        ],
+    )
+    def test_le_o_numero_antes_de_modulos(self, texto: str, esperado: int) -> None:
+        assert quantidade_no_texto(texto) == esperado
+
+    @pytest.mark.parametrize(
+        "texto",
+        [
+            "PORTA-PALETES junção dupla",
+            "PORTA-PALETES 36 Sapatas para colunas de porta paletes",
+            "PORTA-PALETES - MODELO C 17 Modelos C medindo 2300 x 800",
+            "PORTA-PALETES 0 Módulos",
+            "",
+        ],
+    )
+    def test_porta_paletes_sem_numero_devolve_none(self, texto: str) -> None:
+        assert eh_porta_paletes(texto) or texto == ""
+        assert quantidade_no_texto(texto) is None
+
+    @pytest.mark.parametrize(
+        "texto",
+        [
+            "ESTANTES METÁLICAS 15 módulos de estantes metálicas",
+            "MEZANINO 12 Módulos",
+            # Acessório que cita porta-paletes: não é a estrutura.
+            "STOPS TRASEIROS PARA PORTA-PALETES 24 Stops traseiros para 12 módulos",
+            "COLUNAS DE PORTA-PALETES 12 colunas de porta-paletes",
+            "PLANOS METÁLICOS 60 Planos metálicos para estruturas do tipo porta-paletes com 4 módulos",
+            "ESTANTES METÁLICAS - GAVETEIROS 16 Módulos de estantes, para os porta-paletes",
+        ],
+    )
+    def test_o_que_nao_e_porta_paletes_fica_de_fora(self, texto: str) -> None:
+        assert not eh_porta_paletes(texto)
+        assert quantidade_no_texto(texto) is None
+
+    def test_a_quantidade_lida_vai_para_a_linha(self) -> None:
+        r = _linhas(_orcamento(_item(texto="PORTA-PALETES 8 Módulos", valor=Decimal("1000"))))
+        assert r.linhas[0]["Quantity"] == 8
+        assert r.linhas[0]["LineTotal"] == pytest.approx(1000.0)
+
+    @pytest.mark.parametrize(("modulos", "valor"), [(8, "41810.91"), (134, "319254.90"), (272, "707201.92")])
+    def test_o_total_nao_muda_com_a_quantidade_lida(self, modulos: int, valor: str) -> None:
+        """A regressão que não podia passar: o total da linha é o ORCVAL, ao centavo."""
+        item = _item(texto=f"PORTA-PALETES {modulos} Módulos", valor=Decimal(valor))
+        r = _linhas(_orcamento(item))
+        assert Decimal(str(r.linhas[0]["LineTotal"])) == Decimal(valor)
+        # O unitário informativo vezes a quantidade devolve o total.
+        assert (item.preco_unitario * item.quantidade_para_documento).quantize(Decimal("0.01")) == Decimal(valor)
+
+    def test_orcprdqtd_preenchida_vence_o_texto(self) -> None:
+        r = _linhas(_orcamento(_item(texto="PORTA-PALETES 8 Módulos", quantidade=Decimal(3))))
+        assert r.linhas[0]["Quantity"] == 3
+        assert r.notas == ()
+
+    def test_a_leitura_vira_nota_no_log(self) -> None:
+        r = _linhas(_orcamento(_item(texto="PORTA-PALETES 8 Módulos", valor=Decimal("1000"))))
+        assert len(r.notas) == 1
+        nota = r.notas[0]
+        assert not nota.atencao
+        assert nota.texto.startswith("[porta-paletes] Item 1: 8 módulos lidos do texto")
+        assert "LineTotal R$ 1.000,00" in nota.texto
+        assert "unitário R$ 125,0000" in nota.texto
+        assert r.avisos == ()
+
+    def test_porta_paletes_sem_numero_vira_nota_com_atencao(self) -> None:
+        r = _linhas(_orcamento(_item(texto="PORTA-PALETES 36 Sapatas")))
+        assert r.linhas[0]["Quantity"] == 1
+        assert len(r.notas) == 1
+        assert r.notas[0].atencao
+        assert 'sem "N Módulos"' in r.notas[0].texto
+        assert r.avisos == (), "não é erro do orçamento: fica no log"
+
+    def test_estante_com_modulos_segue_calada(self) -> None:
+        r = _linhas(_orcamento(_item(grupo=1, texto="ESTANTES METÁLICAS 15 módulos")))
+        assert r.linhas[0]["Quantity"] == 1
+        assert r.notas == ()
+
+    def test_o_peso_unitario_divide_pela_quantidade_lida(self) -> None:
+        """`Weight1` é o peso de UMA unidade: com 8 módulos lidos, o peso da
+        árvore (do conjunto) é dividido por 8."""
+        item = _item(texto="PORTA-PALETES 8 Módulos")
+        r = _linhas(_orcamento(item), pesos={1: Decimal("800")})
+        assert r.linhas[0]["Weight1"] == 110.0
+
+
+class TestCamposDaLinhaNoSap:
+    """O que vai e o que não vai no `DocumentLines`."""
+
+    def test_o_valor_vai_como_line_total_e_nao_como_price(self) -> None:
+        """Enviando `Price = ORCVAL ÷ qtd`, o SAP arredonda a 4 casas e o total
+        diverge 1 centavo. Com `LineTotal`, o total bate por construção."""
+        linha = _linhas(_orcamento(_item(valor=Decimal("707201.92")))).linhas[0]
+        assert linha["LineTotal"] == pytest.approx(707201.92)
+        assert "Price" not in linha
+        assert "UnitPrice" not in linha
+
+    def test_a_unidade_nao_e_enviada(self) -> None:
+        """A unidade CJ foi implementada e desfeita a pedido do negócio: sem o
+        campo, o SAP usa a unidade do cadastro do item."""
+        linha = _linhas(_orcamento(_item())).linhas[0]
+        assert "MeasureUnit" not in linha
+        assert "UoMEntry" not in linha
 
 
 class TestCamposComunsDaLinha:

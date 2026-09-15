@@ -86,7 +86,10 @@
     {% else %}
       <div class="log">
         {% for linha in linhas %}
-          <div class="log-linha {{ linha.nivel }}">
+          {# Linha com tema (`[porta-paletes] ...`) ganha cor própria e um
+             selo clicável: é como quem acompanha o ciclo separa "o que a
+             integração decidiu sobre a quantidade" do resto do log. #}
+          <div class="log-linha {{ linha.nivel }}{% if linha.tema %} tema{% endif %}">
             <span class="hora">{{ linha.momento[11:19] if linha.momento else "" }}</span>
             <span class="nivel">{{ linha.nivel }}</span>
             {# O prefixo `wbcpython.` está em toda linha e não distingue nada:
@@ -94,7 +97,13 @@
             <span class="origem" title="{{ linha.origem }}"
               >{{ linha.origem | replace("wbcpython.", "") }}</span
             >
-            <span class="msg">{{ linha.mensagem }}</span>
+            <span class="msg">
+              {%- if linha.tema -%}
+                <button type="button" class="selo-tema" data-tema="{{ linha.tema }}"
+                  title="Mostrar só as linhas de {{ linha.tema }}">{{ linha.tema }}</button>
+              {%- endif -%}
+              {{- linha.texto -}}
+            </span>
           </div>
         {% endfor %}
       </div>
@@ -123,4 +132,16 @@
   }
   seguindo();
   document.getElementById("seguir").addEventListener("change", seguindo);
+
+  // Clicar no selo de tema filtra a lista por ele: o filtro de texto já
+  // procura a substring "[tema]" em cada linha, então o selo só preenche o
+  // campo e dispara o formulário — um filtro, dois jeitos de chegar nele.
+  document.addEventListener("click", function (evento) {
+    var selo = evento.target.closest(".selo-tema");
+    if (!selo) return;
+    var campo = document.querySelector("#log-filtros [name=busca]");
+    if (!campo) return;
+    campo.value = "[" + selo.dataset.tema + "]";
+    htmx.trigger("#log-filtros", "submit");
+  });
 </script>

@@ -315,7 +315,7 @@ class RepositorioDocumentosVendaServiceLayer:
     # ------------------------------------------------------------ conveniência
 
     def total_das_linhas(self, tipo: TipoDocumento, doc_entry: int) -> Decimal:
-        """Relê o documento no SAP e soma `Quantity * Price` das linhas.
+        """Relê o documento no SAP e soma o `LineTotal` das linhas.
 
         É a conferência do que **de fato ficou gravado**, e existe porque um
         `PATCH` bem-sucedido não garante que as linhas mudaram: o Service Layer
@@ -324,14 +324,15 @@ class RepositorioDocumentosVendaServiceLayer:
 
         Soma antes do imposto, como `total_do_payload`, para que os dois lados
         da comparação sejam a mesma grandeza — `DocTotal` inclui o imposto e não
-        serviria.
+        serviria. Lê o `LineTotal` que o SAP devolve, e não `Quantity * Price`:
+        desde 15/09/2026 é o total que a integração envia, e o `Price` gravado
+        é derivado com 4 casas — multiplicá-lo de volta reintroduziria o
+        centavo de arredondamento que a troca eliminou.
         """
         documento = self._cliente.get_json(f"{tipo.value}({doc_entry})")
         total = Decimal(0)
         for linha in documento.get("DocumentLines") or ():
-            quantidade = Decimal(str(linha.get("Quantity") or 0))
-            preco = Decimal(str(linha.get("Price") or 0))
-            total += quantidade * preco
+            total += Decimal(str(linha.get("LineTotal") or 0))
         return total
 
     def cancelar_e_recriar(

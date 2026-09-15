@@ -22,7 +22,10 @@ def item(**campos) -> ItemOrcamentoWbc:
     base = {
         "orcitm": 1,
         "grupo": 2,
-        "texto": "PORTA-PALETES 16 Módulos",
+        # Sem "N Módulos" de propósito: é a linha real do 00125535, e mantém a
+        # quantidade em 1 nos testes que não são sobre a leitura do texto
+        # (`TestQuantidadeNoTexto` monta os textos que precisa).
+        "texto": "PORTA-PALETES",
         "valor": Decimal("41810.91"),
         "id_integracao": 126979,
     }

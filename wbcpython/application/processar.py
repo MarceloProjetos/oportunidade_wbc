@@ -121,18 +121,22 @@ class DocumentoSemValor(Exception):
 
 
 def total_do_payload(dados: dict[str, Any]) -> Decimal:
-    """Soma `Quantity * Price` das linhas do payload.
+    """Soma `LineTotal` das linhas do payload.
 
-    É o mesmo cálculo que o SAP faz para o `DocTotal`, feito antes de enviar.
-    Em `Decimal` de propósito: as linhas carregam `float` (é o que o JSON do
-    Service Layer aceita), e somar floats para depois comparar com zero é
-    justamente onde um total legítimo de centavos poderia virar zero.
+    É o total antes do imposto, feito antes de enviar — a mesma grandeza que
+    `total_das_linhas` relê do SAP depois. Em `Decimal` de propósito: as
+    linhas carregam `float` (é o que o JSON do Service Layer aceita), e somar
+    floats para depois comparar com zero é justamente onde um total legítimo
+    de centavos poderia virar zero.
+
+    Até 15/09/2026 somava `Quantity * Price`; a linha passou a levar
+    `LineTotal` (ver `domain.linhas`), e os dois lados da conferência mudaram
+    juntos — comparar um total enviado com um produto relido seria comparar
+    grandezas diferentes.
     """
     total = Decimal(0)
     for linha in dados.get("DocumentLines") or ():
-        quantidade = _decimal(linha.get("Quantity")) or Decimal(0)
-        preco = _decimal(linha.get("Price")) or Decimal(0)
-        total += quantidade * preco
+        total += _decimal(linha.get("LineTotal")) or Decimal(0)
     return total
 
 
@@ -676,12 +680,20 @@ class ProcessadorDeOrcamento:
             return None, None
 
         if abs(gravado - esperado) <= TOLERANCIA_DE_TOTAL:
+            logger.info(
+                "[line-total] %s: cotação %s conferida — LineTotal no SAP soma %s, "
+                "orçamento soma %s.",
+                orcnum,
+                doc_entry,
+                gravado,
+                esperado,
+            )
             return None, None
 
         logger.warning(
-            "Orçamento %s: a cotação %s ficou em %s depois da atualização, e o "
-            "orçamento soma %s. O SAP aceitou o PATCH sem trocar as linhas — "
-            "cancelando e recriando a cotação.",
+            "[line-total] %s: a cotação %s ficou em %s (soma de LineTotal) depois da "
+            "atualização, e o orçamento soma %s. O SAP aceitou o PATCH sem trocar as "
+            "linhas — cancelando e recriando a cotação.",
             orcnum,
             doc_entry,
             gravado,
@@ -876,6 +888,16 @@ class ProcessadorDeOrcamento:
             logger.warning("%s: %s", orcamento.orcnum, aviso)
             self._tracking.registrar_evento(orcamento.orcnum, tipo=TipoEvento.ERRO, mensagem=aviso)
 
+        # Notas ficam só no log, com o tema na frente do número do orçamento
+        # ("[porta-paletes] 00125442: ..."): é o tema que o painel usa para
+        # colorir a linha, e ele precisa abrir a mensagem para ser reconhecido.
+        for nota in resultado.notas:
+            logger.log(
+                logging.WARNING if nota.atencao else logging.INFO,
+                "%s",
+                _tema_na_frente(orcamento.orcnum, nota.texto),
+            )
+
         if resultado.vazio and orcamento.itens:
             # Itens existem no WBC mas nenhuma linha sobreviveu. Deixar seguir
             # produziria um documento com total zero — recusado pelo SAP com uma
@@ -976,6 +998,19 @@ def _inteiro(valor: Any) -> int | None:
         return int(valor) if valor is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _tema_na_frente(orcnum: str, texto: str) -> str:
+    """`[tema] resto` + orçamento → `[tema] orçamento: resto`.
+
+    O painel reconhece o tema pelo colchete que **abre** a mensagem
+    (`logs.LinhaDeLog.tema`); o número do orçamento entra logo depois, para a
+    linha continuar legível por orçamento. Texto sem tema fica `orçamento: texto`.
+    """
+    if texto.startswith("[") and "] " in texto:
+        tema, resto = texto.split("] ", 1)
+        return f"{tema}] {orcnum}: {resto}"
+    return f"{orcnum}: {texto}"
 
 
 def _decimal(valor: Any) -> Decimal | None:

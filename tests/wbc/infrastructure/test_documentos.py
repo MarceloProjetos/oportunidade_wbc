@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import httpx
 import pytest
 
@@ -184,6 +186,38 @@ class TestCancelarERecriar:
         )
         _docs(g).cancelar_e_recriar(TipoDocumento.PEDIDO, "X", {"U_INO_COTWBC": "X"})
         assert not any("Cancel" in c for c in g.caminhos)
+
+
+class TestTotalDasLinhas:
+    """A conferência pós-PATCH relê o que ficou gravado."""
+
+    def test_soma_o_line_total_que_o_sap_devolve(self) -> None:
+        """`LineTotal`, e não `Quantity * Price`: o `Price` gravado tem 4 casas
+        e multiplicá-lo de volta reintroduz o centavo (272 × 2600,0071 =
+        707.201,93 contra 707.201,92)."""
+        g = Gravador(
+            [
+                LOGIN,
+                httpx.Response(
+                    200,
+                    json={
+                        "DocEntry": 538485,
+                        "DocumentLines": [
+                            {"Quantity": 272.0, "Price": 2600.0071, "LineTotal": 707201.92},
+                            {"Quantity": 1.0, "Price": 10.0, "LineTotal": 10.0},
+                        ],
+                    },
+                ),
+            ]
+        )
+        total = _docs(g).total_das_linhas(TipoDocumento.COTACAO, 538485)
+
+        assert total == Decimal("707211.92")
+        assert g.caminhos[-1] == "/b1s/v1/Quotations(538485)"
+
+    def test_documento_sem_linhas_soma_zero(self) -> None:
+        g = Gravador([LOGIN, httpx.Response(200, json={"DocEntry": 1})])
+        assert _docs(g).total_das_linhas(TipoDocumento.COTACAO, 1) == Decimal(0)
 
 
 class TestOportunidades:

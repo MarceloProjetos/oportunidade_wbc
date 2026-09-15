@@ -179,3 +179,42 @@ class TestLeitura:
         destino = tmp_path / "x.log"
         self._escrever(destino, ["2026-09-01 10:00:00 | ERROR    | a | x"])
         assert logs.ler(destino)[0].grave
+
+
+class TestTema:
+    """`[porta-paletes] 00125442: ...` — o tema abre a mensagem, e o painel o
+    usa para colorir a linha e filtrar num clique."""
+
+    def test_tema_e_o_colchete_que_abre_a_mensagem(self) -> None:
+        linha = logs.LinhaDeLog(mensagem="[porta-paletes] 00125442: Item 1: 272 módulos lidos")
+        assert linha.tema == "porta-paletes"
+        assert linha.texto == "00125442: Item 1: 272 módulos lidos"
+
+    def test_sem_tema_nada_muda(self) -> None:
+        linha = logs.LinhaDeLog(mensagem="ciclo concluído")
+        assert linha.tema == ""
+        assert linha.texto == "ciclo concluído"
+
+    @pytest.mark.parametrize(
+        "mensagem",
+        [
+            "Orçamento [00125442] avaliado",  # colchete no meio não é tema
+            "[SAP] devolveu 204",  # maiúscula: um código, não um tema
+            "[porta-paletes]sem espaço",
+            "[a] curto demais",
+        ],
+    )
+    def test_o_que_nao_e_tema(self, mensagem: str) -> None:
+        assert logs.LinhaDeLog(mensagem=mensagem).tema == ""
+
+    def test_tema_sobrevive_a_leitura_do_arquivo(self, tmp_path: Path) -> None:
+        destino = tmp_path / "x.log"
+        destino.write_text(
+            "2026-09-15 10:00:00 | WARNING  | wbcpython.application.processar | "
+            '[porta-paletes] 00125535: Item 1: texto de porta-paletes sem "N Módulos"\n',
+            encoding="utf-8",
+        )
+        lida = logs.ler(destino)[0]
+        assert lida.tema == "porta-paletes"
+        assert lida.nivel == "WARNING"
+        assert lida.texto.startswith("00125535: ")

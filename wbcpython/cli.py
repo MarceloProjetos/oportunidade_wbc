@@ -612,7 +612,7 @@ def _cmd_pendentes(
                         linhas = resolver(orc, de_para)
                         resumo_das_linhas = tuple(
                             f"{linha['ItemCode']} x{linha['Quantity']:g} "
-                            f"= {linha['Quantity'] * linha['Price']:.2f}"
+                            f"= {linha['LineTotal']:.2f}"
                             for linha in linhas.linhas
                         )
                         avisos = tuple(linhas.avisos)

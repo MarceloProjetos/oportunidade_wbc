@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -121,6 +122,13 @@ def configurar(
     return destino
 
 
+#: Tema no começo da mensagem: `[porta-paletes] 00125442: 272 módulos lidos...`.
+#: Minúsculas, dígitos e hífen, entre colchetes, seguido de espaço — é o que
+#: `domain.linhas` e `application.processar` escrevem. O painel usa o tema
+#: para colorir a linha e oferecer o filtro de um clique.
+_TEMA = re.compile(r"^\[([a-z][a-z0-9-]{1,30})\] ")
+
+
 @dataclass(frozen=True, slots=True)
 class LinhaDeLog:
     """Uma linha do arquivo, já separada em campos."""
@@ -133,6 +141,17 @@ class LinhaDeLog:
     @property
     def grave(self) -> bool:
         return self.nivel in ("ERROR", "CRITICAL")
+
+    @property
+    def tema(self) -> str:
+        """`porta-paletes` em `[porta-paletes] ...`; vazio quando não há tema."""
+        encontrado = _TEMA.match(self.mensagem)
+        return encontrado.group(1) if encontrado else ""
+
+    @property
+    def texto(self) -> str:
+        """A mensagem sem o `[tema] ` da frente — o painel mostra o tema à parte."""
+        return _TEMA.sub("", self.mensagem, count=1)
 
 
 def ler(

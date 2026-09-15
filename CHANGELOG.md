@@ -3,6 +3,29 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-15] — Porta-paletes: quantidade lida do texto, LineTotal e tema no log
+
+F0–F2 de `docs/PLANO_PORTA_PALETES_QUANTIDADE.md`. O item PORTA-PALETES nascia no SAP com
+quantidade 1 quando o orcamento dizia "14 Modulos": `ORCPRDQTD` e nula nas 21.447 linhas do WBC.
+
+- **Quantidade lida do `ORCTXT`** (`domain/linhas.py`: `quantidade_no_texto`, `eh_porta_paletes`):
+  o inteiro antes da primeira "Modulo(s)" depois de "porta-paletes", em qualquer grafia. Aceita
+  rotulo antes do nome ("AREA: SECA PORTA-PALETES 226 Modulos"); recusa acessorio ("STOPS PARA
+  PORTA-PALETES") e descricao ja comecada. Medido na base inteira com
+  `maintenance/medir_porta_paletes.py`: 6.442 linhas, **6.299 lidas (97,8%)**, 143 sem numero
+  (ficam em 1). Precedencia: `ORCPRDQTD` > texto > 1. Estante com "N Modulos" segue em 1.
+- **`LineTotal` no lugar de `Price`**: `Price = ORCVAL / qtd` tem 4 casas no SAP e 3 das 18 linhas
+  do ensaio ficaram 1 centavo fora; com o total enviado, o SAP deriva o preco e o total bate por
+  construcao. Um campo so. `MeasureUnit` nao vai (teste-guarda). Os tres pontos que somavam
+  `Quantity x Price` mudaram juntos: `total_do_payload`, `total_das_linhas` (le `LineTotal` do
+  SAP) e a previa do CLI.
+- **Tema no log e no painel**: as linhas `[porta-paletes] ...` (INFO na leitura, WARNING sem
+  numero) e `[line-total] ...` (conferencia pos-PATCH) ganham cor azul-aco na aba Log e um selo
+  clicavel que filtra por tema. `logs.LinhaDeLog.tema`/`.texto`; CSS `?v=20260915`.
+- `Weight1` continua peso de UMA unidade: com quantidade real, e dividido de fato.
+- Suite: 1.800 passando, 12 skips. Pendem F3 (ensaio em homologacao: zero centavos de diferenca,
+  conferir o caminho PATCH) e F4 (pull + restart na .11), os dois do Marcelo.
+
 ## [2026-09-15] — Plano: porta-paletes com quantidade lida do texto e LineTotal
 
 `docs/PLANO_PORTA_PALETES_QUANTIDADE.md`. Relato do usuario: o item PORTA-PALETES sempre nasce

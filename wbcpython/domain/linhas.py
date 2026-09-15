@@ -15,10 +15,23 @@ cada regra de negócio sem nenhum sistema externo.
 
 As três decisões que esta regra materializa foram tomadas pelo negócio:
 
-1. **Quantidade 1** quando `ORCPRDQTD` for vazia, nula, inconsistente ou zero.
+1. **Quantidade 1** quando `ORCPRDQTD` for vazia, nula, inconsistente ou zero —
+   exceto na linha de **porta-paletes**, onde a quantidade é lida do texto
+   (ver `quantidade_no_texto`). `ORCPRDQTD` é nula nas 20.997 linhas do WBC, e
+   o item PORTA-PALETES nascia no SAP como 1 unidade quando o texto dizia
+   "14 Módulos" (relato de 15/09/2026).
 2. **Fallback para Porta-Paletes** (grupo `2`) quando o grupo não estiver no
    de-para — **com aviso em log**, nunca em silêncio.
 3. **Depósito `08`** em toda linha.
+
+**O valor da linha vai como `LineTotal`, não como `Price`.** `ORCVAL` é o total
+da linha. Com quantidade 1, mandar `Price = ORCVAL` dava no mesmo; com 272
+módulos, `Price = ORCVAL ÷ 272` tem 4 casas no SAP e o total recalculado
+diverge 1 centavo (`272 × 2600,0071 = 707.201,93` contra `707.201,92` — 3 das
+18 linhas do ensaio de homologação). Enviando o total, o SAP deriva o preço e o
+total bate por construção. `MeasureUnit` **não** é enviado: a unidade é a do
+cadastro do item — a linha com "CJ" foi implementada e desfeita a pedido do
+negócio.
 
 **O peso é enviado no pedido e não na cotação** — e isso é do legado, não
 descuido. `ServiceProcess.cs:640` grava `Weight1` no pedido; na cotação a
@@ -46,10 +59,39 @@ valor menor que o do WBC e ninguém ficava sabendo. Aqui há um caminho só, e e
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from decimal import ROUND_FLOOR, Decimal
 from typing import Any, Protocol
+
+#: Tema das linhas de log desta regra. O painel colore a linha que começa com
+#: `[porta-paletes]`, para que a quantidade lida (ou não lida) se destaque no
+#: meio do ciclo — foi o pedido de quem acompanha a integração.
+TEMA_PORTA_PALETES = "porta-paletes"
+
+#: "porta-paletes" em qualquer grafia: hífen, espaço ou nada, singular ou
+#: plural. Aplicado sobre o texto já sem acento e em minúsculas.
+_PORTA_PALETES = re.compile(r"porta[\s\-]*paletes?")
+
+#: "de porta-paletes", "para porta-paletes", "tipo porta-paletes": o texto
+#: descreve um acessório (stop, coluna, guia, protetor), não a estrutura.
+_ACESSORIO_DE_PORTA_PALETES = re.compile(
+    r"\b(de|do|da|dos|das|para|p/|tipo|em|no|na|com|mini)\s+porta[\s\-]*paletes?$"
+)
+
+#: "N palavra" — o começo de uma descrição ("24 stops", "60 planos"). Se
+#: aparece **antes** de porta-paletes, a linha é de outra coisa que só cita
+#: porta-paletes ("PLANOS METÁLICOS 60 Planos ... tipo porta-paletes").
+_NUMERO_E_PALAVRA = re.compile(r"\b\d+\s*([a-z]+)")
+
+#: Palavras que, depois de um número, ainda são rótulo e não descrição:
+#: "2000 kgf", "232 m", "2a fase". Duas letras ou menos passam sem lista.
+_MEDIDAS = frozenset({"kgf", "kgs", "mm", "cm", "ton", "und", "conj"})
+
+#: O inteiro imediatamente anterior a "modulo(s)".
+_NUMERO_DE_MODULOS = re.compile(r"\b(\d+)\s*modulos?\b")
 
 #: Grupo usado quando o grupo da linha não existe no de-para.
 #: `2` é Porta-Paletes — decisão do negócio, herdada do legado.
@@ -74,6 +116,7 @@ class ItemComGrupo(Protocol):
     grupo: int
     texto: str
     valor: Decimal
+    quantidade: Decimal | None
     id_integracao: int
 
     @property
@@ -84,16 +127,119 @@ class ItemComGrupo(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class Nota:
+    """Uma linha de log sobre o que o motor fez com uma linha do orçamento.
+
+    Não é aviso de integração: não vai para o acompanhamento e não marca o
+    orçamento. Vai para o log, com tema, para quem acompanha o ciclo ver o que
+    o SAP vai receber. `atencao` sobe o nível para WARNING — é o caso da
+    porta-paletes sem "N Módulos" no texto, onde a quantidade 1 é o fallback e
+    não uma leitura.
+    """
+
+    texto: str
+    atencao: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class ResultadoLinhas:
-    """Linhas prontas para o SAP, mais o que precisou ser contornado."""
+    """Linhas prontas para o SAP, mais o que precisou ser contornado.
+
+    `avisos` é o que alguém precisa conferir e fica registrado no
+    acompanhamento do orçamento (grupo fora do de-para). `notas` é o que o
+    motor decidiu de propósito e merece ficar visível no log — a quantidade
+    lida do texto, ou a falta dela — sem virar erro do orçamento.
+    """
 
     linhas: tuple[dict[str, Any], ...] = ()
     avisos: tuple[str, ...] = ()
+    notas: tuple[Nota, ...] = ()
     grupos_desconhecidos: frozenset[int] = field(default_factory=frozenset)
 
     @property
     def vazio(self) -> bool:
         return not self.linhas
+
+
+def _sem_acento(texto: str) -> str:
+    decomposto = unicodedata.normalize("NFKD", texto or "")
+    return "".join(c for c in decomposto if not unicodedata.combining(c)).lower()
+
+
+def _inicio_de_porta_paletes(texto_normalizado: str) -> int | None:
+    """Posição em que a estrutura porta-paletes começa no texto, ou `None`.
+
+    Três coisas dizem que a linha **não** é de porta-paletes, mesmo citando o
+    nome:
+
+    * a palavra vem depois de "de/para/tipo" — é acessório ("STOPS TRASEIROS
+      PARA PORTA-PALETES", "COLUNAS DE PORTA-PALETES");
+    * a descrição já começou antes dela ("PLANOS METÁLICOS 60 Planos ... do
+      tipo porta-paletes") — um "N palavra" antes do nome é o sinal;
+    * o nome não aparece.
+
+    O que **pode** vir antes é um rótulo: "ÁREA: SECA PORTA-PALETES 226
+    Módulos", "ITEM 02 - PORTA-PALETES 04 Módulos", "OPÇÃO 02 PORTA-PALETES".
+    Medido na base inteira (15/09/2026): o rótulo antes do nome existe em 355
+    das 6.299 linhas lidas; exigir o nome no início as deixaria em 1, caladas.
+    """
+    encontrado = _PORTA_PALETES.search(texto_normalizado)
+    if encontrado is None:
+        return None
+    antes = texto_normalizado[: encontrado.start()]
+    for par in _NUMERO_E_PALAVRA.finditer(antes):
+        palavra = par.group(1)
+        if len(palavra) > 2 and palavra not in _MEDIDAS:
+            return None
+    if _ACESSORIO_DE_PORTA_PALETES.search(texto_normalizado[: encontrado.end()]):
+        return None
+    return encontrado.end()
+
+
+def eh_porta_paletes(texto: str) -> bool:
+    """O texto da linha descreve a estrutura porta-paletes, em qualquer grafia.
+
+    `PORTA-PALETES`, `Porta palete`, `porta paletes`, `PORTAPALETE`: hífen,
+    espaço ou nada, singular ou plural, com ou sem caixa. É a identificação
+    que importa para a quantidade — **pelo texto, não pelo grupo**: há
+    porta-paletes com `GRPCOD` 16, que vão para outro item do SAP. Acessório
+    que cita porta-paletes não conta (ver `_inicio_de_porta_paletes`).
+    """
+    return _inicio_de_porta_paletes(_sem_acento(texto)) is not None
+
+
+def quantidade_no_texto(texto: str) -> int | None:
+    """Quantidade de módulos escrita no texto de uma linha de porta-paletes.
+
+    É o **inteiro imediatamente anterior à primeira ocorrência de "Módulo(s)"**
+    depois de "porta-paletes", comparando sem acento e sem caixa. Devolve
+    `None` quando o texto não é de porta-paletes, não traz "Módulo" ou o
+    número é zero — o chamador decide o que fazer (quantidade 1, com nota).
+
+    A regra chegou como "a primeira palavra PORTA-PALETES seguida de um
+    número", e teria lido 1 nestes dois textos reais:
+
+        PORTA-PALETES ÁREA 1 10 Módulos...     → 10, e não 1 (o 1 é da área)
+        PORTA-PALETES - OPÇÃO 1 14 Módulos...  → 14, e não 1 (o 1 é da opção)
+
+    Ancorar no "Módulo" resolve os dois. Só vale para porta-paletes: uma
+    estante com "12 Módulos" continua em quantidade 1, sem nota — foi a
+    decisão de 15/09/2026, para não mudar o que nunca foi pedido.
+
+    Medido na base inteira do WBC (21.447 linhas, 15/09/2026): 6.442 linhas de
+    porta-paletes, **6.299 lidas (97,8%)**, 143 sem número — junções, colunas,
+    protetores e material avulso, onde 1 está certo. Limite conhecido: quatro
+    linhas "01 conjunto ... composto por N montantes ... para M módulos" leem
+    M. O total da linha não depende disso (`LineTotal`).
+    """
+    normalizado = _sem_acento(texto)
+    inicio = _inicio_de_porta_paletes(normalizado)
+    if inicio is None:
+        return None
+    encontrado = _NUMERO_DE_MODULOS.search(normalizado, inicio)
+    if encontrado is None:
+        return None
+    return int(encontrado.group(1)) or None
 
 
 def composicao(texto: str) -> str:
@@ -142,6 +288,7 @@ def resolver_linhas(
     """
     linhas: list[dict[str, Any]] = []
     avisos: list[str] = []
+    notas: list[Nota] = []
     desconhecidos: set[int] = set()
 
     fallback = de_para.get(GRUPO_FALLBACK)
@@ -169,22 +316,27 @@ def resolver_linhas(
                 f"({grupo.item_sap}). Confira o cadastro."
             )
 
+        quantidade = item.quantidade_para_documento
+        _anotar_quantidade(item, quantidade, notas)
+
         linha = {
             "ItemCode": grupo.item_sap,
-            "Quantity": float(item.quantidade_para_documento),
-            # `Price`, não `UnitPrice`. São campos diferentes no SAP: `UnitPrice`
-            # é o preço **bruto**, sobre o qual o SAP ainda aplica o desconto do
-            # parceiro ou da lista de preços; `Price` é o **líquido**, e força o
-            # valor. O legado usa `Price` (`DocCot.Lines.Price = item.OrcVal`,
-            # `ServiceProcess.cs:372`), e a diferença aparece no marcador
-            # `SpecPrice`: 'R' nos documentos do legado, 'N' nos nossos.
+            "Quantity": float(quantidade),
+            # `LineTotal`, e não `Price`. `ORCVAL` é o total da linha, e é o
+            # total que precisa bater com o WBC ao centavo — o preço unitário
+            # é derivado, e quem deriva é o SAP. Mandar `Price = ORCVAL ÷ qtd`
+            # foi tentado: o SAP guarda o preço com 4 casas e recalcula o total,
+            # e 3 das 18 linhas do ensaio ficaram 1 centavo fora
+            # (`272 × 2600,0071 = 707.201,93` contra `707.201,92`).
             #
-            # Hoje dá no mesmo — nenhum parceiro da integração tem desconto
-            # cadastrado, e as 27 linhas geradas em homologação saíram com
-            # `Price = PriceBefDi`, impostos e totais idênticos aos da produção.
-            # A troca é proteção: no dia em que alguém cadastrar um desconto, o
-            # pedido sairia abaixo do valor do orçamento, em silêncio.
-            "Price": float(item.preco_unitario),
+            # Histórico: até 15/09/2026 a linha levava `Price` (o líquido, que
+            # força o valor — diferente de `UnitPrice`, o bruto sobre o qual o
+            # SAP aplica desconto de parceiro; o legado usa `Price`,
+            # `ServiceProcess.cs:372`). Com quantidade sempre 1, `Price` e
+            # `LineTotal` eram o mesmo número. Vai um campo só, de propósito:
+            # com os dois, o Service Layer escolhe qual prevalece, e a versão
+            # da .11 já mostrou comportamento irregular no PATCH.
+            "LineTotal": float(item.valor),
             "WarehouseCode": deposito,
             "U_INO_ORCITM": str(item.orcitm),
             # `rstrip`: o texto do WBC vem com espaços à direita, e a produção os
@@ -202,10 +354,10 @@ def resolver_linhas(
             # ele vezes a quantidade. Por isso a divisão — é o que o legado faz
             # (`Weight1 = soma / item.OrcProdQuantidade`, `ServiceProcess.cs:640`).
             #
-            # Hoje a quantidade é sempre 1 (`ORCPRDQTD` é nula em toda a tabela),
-            # então dividir ou não dá no mesmo. A diferença aparece no dia em que
-            # o WBC preencher a coluna: sem a divisão o SAP multiplicaria de
-            # novo, e o peso sairia quantidade vezes maior do que deveria.
+            # A quantidade deixou de ser sempre 1 em 15/09/2026 (porta-paletes
+            # lê "N Módulos" do texto), e a divisão passou a valer de fato: o
+            # peso da árvore é o do conjunto, e sem dividir o SAP multiplicaria
+            # de novo, com o peso saindo N vezes maior do que deveria.
             linha["Weight1"] = float(peso)
         linha.update(udfs_da_linha(item, orcamento))
         linhas.append(linha)
@@ -213,8 +365,52 @@ def resolver_linhas(
     return ResultadoLinhas(
         linhas=tuple(linhas),
         avisos=tuple(avisos),
+        notas=tuple(notas),
         grupos_desconhecidos=frozenset(desconhecidos),
     )
+
+
+def _anotar_quantidade(item: Any, quantidade: Decimal, notas: list[Nota]) -> None:
+    """Registra de onde veio a quantidade de uma linha de porta-paletes.
+
+    Três saídas, e só para porta-paletes — as outras linhas seguem caladas,
+    como sempre seguiram:
+
+    * `ORCPRDQTD` preenchida: nada a dizer, a coluna venceu (precedência).
+    * Número lido do texto: nota, com o unitário derivado, para que quem
+      acompanha o log veja o que o SAP vai receber.
+    * Sem número: nota **com atenção** (WARNING no log). A leitura das 143
+      linhas assim na base mostrou junções, colunas, protetores e material
+      avulso — quantidade 1 está certa, mas quem confere precisa saber que
+      foi o fallback, e não uma leitura. Não vira erro do orçamento.
+    """
+    if not eh_porta_paletes(item.texto):
+        return
+    if item.quantidade is not None and item.quantidade > 0:
+        return
+    lida = quantidade_no_texto(item.texto)
+    if lida is None:
+        notas.append(
+            Nota(
+                f"[{TEMA_PORTA_PALETES}] Item {item.orcitm}: texto de porta-paletes sem "
+                f'"N Módulos" — quantidade 1, LineTotal R$ {_reais(item.valor)}. '
+                f"Texto: {item.texto.strip()[:80]!r}",
+                atencao=True,
+            )
+        )
+        return
+    notas.append(
+        Nota(
+            f"[{TEMA_PORTA_PALETES}] Item {item.orcitm}: {lida} módulos lidos do texto → "
+            f"Quantity {quantidade:g}, LineTotal R$ {_reais(item.valor)} "
+            f"(unitário R$ {_reais(item.preco_unitario, casas=4)})"
+        )
+    )
+
+
+def _reais(valor: Decimal, *, casas: int = 2) -> str:
+    """`707201.92` → `707.201,92`, como a pessoa lê na tela do SAP."""
+    return f"{valor:,.{casas}f}".replace(",", "\0").replace(".", ",").replace("\0", ".")
 
 
 def _peso_unitario(

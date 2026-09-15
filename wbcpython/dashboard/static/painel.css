@@ -34,6 +34,12 @@
   --neutro: #5c6b79;
   --neutro-fundo: #eaeef1;
 
+  /* Azul-aço para as linhas de log com tema ("[porta-paletes] ..."): é o que
+   * a integração DECIDIU sobre a linha, e não é nem alerta nem erro — precisa
+   * de uma cor que não seja a do cobre, do âmbar nem do vermelho. */
+  --tema: #1f5fa8;
+  --tema-fundo: #e3edf9;
+
   --sombra: 0 1px 2px rgb(22 32 42 / 6%), 0 1px 1px rgb(22 32 42 / 4%);
   --raio: 6px;
 
@@ -67,6 +73,8 @@
     --critico-fundo: #2f1917;
     --neutro: #93a1ae;
     --neutro-fundo: #232b33;
+    --tema: #6aaaf2;
+    --tema-fundo: #17304f;
     --sombra: 0 1px 2px rgb(0 0 0 / 35%);
   }
 }
@@ -90,6 +98,8 @@
   --critico-fundo: #2f1917;
   --neutro: #93a1ae;
   --neutro-fundo: #232b33;
+  --tema: #6aaaf2;
+  --tema-fundo: #17304f;
   --sombra: 0 1px 2px rgb(0 0 0 / 35%);
 }
 
@@ -672,6 +682,34 @@ td.num {
 }
 .log-linha.WARNING .nivel {
   color: var(--atencao);
+}
+
+/* Linha com tema ("[porta-paletes] ..."): o que a integração decidiu sobre a
+ * linha do orçamento. Vem ANTES das regras de erro de propósito — um ERROR
+ * com tema continua vermelho. Um WARNING com tema fica azul na borda e no
+ * fundo, mas mantém o nível em âmbar: é atenção, não é falha. */
+.log-linha.tema {
+  border-left-color: var(--tema);
+  background: color-mix(in srgb, var(--tema-fundo) 60%, transparent);
+}
+
+.selo-tema {
+  display: inline-block;
+  vertical-align: baseline;
+  margin: 0 8px 0 0;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--tema) 55%, transparent);
+  border-radius: 999px;
+  background: var(--tema-fundo);
+  color: var(--tema);
+  font: 600 11px/1.6 var(--ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.selo-tema:hover {
+  background: var(--tema);
+  color: var(--painel);
 }
 
 .log-linha.ERROR,

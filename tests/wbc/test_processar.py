@@ -87,10 +87,7 @@ class DocumentosFalso:
         if ultimo is None:
             return Decimal(0)
         return sum(
-            (
-                Decimal(str(l.get("Quantity") or 0)) * Decimal(str(l.get("Price") or 0))
-                for l in (ultimo[2].get("DocumentLines") or ())
-            ),
+            (Decimal(str(l.get("LineTotal") or 0)) for l in (ultimo[2].get("DocumentLines") or ())),
             Decimal(0),
         )
 
@@ -1734,7 +1731,7 @@ class TestConferenciaDaCotacaoAtualizada:
 
         refeito = next(c for c in docs.chamadas if c[0] == "cancelar_e_recriar")
         linhas = refeito[2]["DocumentLines"]
-        assert linhas and all(l["Price"] > 0 for l in linhas)
+        assert linhas and all(l["LineTotal"] > 0 for l in linhas)
 
     def test_o_historico_registra_o_motivo(self, tracking) -> None:
         """Sem isto, um documento cancelado e refeito não teria explicação
@@ -1765,7 +1762,7 @@ class TestConferenciaDaCotacaoAtualizada:
             OrcDetalheFalso(),
         ).processar(_oportunidade(U_INO_StatusWBC="30"))
         esperado = sum(
-            Decimal(str(l["Quantity"])) * Decimal(str(l["Price"]))
+            Decimal(str(l["LineTotal"]))
             for c in docs.chamadas
             if c[0] == "atualizar"
             for l in c[2]["DocumentLines"]

@@ -1932,3 +1932,76 @@ ninguém entender por quê.
 `VINCULAR_DOCUMENTO_A_OPORTUNIDADE` fica na decisão: ele só age se alguma ação anterior
 produziu documento, então sem pedido ele vincula a cotação — que é o que um ciclo de cotação
 faz de qualquer forma.
+
+## Porta-paletes: quantidade lida do texto, e o valor da linha vai como `LineTotal`
+
+Relato do usuário (15/09/2026): *"o item PORTA-PALETES sempre é criado como 01 unidade
+conjunto"*. `ORCPRDQTD` é nula nas 21.447 linhas de `INTEGRACAO_ORCIMP`; a quantidade real
+está no `ORCTXT` ("PORTA-PALETES 14 Módulos de estruturas metálicas..."). Plano em
+`docs/PLANO_PORTA_PALETES_QUANTIDADE.md`.
+
+### A regra, medida antes de escrita
+
+Quantidade = **o inteiro imediatamente anterior à primeira ocorrência de "Módulo(s)" depois de
+"porta-paletes"**, sem acento e sem caixa. A regra chegou como "a primeira palavra PORTA-PALETES
+seguida de um número", e leria 1 em `PORTA-PALETES ÁREA 1 10 Módulos` (o 1 é da área) e em
+`PORTA-PALETES - OPÇÃO 1 14 Módulos` (o 1 é da opção). Ancorar no "Módulo" resolve os dois.
+
+O que conta como linha de porta-paletes foi decidido pela base, com `maintenance/medir_porta_paletes.py`
+(só leitura, usa a função de produção):
+
+| Variante | Linhas de porta-paletes | Com número | Sem número |
+|---|---|---|---|
+| Nome em qualquer lugar do texto | 9.476 | 6.326 (66,8%) | 3.150 |
+| Nome **no início** do texto | 6.040 | 5.944 (98,4%) | 96 |
+| Nome depois de um rótulo, sem "de/para/tipo" antes (**adotada**) | 6.442 | **6.299 (97,8%)** | 143 |
+
+"Qualquer lugar" pega os acessórios que citam a estrutura (`STOPS TRASEIROS PARA PORTA-PALETES 24
+Stops`, `COLUNAS DE PORTA-PALETES 12 colunas`) e lê números errados. "No início" perde 355 linhas
+legítimas com rótulo antes do nome (`ÁREA: SECA PORTA-PALETES 226 Módulos`, `ITEM 02 - PORTA-PALETES
+04 Módulos`), que ficariam em 1, caladas. A adotada aceita o rótulo e recusa duas coisas: "de/para/
+tipo/com porta-paletes" (acessório) e um "N palavra" antes do nome (descrição de outra coisa que já
+começou). As 143 sem número são junções, colunas, protetores, sapatas e material avulso — quantidade
+1 está certa, e a linha diz isso no log.
+
+**Limite conhecido, aceito:** quatro linhas do tipo `PORTA-PALETES - MONTANTES COMPLEMENTARES 01
+conjunto composto por 192 montantes ... para 186 módulos` leem o número de módulos citado na
+descrição (186), não o conjunto. São 4 em 6.299, e o total da linha não depende disso.
+
+Decisões do Marcelo: só quando "Módulo(s)" vem precedido de porta-paletes em qualquer variação
+(estante e mezanino com "N Módulos" seguem em 1, sem nota); `ORCPRDQTD` positiva vence o texto;
+nada de flag no `.env`.
+
+### `LineTotal` no lugar de `Price`
+
+Com quantidade 1, `Price = ORCVAL` e o total batia. Com 272 módulos, `Price = ORCVAL ÷ 272 =
+2600,0071` (o SAP guarda 4 casas) e o total recalculado é 707.201,93 contra 707.201,92 do WBC: 3
+das 18 linhas do ensaio de homologação ficaram 1 centavo fora, nas duas direções. Depois da semana
+consertando divergência entre documento e orçamento, essa era a regressão que não podia passar.
+
+A linha passou a levar **`LineTotal = ORCVAL`** e o SAP deriva o preço; o total bate por construção.
+Vai **um campo só**: com `Price` e `LineTotal` juntos o Service Layer escolhe qual prevalece, e a
+versão da .11 já mostrou comportamento irregular no `PATCH`. Os três pontos que somavam
+`Quantity × Price` mudaram juntos — `total_do_payload` (recusa documento sem valor),
+`total_das_linhas` (releitura pós-`PATCH`, que cancela e recria acima de 1 centavo) e a prévia do
+CLI — porque comparar um total enviado com um produto relido seria comparar grandezas diferentes.
+`MeasureUnit` não vai: a unidade CJ foi implementada e desfeita a pedido do negócio; sem o campo, a
+unidade é a do cadastro do item.
+
+**Fica para a homologação (F3):** provar que o SL respeita `LineTotal` no `POST` e no `PATCH` com
+`ReplaceCollectionsOnPatch`, e que o valor continua forçado (o `Price` líquido protegia contra
+desconto de parceiro). Se o SL ignorar `LineTotal` sozinho, a alternativa é mandar os dois campos e
+medir de novo.
+
+### Nota, não aviso — e o tema no log
+
+A quantidade lida (ou a falta dela) vai para o log, não para o acompanhamento: é uma decisão do
+motor, não um erro do orçamento. `ResultadoLinhas.notas` carrega `Nota(texto, atencao)`; a leitura
+sai como INFO, a porta-paletes sem "N Módulos" sai como WARNING. As duas abrem com `[porta-paletes]`,
+e a conferência pós-`PATCH` abre com `[line-total]`.
+
+O painel reconhece o tema (`logs.LinhaDeLog.tema`), pinta a linha de azul-aço — nem cobre, nem
+âmbar, nem vermelho: é "o que a integração decidiu", não alerta — e mostra o tema como um selo
+clicável que preenche o filtro de texto com `[tema]`. ERROR com tema continua vermelho; WARNING com
+tema fica azul na borda e mantém o nível em âmbar. Pedido do Marcelo, para entender o que aconteceu
+quando uma linha sair errada.

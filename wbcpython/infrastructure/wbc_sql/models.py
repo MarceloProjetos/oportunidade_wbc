@@ -51,30 +51,37 @@ class ItemOrcamentoWbc(BaseModel):
 
     @property
     def quantidade_para_documento(self) -> Decimal:
-        """Quantidade a enviar ao SAP, com o fallback para 1.
+        """Quantidade a enviar ao SAP, em três degraus.
 
-        Regra definida pelo negócio: **a quantidade é 1 sempre que `ORCPRDQTD`
-        vier vazia, nula, inconsistente ou zero** — e só nesse caso. Quando
-        houver um número positivo, ele é respeitado.
-
-        Hoje o fallback é o caminho único (a coluna é nula em toda a tabela),
-        mas a regra está escrita para o dia em que o WBC passar a preenchê-la:
-        não é um `1` fixo disfarçado.
+        1. **`ORCPRDQTD` positiva** é respeitada. A coluna é nula em toda a
+           tabela hoje, mas a regra está escrita para o dia em que o WBC passar
+           a preenchê-la: não é um `1` fixo disfarçado.
+        2. **Porta-paletes lê "N Módulos" do texto** (`quantidade_no_texto`).
+           Decisão de 15/09/2026: o item PORTA-PALETES nascia no SAP como 1
+           unidade quando o orçamento dizia 14 módulos.
+        3. **1** para todo o resto — vazia, nula, inconsistente, zero, ou linha
+           que não é de porta-paletes.
 
         Negativo conta como inconsistente — quantidade negativa em cotação não
         tem significado de negócio e faria o SAP calcular um total negativo.
         """
-        if self.quantidade is None or self.quantidade <= 0:
-            return Decimal(1)
-        return self.quantidade
+        if self.quantidade is not None and self.quantidade > 0:
+            return self.quantidade
+        # Import local de propósito: `domain.mapeamento` importa este módulo, e
+        # importar `domain.linhas` no topo daqui fecharia o ciclo na carga.
+        from wbcpython.domain.linhas import quantidade_no_texto
+
+        lida = quantidade_no_texto(self.texto)
+        return Decimal(lida) if lida else Decimal(1)
 
     @property
     def preco_unitario(self) -> Decimal:
-        """Preço unitário: `ORCVAL` é o total da linha, o SAP quer o unitário.
+        """Preço unitário: `ORCVAL` é o total da linha dividido pela quantidade.
 
-        Dividir preserva o total da linha qualquer que seja a quantidade — que é
-        o que o legado faz (`Price = orcVal / U_INO_Qtde`) e o que mantém o
-        documento com o mesmo valor do orçamento no WBC.
+        Desde 15/09/2026 o documento **não** leva este número: a linha vai com
+        `LineTotal = ORCVAL` e o SAP deriva o preço (ver `domain.linhas`). O
+        unitário continua aqui para o log e para a prévia — é o que a pessoa
+        confere contra a tela do SAP.
         """
         return self.valor / self.quantidade_para_documento
 
