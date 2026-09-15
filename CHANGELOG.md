@@ -3,6 +3,24 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-15] — WOL do .90: segunda chance em 15 min e Python 3.14
+
+Na manha de 15/09 a tarefa `OrcaView-WOL-AltservidorIA` disparou no boot da .11 e morreu com
+`0x80070002` (arquivo nao encontrado): a acao estava presa a `C:\Program Files\Python312\python.exe`
+e a maquina tinha migrado para o 3.14. O .90 ficou desligado ate alguem apertar o botao as 07:14.
+Na vespera, com o 3.12 ainda presente, o magic packet acordou o .90 em 42 s — a primeira prova
+real de que o Wake-on-LAN funciona ponta a ponta.
+
+`install_wol_task.ps1`:
+
+- **`-RetryMinutes` (padrao 15).** O gatilho de boot ganha uma repeticao de um unico disparo:
+  se a janela de 600 s acabar sem o .90 responder, a tarefa roda de novo 15 min depois do
+  primeiro disparo. Com o .90 ja acordado a repeticao so grava "JA responde ao ping" e sai.
+  `0` desliga. O instalador recusa `RetryMinutes*60 <= Wait`, porque a repeticao cairia na
+  instancia em curso e seria ignorada (`MultipleInstances IgnoreNew`).
+- **Fallback do Python cobre `Python314` antes de `Python312`.** O PATH continua sendo a
+  primeira fonte. Depois de qualquer troca de Python na .11, rode o instalador de novo.
+
 ## [2026-09-14] — Janela estendida nao cria nem altera pedido
 
 Regra de negocio do Marcelo, depois do ensaio de 13 meses em producao: das 144 escritas que
