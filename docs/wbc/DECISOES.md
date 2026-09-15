@@ -2005,3 +2005,38 @@ O painel reconhece o tema (`logs.LinhaDeLog.tema`), pinta a linha de azul-aço �
 clicável que preenche o filtro de texto com `[tema]`. ERROR com tema continua vermelho; WARNING com
 tema fica azul na borda e mantém o nível em âmbar. Pedido do Marcelo, para entender o que aconteceu
 quando uma linha sair errada.
+
+### F3 — o ensaio em homologação (15/09/2026, 12:09–12:11)
+
+Rodado da estação com o pacote de `master` (o mesmo que a .11 já rodava em produção desde o
+restart do Marcelo), apontado para `SBOALTAMIRAHOMOLOG` com a trava de produção ATIVA, tracking
+e log em arquivos próprios, e o SQL do WBC lido por pyodbc (a estação não tem pymssql). Prévia
+da janela inteira antes de escrever: 1.540 avaliadas, 36 com escrita.
+
+Três orçamentos, escolhidos para cobrir os três caminhos que a troca por `LineTotal` tinha de
+provar:
+
+| Orçamento | Caminho | Resultado |
+|---|---|---|
+| `00125535` | cancelar e recriar a cotação (`POST`) | cotação 102000 (DocNum 77899): `16 × 2533,0219`, `LineTotal 40.528,35 = ORCVAL`; unidade **UN** |
+| `00125442` | atualizar a cotação (`PATCH` com `ReplaceCollectionsOnPatch`) | cotação 101977 passou de 3 para 6 linhas; `96 ×` e `168 ×`; conferência `[line-total]` fechou em 722.568,54 dos dois lados |
+| `00125516` | `PATCH` da cotação + criação do pedido (`POST` em `Orders`) | o SL aceitou o `PATCH` **sem trocar as linhas** (31.546,41 contra 20.453,09); a conferência por `LineTotal` pegou, cancelou e recriou (102002); pedido 19533 (DocNum 84332) com `2 ×` e `3 ×` |
+
+**Zero centavos de diferença** em 17 linhas relidas do SAP: `LineTotal` gravado == `ORCVAL` em
+todas, nos três documentos. O `Price` derivado tem 4 casas e `Quantity × Price` diverge do
+`LineTotal` em até 4 centavos (`96 × 2605,3215 = 250.110,86` contra `250.110,90` gravado) — é
+exatamente por isso que o total vai como `LineTotal` e a conferência lê `LineTotal`, não o
+produto.
+
+Duas observações que ficam registradas:
+
+* **A conferência pós-`PATCH` provou o valor dela de novo**: o `00125516` é o terceiro caso em
+  que o Service Layer devolve `204` e mantém as linhas antigas. Com a soma por `LineTotal`, a
+  divergência foi de R$ 11.093,32, não de centavos — a folga de 1 centavo continua certa.
+* **`PATCH` não muda a unidade de uma linha que já existia.** A linha 1 da cotação 101977 ainda
+  mostra `CJ`, herdado do ensaio de 09/09 que enviou `MeasureUnit`; as linhas novas nasceram
+  `UN`. Em produção nunca houve `CJ`, então não há o que corrigir; em homologação é só o
+  resíduo daquele ensaio.
+
+Decisão 3 (só `LineTotal`, sem `Price`) **fica fechada**: o SL respeitou `LineTotal` no `POST`
+de cotação, no `POST` de pedido e no `PATCH` que de fato trocou as linhas.

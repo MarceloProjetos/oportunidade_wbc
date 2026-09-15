@@ -3,6 +3,18 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-15] — F3: ensaio em homologacao fechou com zero centavos
+
+Ensaio da troca por `LineTotal` em `SBOALTAMIRAHOMOLOG` (trava de producao ativa; rodado da
+estacao com o pacote de `master`). Tres orcamentos, tres caminhos: `00125535` cancelar e
+recriar cotacao (POST, 16 modulos), `00125442` atualizar cotacao (PATCH que trocou 3 por 6
+linhas, 96 e 168 modulos, conferencia `[line-total]` fechou em 722.568,54), `00125516` PATCH +
+criacao de pedido (2 e 3 modulos). **17 linhas relidas do SAP, `LineTotal == ORCVAL` em
+todas**; unidade UN nas linhas novas. No `00125516` o SL aceitou o PATCH sem trocar as linhas
+e a conferencia por `LineTotal` pegou (R$ 11.093,32 de diferenca), cancelou e recriou — a rede
+de seguranca continua valendo com o campo novo. Registro em `docs/wbc/DECISOES.md`, "F3".
+Nada muda no codigo. O worker da .11 ja roda este codigo em producao desde o restart de 15/09.
+
 ## [2026-09-15] — Porta-paletes: quantidade lida do texto, LineTotal e tema no log
 
 F0–F2 de `docs/PLANO_PORTA_PALETES_QUANTIDADE.md`. O item PORTA-PALETES nascia no SAP com

@@ -1,17 +1,16 @@
 # PLANO — Porta-paletes: quantidade lida do texto e total da linha por `LineTotal`
 
-> **Status em 2026-09-15 (fim da tarde):** **F0–F2 codadas e testadas; F4 NO AR na .11 desde
-> 15/09** — o Marcelo puxou e reiniciou o worker e o painel, e o `/status` confirma: worker
-> ciclando, 101 execuções no dia, 0 falhas, último ciclo com 1.743 orçamentos avaliados e 0
-> com ação. ⚠️ **A F4 subiu ANTES da F3**: nenhum porta-paletes real passou ainda pelo código
-> novo. O primeiro que passar **é** o ensaio — ler as linhas `[porta-paletes]` e `[line-total]`
-> na aba Log e conferir a cotação no SAP (quantidade, unitário, total, caminho `PATCH`).
-> A regra foi medida na base inteira (21.447 linhas) antes de ser escrita: 6.442 linhas de
-> porta-paletes, **6.299 lidas (97,8%)**, 143 sem número. `LineTotal` substitui `Price`, os
-> três pontos que somavam `Quantity × Price` mudaram juntos, e o painel colore as linhas
-> `[porta-paletes]` e `[line-total]` na aba Log. Suíte: **1.800 passando, 12 skips**.
-> **Pende SÓ a F3** (ensaio, do Marcelo: zero centavos de diferença, conferir o caminho
-> `PATCH`). O pull + restart da F4 já foi feito.
+> **Status em 2026-09-15 (fim da tarde): ✅ ENCERRADO — F0–F4 concluídas.** O worker da .11
+> roda o código novo em produção desde o restart do Marcelo (`/status`: worker ciclando, 0
+> falhas). **F3 fechou às 12:11 em `SBOALTAMIRAHOMOLOG`**: três orçamentos cobrindo `POST` de
+> cotação, `PATCH` de cotação e `POST` de pedido — **17 linhas relidas do SAP, `LineTotal ==
+> ORCVAL` em todas, zero centavos**; quantidades 16, 96, 168, 2 e 3; unidade UN nas linhas
+> novas. A conferência pós-`PATCH` pegou um `204` sem troca de linhas (R$ 11.093,32 de
+> diferença) e recriou a cotação — a rede de segurança funciona com o campo novo. Registro em
+> `docs/wbc/DECISOES.md`, "F3". A regra foi medida na base inteira (21.447 linhas) antes de ser
+> escrita: 6.442 linhas de porta-paletes, **6.299 lidas (97,8%)**, 143 sem número. Suíte:
+> **1.800 passando, 12 skips**. Resta só o acompanhamento natural: o primeiro porta-paletes
+> real em produção, visível nas linhas `[porta-paletes]` da aba Log.
 >
 > O relato que motivou o plano descrevia a quantidade lida como "ficou" e a unidade CJ como
 > "revertida", mas em `master` não havia nada disso: o plano partiu do zero.
@@ -170,22 +169,27 @@ grandeza dos dois lados.
   preenche o filtro. Prévia conferida nos dois temas com o CSS real. `painel.css?v=20260915`.
 - CHANGELOG + DECISOES.md; suíte 1.800 / 12 skips; commit e push em `master`.
 
-### F3 — Ensaio  *(do Marcelo)* — ⏳ única fase aberta
+### F3 — Ensaio em homologação  *(minha, a pedido dele)* — ✅ 15/09, 12:09–12:11
 
 **Meta:** prova de que o SAP respeita `LineTotal` no `POST` **e** no `PATCH`, e de que o
 total forçado continua forçado.
 
-⚠️ Como a F4 subiu antes, o ensaio pode ser em homologação **ou** o primeiro porta-paletes
-real em produção — o que vier primeiro. Nos dois casos o aceite é o mesmo.
+Rodado da estação com o pacote de `master` apontado para `SBOALTAMIRAHOMOLOG` (trava de
+produção ATIVA, tracking e log próprios, WBC por pyodbc — a .11 está em WORKGROUP e não
+aceita WinRM). Prévia da janela antes: 1.540 avaliadas, 36 com escrita.
 
-- Ciclo completo em homologação (referência do relato: 1.540 avaliados, 42 com ação, 0 erro).
-- Critério de aceite: **zero linhas com diferença de centavo** entre `LineTotal` no SAP e
-  `ORCVAL`; `Price` derivado = `ORCVAL ÷ qtd`; unidade da linha = a do cadastro (UN no
-  `I000003`, a do próprio item nas 6 linhas de GRPCOD 16).
-- Conferir uma cotação **atualizada** (caminho `PATCH` + `ReplaceCollectionsOnPatch`): é o
-  caminho que já falhou em silêncio uma vez.
-- **Se o SL ignorar `LineTotal` no PATCH**, a alternativa é mandar os
-  dois campos (`Price` calculado + `LineTotal`) e medir de novo — decisão 3 reabre.
+| Orçamento | Caminho | Resultado |
+|---|---|---|
+| `00125535` | cancelar e recriar cotação (`POST`) | cotação 102000: `16 × 2533,0219`, `LineTotal 40.528,35 = ORCVAL`, unidade UN |
+| `00125442` | atualizar cotação (`PATCH`) | 101977 passou de 3 para 6 linhas, `96 ×` e `168 ×`; `[line-total]` fechou em 722.568,54 dos dois lados |
+| `00125516` | `PATCH` + criação de pedido (`POST`) | o SL aceitou o `PATCH` sem trocar as linhas; a conferência pegou (31.546,41 × 20.453,09), recriou a cotação (102002) e criou o pedido 19533 com `2 ×` e `3 ×` |
+
+- **Aceite cumprido: 17 linhas relidas, `LineTotal == ORCVAL` em todas, zero centavos.**
+  `Quantity × Price` diverge em até 4 centavos (o `Price` tem 4 casas) — é a prova de que
+  o total tinha de ir como `LineTotal`.
+- **O que mordeu:** `PATCH` não muda a unidade de linha que já existia — a linha 1 da 101977
+  ficou `CJ`, resíduo do ensaio de 09/09. Em produção nunca houve `CJ`; nada a corrigir.
+- Decisão 3 (só `LineTotal`, sem `Price`) fica fechada em definitivo.
 
 ### F4 — Produção  *(do Marcelo)* — ✅ 15/09 (no ar)
 
@@ -194,8 +198,8 @@ real em produção — o que vier primeiro. Nos dois casos o aceite é o mesmo.
 - ✅ `git pull` + restart de `OrcaView-WBC-Worker` e `OrcaView-WBC-Painel` na .11 em 15/09
   (o pull da janela sob demanda subiu junto). `/status` depois do restart: worker `healthy`,
   101 execuções no dia, 0 falhas, ciclo 1213 com 1.743 avaliados e 0 com ação.
-- ⏳ Primeiro pedido real de porta-paletes conferido no SAP (quantidade, unitário, total) —
-  é o aceite da F3, não fecha aqui.
+- Acompanhamento: o primeiro porta-paletes real aparece na aba Log como `[porta-paletes]`;
+  conferir quantidade, unitário e total no SAP quando passar. O aceite formal já é a F3.
 
 ---
 
