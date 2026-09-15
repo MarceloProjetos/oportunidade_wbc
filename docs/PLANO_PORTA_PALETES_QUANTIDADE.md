@@ -1,12 +1,17 @@
 # PLANO — Porta-paletes: quantidade lida do texto e total da linha por `LineTotal`
 
-> **Status em 2026-09-15 (tarde):** **F0, F1 e F2 codadas e testadas — nada rodou no SAP ainda.**
+> **Status em 2026-09-15 (fim da tarde):** **F0–F2 codadas e testadas; F4 NO AR na .11 desde
+> 15/09** — o Marcelo puxou e reiniciou o worker e o painel, e o `/status` confirma: worker
+> ciclando, 101 execuções no dia, 0 falhas, último ciclo com 1.743 orçamentos avaliados e 0
+> com ação. ⚠️ **A F4 subiu ANTES da F3**: nenhum porta-paletes real passou ainda pelo código
+> novo. O primeiro que passar **é** o ensaio — ler as linhas `[porta-paletes]` e `[line-total]`
+> na aba Log e conferir a cotação no SAP (quantidade, unitário, total, caminho `PATCH`).
 > A regra foi medida na base inteira (21.447 linhas) antes de ser escrita: 6.442 linhas de
 > porta-paletes, **6.299 lidas (97,8%)**, 143 sem número. `LineTotal` substitui `Price`, os
 > três pontos que somavam `Quantity × Price` mudaram juntos, e o painel colore as linhas
 > `[porta-paletes]` e `[line-total]` na aba Log. Suíte: **1.800 passando, 12 skips**.
-> **Pendem F3** (ensaio em homologação, do Marcelo: zero centavos de diferença, conferir o
-> caminho `PATCH`) **e F4** (pull + restart na .11).
+> **Pende SÓ a F3** (ensaio, do Marcelo: zero centavos de diferença, conferir o caminho
+> `PATCH`). O pull + restart da F4 já foi feito.
 >
 > O relato que motivou o plano descrevia a quantidade lida como "ficou" e a unidade CJ como
 > "revertida", mas em `master` não havia nada disso: o plano partiu do zero.
@@ -36,12 +41,13 @@ enviado, o SAP usa a do cadastro do item.
 
 ## Onde está agora
 
-Em `master` (não deployado): `ItemOrcamentoWbc.quantidade_para_documento`
+Em **produção na .11 desde 15/09/2026** (F4): `ItemOrcamentoWbc.quantidade_para_documento`
 ([`models.py`](../wbcpython/infrastructure/wbc_sql/models.py)) tem três degraus — `ORCPRDQTD`
 positiva, número do texto, 1 — e a leitura do texto vive em `quantidade_no_texto` /
 `eh_porta_paletes` ([`linhas.py`](../wbcpython/domain/linhas.py)). A linha vai com
 `Quantity`, `LineTotal`, `WarehouseCode`, `Weight1` e os UDFs; `Price` e `MeasureUnit` não vão
-(testes-guarda). Na .11 ainda roda o código antigo: quantidade 1 e `Price = ORCVAL`.
+(testes-guarda). O worker da .11 já roda este código; até o primeiro porta-paletes real
+passar, o comportamento em produção é o dos testes, não o medido.
 
 Os três lugares que somavam `Quantity × Price` mudaram juntos:
 
@@ -164,10 +170,13 @@ grandeza dos dois lados.
   preenche o filtro. Prévia conferida nos dois temas com o CSS real. `painel.css?v=20260915`.
 - CHANGELOG + DECISOES.md; suíte 1.800 / 12 skips; commit e push em `master`.
 
-### F3 — Ensaio em homologação  *(do Marcelo · escrita em homologação)*
+### F3 — Ensaio  *(do Marcelo)* — ⏳ única fase aberta
 
 **Meta:** prova de que o SAP respeita `LineTotal` no `POST` **e** no `PATCH`, e de que o
 total forçado continua forçado.
+
+⚠️ Como a F4 subiu antes, o ensaio pode ser em homologação **ou** o primeiro porta-paletes
+real em produção — o que vier primeiro. Nos dois casos o aceite é o mesmo.
 
 - Ciclo completo em homologação (referência do relato: 1.540 avaliados, 42 com ação, 0 erro).
 - Critério de aceite: **zero linhas com diferença de centavo** entre `LineTotal` no SAP e
@@ -178,13 +187,15 @@ total forçado continua forçado.
 - **Se o SL ignorar `LineTotal` no PATCH**, a alternativa é mandar os
   dois campos (`Price` calculado + `LineTotal`) e medir de novo — decisão 3 reabre.
 
-### F4 — Produção  *(do Marcelo)*
+### F4 — Produção  *(do Marcelo)* — ✅ 15/09 (no ar)
 
 **Meta:** o worker da .11 cria porta-paletes com a quantidade certa.
 
-- `git pull` + restart de `OrcaView-WBC-Worker` e `OrcaView-WBC-Painel` na .11 (já há um
-  pull pendente da janela sob demanda; sobe junto).
-- Primeiro pedido real de porta-paletes conferido no SAP: quantidade, unitário, total.
+- ✅ `git pull` + restart de `OrcaView-WBC-Worker` e `OrcaView-WBC-Painel` na .11 em 15/09
+  (o pull da janela sob demanda subiu junto). `/status` depois do restart: worker `healthy`,
+  101 execuções no dia, 0 falhas, ciclo 1213 com 1.743 avaliados e 0 com ação.
+- ⏳ Primeiro pedido real de porta-paletes conferido no SAP (quantidade, unitário, total) —
+  é o aceite da F3, não fecha aqui.
 
 ---
 
@@ -214,4 +225,4 @@ total forçado continua forçado.
 
 ---
 
-Plano no repositório: `docs/PLANO_PORTA_PALETES_QUANTIDADE.md` · ServidorIntegracaoSAP · 2026-09-15
+Plano no repositório: `docs/PLANO_PORTA_PALETES_QUANTIDADE.md` · ServidorIntegracaoSAP · 2026-09-15 (F4 no ar)
