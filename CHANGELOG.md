@@ -3,6 +3,14 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-15] — Plano: porta-paletes com quantidade lida do texto e LineTotal
+
+`docs/PLANO_PORTA_PALETES_QUANTIDADE.md`. Relato do usuario: o item PORTA-PALETES sempre nasce
+no SAP com quantidade 1. Nada foi implementado ainda — o plano registra que o relato anterior
+("quantidade do texto ficou, CJ revertido") nao corresponde a nada em `master`, define a regra
+(inteiro antes de "Modulo(s)", so quando precedido de porta-paletes em qualquer grafia), a troca
+de `Price` por `LineTotal` e os tres pontos que somam `Quantity x Price` e mudam junto.
+
 ## [2026-09-15] — WOL do .90: segunda chance em 15 min e Python 3.14
 
 Na manha de 15/09 a tarefa `OrcaView-WOL-AltservidorIA` disparou no boot da .11 e morreu com
