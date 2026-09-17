@@ -3,6 +3,28 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-17] — Espelho dos orcamentos (VW_EVOL_ORCAMENTO_ALT) no Supabase
+
+A view de orcamentos foi refeita em 09/2026 e passou de 12 para 34 colunas: ganhou o CNAE do
+cliente, o bloco de montagem (TipoMontagem/ValorMontagem/Montador) e o de nota fiscal
+(NumNF/DataNF/QuitacaoNF). O espelho leva isso ao Supabase para o web e o app lerem sem
+depender do HANA.
+
+- **`extract_orcamentos_espelho.py`** — snapshot (carrega-depois-poda) da view inteira,
+  de hora em hora dentro da janela comercial, com lock proprio
+  (`orcamentos_espelho_sync_lock`) e desfecho gravado em `rotinas_execucao`. View vazia ou
+  consulta que falha **nao podam**: no pior caso a tabela fica com o snapshot anterior.
+- **`sql/orcamentos_espelho.sql`** — a tabela (34 colunas + controle), indices e RLS. Leitura
+  para `authenticated`; nada para `anon` (o fechamento do anon esta em curso) — a policy de
+  anon fica comentada no fim do arquivo.
+- **`nf_quitada` e booleano de tres estados**: `NULL` quando nao ha nota. Medido em 17/09 na
+  view inteira (5.643 linhas): 1.252 `true`, 82 `false`, 4.309 `NULL` — o `QuitacaoNF` cru diz
+  "Nao" para 4.310 linhas so porque nota nenhuma foi emitida, e quem lesse isso como "nota em
+  aberto" erraria por um fator de tres. Texto vazio (`AcaoContato`, `Lead`,
+  `SituacaoCliente`) entra como `NULL`.
+- **Pendem**: o DDL no SQL Editor do Supabase e o restart do scheduler da `.11`. Enquanto a
+  tabela nao existir, o job registra falha e nao escreve nada.
+
 ## [2026-09-17] — Auditoria estatica: tres defeitos no caminho de escrita do worker
 
 Achados por leitura de codigo (sem executar nada), cada um rastreado ate o cenario concreto.

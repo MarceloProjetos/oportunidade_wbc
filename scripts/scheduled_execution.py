@@ -16,10 +16,16 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 import scripts._bootstrap  # noqa: F401
 from config import get_settings, parse_janela_horas
+from extract_orcamentos_espelho import main as sync_orcamentos_espelho
 from extract_sap_to_supabase import main
 from extract_vendas_bi import main as sync_vendas_bi
 from feriados_br import is_business_day, is_national_holiday
-from pipeline_core import FileLockTimeout, oportunidades_sync_lock, vendas_bi_sync_lock
+from pipeline_core import (
+    FileLockTimeout,
+    oportunidades_sync_lock,
+    orcamentos_espelho_sync_lock,
+    vendas_bi_sync_lock,
+)
 
 LOG_RETENTION_DAYS = 6
 HEARTBEAT_INTERVAL_S = 3600
@@ -29,6 +35,11 @@ HEARTBEAT_INTERVAL_S = 3600
 VENDAS_BI_INTERVALO_MIN = 15
 #: Fora do expediente (noite, fim de semana, feriado). Basta para a virada do dia.
 VENDAS_BI_INTERVALO_FORA_MIN = 60
+#: Espelho dos orçamentos: a view inteira a cada hora, no expediente. Os campos
+#: que ele carrega (CNAE, montagem, nota fiscal) mudam em horas, não em minutos,
+#: e cada carga reescreve as ~5,6 mil linhas da view — de 15 em 15 min seria
+#: escrita à toa no Supabase.
+ORCAMENTOS_ESPELHO_INTERVALO_MIN = 60
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +158,29 @@ def job_vendas_bi(*, ignorar_janela: bool = False) -> None:
         logger.error('Vendas BI erro: %s', exc)
 
 
+def job_orcamentos_espelho() -> None:
+    """Reescreve o espelho de ``VW_EVOL_ORCAMENTO_ALT`` no Supabase.
+
+    Só no expediente: ao contrário do cartão "Hoje" do dashboard, nada aqui muda
+    de significado à meia-noite — orçamento, montagem e nota fiscal só andam com
+    gente trabalhando.
+
+    Job e lock próprios: se a carga de oportunidades falhar, o espelho não pode
+    parar junto, e vice-versa.
+    """
+    if not can_run_load():
+        logger.debug('Espelho de orçamentos pulado: fora do dia útil/janela')
+        return
+    try:
+        with orcamentos_espelho_sync_lock(timeout=0):
+            ok = sync_orcamentos_espelho()
+        logger.info('Espelho de orçamentos: %s', 'OK' if ok else 'FALHOU')
+    except FileLockTimeout:
+        logger.warning('Espelho de orçamentos pulado: carga já em andamento (lock de arquivo)')
+    except Exception as exc:
+        logger.error('Espelho de orçamentos erro: %s', exc)
+
+
 def configurar_agenda() -> BackgroundScheduler:
     settings = get_settings()
     # JANELA_HORAS already validated in get_settings(); re-check for scheduler startup log
@@ -182,6 +216,15 @@ def configurar_agenda() -> BackgroundScheduler:
         trigger=IntervalTrigger(minutes=VENDAS_BI_INTERVALO_FORA_MIN),
         id='vendas_bi_fora_janela',
         name=f'Vendas BI a cada {VENDAS_BI_INTERVALO_FORA_MIN}min (24/7)',
+    )
+    scheduler.add_job(
+        job_orcamentos_espelho,
+        trigger=IntervalTrigger(minutes=ORCAMENTOS_ESPELHO_INTERVALO_MIN),
+        id='orcamentos_espelho',
+        name=(
+            f'Espelho de orçamentos a cada {ORCAMENTOS_ESPELHO_INTERVALO_MIN}min '
+            f'({settings.janela_horas}h, Mon-Fri)'
+        ),
     )
     for job in scheduler.get_jobs():
         logger.info('Job: %s — %s', job.name, job.trigger)

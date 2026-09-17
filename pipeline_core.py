@@ -94,6 +94,23 @@ def vendas_bi_sync_lock(timeout: float = 0):
 
 
 @contextmanager
+def orcamentos_espelho_sync_lock(timeout: float = 0):
+    """Lock cross-process do espelho de orçamentos (``VW_EVOL_ORCAMENTO_ALT``).
+
+    Arquivo próprio, pela mesma razão do de vendas: view e tabela diferentes das
+    outras cargas. O lock importa aqui porque este também é snapshot — duas
+    execuções simultâneas fariam uma podar as linhas da outra.
+    """
+    if FileLock is None:
+        logger.warning("filelock não instalado — espelho de orçamentos SEM lock cross-process")
+        yield
+        return
+    os.makedirs(_LOCK_DIR, exist_ok=True)
+    with FileLock(os.path.join(_LOCK_DIR, 'orcamentos_espelho_sync.lock'), timeout=timeout):
+        yield
+
+
+@contextmanager
 def os_sync_lock(nped: object, timeout: float = 0):
     """Cross-process file lock for the OS sync of **a single pedido**.
 
