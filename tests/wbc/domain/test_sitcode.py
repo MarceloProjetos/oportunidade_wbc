@@ -79,12 +79,15 @@ class TestSitCode40e55Revisao:
         assert decisao.regra == "revisao_sobre_cotacao_emitida"
 
     @pytest.mark.parametrize("sitcode_wbc", [40, 55])
-    def test_sap_em_40_com_revisao_mais_nova_recria(self, sitcode_wbc: int) -> None:
+    @pytest.mark.parametrize("sitcode_sap", ["40", "55"])
+    def test_sap_em_revisao_com_revisao_mais_nova_recria(
+        self, sitcode_wbc: int, sitcode_sap: str
+    ) -> None:
         decisao = decidir(
             estado(
                 sitcode_wbc=sitcode_wbc,
                 tem_cotacao=True,
-                sitcode_sap="40",
+                sitcode_sap=sitcode_sap,
                 revisao_wbc="C",
                 revisao_cotacao_sap="B",
             )
@@ -92,18 +95,36 @@ class TestSitCode40e55Revisao:
         assert Acao.CANCELAR_E_RECRIAR_COTACAO in decisao.acoes
         assert decisao.regra == "revisao_mais_nova_recria_cotacao"
 
+    def test_sap_em_55_nao_deixa_a_revisao_parada(self) -> None:
+        """O caso real (17/09/2026): o ciclo mexe na cotação em 55 e espelha 55
+        na oportunidade (`_espelhar_status_apos_documento`). Antes, só o "40"
+        chegava à comparação de revisão; com o SAP em "55" a revisão B do WBC
+        saía como `sem_acao` e a cotação ficava na A para sempre."""
+        decisao = decidir(
+            estado(
+                sitcode_wbc=55,
+                tem_cotacao=True,
+                sitcode_sap="55",
+                revisao_wbc="B",
+                revisao_cotacao_sap="A",
+            )
+        )
+        assert Acao.CANCELAR_E_RECRIAR_COTACAO in decisao.acoes
+        assert decisao.regra != "sem_acao"
+
+    @pytest.mark.parametrize("sitcode_sap", ["40", "55"])
     @pytest.mark.parametrize(
         ("revisao_wbc", "revisao_sap"),
         [("B", "B"), ("A", "B"), ("", "A"), ("", "")],
     )
-    def test_sap_em_40_sem_revisao_mais_nova_congela(
-        self, revisao_wbc: str, revisao_sap: str
+    def test_sap_em_revisao_sem_revisao_mais_nova_congela(
+        self, sitcode_sap: str, revisao_wbc: str, revisao_sap: str
     ) -> None:
         decisao = decidir(
             estado(
                 sitcode_wbc=40,
                 tem_cotacao=True,
-                sitcode_sap="40",
+                sitcode_sap=sitcode_sap,
                 revisao_wbc=revisao_wbc,
                 revisao_cotacao_sap=revisao_sap,
             )

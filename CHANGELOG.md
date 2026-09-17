@@ -3,6 +3,32 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-17] — Auditoria estatica: tres defeitos no caminho de escrita do worker
+
+Achados por leitura de codigo (sem executar nada), cada um rastreado ate o cenario concreto.
+
+- **Revisao nova ignorada com o SAP em "55"** (`domain/sitcode.py`). No ramo de revisao
+  (WBC 40/55 com cotacao) so `U_INO_StatusWBC` "30" e "40" eram tratados; "55" caia no ramo
+  final, que apenas espelha status. Como `_espelhar_status_apos_documento` grava 55 depois de
+  mexer na cotacao (caso real: oportunidade 14803), toda revisao seguinte em 55 saia como
+  `sem_acao` e a cotacao ficava na revisao anterior. Agora "40" e "55" entram juntos em
+  `_ramo_revisao_ja_registrada`, como ja entravam no ramo do SitCode 30.
+- **Fora da janela padrao, a cotacao de todo SitCode 60 sem pedido era reescrita a cada ciclo
+  estendido** (`_sem_pedido`). O `ATUALIZAR_COTACAO` de `cria_pedido` e incondicional e so e
+  idempotente porque o pedido nasce em seguida; tirando o pedido, a condicao de parada sumia:
+  dois PATCH por orcamento a cada passada, escrita contada no teto, "cotacao atualizada" no
+  historico sem mudanca no WBC. Agora, fora da janela, o `ATUALIZAR_COTACAO` herdado de
+  `cria_pedido` so fica se a revisao do WBC for mais nova que a da cotacao; sem acao de
+  documento, o vinculo sai junto. Dentro da janela nada muda.
+- **`U_INO_VERSAOWBC` carimbado so no segundo PATCH** (`service_layer/documentos.py`). Se o
+  passo 1 (UnitPrice) gravava e o passo 2 (LineTotal) falhava, o documento ficava com o
+  centavo recalculado **e** a revisao nova — e o ciclo seguinte lia "revisao congelada" para
+  sempre. Com o carimbo por ultimo, a falha no meio deixa a revisao antiga e o proximo ciclo
+  refaz os dois passos.
+
+Fora da lista, por ja constar em `docs/wbc/DECISOES.md` como "fica em aberto": o cancelamento
+repetido de cotacao **fechada** no encerramento (um evento de erro por ciclo).
+
 ## [2026-09-15] — Atualizacao de documento: UnitPrice antes, LineTotal depois
 
 Incidente em producao no mesmo dia da virada: a cotacao 78264 (00123897, rev. E) saiu com

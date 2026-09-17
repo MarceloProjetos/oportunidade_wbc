@@ -277,10 +277,17 @@ class RepositorioDocumentosVendaServiceLayer:
         passo 2 regravar as linhas como vieram, só com `LineTotal`. Linha nova
         (criação, `POST`) não precisa disso: nasce com o unitário derivado e
         desconto zero — por isso `criar` não passa por aqui.
+
+        **O carimbo da revisão (`U_INO_VERSAOWBC`) vai só no passo 2.** Se o
+        passo 1 gravar e o passo 2 falhar (timeout, rede), o documento fica com
+        os totais recalculados pelo `UnitPrice` — o centavo de volta — e, com a
+        revisão já carimbada, o ciclo seguinte lê "revisão congelada" e nunca
+        mais o toca. Carimbando por último, a falha no meio deixa a revisão
+        antiga no SAP e o próximo ciclo refaz os dois passos.
         """
         linhas = dados.get("DocumentLines")
         if linhas:
-            passo1 = dict(dados)
+            passo1 = {k: v for k, v in dados.items() if k != UDF_REVISAO}
             passo1["DocumentLines"] = [_com_unitario(linha) for linha in linhas]
             self._cliente.patch(
                 f"{tipo.value}({doc_entry})",

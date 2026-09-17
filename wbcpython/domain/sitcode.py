@@ -99,6 +99,12 @@ ACOES_DE_PEDIDO = frozenset(
     {Acao.CRIAR_PEDIDO, Acao.ATUALIZAR_PEDIDO, Acao.CANCELAR_E_RECRIAR_PEDIDO}
 )
 
+#: As ações que produzem ou refazem a cotação — o que `VINCULAR_DOCUMENTO_A_OPORTUNIDADE`
+#: precisa ter antes de si para ter o que vincular quando o pedido sai da decisão.
+_ACOES_DE_COTACAO = frozenset(
+    {Acao.CRIAR_COTACAO, Acao.ATUALIZAR_COTACAO, Acao.CANCELAR_E_RECRIAR_COTACAO}
+)
+
 
 @dataclass(frozen=True, slots=True)
 class EstadoIntegracao:
@@ -384,25 +390,54 @@ def _sem_pedido(estado: EstadoIntegracao, decisao: Decisao) -> Decisao:
     máquina de estados continua sendo a leitura do legado, ramo a ramo, e a
     regra nova fica num lugar só — onde dá para lê-la inteira.
 
-    `VINCULAR_DOCUMENTO_A_OPORTUNIDADE` fica: ele só age se alguma ação anterior
-    produziu documento (ver `processar.py`), então sem pedido ele vincula a
-    cotação — que é o que um ciclo de cotação faz de qualquer forma.
+    `VINCULAR_DOCUMENTO_A_OPORTUNIDADE` fica enquanto sobrar ação de documento:
+    ele só age se alguma ação anterior produziu documento (ver `processar.py`),
+    então sem pedido ele vincula a cotação — que é o que um ciclo de cotação
+    faz de qualquer forma. Sem nenhuma ação de documento ele sai também, senão a
+    decisão "tem ação" sem ter o que fazer, e o ciclo carrega o orçamento
+    inteiro e grava "Ações executadas:" vazio a cada passada.
+
+    **O `ATUALIZAR_COTACAO` de `cria_pedido` só fica se a revisão do WBC for
+    mais nova.** Na regra original ele é incondicional — e é idempotente
+    porque o pedido nasce em seguida e o ramo nunca repete. Tirando o pedido, a
+    condição de parada some: cada ciclo estendido (e cada `ciclo --orcamento`
+    dirigido) reescrevia as linhas da cotação de todo SitCode 60 sem pedido,
+    contava uma escrita no teto e gravava "cotação atualizada" sem nada ter
+    mudado no WBC (17/09/2026).
     """
     if not estado.fora_da_janela_padrao:
         return decisao
-    restantes = tuple(a for a in decisao.acoes if a not in ACOES_DE_PEDIDO)
+    restantes = [a for a in decisao.acoes if a not in ACOES_DE_PEDIDO]
     if len(restantes) == len(decisao.acoes):
         return decisao
-    return Decisao(
-        acoes=restantes,
-        regra=f"{decisao.regra}+sem_pedido_fora_da_janela",
-        motivos=(
-            *decisao.motivos,
-            (
-                "Oportunidade mais antiga que a janela padrão: a janela estendida "
-                "acerta cotação e oportunidade, e não cria nem altera pedido."
-            ),
+    motivos = [
+        *decisao.motivos,
+        (
+            "Oportunidade mais antiga que a janela padrão: a janela estendida "
+            "acerta cotação e oportunidade, e não cria nem altera pedido."
         ),
+    ]
+
+    if (
+        Acao.CRIAR_PEDIDO in decisao.acoes
+        and Acao.ATUALIZAR_COTACAO in restantes
+        and not revisao_wbc_e_mais_nova(estado.revisao_wbc, estado.revisao_cotacao_sap)
+    ):
+        restantes.remove(Acao.ATUALIZAR_COTACAO)
+        motivos.append(
+            f"A cotação já está na revisão do WBC ({estado.revisao_wbc or '-'}): "
+            f"sem o pedido, não há o que atualizar nela."
+        )
+
+    if Acao.VINCULAR_DOCUMENTO_A_OPORTUNIDADE in restantes and not any(
+        a in _ACOES_DE_COTACAO for a in restantes
+    ):
+        restantes.remove(Acao.VINCULAR_DOCUMENTO_A_OPORTUNIDADE)
+
+    return Decisao(
+        acoes=tuple(restantes),
+        regra=f"{decisao.regra}+sem_pedido_fora_da_janela",
+        motivos=tuple(motivos),
     )
 
 
@@ -436,7 +471,13 @@ def _decidir(estado: EstadoIntegracao) -> Decisao:
                     ),
                 ),
             )
-        if estado.sitcode_sap == "40":
+        if estado.sitcode_sap in ("40", "55"):
+            # "55" entra junto com "40" — como já entra no ramo do SitCode 30.
+            # Até 17/09/2026 só o "40" chegava aqui, e o "55" caía no ramo
+            # final, que não compara revisão: bastava um ciclo espelhar 55 na
+            # oportunidade (é o que `_espelhar_status_apos_documento` faz
+            # depois de mexer na cotação) para toda revisão seguinte do WBC
+            # em 55 sair como `sem_acao`, com a cotação parada na anterior.
             return _ramo_revisao_ja_registrada(estado)
         # Demais valores de sitcode_sap caem no ramo final.
 
@@ -502,7 +543,7 @@ def _ramo_orcamento_emitido(estado: EstadoIntegracao) -> Decisao:
 
 
 def _ramo_revisao_ja_registrada(estado: EstadoIntegracao) -> Decisao:
-    """SitCode 40/55 com o SAP já em 40 — decide pela comparação de revisão."""
+    """SitCode 40/55 com o SAP já em 40 ou 55 — decide pela comparação de revisão."""
     if revisao_wbc_e_mais_nova(estado.revisao_wbc, estado.revisao_cotacao_sap):
         return Decisao(
             regra="revisao_mais_nova_recria_cotacao",

@@ -20,14 +20,16 @@ import pytest
 from wbcpython.domain.sitcode import Acao, EstadoIntegracao, decidir
 
 
-def _emitido_com_pedido_a_criar(*, fora: bool) -> EstadoIntegracao:
-    """SitCode 60 com cotação e sem pedido: a regra `cria_pedido`."""
+def _emitido_com_pedido_a_criar(*, fora: bool, revisao_wbc: str = "A") -> EstadoIntegracao:
+    """SitCode 60 com cotação (revisão A no SAP) e sem pedido: a regra `cria_pedido`."""
     return EstadoIntegracao(
         orcamento="00122598",
         sitcode_wbc=60,
         sitcode_sap="60",
         tem_cotacao=True,
         tem_pedido=False,
+        revisao_wbc=revisao_wbc,
+        revisao_cotacao_sap="A",
         fora_da_janela_padrao=fora,
     )
 
@@ -48,12 +50,35 @@ class TestForaDaJanela:
 
         assert Acao.CRIAR_PEDIDO not in decisao.acoes
 
-    def test_a_cotacao_continua(self) -> None:
+    def test_a_cotacao_continua_quando_ha_revisao_nova(self) -> None:
         """Cotação é proposta, não compromisso — ela é o motivo de alcançar
         para trás."""
-        decisao = decidir(_emitido_com_pedido_a_criar(fora=True))
+        decisao = decidir(_emitido_com_pedido_a_criar(fora=True, revisao_wbc="B"))
 
         assert Acao.ATUALIZAR_COTACAO in decisao.acoes
+        assert Acao.VINCULAR_DOCUMENTO_A_OPORTUNIDADE in decisao.acoes
+
+    def test_cotacao_na_mesma_revisao_nao_e_reescrita(self) -> None:
+        """Sem o pedido, o `ATUALIZAR_COTACAO` de `cria_pedido` perde a condição
+        de parada: cada ciclo estendido reescrevia as linhas da cotação, contava
+        no teto e gravava "cotação atualizada" sem nada ter mudado no WBC
+        (17/09/2026). Com a revisão igual, a decisão sai sem ação de documento —
+        e sem o vínculo, que não teria o que vincular."""
+        decisao = decidir(_emitido_com_pedido_a_criar(fora=True, revisao_wbc="A"))
+
+        assert Acao.ATUALIZAR_COTACAO not in decisao.acoes
+        assert Acao.VINCULAR_DOCUMENTO_A_OPORTUNIDADE not in decisao.acoes
+        assert not decisao.tem_acao
+        assert decisao.regra == "cria_pedido+sem_pedido_fora_da_janela"
+        assert any("não há o que atualizar" in m for m in decisao.motivos)
+
+    def test_dentro_da_janela_a_cotacao_e_atualizada_mesmo_na_mesma_revisao(self) -> None:
+        """A regra original de `cria_pedido` não muda: com o pedido a caminho, a
+        cotação é atualizada antes, como sempre foi."""
+        decisao = decidir(_emitido_com_pedido_a_criar(fora=False, revisao_wbc="A"))
+
+        assert Acao.ATUALIZAR_COTACAO in decisao.acoes
+        assert Acao.CRIAR_PEDIDO in decisao.acoes
 
     def test_a_regra_diz_o_que_aconteceu(self) -> None:
         """Sem isso, o painel mostraria `cria_pedido` numa linha que não cria

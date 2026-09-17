@@ -162,7 +162,8 @@ class TestAtualizacaoECancelamento:
             {"ItemCode": "I000003", "Quantity": 272.0, "LineTotal": 707201.92, "Weight1": 3.0},
             {"ItemCode": "I000003", "Quantity": 1.0, "LineTotal": 1918.08},
         ]
-        _docs(g).atualizar(TipoDocumento.COTACAO, 42, {"Comments": "x", "DocumentLines": linhas})
+        dados = {"Comments": "x", "U_INO_VERSAOWBC": "C", "DocumentLines": linhas}
+        _docs(g).atualizar(TipoDocumento.COTACAO, 42, dados)
 
         patches = [json.loads(r.content) for r in g.requisicoes if r.method == "PATCH"]
         assert len(patches) == 2
@@ -172,7 +173,23 @@ class TestAtualizacaoECancelamento:
         assert passo1["DocumentLines"][0]["Weight1"] == 3.0, "o resto da linha não some"
         assert passo1["Comments"] == "x"
         assert "UnitPrice" not in passo2["DocumentLines"][0]
-        assert passo2 == {"Comments": "x", "DocumentLines": linhas}
+        assert passo2 == dados
+
+    def test_a_revisao_e_carimbada_so_no_segundo_patch(self) -> None:
+        """Passo 1 gravado e passo 2 perdido (timeout) deixava o documento com o
+        centavo do `UnitPrice` **e** a revisão nova — e o ciclo seguinte lia
+        "revisão congelada" para sempre. Com o carimbo só no fim, a falha no
+        meio deixa a revisão antiga e o próximo ciclo refaz os dois passos."""
+        g = Gravador([LOGIN, httpx.Response(204), httpx.Response(204)])
+        _docs(g).atualizar(
+            TipoDocumento.COTACAO,
+            42,
+            {"U_INO_VERSAOWBC": "C", "DocumentLines": [{"Quantity": 1.0, "LineTotal": 10.0}]},
+        )
+
+        passo1, passo2 = [json.loads(r.content) for r in g.requisicoes if r.method == "PATCH"]
+        assert "U_INO_VERSAOWBC" not in passo1
+        assert passo2["U_INO_VERSAOWBC"] == "C"
 
     def test_atualizar_sem_linhas_e_um_patch_so(self) -> None:
         g = Gravador([LOGIN, httpx.Response(204)])
