@@ -666,7 +666,16 @@ def _cmd_pendentes(
                 relatar(f"       regra: {decisao.regra}")
                 relatar(f"       ações: {', '.join(acoes) if acoes else '(nenhuma)'}")
 
-                if resumo_das_linhas or registro.toca_documento:
+                if estado.orcamento_sem_itens:
+                    # A decisão já saiu sem as ações de documento (ver
+                    # `sitcode._sem_itens`), então não há linha para mostrar —
+                    # mas o operador precisa ler POR QUE este orçamento não vai
+                    # virar nada, senão ele some da prévia sem explicação.
+                    alertar(
+                        f"{AVISO}       documento NÃO seria criado: o orçamento não tem "
+                        f"item no WBC — o SAP recusa documento sem valor."
+                    )
+                elif resumo_das_linhas or registro.toca_documento:
                     relatar(f"       linhas: {', '.join(resumo_das_linhas) or '(nenhuma)'}")
                     if registro.sem_valor:
                         alertar(

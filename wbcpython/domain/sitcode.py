@@ -105,6 +105,12 @@ _ACOES_DE_COTACAO = frozenset(
     {Acao.CRIAR_COTACAO, Acao.ATUALIZAR_COTACAO, Acao.CANCELAR_E_RECRIAR_COTACAO}
 )
 
+#: Toda ação que monta um documento com LINHAS e o manda ao SAP. É o conjunto
+#: que não faz sentido para um orçamento sem item — ver `_sem_itens`. Cancelar
+#: no encerramento, marcar a oportunidade perdida e espelhar status ficam de
+#: fora de propósito: nenhuma delas precisa de linha nem de valor.
+_ACOES_DE_DOCUMENTO = _ACOES_DE_COTACAO | ACOES_DE_PEDIDO
+
 
 @dataclass(frozen=True, slots=True)
 class EstadoIntegracao:
@@ -148,6 +154,19 @@ class EstadoIntegracao:
     #: Cotacao continua valendo, inclusive o cancelamento no encerramento: ela
     #: e proposta, nao compromisso.
     fora_da_janela_padrao: bool = False
+
+    #: O orçamento não tem **nenhum item** no WBC.
+    #:
+    #: Documento sem linha não tem valor, e o SAP recusa (`HTTP 400 | SAP -5002
+    #: | "Document total value must be zero or greater than zero"`). O executor
+    #: já barrava isso em `_exigir_valor`, mas a decisão continuava dizendo
+    #: "cria a cotação" **a cada ciclo**: o orçamento 00125188 (SitCode 20, zero
+    #: item) acumulou 100 eventos de "não criada" em 17/09/2026, um a cada 3
+    #: minutos, e a janela de 24 meses trouxe todos os orçamentos velhos assim
+    #: para dentro do ciclo. Com o corte aqui, o ciclo não monta payload nem
+    #: escreve no acompanhamento — e volta a criar sozinho no ciclo seguinte
+    #: ao primeiro item, porque a decisão só olha o estado de agora.
+    orcamento_sem_itens: bool = False
 
     # Revisão corrente no WBC
     revisao_wbc: str = ""
@@ -379,8 +398,55 @@ def decidir(estado: EstadoIntegracao) -> Decisao:
     prévia (`wbcpython pendentes`) mostre exatamente o que o ciclo faria: as
     duas chamam esta função, e um filtro na execução deixaria o ensaio
     prometendo pedidos que o ciclo não criaria.
+
+    Orçamento sem item sai sem as ações de documento — ver `_sem_itens`. O
+    filtro vem por último porque vale para qualquer ramo: não existe ramo em
+    que mandar ao SAP um documento sem linha faça sentido.
     """
-    return _sem_pedido(estado, _decidir(estado))
+    return _sem_itens(estado, _sem_pedido(estado, _decidir(estado)))
+
+
+def _sem_itens(estado: EstadoIntegracao, decisao: Decisao) -> Decisao:
+    """Tira as ações de documento quando o orçamento não tem item no WBC.
+
+    O SAP recusa documento sem valor, então a ação nunca teria efeito: o
+    executor já a barrava em `_exigir_valor`, mas só depois de montar o payload
+    e gravar um evento no acompanhamento — **a cada ciclo**, para sempre. Com a
+    janela de 24 meses (`PLANO_JANELA_SOB_DEMANDA`), todo orçamento velho e
+    vazio entrou nessa roda: o 00125188 (SitCode 20, zero item) somou 100
+    eventos em 17/09/2026, um a cada 3 minutos.
+
+    Cortar aqui, e não no executor, é o que faz o ciclo **parar de tentar**: a
+    prévia (`wbcpython pendentes`) passa a dizer a mesma coisa que o ciclo faz,
+    e nada é escrito no acompanhamento enquanto o orçamento estiver vazio.
+
+    O que NÃO sai: cancelar a cotação no encerramento, marcar a oportunidade
+    perdida e espelhar o status — nenhuma precisa de linha. E `_exigir_valor`
+    continua no executor, porque item a preço zero também some no SAP e essa
+    checagem depende do payload montado.
+    """
+    if not estado.orcamento_sem_itens:
+        return decisao
+    restantes = [a for a in decisao.acoes if a not in _ACOES_DE_DOCUMENTO]
+    if len(restantes) == len(decisao.acoes):
+        return decisao
+
+    # Sem documento não há o que vincular — mesma regra do `_sem_pedido`.
+    if Acao.VINCULAR_DOCUMENTO_A_OPORTUNIDADE in restantes:
+        restantes.remove(Acao.VINCULAR_DOCUMENTO_A_OPORTUNIDADE)
+
+    return Decisao(
+        acoes=tuple(restantes),
+        regra=f"{decisao.regra}+sem_itens_no_wbc",
+        motivos=(
+            *decisao.motivos,
+            (
+                "O orçamento não tem item no WBC: o SAP recusa documento sem "
+                "valor, então nada é enviado. Quando o primeiro item entrar, o "
+                "ciclo seguinte cria o documento."
+            ),
+        ),
+    )
 
 
 def _sem_pedido(estado: EstadoIntegracao, decisao: Decisao) -> Decisao:

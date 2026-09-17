@@ -1086,6 +1086,15 @@ def montar_estado(
         # nenhuma oportunidade lida é anterior a ele — o corte só morde quando a
         # janela foi estendida. Ver `EstadoIntegracao.fora_da_janela_padrao`.
         fora_da_janela_padrao=_fora_da_janela(oportunidade, corte_de_pedido),
+        # Zero item no WBC = documento sem linha, que o SAP recusa. A decisão
+        # sai sem as ações de documento; ver `EstadoIntegracao.orcamento_sem_itens`.
+        #
+        # ⚠️ `getattr` porque o PRÉ-FILTRO decide com `_OrcamentoResumido`, que
+        # não carregou as linhas: ali "não sei" não pode virar "não tem", senão
+        # o ciclo deixaria de carregar o orçamento — e nunca descobriria que ele
+        # tem itens. Quem responde é a passada com o `OrcamentoWbc` inteiro.
+        orcamento_sem_itens=(itens := getattr(orcamento, "itens", None)) is not None
+        and not itens,
     )
 
 

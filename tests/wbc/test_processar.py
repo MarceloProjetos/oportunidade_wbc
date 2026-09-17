@@ -1111,8 +1111,16 @@ class TestDocumentoSemValor:
 
         assert docs.chamadas == []
 
-    def test_o_motivo_fica_no_acompanhamento(self, tracking) -> None:
-        """Sem isso o orçamento simplesmente some: nada criado, nada dito."""
+    def test_orcamento_sem_itens_nao_escreve_no_acompanhamento(self, tracking) -> None:
+        """Zero item agora para na DECISÃO, e decisão sem ação não vira evento.
+
+        Era o contrário até 17/09/2026: a decisão dizia "cria a cotação", o
+        executor recusava em `_exigir_valor` e gravava o motivo — **a cada
+        ciclo**. Com a janela de 24 meses, o orçamento 00125188 (SitCode 20,
+        zero item) juntou 100 eventos num dia, um a cada 3 minutos. Quem
+        precisa saber por que ele não vira nada lê a prévia
+        (`wbcpython pendentes`), que diz isso sem escrever em lugar nenhum.
+        """
         _processador(
             tracking,
             WbcFalso(_orcamento(sitcode=30, itens=())),
@@ -1122,7 +1130,31 @@ class TestDocumentoSemValor:
         ).processar(_oportunidade())
 
         mensagens = [e.mensagem for e in tracking.eventos("00123316")]
-        assert any("sem itens" in m for m in mensagens)
+        assert not any("não criada" in m for m in mensagens), mensagens
+        assert not any("Ações executadas" in m for m in mensagens), mensagens
+
+    def test_itens_sem_valor_ainda_deixam_o_motivo_no_acompanhamento(self, tracking) -> None:
+        """Item a preço zero é outra coisa: só o payload montado revela.
+
+        Aqui o evento CONTINUA sendo gravado — é um orçamento que alguém
+        preencheu e esqueceu o preço, não um orçamento vazio, e o silêncio o
+        faria sumir sem explicação.
+        """
+        _processador(
+            tracking,
+            WbcFalso(
+                _orcamento(
+                    sitcode=30,
+                    itens=(ItemOrcamentoWbc(orcitm=1, produto="P", valor=Decimal(0)),),
+                )
+            ),
+            DocumentosFalso(),
+            OportunidadesFalso(),
+            OrcDetalheFalso(),
+        ).processar(_oportunidade())
+
+        mensagens = [e.mensagem for e in tracking.eventos("00123316")]
+        assert any("recusa documento sem valor" in m for m in mensagens), mensagens
 
     def test_nao_espelha_status_de_documento_que_nao_existe(self, tracking) -> None:
         """A ação não pode contar como executada.

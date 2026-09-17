@@ -3,6 +3,30 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-17] — Orcamento sem item para de virar decisao de criar documento
+
+O Marcelo viu no painel: o orcamento 00125188 (SitCode 20, ZERO item) acumulou 100 eventos
+num dia — a cada 3 minutos a decisao dizia "cria a cotacao", o executor recusava em
+`_exigir_valor` e gravava "Cotacao nao criada: o orcamento esta sem itens". O erro estava na
+DECISAO, nao no executor.
+
+- **`sitcode._sem_itens`** (novo filtro, irmao do `_sem_pedido`): com
+  `EstadoIntegracao.orcamento_sem_itens`, a decisao sai sem as acoes de documento
+  (criar/atualizar/cancelar-e-recriar de cotacao e pedido) e sem o vinculo, com a regra
+  `<regra>+sem_itens_no_wbc` e o motivo explicito. **Nao** tira cancelar a cotacao no
+  encerramento, marcar a oportunidade perdida nem espelhar status: nenhuma precisa de linha.
+- **`montar_estado`** marca o campo com `getattr(orcamento, "itens", None)`: o PRE-FILTRO
+  decide com `_OrcamentoResumido`, que ainda nao carregou as linhas — ali "nao sei" nao pode
+  virar "nao tem", senao o ciclo deixaria de carregar o orcamento e nunca descobriria que
+  ele tem item.
+- **A previa (`wbcpython pendentes`) continua avisando**: "documento NAO seria criado: o
+  orcamento nao tem item no WBC". Sem isso o orcamento sumiria da previa sem explicacao.
+- **`_exigir_valor` fica** no executor: item a preco ZERO e outra coisa, so o payload montado
+  revela, e esse evento continua sendo gravado.
+- Escala do problema, medida no WBC: **167 orcamentos sem item** na janela de 24 meses (de
+  6.260). A janela sob demanda (15/09) foi o que trouxe todos eles para dentro do ciclo.
+- tests/wbc: 1.199 passaram (+ `domain/test_sem_itens_no_wbc.py`); suite inteira 1.829.
+
 ## [2026-09-17] — Espelho dos orcamentos (VW_EVOL_ORCAMENTO_ALT) no Supabase
 
 A view de orcamentos foi refeita em 09/2026 e passou de 12 para 34 colunas: ganhou o CNAE do
