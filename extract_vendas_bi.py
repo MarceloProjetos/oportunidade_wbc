@@ -5,6 +5,13 @@ Origem
 - ``VW_PEDIDO_ALTA``       → Pedidos. A medida é ``SUM("VlrPedido")``.
 - ``VW_FATO_FATURAMENTO``  → Faturamento. A medida é ``SUM("Valor")``.
 
+⚠️ **A partir de 21/09/2026 o Pedidos NÃO bate com o Power BI por desenho.** As
+duas consultas da ``VW_PEDIDO_ALTA`` cortam os pedidos de ``pedidos_bloqueados``
+— hoje só o 84337 (NAVARRO, R$ 93.531,74, 02/09/2026), fechado na mão no SAP sem
+entrega nem nota. Setembro/2026 sai R$ 93.531,74 MENOR que o do Power BI, e isso
+é a correção, não uma regressão. O Faturamento não muda: esse pedido nunca virou
+nota.
+
 As duas foram **conferidas contra o Power BI em 11/08/2026**, não deduzidas:
 agosto/2026 fecha em R$ 1.314.876,11 com Clayton em R$ 527.389,46 pelo bruto, e
 o `valorXindice` do modelo do PBI (``VlrPedido * Indice_Pedido``) dá outro número
@@ -35,6 +42,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional
 
 from config import get_settings
+from pedidos_bloqueados import sql_nao_bloqueado
 from pipeline_core import (
     FileLockTimeout,
     SupabaseLoader,
@@ -112,6 +120,7 @@ def sql_pedidos_mensal(schema: str, ano_inicial: int) -> str:
           FROM "{schema}"."VW_PEDIDO_ALTA"
          WHERE YEAR("DATA") >= {int(ano_inicial)}
            AND "DATA" < ADD_DAYS(CURRENT_DATE, 1)
+           {sql_nao_bloqueado('"DOC"', prefixo="AND ")}
          GROUP BY YEAR("DATA"), MONTH("DATA"), "CodVend"
     '''
 
@@ -139,6 +148,7 @@ def sql_detalhe_recente(schema: str, de: date, ate: date) -> str:
           LEFT JOIN "{schema}"."OCRD" c ON c."CardCode" = p."CardCode"
          WHERE p."DATA" >= '{de.isoformat()} 00:00:00'
            AND p."DATA" <  '{(ate + timedelta(days=1)).isoformat()} 00:00:00'
+           {sql_nao_bloqueado('p."DOC"', prefixo="AND ")}
          GROUP BY TO_VARCHAR(p."DATA", 'YYYY-MM-DD'), p."CodVend", p."CardCode"
     '''
 

@@ -78,6 +78,10 @@ if str(_RAIZ) not in sys.path:
 
 from config import get_settings  # noqa: E402
 from db_utils import read_dbapi_query  # noqa: E402
+# O MESMO corte do pipeline: sem ele, o conferidor acusaria divergência contra um
+# Supabase que está certo — e o alarme falso é o jeito mais rápido de o conferidor
+# deixar de ser lido.
+from pedidos_bloqueados import sql_nao_bloqueado  # noqa: E402
 from sap_connection import SAPExtractor  # noqa: E402
 
 # Acentos no relatório num console cp850 (PowerShell 5.1) derrubariam o script no
@@ -321,7 +325,8 @@ def hana_total_periodo(
         ex,
         f'''SELECT SUM("VlrPedido") AS VALOR, COUNT(*) AS QTD
               FROM "{schema}"."VW_PEDIDO_ALTA"
-             WHERE "DATA" >= ? AND "DATA" < ?''',
+             WHERE "DATA" >= ? AND "DATA" < ?
+               {sql_nao_bloqueado('"DOC"', prefixo="AND ")}''',
         (ini, fim),
     )
     if not linhas:
@@ -343,6 +348,7 @@ def hana_serie_mensal(
         sql = f'''SELECT YEAR("DATA") AS ANO, MONTH("DATA") AS MES, SUM("VlrPedido") AS VALOR
                     FROM "{schema}"."VW_PEDIDO_ALTA"
                    WHERE YEAR("DATA") >= {int(ano_inicial)}
+                     {sql_nao_bloqueado('"DOC"', prefixo="AND ")}
                    GROUP BY YEAR("DATA"), MONTH("DATA")'''
     else:
         # ValorAdiant NÃO entra — decisão do §9 do plano, conferida contra o PBI.
@@ -372,6 +378,7 @@ def hana_clientes_do_vendedor(
         f'''SELECT "CardCode" AS CHAVE, SUM("VlrPedido") AS VALOR
               FROM "{schema}"."VW_PEDIDO_ALTA"
              WHERE "DATA" >= ? AND "DATA" < ? AND "CodVend" = ?
+               {sql_nao_bloqueado('"DOC"', prefixo="AND ")}
              GROUP BY "CardCode"''',
         (ini, fim, vendedor),
     )

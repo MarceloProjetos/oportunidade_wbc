@@ -3,6 +3,28 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-21] — Pedido 84337 fora dos agregados de Vendas
+
+O pedido 84337 (NAVARRO, R$ 93.531,74, 02/09/2026) esta FECHADO no SAP **sem entrega e sem
+nota** (`RDR1.TargetType = -1`): foi fechado na mao. Mesmo assim entrava no total de Pedidos
+do mes, no cartao "Mes atual" e no ranking de clientes do celular — uma venda que nao
+aconteceu. Decisao do Marcelo (21/09): lista de bloqueio **hardcode**, nao flag no `.env`.
+
+- **`pedidos_bloqueados.py`** (novo): a lista (`DocNum` 84337) e o pedaco de SQL que a aplica.
+  E o unico lugar a mexer para acrescentar outro pedido nesta maquina.
+- **`extract_vendas_bi.py`**: as duas consultas da `VW_PEDIDO_ALTA` (serie mensal e detalhe
+  recente) cortam a lista. Como a carga **poda** o que ela nao reescreveu, a linha antiga do
+  ranking sai sozinha na corrida seguinte — nao ha limpeza manual no Supabase.
+  ⚠️ A partir daqui **Pedidos nao bate com o Power BI por desenho**: setembro/2026 sai
+  R$ 93.531,74 menor, e isso e a correcao. Faturamento nao muda (esse pedido nunca virou nota).
+- **`maintenance/conferir_vendas_bi.py`**: o MESMO corte nas tres consultas da view — sem ele o
+  conferidor acusaria divergencia contra um Supabase que esta certo.
+- **`situacao_pedidos.normalizar`**: mesmo filtro, espelhado no gemeo do web (o
+  `test_situacao_pedidos_diffavel` continua verde).
+
+⚠️ Ha copias da lista no web (`web_orcaview_V118/backend/services/pedidos_bloqueados.py`) e no
+app (`mobile_orcaview_V4/lib/pedidos/bloqueados.ts`): acrescentar um pedido exige os tres.
+
 ## [2026-09-17] — Orcamento sem item para de virar decisao de criar documento
 
 O Marcelo viu no painel: o orcamento 00125188 (SitCode 20, ZERO item) acumulou 100 eventos

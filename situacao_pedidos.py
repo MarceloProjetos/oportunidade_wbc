@@ -217,9 +217,10 @@ def normalizar(rows: list[dict[str, Any]], *, hoje: date | None = None) -> list[
             clock; explicit in tests, so the number does not depend on the day the
             suite runs.
     """
+    from pedidos_bloqueados import docnum_bloqueado
 
     hoje = hoje or now_br().date()
-    return [_pedido(r, hoje) for r in rows]
+    return [_pedido(r, hoje) for r in rows if not docnum_bloqueado(r.get("DocNum"))]
 
 
 def _pedido(r: dict[str, Any], hoje: date) -> dict[str, Any]:
