@@ -202,12 +202,13 @@ class TestQuantidadeNoTexto:
         assert r.linhas[0]["Quantity"] == 1
         assert r.notas == ()
 
-    def test_o_peso_unitario_divide_pela_quantidade_lida(self) -> None:
-        """`Weight1` é o peso de UMA unidade: com 8 módulos lidos, o peso da
-        árvore (do conjunto) é dividido por 8."""
+    def test_o_peso_nao_divide_pela_quantidade_lida(self) -> None:
+        """`Weight1` é o total da linha: com 8 módulos lidos, o peso da árvore
+        (do conjunto) vai inteiro — o SAP não multiplica pela quantidade."""
         item = _item(texto="PORTA-PALETES 8 Módulos")
         r = _linhas(_orcamento(item), pesos={1: Decimal("800")})
-        assert r.linhas[0]["Weight1"] == 110.0
+        assert r.linhas[0]["Quantity"] == 8
+        assert r.linhas[0]["Weight1"] == 880.0
 
 
 class TestCamposDaLinhaNoSap:

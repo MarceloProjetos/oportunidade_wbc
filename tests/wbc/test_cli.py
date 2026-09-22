@@ -1023,18 +1023,20 @@ class TestComandoPesos:
         assert main(["pesos", "--pedido", "84315"]) == 0
         assert registro["pesos_gravados"] == [(19489, {0: 49.0, 1: 836.0})]
 
-    def test_peso_e_dividido_pela_quantidade(
+    def test_peso_nao_e_dividido_pela_quantidade(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
+        """Repara o pedido 84407: 137 kg (peso ÷ 167) viram o peso da linha."""
         registro = self._montar_ambiente(
             monkeypatch,
-            doc=self._pedido(self._linha(0, 1, quantidade=4.0)),
-            pesos={1: "760.60"},
+            doc=self._pedido(self._linha(0, 1, peso=137.0, quantidade=167.0)),
+            pesos={1: "20830.79"},
         )
 
         assert main(["pesos", "--pedido", "84315"]) == 0
-        # floor((760,60 / 4) × 1,1) = floor(209,165) = 209
-        assert registro["pesos_gravados"] == [(19489, {0: 209.0})]
+        # floor(20.830,79 × 1,1) = floor(22.913,869) = 22.913
+        assert registro["pesos_gravados"] == [(19489, {0: 22913.0})]
+        assert "137 -> 22913 kg" in capsys.readouterr().out
 
     def test_simular_nao_escreve(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture

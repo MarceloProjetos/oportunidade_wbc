@@ -802,11 +802,18 @@ linhas e 0 em 64.
 O fator vive em `FATOR_PESO_EMBARQUE` (padrão `1.10`): é regra de negócio —
 embalagem — e não constante física.
 
-**3. O peso é unitário.** `Weight1` no SAP é o peso de **uma** unidade; o total
-da linha é ele vezes a quantidade. Por isso a divisão (`peso / quantidade`),
-igual ao legado. Hoje é invisível — `ORCPRDQTD` é nula em 100% das linhas e a
-quantidade cai no fallback 1 — mas no dia em que o WBC preencher a coluna, sem a
-divisão o peso sairia multiplicado duas vezes.
+**3. O peso é da linha inteira — sem dividir pela quantidade.** `Weight1` é o
+total da linha e o SAP o grava como vem, **sem** multiplicar pela quantidade.
+Esta seção dizia o contrário ("o peso é unitário", copiando a divisão do legado,
+`ServiceProcess.cs:640`), e a regra só se provou errada quando a quantidade
+deixou de ser sempre 1 (porta-paletes lendo "N Módulos", 15/09/2026). O pedido
+84407 (22/09) mostrou o defeito: 167 módulos, árvore com 20.830,79 kg, e a
+versão 1 do histórico (`ADO1`, gravada pelo `orcaview`) tem `Weight1 = 137` —
+o peso dividido por 167. O usuário do SAP corrigiu à mão no dia seguinte.
+
+**Para medir o que a integração gravou, leia a versão 1 no `ADO1`/`ADOC`, não
+a `RDR1`**: os pedidos são editados à mão depois (o 84407 tem 53 versões), e a
+`RDR1` mostra o valor já corrigido.
 
 **4. Sem peso, sem campo.** A árvore existe para 5.397 dos ~59 mil orçamentos da
 base; no recorte que importa — os que viram pedido — são **314 de 316 linhas**.

@@ -31,7 +31,7 @@ import logging
 import ssl
 import sys
 from collections.abc import Sequence
-from decimal import ROUND_FLOOR, Decimal
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -1008,10 +1008,12 @@ def _pesos_das_linhas(
     linha a mais ou a menos no documento não pode deslocar o peso de todas as
     outras, que é o que aconteceria comparando por posição.
 
-    A conta é a mesma da criação (`domain.linhas._peso_unitario`), e não pode
-    divergir dela: se divergisse, rodar este comando logo depois de criar o
-    pedido acusaria mudança em toda linha.
+    A conta é a da criação (`domain.linhas.peso_de_embarque`, a mesma função),
+    e não pode divergir dela: se divergisse, rodar este comando logo depois de
+    criar o pedido acusaria mudança em toda linha.
     """
+    from wbcpython.domain.linhas import peso_de_embarque
+
     mudancas: dict[int, float] = {}
     iguais = sem_peso = 0
 
@@ -1029,9 +1031,11 @@ def _pesos_das_linhas(
             )
             continue
 
-        # Mesma conta da criação: unitário, com a folga de embalagem, truncado.
-        quantidade = Decimal(str(linha.get("Quantity") or 1)) or Decimal(1)
-        novo = float(((peso / quantidade) * fator).to_integral_value(rounding=ROUND_FLOOR))
+        # Mesma conta da criação: peso da linha inteira, com a folga de
+        # embalagem, truncado — sem dividir pela quantidade.
+        quantidade = Decimal(str(linha.get("Quantity") or 1))
+        embarque = peso_de_embarque(peso, fator)
+        novo = float(embarque) if embarque is not None else 0.0
         if novo <= 0:
             sem_peso += 1
             alertar(

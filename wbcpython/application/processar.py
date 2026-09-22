@@ -181,7 +181,7 @@ class ProcessadorDeOrcamento:
         self._filial = filial
         self._gravar_snapshot = gravar_snapshot
         #: Folga de embalagem sobre o peso líquido da árvore — ver
-        #: `domain.linhas._peso_unitario`. Vem da configuração no worker.
+        #: `domain.linhas.peso_de_embarque`. Vem da configuração no worker.
         self._fator_de_embarque = fator_de_embarque
         #: Primeiro dia da janela PADRÃO. Oportunidade anterior a ele não ganha
         #: pedido — ver `EstadoIntegracao.fora_da_janela_padrao`. `None` desliga

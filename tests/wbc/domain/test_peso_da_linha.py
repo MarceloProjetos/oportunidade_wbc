@@ -1,12 +1,12 @@
 """O peso da linha do pedido (`Weight1`).
 
 Quatro regras que erram em silêncio se forem esquecidas: somar **só o nível 1**
-da árvore (a soma acontece na consulta), gravar o peso **unitário** (o SAP
-multiplica pela quantidade), aplicar a **folga de embalagem** de 10% e truncar,
-e **não enviar o campo** quando não se sabe o peso.
+da árvore (a soma acontece na consulta), gravar o peso **da linha inteira** (o
+SAP não multiplica pela quantidade), aplicar a **folga de embalagem** de 10% e
+truncar, e **não enviar o campo** quando não se sabe o peso.
 
 As três primeiras vêm de medição na produção, não de suposição — ver
-`domain.linhas._peso_unitario` e `DECISOES.md`.
+`domain.linhas.peso_de_embarque` e `DECISOES.md`.
 """
 
 from __future__ import annotations
@@ -62,22 +62,22 @@ class TestPesoNoPedido:
         # floor(45,13 × 1,1) = 49 ; floor(760,65 × 1,1) = 836
         assert [linha["Weight1"] for linha in resultado.linhas] == [49.0, 836.0]
 
-    def test_peso_e_unitario(self) -> None:
-        """`Weight1` é o peso de UMA unidade — o SAP multiplica pela quantidade.
+    def test_peso_e_da_linha_inteira(self) -> None:
+        """`Weight1` é o total da linha — o SAP grava como vem, não multiplica.
 
-        Sem a divisão, uma linha com quantidade 4 sairia com o peso do lote em
-        cada unidade, e o total do documento ficaria 4× maior.
+        Regressão do pedido 84407 (22/09/2026): 167 módulos e 20.830,79 kg na
+        árvore saíram como 137 kg, porque a linha levava o peso dividido pela
+        quantidade. O certo é `floor(20.830,79 × 1,1) = 22.913`.
         """
         resultado = regras_pedido.linhas(
-            _orcamento(_item(1, quantidade=Decimal(4))), DE_PARA, pesos={1: Decimal("760.60")}
+            _orcamento(_item(1, quantidade=Decimal(167))), DE_PARA, pesos={1: Decimal("20830.79")}
         )
-        assert resultado.linhas[0]["Quantity"] == 4.0
-        # floor((760,60 / 4) × 1,1) = floor(209,165) = 209
-        assert resultado.linhas[0]["Weight1"] == 209.0
+        assert resultado.linhas[0]["Quantity"] == 167.0
+        assert resultado.linhas[0]["Weight1"] == 22913.0
 
-    def test_quantidade_nula_usa_o_fallback_1(self) -> None:
-        """`ORCPRDQTD` é nula em 100% das linhas do WBC: o divisor é o 1 da
-        regra de negócio, não um zero que estouraria a divisão."""
+    def test_quantidade_nula_nao_muda_o_peso(self) -> None:
+        """`ORCPRDQTD` é nula em 100% das linhas do WBC: o peso não depende
+        da quantidade."""
         resultado = regras_pedido.linhas(
             _orcamento(_item(1, quantidade=None)), DE_PARA, pesos={1: Decimal("760.65")}
         )

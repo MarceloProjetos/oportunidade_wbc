@@ -284,7 +284,7 @@ def resolver_linhas(
     como distinguir "não sei" de "não pesa nada".
 
     `fator_de_embarque` é a folga de embalagem aplicada sobre o líquido — ver
-    `_peso_unitario`.
+    `peso_de_embarque`.
     """
     linhas: list[dict[str, Any]] = []
     avisos: list[str] = []
@@ -348,16 +348,18 @@ def resolver_linhas(
             "U_INO_D_Adicionais": item.texto.rstrip(),
         }
 
-        peso = _peso_unitario(item, pesos, fator_de_embarque)
+        peso = _peso_da_linha(item, pesos, fator_de_embarque)
         if peso is not None:
-            # `Weight1` no SAP é o peso **de uma unidade**: o total da linha é
-            # ele vezes a quantidade. Por isso a divisão — é o que o legado faz
-            # (`Weight1 = soma / item.OrcProdQuantidade`, `ServiceProcess.cs:640`).
+            # `Weight1` é o peso **da linha inteira**, e o SAP o grava como vem —
+            # não multiplica pela quantidade. Medido no pedido 84407 (22/09/2026):
+            # 167 módulos, e a versão 1 do histórico (`ADO1`, gravada pelo
+            # `orcaview`) tem `Weight1 = 137`, o peso da árvore dividido por 167.
+            # O usuário corrigiu à mão para 22.879 no dia seguinte.
             #
-            # A quantidade deixou de ser sempre 1 em 15/09/2026 (porta-paletes
-            # lê "N Módulos" do texto), e a divisão passou a valer de fato: o
-            # peso da árvore é o do conjunto, e sem dividir o SAP multiplicaria
-            # de novo, com o peso saindo N vezes maior do que deveria.
+            # Até então a linha levava `peso ÷ quantidade`, copiado do legado
+            # (`ServiceProcess.cs:640`), onde a quantidade era sempre 1 e a
+            # divisão nunca fazia efeito. Passou a fazer em 15/09/2026, quando o
+            # porta-paletes começou a ler "N Módulos" do texto.
             linha["Weight1"] = float(peso)
         linha.update(udfs_da_linha(item, orcamento))
         linhas.append(linha)
@@ -413,23 +415,33 @@ def _reais(valor: Decimal, *, casas: int = 2) -> str:
     return f"{valor:,.{casas}f}".replace(",", "\0").replace(".", ",").replace("\0", ".")
 
 
-def _peso_unitario(
+def _peso_da_linha(
     item: Any, pesos: Mapping[int, Decimal] | None, fator: Decimal
 ) -> Decimal | None:
-    """Peso de **embarque** de uma unidade do item, ou `None` quando não se sabe.
+    """Peso de embarque da linha do item, ou `None` quando não se sabe."""
+    if not pesos:
+        return None
+    return peso_de_embarque(pesos.get(item.orcitm), fator)
 
-    Três transformações sobre o líquido da árvore, e cada uma tem prova:
 
-    1. **Divide pela quantidade** — `Weight1` é o peso de uma unidade, e o SAP
-       multiplica de volta (`ServiceProcess.cs:640`).
-    2. **Aplica a folga de embalagem** (`fator`, 1,10 por padrão). Medido em
+def peso_de_embarque(liquido: Decimal | None, fator: Decimal) -> Decimal | None:
+    """Peso de **embarque** da linha inteira, ou `None` quando não se sabe.
+
+    Usada na criação do pedido e pelo `wbcpython pesos` — as duas contas não
+    podem divergir. Duas transformações sobre o líquido da árvore, e cada uma
+    tem prova:
+
+    1. **Aplica a folga de embalagem** (`fator`, 1,10 por padrão). Medido em
        1.060 linhas de pedido de 2026 da produção: a razão entre o `Weight1`
        gravado e o líquido da árvore tem mediana **1,099**, com 622 delas entre
        1,09 e 1,11. Varrendo fatores de milésimo em milésimo, o que mais acerta
        é exatamente 1,100.
-    3. **Trunca para inteiro.** 1.056 dos 1.061 pesos da produção são inteiros
+    2. **Trunca para inteiro.** 1.056 dos 1.061 pesos da produção são inteiros
        redondos — o que a fórmula pura quase nunca produziria. Entre truncar e
        arredondar, truncar acerta mais (36,8% contra 25,1%).
+
+    **Não divide pela quantidade.** `Weight1` é o total da linha e o SAP não o
+    multiplica — ver o comentário em `linhas`.
 
     **A reprodução não é exata, e não tem como ser**: 63% dos casos não seguem
     fórmula nenhuma a partir do retrato ligado ao pedido. O campo é preenchido à
@@ -442,11 +454,7 @@ def _peso_unitario(
     truncamento que resulta em zero também, porque gravar 0 kg substituiria o
     peso do cadastro por um número pior.
     """
-    if not pesos:
-        return None
-    liquido = pesos.get(item.orcitm)
     if liquido is None or liquido <= 0:
         return None
-    embarque = (liquido / item.quantidade_para_documento) * fator
-    truncado = embarque.to_integral_value(rounding=ROUND_FLOOR)
+    truncado = (liquido * fator).to_integral_value(rounding=ROUND_FLOOR)
     return truncado if truncado > 0 else None

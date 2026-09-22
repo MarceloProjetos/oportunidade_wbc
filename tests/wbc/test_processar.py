@@ -1356,9 +1356,9 @@ class TestPesoNoPedidoCriado:
     lê os pesos e os passa **para o pedido e só para ele**.
     """
 
-    def test_pedido_criado_leva_o_peso_unitario(self, tracking) -> None:
-        """O orçamento de teste tem quantidade 2, e a divisão aparece:
-        `floor((760,65 / 2) × 1,10) = floor(418,3575) = 418`."""
+    def test_pedido_criado_leva_o_peso_da_linha(self, tracking) -> None:
+        """O orçamento de teste tem quantidade 2, e o peso não é dividido:
+        `floor(760,65 × 1,10) = floor(836,715) = 836`."""
         docs = DocumentosFalso(tem_cotacao=True)
         _processador(
             tracking,
@@ -1372,7 +1372,7 @@ class TestPesoNoPedidoCriado:
         assert criados, "o pedido deveria ter sido criado"
         linha = criados[0][2]["DocumentLines"][0]
         assert linha["Quantity"] == 2.0
-        assert linha["Weight1"] == 418.0
+        assert linha["Weight1"] == 836.0
 
     def test_a_cotacao_do_mesmo_ciclo_nao_leva(self, tracking) -> None:
         """SitCode 60 sem pedido atualiza a cotação e cria o pedido no mesmo
