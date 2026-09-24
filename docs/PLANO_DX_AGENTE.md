@@ -186,6 +186,9 @@ cosmético.
 
 ## 5. Decisões
 
+> Em 24/09 o Marcelo liberou F0–F3 "seguindo as recomendações": D1, D2, D3, D4 e D7 foram
+> aplicadas assim; D5 segue "não agora"; D6 (apagar arquivos dele) ficou com ele.
+
 | # | Assunto | Recomendação |
 |---|---|---|
 | **D1** | Idioma dos comentários | **Português como regra**, 1 linha no CLAUDE.md; os 11 arquivos já traduzidos ficam como estão. Encerra a tradução de jul/26 |
