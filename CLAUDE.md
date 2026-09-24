@@ -55,9 +55,9 @@ O pacote `wbcpython/` (ex-projeto WBCPython, importado em 2026-09-08) tem guia p
 | `mcp/` | Fachada MCP fina e read-only sobre a API 8077 — NÃO fala com banco |
 | `web/sincronizar.html` · `web/entrada.html` | Painel de Sincronização (`GET /sincronizar`) · `GET /` (sonda o painel WBC e redireciona) |
 | `tests/` | pytest; `test_<modulo>.py` espelha o módulo. `tests/wbc/` = suíte do pacote `wbcpython` (mesma árvore dele) |
-| `docs/` | `PLANO_*.md` abertos; `wbc/` (README, DECISOES, APRENDIZADOS, RISCOS_PRODUCAO, RETOMADA); `INCIDENTES.md` |
+| `docs/` | `PLANO_*.md` abertos (encerrados em `arquivo/`); `wbc/` (README, DECISOES, APRENDIZADOS, RISCOS_PRODUCAO, RETOMADA); `INCIDENTES.md`; `changelog/` (meses anteriores) |
 | `API_*.md` (raiz) | Contratos HTTP entregues a outras equipes (OS, OP, RH, situação de pedidos). **Ficam na raiz**: repo público, links externos |
-| `sql/` | DDL de referência (NÃO roda automaticamente); `sql/hana/` = view que o worker lê |
+| `sql/` | DDL de referência (NÃO roda automaticamente); `sql/hana/` = view que o worker lê; `sql/migracoes/` = alterações já aplicadas |
 | `maintenance/` | Conferidor de Vendas BI e scripts de disco/log do servidor |
 
 Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api.py` orquestra
@@ -89,8 +89,10 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
 
 ## NÃO reler (não é fonte, ou raramente muda)
 
-- `CHANGELOG.md` e `README.md` inteiros — no README, vá direto à seção pela busca do heading.
-- `docs/wbc/DECISOES.md` inteiro — só pela busca do heading.
+- `CHANGELOG.md` (só o mês corrente; os anteriores em `docs/changelog/AAAA-MM.md`) e `README.md`
+  inteiros — no README, vá direto à seção pela busca do heading.
+- `docs/wbc/DECISOES.md` inteiro — tem **índice no topo**; vá pela busca do título.
+- `docs/arquivo/` (planos encerrados) e `sql/migracoes/` (DDL já aplicado).
 - `exports/` (dados de cliente), `logs/`, `state/`, `.locks/` — runtime/gerados.
 - `install_*.bat/.ps1`, `run_*.bat`, `maintenance/` — só para tarefas de deploy/operação.
 

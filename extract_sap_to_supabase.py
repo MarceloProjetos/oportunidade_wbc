@@ -11,10 +11,7 @@ from config import (
     EXECUTION_MODES,
     FILTRO_COLUNA_DATA,
     MESES_RETROATIVOS,
-    SAP_PORT_DEFAULT,  # noqa: F401 — backward compat
-    SQL_ENRICHMENT_VIEW_DEFAULT,  # noqa: F401 — backward compat
     SQL_LOGIN_TIMEOUT_S,
-    SYNC_LOG_TABLE_NAME,  # noqa: F401 — backward compat
     get_settings,
 )
 from db_utils import read_dbapi_query
@@ -26,7 +23,6 @@ from pipeline_core import (  # núcleo compartilhado (genérico)
     oportunidades_sync_lock,
     prepare_data,
     validate_sql_identifier,
-    with_retries,  # noqa: F401 — re-export p/ compatibilidade
 )
 from sap_connection import SAPExtractor
 

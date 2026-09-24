@@ -251,4 +251,4 @@ aceita WinRM). Prévia da janela antes: 1.540 avaliadas, 36 com escrita.
 
 ---
 
-Plano no repositório: `docs/PLANO_PORTA_PALETES_QUANTIDADE.md` · ServidorIntegracaoSAP · 2026-09-15 (F4 no ar)
+Plano no repositório: `docs/arquivo/PLANO_PORTA_PALETES_QUANTIDADE.md` · ServidorIntegracaoSAP · 2026-09-15 (F4 no ar)

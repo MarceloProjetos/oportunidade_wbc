@@ -32,13 +32,11 @@ import logging
 import sys
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from config import get_settings
 from pipeline_core import (
     SupabaseLoader,
-    agora_iso,
-    orcamentos_espelho_sync_lock,  # noqa: F401 — re-export p/ o scheduler
     prepare_data,
     validate_sql_identifier,
 )
@@ -197,11 +195,6 @@ def _registrar(loader: SupabaseLoader, inicio: datetime, ok: bool, falhas: List[
         inicio=inicio, fim=datetime.now().astimezone(),
         sucesso=ok, erro="; ".join(falhas) if falhas else None,
     )
-
-
-def _info() -> Dict[str, Any]:
-    """Resumo para log/CLI: quando rodou e com que view."""
-    return {"tabela": TABELA, "view": VIEW, "quando": agora_iso()}
 
 
 if __name__ == "__main__":

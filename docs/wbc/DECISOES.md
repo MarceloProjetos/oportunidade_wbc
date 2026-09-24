@@ -1,6 +1,7 @@
 # Decisões tomadas
 
-> **Documento histórico do WBCPython standalone (até 08/09/2026).** O projeto virou o pacote
+> **Nasceu no WBCPython standalone (até 08/09/2026) e segue como o registro de decisões do
+> pacote.** O projeto virou o pacote
 > `wbcpython/` do ServidorIntegracaoSAP: onde se lê `uv run wbcpython …`, hoje é
 > `python -m wbcpython …` na raiz do repositório; `uv sync` é `pip install -r requirements.txt`;
 > `python/WBCPython` é esta raiz; `ai_spec/` está explicado em `ai_spec/00_index.md`.
@@ -10,6 +11,40 @@ Cada linha aqui foi uma escolha, não um acaso. O objetivo é que ninguém preci
 redescutir — nem "corrigir" — algo que já foi decidido com motivo.
 
 Decisões **em aberto** não estão aqui; estão em `RETOMADA.md`.
+
+## Índice
+
+Ache a seção pela busca do título (o arquivo é longo; não leia inteiro).
+
+- De negócio
+- De arquitetura e segurança
+- Divergências deliberadas em relação ao legado
+- Cotação e pedido são procedimentos separados
+- Encerrar a oportunidade passa a cancelar a cotação
+- Documento sem valor não é enviado ao SAP
+- ~~`U_INO_PN_Correc` só vale com `U_INO_Update = 'Y'`~~ — **errado, ver a seção seguinte**
+- ~~Oportunidade fechada não aceita estágio novo~~ — o diagnóstico estava certo, a conclusão não
+- Correção da seção anterior: a guarda da troca de PN é o pedido, não uma marca
+- Oportunidade fechada: reabrir, vincular, restaurar
+- Comparação campo a campo: pedido 84316 (produção) x 84315 (homologação)
+- Comparação do OrcDetalhe: 514421 (produção) x 514706 (homologação)
+- Painel, CLI e worker em produção (set/2026)
+- SitCode 99 marca a oportunidade como perdida — e não a cancela
+- `ciclo --simular`: encher o painel sem tocar no SAP
+- `U_INO_Update` é um desvio, não uma autorização — e o congelamento foi revertido
+- `U_INO_Update = 'N'` congela o pedido
+- `ORDR.U_INO_Congelado` — a regra que faltava no porte
+- `PAINEL_HOST`: expor o painel na rede é escolha escrita
+- `204 No Content` não prova que as linhas mudaram
+- Horário de trabalho do worker (06:30–19:00) e janela dirigida
+- A busca da lista troca a lista, e não o bloco que contém o campo
+- Encerramento não se repete: a guarda olhava a cotação sem motivo
+- `U_INO_Update = 'Y'` antes de existir pedido: ele nasce no `PN_Correc`
+- Janela sob demanda: o teto escalonado, e a pergunta quando nem ele basta
+- Janela estendida não cria nem altera pedido
+- Porta-paletes: quantidade lida do texto, e o valor da linha vai como `LineTotal`
+- Preço unitário e desconto no `PATCH`: dois passos, `UnitPrice` antes e `LineTotal` depois
+
 
 ---
 
@@ -613,6 +648,11 @@ produção do mesmo orçamento e acusou divergência em quase tudo. Era artefato
 produção grava um snapshot **a cada ciclo**, então cada um nosso casava com ~13
 antigos, de revisões diferentes. Comparação de snapshot só vale entre os mais
 recentes de cada lado, e no mesmo dia.
+
+## Painel, CLI e worker em produção (set/2026)
+
+> Seção criada em 24/09/2026: estas decisões estavam, sem título próprio, dentro da
+> comparação do OrcDetalhe acima. Nada foi reescrito — só ganharam o `##` que faltava.
 
 ### O log é uma fonte e duas telas
 
@@ -1945,7 +1985,7 @@ faz de qualquer forma.
 Relato do usuário (15/09/2026): *"o item PORTA-PALETES sempre é criado como 01 unidade
 conjunto"*. `ORCPRDQTD` é nula nas 21.447 linhas de `INTEGRACAO_ORCIMP`; a quantidade real
 está no `ORCTXT` ("PORTA-PALETES 14 Módulos de estruturas metálicas..."). Plano em
-`docs/PLANO_PORTA_PALETES_QUANTIDADE.md`.
+`docs/arquivo/PLANO_PORTA_PALETES_QUANTIDADE.md`.
 
 ### A regra, medida antes de escrita
 

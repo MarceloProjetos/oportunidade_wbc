@@ -1,7 +1,7 @@
 # Plano — DX do agente no ServidorIntegracaoSAP
 
-> **Status (24/09/2026): F0 e F1 concluídas.** O Marcelo liberou F0–F3 seguindo as
-> recomendações (§5), com commit por fase. F2–F3 em andamento; F4–F5 não autorizadas ainda.
+> **Status (24/09/2026): F0, F1 e F3 concluídas.** O Marcelo liberou F0–F3 seguindo as
+> recomendações (§5), com commit por fase. F2 em andamento; F4–F5 não autorizadas ainda.
 
 Objetivo: deixar o repo mais barato de entender e de mudar para um agente — sem mexer no
 que roda em produção na `.11` além do necessário.
@@ -93,8 +93,16 @@ cosmético.
   para os arquivos-irmãos do Fato 3. Um `ruff --fix` único moderniza ~218 `Optional/List/Dict`.
 - Hook `pre-commit` local (ruff + `pytest -q`, ~6 s) — D2.
 
-### F3 — Limpeza · sem restart · agente
+### F3 — Limpeza · sem restart · agente — ✅ concluída 24/09
 *Goal: o que o agente encontra ao listar o repo é o que está vivo.*
+
+> ⚠️ **O que mordeu:** a "comparação 514421×514706" do `DECISOES.md` **não era evidência
+> bruta** — só as primeiras ~45 linhas eram; o resto são ~25 decisões de setembro sem `##`
+> próprio (inclusive a "Virada para produção" que o CLAUDE.md cita). Mover para apêndice
+> esconderia decisão viva: ganharam o `##` e o arquivo ganhou índice, nada saiu do lugar.
+> O `PLANO_STATUS_E_ENDERECO_ENTREGA` **não** foi arquivado: ainda tem pendência sua.
+> `exports/` e os logs de junho **não** foram apagados (D6): apagar arquivo seu, com dado de
+> cliente, fica com você.
 
 | Item | Evidência | Risco |
 |---|---|---|

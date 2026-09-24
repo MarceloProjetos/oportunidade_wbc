@@ -91,7 +91,6 @@ def is_business_day(d: date) -> bool:
 
 
 # Backward-compatible aliases
-FERIADOS_ANO_INICIO = HOLIDAY_YEAR_START
 FERIADOS_ANO_FIM = HOLIDAY_YEAR_END
 feriados_nacionais = national_holidays
 eh_feriado_nacional = is_national_holiday

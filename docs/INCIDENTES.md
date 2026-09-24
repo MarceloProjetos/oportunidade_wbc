@@ -14,7 +14,7 @@ Sem credencial o `/status` devolve a visão mínima (`_status_publico`); o compl
 O código HTTP não depende da credencial porque o watchdog do `.90` chama
 `?checks=worker&strict=1` sem nada e decide pelo código. A redução mora em `api.py`;
 `monitoring.py` ficou intacto porque `collect_status`/`SELECTABLE_CHECKS` são contrato entre
-repos. Plano: `docs/arquivo/PLANO_STATUS_E_ENDERECO_ENTREGA.md`.
+repos. Plano: `docs/PLANO_STATUS_E_ENDERECO_ENTREGA.md`.
 
 ## Vendas BI: `SUM("VlrPedido")` sem índice (medido em 11/08/2026)
 

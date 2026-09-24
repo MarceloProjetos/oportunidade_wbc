@@ -1080,12 +1080,6 @@ def _docnum(documento: object) -> int | None:
     return _inteiro(documento.get("DocNum"))
 
 
-def _cmd_nao_implementado(nome: str, fase: str) -> int:
-    print(f"O comando '{nome}' ainda não foi implementado ({fase}).")
-    print("Consulte docs/wbc/DECISOES.md e o CHANGELOG.md para ver o andamento.")
-    return 2
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="wbcpython",
