@@ -10,8 +10,13 @@ from wbcpython.config import get_settings
 
 @pytest.fixture(autouse=True)
 def _config_limpa(monkeypatch: pytest.MonkeyPatch, tmp_path, capsys) -> None:
-    """Roda cada teste num diretório sem .env, com a config memoizada limpa."""
+    """Roda cada teste num diretório sem .env, com a config memoizada limpa.
+
+    O `state/` existe como no repositório (lá ele é versionado com `.gitkeep`): é onde
+    mora o banco de acompanhamento padrão, `sqlite:///./state/wbc_tracking.db`.
+    """
     monkeypatch.chdir(tmp_path)
+    (tmp_path / "state").mkdir()
     for var in (
         "WBC_BLOCK_PRODUCTION_WRITES",
         "WBC_PRODUCTION_COMPANY_DB",

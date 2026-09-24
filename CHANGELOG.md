@@ -3,6 +3,39 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-24] — F0 do PLANO_DX_AGENTE: a suite nao alcanca mais producao
+
+Plano novo: `docs/PLANO_DX_AGENTE.md` (o que facilita o trabalho do agente neste repo). Esta
+e' a F0, a rede de protecao — so testes, config e `requirements.txt`; nada muda no que roda.
+
+- **`tests/conftest.py`**: toda a suite (fora `@pytest.mark.integration`) roda com os destinos
+  do `.env` trocados por falsos (`SUPABASE_*`, `SAP_*`, `SQL*`, `OP_SL_*`) e com os drivers
+  travados (`hdbcli.dbapi.connect`, `pyodbc.connect`, `pymssql.connect`, `create_client` do
+  Supabase): quem tenta conectar FALHA o teste dizendo o destino. Antes, so `tests/wbc` apagava
+  `SAP_`/`SQL_`, e ninguem apagava `SUPABASE_*`.
+  ⚠️ A trava pegou **12 testes que abriam conexao REAL**: 11 com o HANA de producao (o
+  `GET /ordens-servico/<n>` le a ORDR; o caminho do pedido cancelado le o endereco) e 1 que
+  relia o Supabase de producao depois de sincronizar. Os `client` de `test_api.py` e
+  `test_api_situacao_pedidos.py` agora dublam `consultar_status_pedido`, `_fetch_os_detalhe`
+  e `fetch_endereco_do_pedido` por padrao.
+  ⚠️ So o endereco falso nao bastava: o **`hdbcli` 2.29.25 no Python 3.14 derruba o processo
+  com access violation quando a conexao falha** (medido nesta maquina, 127.0.0.1, `localhost`
+  e nome inexistente; com `CONNECTTIMEOUT` menor que o tempo da recusa ele levanta erro
+  normal). O pytest morria sem dizer qual teste — dai a trava nos drivers.
+- **`wbcpython/config.py`**: o default de `TRACKING_DB_URL` passa a ser o da raiz,
+  `sqlite:///./state/wbc_tracking.db` (era `./wbcpython_tracking.db`). Sem a variavel no
+  `.env`, o worker gravava num arquivo e o `/status` lia outro. **Sem efeito na .11**: o
+  `/status` de la le `state\wbc_tracking.db` e ve o ciclo de 1 minuto atras (conferido pela
+  tool `estado_integracao_wbc`), ou seja, o `.env` ja define o caminho.
+- **`tests/test_config_paridade_wbc.py`** (novo): os defaults do worker que a raiz copia
+  (banco, intervalo, expediente, dias, porta do painel) tem de ser iguais nos dois configs.
+- **`requirements.txt`**: `httpx` passa a ser dependencia DIRETA (o worker o importa para
+  falar com o Service Layer; chegava so pelo `supabase`); piso do `pymssql` em 2.4.1 (a
+  primeira com roda cp314); comentarios do Python 3.12 atualizados. O `deploy_update.bat`
+  vai rodar o `pip` (o hash mudou) — nada novo a instalar.
+
+Suite: **1833 passed**, 12 skipped, 0 falhas.
+
 ## [2026-09-21] — Pedido 84337 fora dos agregados de Vendas
 
 O pedido 84337 (NAVARRO, R$ 93.531,74, 02/09/2026) esta FECHADO no SAP **sem entrega e sem

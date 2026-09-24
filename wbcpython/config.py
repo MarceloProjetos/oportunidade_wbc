@@ -102,8 +102,13 @@ class TrackingSettings(BaseSettings):
         env_prefix="TRACKING_", env_file=".env", extra="ignore", case_sensitive=False
     )
 
-    db_url: SecretStr = SecretStr("sqlite:///./wbcpython_tracking.db")
+    db_url: SecretStr = SecretStr("sqlite:///./state/wbc_tracking.db")
     """URL do banco de tracking.
+
+    O default é o MESMO de `config.WBC_TRACKING_DB_URL_DEFAULT` (a raiz), que o check
+    `wbc_worker` do `/status` lê: com defaults diferentes, um `.env` sem `TRACKING_DB_URL`
+    punha o worker gravando num arquivo e o `/status` lendo outro. Teste de paridade:
+    `tests/test_config_paridade_wbc.py`.
 
     É `SecretStr` porque, assim que o tracking sair do SQLite para um
     PostgreSQL/SQL Server, a URL passa a carregar usuário e senha embutidos

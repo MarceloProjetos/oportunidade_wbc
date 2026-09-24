@@ -118,6 +118,9 @@ def client(monkeypatch):
     # suite que abre conexao HANA passa a depender do ambiente, nao do codigo.
     # O default e' o caso comum -- pedido antigo, existe e nao esta cancelado.
     monkeypatch.setattr(apimod, 'consultar_status_pedido', lambda n: _ordr())
+    # Endereco idem: o caminho do pedido cancelado o busca no HANA (a trava do conftest
+    # da raiz pegou os 2 testes que abriam a conexao real, 24/09/2026).
+    monkeypatch.setattr(apimod.sit_ped_hana, 'fetch_endereco_do_pedido', lambda n: {})
     apimod.app.config.update(TESTING=True)
     c = apimod.app.test_client()
     c._idas = idas

@@ -27,6 +27,12 @@ def client(monkeypatch):
     monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {
         'tem_os': True, 'cancelada': False,
         'pedido_existe': True, 'pedido_cancelado': False, 'pedido_status': 'Aberto'})
+    # ORDR e releitura do resumo dublados por padrao: sem isso o GET /ordens-servico/<n>
+    # abria conexao REAL com o HANA e o sincronizar relia o Supabase de producao (11
+    # testes, pegos pela trava do conftest da raiz em 24/09/2026). Quem precisa de outro
+    # valor sobrescreve no proprio teste.
+    monkeypatch.setattr(apimod, 'consultar_status_pedido', lambda n: None)
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: [])
     apimod.app.config.update(TESTING=True)
     c = apimod.app.test_client()
     c._chamados = chamados
