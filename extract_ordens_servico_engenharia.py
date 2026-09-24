@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 import sys
 import time
-from typing import Iterable, List, Optional, Tuple
+from collections.abc import Iterable
 
 import pandas as pd
 
@@ -67,7 +67,7 @@ def _configure_logging() -> None:
     logging.getLogger('httpx').setLevel(logging.WARNING)
 
 
-def extract_os_to_dataframe(nped: object) -> Optional[pd.DataFrame]:
+def extract_os_to_dataframe(nped: object) -> pd.DataFrame | None:
     """Extract the OS view rows for a single ``NPED``.
 
     Args:
@@ -178,7 +178,7 @@ def diagnosticar_nped(nped: object) -> dict:
             'pedido_status': pedido_status}
 
 
-def classificar_pedido(canceled: object, doc_status: object) -> Tuple[bool, str]:
+def classificar_pedido(canceled: object, doc_status: object) -> tuple[bool, str]:
     """``ORDR.CANCELED`` + ``ORDR.DocStatus`` → ``(pedido_cancelado, pedido_status)``.
 
     SAP B1: ``CANCELED`` = ``'Y'`` cancelled, ``'C'`` reversal document (cancellation);
@@ -199,7 +199,7 @@ def classificar_pedido(canceled: object, doc_status: object) -> Tuple[bool, str]
     return False, 'Aberto'
 
 
-def consultar_status_pedido(nped: object) -> Optional[dict]:
+def consultar_status_pedido(nped: object) -> dict | None:
     """Pedido status straight from ``ORDR`` (one row, own connection, no OWOR).
 
     The light read behind ``GET /ordens-servico/<nped>``: the detail comes from Supabase
@@ -259,7 +259,7 @@ def consultar_status_pedido(nped: object) -> Optional[dict]:
             'moeda': str(row.get('DocCur') or '').strip()}
 
 
-def _data_iso(valor: object) -> Optional[str]:
+def _data_iso(valor: object) -> str | None:
     """``ORDR.DocDate`` (datetime/date/str) → ``'YYYY-MM-DD'``, ou ``None``.
 
     A view ja entrega data ISO; a ORDR crua vem como ``Timestamp`` do pandas. Quem
@@ -274,7 +274,7 @@ def _data_iso(valor: object) -> Optional[str]:
     return texto[:10] or None
 
 
-def listar_pedidos_com_os(limit: int = 30) -> Optional[List[dict]]:
+def listar_pedidos_com_os(limit: int = 30) -> list[dict] | None:
     """List up to ``limit`` pedidos (NPED) with an OS created in SAP, newest first.
 
     Rule (same as ``diagnosticar_nped``): the OS exists when there is a row in ``OWOR``
@@ -333,7 +333,7 @@ def listar_pedidos_com_os(limit: int = 30) -> Optional[List[dict]]:
         logger.error("Falha ao listar pedidos com OS no SAP")
         return None
 
-    pedidos: List[dict] = []
+    pedidos: list[dict] = []
     for _, row in df.iterrows():
         if pd.isna(row.get('NPED')):
             continue
@@ -361,8 +361,8 @@ def listar_pedidos_com_os(limit: int = 30) -> Optional[List[dict]]:
 
 def main(
     nped: object,
-    execution_mode: Optional[str] = None,
-    execution_id: Optional[str] = None,
+    execution_mode: str | None = None,
+    execution_id: str | None = None,
 ) -> bool:
     """Sync a single ``NPED`` into the Ordens de Serviço (Engenharia) table.
 
@@ -403,8 +403,8 @@ def main(
     inicio = time.monotonic()
     qtd_registros = 0
     resultado = False
-    nped_int: Optional[int] = None
-    loader: Optional[SupabaseLoader] = None
+    nped_int: int | None = None
+    loader: SupabaseLoader | None = None
 
     try:
         nped_int = coerce_positive_int(nped, what='NPED')
@@ -505,7 +505,7 @@ def run_npeds(npeds: Iterable[object]) -> dict:
     return resultados
 
 
-def _parse_args(argv: List[str]) -> List[str]:
+def _parse_args(argv: list[str]) -> list[str]:
     return [a for a in argv if a.strip()]
 
 

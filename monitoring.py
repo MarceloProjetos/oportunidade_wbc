@@ -19,8 +19,9 @@ import shutil
 import socket
 import sqlite3
 import time
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable, Dict, Optional
+from typing import Any
 
 import windows_update
 from config import get_settings
@@ -69,12 +70,12 @@ SELECTABLE_CHECKS = ('sap', 'sql_server', 'supabase', 'scheduler', 'scheduled_ta
 # does.
 
 
-def _timed(fn: Callable[[], Optional[str]]) -> Dict[str, Any]:
+def _timed(fn: Callable[[], str | None]) -> dict[str, Any]:
     """Run a check and return ``{ok, ms, detail?, error?}``, measuring the latency."""
     t0 = time.monotonic()
     try:
         detail = fn()
-        out: Dict[str, Any] = {'ok': True, 'ms': round((time.monotonic() - t0) * 1000)}
+        out: dict[str, Any] = {'ok': True, 'ms': round((time.monotonic() - t0) * 1000)}
         if detail:
             out['detail'] = detail
         return out
@@ -139,7 +140,7 @@ def _check_supabase() -> str:
     return s.supabase_url
 
 
-def _scheduler_signal() -> Dict[str, Any]:
+def _scheduler_signal() -> dict[str, Any]:
     """INDIRECT scheduler signal: age of the last oportunidades load (read from the log).
 
     Reads the most recent record in ``sincronizacao_log``. It only marks ``stale=True``
@@ -183,7 +184,7 @@ def _scheduler_signal() -> Dict[str, Any]:
 
     last = rows[0]
     last_iso = last.get('data_hora_sincronizacao')
-    minutes: Optional[int] = None
+    minutes: int | None = None
     try:
         last_dt = datetime.fromisoformat(str(last_iso).replace('Z', '+00:00'))
         if last_dt.tzinfo is not None:               # PostgREST may return with a timezone
@@ -219,7 +220,7 @@ def _scheduler_signal() -> Dict[str, Any]:
     }
 
 
-def _parse_local_dt(value: Any) -> Optional[datetime]:
+def _parse_local_dt(value: Any) -> datetime | None:
     """Convert an ISO-8601 string (with or without timezone) into a *naive* local
     ``datetime``.
 
@@ -237,7 +238,7 @@ def _parse_local_dt(value: Any) -> Optional[datetime]:
     return dt
 
 
-def _age_minutes(value: Any) -> Optional[int]:
+def _age_minutes(value: Any) -> int | None:
     """Age in (whole) minutes of an ISO timestamp until now; ``None`` if unreadable."""
     dt = _parse_local_dt(value)
     if dt is None:
@@ -253,7 +254,7 @@ def _wbc_task_state_path() -> str:
     return os.path.join(_PROJECT_DIR, configured)
 
 
-def _scheduled_task_signal() -> Dict[str, Any]:
+def _scheduled_task_signal() -> dict[str, Any]:
     """State of the "Integração WBC" scheduled task, read from the monitor's JSON.
 
     Opens no connections and spawns no subprocess: it only reads the file the PowerShell
@@ -291,7 +292,7 @@ def _scheduled_task_signal() -> Dict[str, Any]:
         }
 
     try:
-        with open(path, 'r', encoding='utf-8-sig') as fh:  # utf-8-sig tolerates a stray BOM
+        with open(path, encoding='utf-8-sig') as fh:  # utf-8-sig tolerates a stray BOM
             data = json.load(fh)
         if not isinstance(data, dict):
             raise ValueError('conteúdo não é um objeto JSON')
@@ -317,7 +318,7 @@ _WBC_TABELAS = ('acompanhamento', 'eventos', 'execucoes', 'travas')
 _WBC_COLUNAS_EXECUCAO = ('id', 'inicio', 'fim', 'status', 'processados', 'sucessos', 'erros', 'detalhe')
 
 
-def _wbc_tracking_db_path() -> Optional[str]:
+def _wbc_tracking_db_path() -> str | None:
     """Absolute path of the WBC tracking SQLite taken from ``TRACKING_DB_URL``.
 
     ``None`` when the URL is not a file-backed SQLite (PostgreSQL, ``:memory:``): the check
@@ -369,7 +370,7 @@ def _wbc_worker_threshold_min() -> int:
     return max(10, math.ceil(2 * get_settings().wbc_worker_interval_s / 60))
 
 
-def _wbc_worker_signal() -> Dict[str, Any]:
+def _wbc_worker_signal() -> dict[str, Any]:
     """State of the WBC → SAP integration worker, read from its tracking DB (SQLite).
 
     Opens the file read-only, no connection to SAP/WBC. Three levels, on purpose:
@@ -386,7 +387,7 @@ def _wbc_worker_signal() -> Dict[str, Any]:
     """
     s = get_settings()
     agora = datetime.now()
-    base: Dict[str, Any] = {
+    base: dict[str, Any] = {
         'available': False, 'installed': False, 'healthy': None,
         'in_window': _wbc_worker_in_window(agora),
         'threshold_min': _wbc_worker_threshold_min(),
@@ -406,8 +407,8 @@ def _wbc_worker_signal() -> Dict[str, Any]:
         try:
             tabelas = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             faltam = sorted(set(_WBC_TABELAS) - tabelas)
-            ultima: Optional[Dict[str, Any]] = None
-            hoje: Dict[str, Any] = {}
+            ultima: dict[str, Any] | None = None
+            hoje: dict[str, Any] = {}
             if 'execucoes' in tabelas:
                 row = con.execute(
                     'SELECT id, inicio, fim, status, processados, sucessos, erros, detalhe '
@@ -445,7 +446,7 @@ def _wbc_worker_signal() -> Dict[str, Any]:
             'stale': stale, 'stuck': stuck, 'healthy': not (stale or stuck or failed)}
 
 
-def _wbc_worker_alerts(w: Dict[str, Any]) -> list:
+def _wbc_worker_alerts(w: dict[str, Any]) -> list:
     """Readable alerts for the ``wbc_worker`` block. Nothing before the first recorded
     cycle on this machine (see ``_wbc_worker_signal``)."""
     if not w.get('installed'):
@@ -475,7 +476,7 @@ def _wbc_worker_alerts(w: Dict[str, Any]) -> list:
     return alerts
 
 
-def _windows_update_signal() -> Dict[str, Any]:
+def _windows_update_signal() -> dict[str, Any]:
     """Pending reboot + pending updates + last patch (the ``windows_update`` block).
 
     Cheap on purpose: ``reboot_pendente()`` is ~0.2 ms of ``winreg`` (always fresh, it does
@@ -509,7 +510,7 @@ def _windows_update_signal() -> Dict[str, Any]:
         }
 
 
-def _local_ip() -> Optional[str]:
+def _local_ip() -> str | None:
     """Local outbound IP (sends no packet — only resolves the route). Falls back to hostname."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -524,9 +525,9 @@ def _local_ip() -> Optional[str]:
         sock.close()
 
 
-def _system_info() -> Dict[str, Any]:
+def _system_info() -> dict[str, Any]:
     """Host, IP, OS, Python, disk (stdlib) + CPU/memory (psutil, if available)."""
-    info: Dict[str, Any] = {
+    info: dict[str, Any] = {
         'hostname': socket.gethostname(),
         'ip': _local_ip(),
         'os': platform.platform(),
@@ -561,7 +562,7 @@ def _system_info() -> Dict[str, Any]:
     return info
 
 
-def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
+def collect_status(only: set | None = None) -> dict[str, Any]:
     """Collect the state of the server + dependencies (on demand).
 
     Args:
@@ -602,7 +603,7 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
 
     sel = set(SELECTABLE_CHECKS) if not only else only
 
-    checks: Dict[str, Any] = {}
+    checks: dict[str, Any] = {}
     if 'sap' in sel:
         checks['sap'] = _timed(_check_sap)
     if 'sql_server' in sel:
@@ -646,7 +647,7 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
         )
 
     ok = all(c['ok'] for c in checks.values())
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         'ok': ok,
         'healthy': ok and not alerts,
         'service': 'ordens-servico-engenharia',
@@ -668,7 +669,7 @@ def collect_status(only: Optional[set] = None) -> Dict[str, Any]:
     return out
 
 
-def _scheduled_task_alerts(task: Dict[str, Any]) -> list:
+def _scheduled_task_alerts(task: dict[str, Any]) -> list:
     """Turn the scheduled task's state into readable alerts for ``/status``.
 
     A missing/stale file points to a stopped monitor; ``problems`` are the task's own

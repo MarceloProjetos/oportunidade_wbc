@@ -32,7 +32,7 @@ import logging
 import sys
 import time
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any
 
 from config import get_settings
 from pipeline_core import (
@@ -105,7 +105,7 @@ def sql_orcamentos(schema: str) -> str:
     '''
 
 
-def main(execution_id: Optional[str] = None) -> bool:
+def main(execution_id: str | None = None) -> bool:
     """Carga completa do espelho. ``True`` quando a tabela ficou consistente.
 
     Args:
@@ -113,7 +113,7 @@ def main(execution_id: Optional[str] = None) -> bool:
     """
     inicio_dt = datetime.now().astimezone()
     inicio = time.monotonic()
-    falhas: List[str] = []
+    falhas: list[str] = []
     settings = get_settings()
 
     if not settings.sap_ready() or not settings.supabase_ready():
@@ -140,8 +140,8 @@ def main(execution_id: Optional[str] = None) -> bool:
 def _carga(
     loader: SupabaseLoader,
     settings: Any,
-    execution_id: Optional[str],
-    falhas: List[str],
+    execution_id: str | None,
+    falhas: list[str],
 ) -> tuple[bool, int]:
     """A carga em si. Devolve ``(ok, linhas gravadas)``."""
     ex = SAPExtractor(
@@ -188,7 +188,7 @@ def _carga(
     return True, len(registros)
 
 
-def _registrar(loader: SupabaseLoader, inicio: datetime, ok: bool, falhas: List[str]) -> None:
+def _registrar(loader: SupabaseLoader, inicio: datetime, ok: bool, falhas: list[str]) -> None:
     """Desfecho em ``rotinas_execucao`` — o mesmo lugar das outras rotinas."""
     loader.registrar_rotina(
         ROTINA_NOME, ROTINA_ROTULO,

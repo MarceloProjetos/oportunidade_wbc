@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 import pandas as pd
 from hdbcli import dbapi
@@ -34,7 +35,7 @@ def _with_retries(
     attempts: int = RETRY_ATTEMPTS,
     base_delay: float = RETRY_BASE_DELAY_S,
     what: str = 'operation',
-    retry_on: Optional[Callable[[Exception], bool]] = None,
+    retry_on: Callable[[Exception], bool] | None = None,
 ) -> Any:
     """Retry with backoff — see ``retry.with_retries``.
 
@@ -54,7 +55,7 @@ def _build_connect_args(
     port: int,
     user: str,
     password: str,
-    database: Optional[str],
+    database: str | None,
     *,
     with_timeouts: bool,
 ) -> dict[str, Any]:
@@ -78,7 +79,7 @@ def connect_sap_hana(
     port: int,
     user: str,
     password: str,
-    database: Optional[str] = None,
+    database: str | None = None,
     *,
     with_timeouts: bool = True,
     with_retry: bool = True,
@@ -118,14 +119,14 @@ class SAPExtractor:
         port: int,
         user: str,
         password: str,
-        database: Optional[str] = None,
+        database: str | None = None,
     ) -> None:
         self.host = host
         self.port = port
         self.user = user
         self.password = password
         self.database = database
-        self.connection: Optional[Any] = None
+        self.connection: Any | None = None
 
     def connect(self) -> bool:
         try:
@@ -137,7 +138,7 @@ class SAPExtractor:
             logger.error('SAP HANA connection failed: %s', exc)
             return False
 
-    def execute_query(self, query: str) -> Optional[pd.DataFrame]:
+    def execute_query(self, query: str) -> pd.DataFrame | None:
         try:
             if not self.connection:
                 raise RuntimeError('Not connected to SAP HANA')

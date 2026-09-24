@@ -66,11 +66,12 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any
 
 _RAIZ = Path(__file__).resolve().parent.parent
 if str(_RAIZ) not in sys.path:
@@ -78,6 +79,7 @@ if str(_RAIZ) not in sys.path:
 
 from config import get_settings  # noqa: E402
 from db_utils import read_dbapi_query  # noqa: E402
+
 # O MESMO corte do pipeline: sem ele, o conferidor acusaria divergência contra um
 # Supabase que está certo — e o alarme falso é o jeito mais rápido de o conferidor
 # deixar de ser lido.
@@ -99,7 +101,7 @@ TOLERANCIA = Decimal('0.01')
 #: Linha consolidada das três tabelas (todos os vendedores somados).
 TOTAL = '__TOTAL__'
 
-ESCOPOS: Tuple[str, ...] = ('hoje', 'ontem', 'mes_atual', 'mes_passado')
+ESCOPOS: tuple[str, ...] = ('hoje', 'ontem', 'mes_atual', 'mes_passado')
 
 #: Teto do ranking de clientes gravado pelo pipeline (``TOP_CLIENTES``). Usado para
 #: saber se uma ausência é "corte do top N" ou "cliente sumido".
@@ -114,7 +116,7 @@ PAGINA = 1000
 # --------------------------------------------------------------- formatação
 
 
-def brl(v: Optional[Decimal]) -> str:
+def brl(v: Decimal | None) -> str:
     """Decimal -> ``R$ 1.314.876,11``. ``None`` vira travessão."""
     if v is None:
         return '-'
@@ -138,7 +140,7 @@ def dec(v: Any) -> Decimal:
         return Decimal('0')
 
 
-def idade(carimbo: Optional[str]) -> str:
+def idade(carimbo: str | None) -> str:
     """``atualizado_em`` ISO -> "há 2h13" legível. Vazio devolve '?'."""
     if not carimbo:
         return '?'
@@ -147,8 +149,8 @@ def idade(carimbo: Optional[str]) -> str:
     except ValueError:
         return '?'
     if quando.tzinfo is None:
-        quando = quando.replace(tzinfo=timezone.utc)
-    delta = datetime.now(timezone.utc) - quando
+        quando = quando.replace(tzinfo=UTC)
+    delta = datetime.now(UTC) - quando
     minutos = int(delta.total_seconds() // 60)
     if minutos < 60:
         return f'há {minutos}min'
@@ -164,7 +166,7 @@ class Relatorio:
 
     so_erros: bool = False
     total: int = 0
-    falhas: List[str] = field(default_factory=list)
+    falhas: list[str] = field(default_factory=list)
 
     def secao(self, titulo: str) -> None:
         print(f'\n{titulo}')
@@ -173,15 +175,15 @@ class Relatorio:
     def dinheiro(
         self,
         nome: str,
-        supabase: Optional[Decimal],
-        hana: Optional[Decimal],
+        supabase: Decimal | None,
+        hana: Decimal | None,
         nota: str = '',
     ) -> bool:
         """Compara dois valores em reais. Ausência de um dos lados é divergência."""
         self.total += 1
         if supabase is None or hana is None:
             ok = False
-            dif: Optional[Decimal] = None
+            dif: Decimal | None = None
         else:
             dif = supabase - hana
             ok = abs(dif) <= TOLERANCIA
@@ -192,7 +194,7 @@ class Relatorio:
         self._linha(ok, nome, detalhe, nota)
         return ok
 
-    def inteiro(self, nome: str, supabase: Optional[int], hana: Optional[int]) -> bool:
+    def inteiro(self, nome: str, supabase: int | None, hana: int | None) -> bool:
         """Compara duas contagens (quantidade de pedidos). Igualdade exata."""
         self.total += 1
         ok = supabase is not None and hana is not None and supabase == hana
@@ -255,9 +257,9 @@ def cliente_supabase():
     return create_client(url, chave)
 
 
-def ler_tabela(cli: Any, tabela: str) -> List[Dict[str, Any]]:
+def ler_tabela(cli: Any, tabela: str) -> list[dict[str, Any]]:
     """Lê a tabela inteira, paginando. Ver :data:`PAGINA` para o porquê."""
-    linhas: List[Dict[str, Any]] = []
+    linhas: list[dict[str, Any]] = []
     inicio = 0
     while True:
         resp = cli.table(tabela).select('*').range(inicio, inicio + PAGINA - 1).execute()
@@ -271,7 +273,7 @@ def ler_tabela(cli: Any, tabela: str) -> List[Dict[str, Any]]:
 # ---------------------------------------------------------------------- HANA
 
 
-def janelas_independentes(ref: date) -> Dict[str, Tuple[date, date, date]]:
+def janelas_independentes(ref: date) -> dict[str, tuple[date, date, date]]:
     """``escopo -> (de, ate, competencia)``, recalculado sem olhar o pipeline.
 
     Intervalo fechado nos dois lados. ``mes_passado`` sai de "um dia antes do dia
@@ -291,7 +293,7 @@ def janelas_independentes(ref: date) -> Dict[str, Tuple[date, date, date]]:
     }
 
 
-def _consulta(ex: SAPExtractor, sql: str, params: Optional[Sequence[Any]] = None) -> List[Dict[str, Any]]:
+def _consulta(ex: SAPExtractor, sql: str, params: Sequence[Any] | None = None) -> list[dict[str, Any]]:
     """Roda SQL de leitura no HANA e devolve dicionários.
 
     Usa ``read_dbapi_query`` direto (e não ``SAPExtractor.execute_query``) porque
@@ -302,7 +304,7 @@ def _consulta(ex: SAPExtractor, sql: str, params: Optional[Sequence[Any]] = None
     return df.to_dict('records')
 
 
-def _de_ate(de: date, ate: date) -> Tuple[str, str]:
+def _de_ate(de: date, ate: date) -> tuple[str, str]:
     """Intervalo fechado de datas -> par de literais ``[de 00:00, ate+1 00:00)``.
 
     A view expõe ``DATA`` como TIMESTAMP: comparar com ``<= ate`` perderia tudo o
@@ -313,7 +315,7 @@ def _de_ate(de: date, ate: date) -> Tuple[str, str]:
 
 def hana_total_periodo(
     ex: SAPExtractor, schema: str, de: date, ate: date
-) -> Tuple[Decimal, int]:
+) -> tuple[Decimal, int]:
     """``SUM(VlrPedido)`` e contagem de pedidos no intervalo — o número do cartão.
 
     A medida é o bruto, **sem** ``Indice_Pedido``: medido contra o Power BI em
@@ -336,7 +338,7 @@ def hana_total_periodo(
 
 def hana_serie_mensal(
     ex: SAPExtractor, schema: str, metrica: str, ano_inicial: int
-) -> Dict[Tuple[int, int], Decimal]:
+) -> dict[tuple[int, int], Decimal]:
     """``(ano, mes) -> valor`` agregado pelo HANA, sem passar por vendedor.
 
     É o contraponto do ``__TOTAL__`` que o pipeline empilha em Python. No
@@ -356,7 +358,7 @@ def hana_serie_mensal(
                     FROM "{schema}"."VW_FATO_FATURAMENTO"
                    WHERE YEAR("DATA") >= {int(ano_inicial)}
                    GROUP BY YEAR("DATA"), MONTH("DATA")'''
-    saida: Dict[Tuple[int, int], Decimal] = {}
+    saida: dict[tuple[int, int], Decimal] = {}
     for r in _consulta(ex, sql):
         saida[(int(r['ANO']), int(r['MES']))] = dec(r.get('VALOR'))
     return saida
@@ -364,7 +366,7 @@ def hana_serie_mensal(
 
 def hana_clientes_do_vendedor(
     ex: SAPExtractor, schema: str, vendedor: str, de: date, ate: date
-) -> Dict[str, Decimal]:
+) -> dict[str, Decimal]:
     """``CardCode -> valor`` dos pedidos de UM vendedor no período.
 
     ``VW_PEDIDO_ALTA."CodVend"`` já guarda o NOME do vendedor (é o
@@ -392,8 +394,8 @@ def conferir_kpis(
     rel: Relatorio,
     ex: SAPExtractor,
     schema: str,
-    kpis: List[Dict[str, Any]],
-    janelas: Dict[str, Tuple[date, date, date]],
+    kpis: list[dict[str, Any]],
+    janelas: dict[str, tuple[date, date, date]],
 ) -> None:
     """Os quatro cartões do topo, consolidados, contra o HANA.
 
@@ -434,7 +436,7 @@ def conferir_kpis(
 
 
 def conferir_series(
-    rel: Relatorio, ex: SAPExtractor, schema: str, series: List[Dict[str, Any]]
+    rel: Relatorio, ex: SAPExtractor, schema: str, series: list[dict[str, Any]]
 ) -> None:
     """As duas séries mensais, mês a mês, contra o HANA.
 
@@ -466,7 +468,7 @@ def conferir_series(
 
 
 def conferir_ranking_fecha_com_kpi(
-    rel: Relatorio, kpis: List[Dict[str, Any]], ranking: List[Dict[str, Any]]
+    rel: Relatorio, kpis: list[dict[str, Any]], ranking: list[dict[str, Any]]
 ) -> None:
     """A soma do ranking de vendedores tem de dar o KPI do mesmo período.
 
@@ -504,8 +506,8 @@ def conferir_clientes_do_vendedor(
     rel: Relatorio,
     ex: SAPExtractor,
     schema: str,
-    ranking: List[Dict[str, Any]],
-    janelas: Dict[str, Tuple[date, date, date]],
+    ranking: list[dict[str, Any]],
+    janelas: dict[str, tuple[date, date, date]],
     vendedor: str,
 ) -> None:
     """O ranking de clientes de um vendedor, contra o HANA filtrado por ele.
@@ -537,7 +539,7 @@ def conferir_clientes_do_vendedor(
         }
         han = hana_clientes_do_vendedor(ex, schema, vendedor, de, ate)
 
-        problemas: List[str] = []
+        problemas: list[str] = []
         for chave, valor in sorted(sup.items()):
             if chave not in han:
                 problemas.append(f'{chave}: {brl(valor)} no Supabase, inexistente no HANA')
@@ -570,7 +572,7 @@ def conferir_clientes_do_vendedor(
 
 
 def conferir_partes_somam_total(
-    rel: Relatorio, kpis: List[Dict[str, Any]], series: List[Dict[str, Any]]
+    rel: Relatorio, kpis: list[dict[str, Any]], series: list[dict[str, Any]]
 ) -> None:
     """A soma das linhas por vendedor tem de dar a linha ``__TOTAL__``.
 
@@ -582,8 +584,8 @@ def conferir_partes_somam_total(
     """
     rel.secao('[5] Soma das linhas por vendedor x linha __TOTAL__')
 
-    partes_kpi: Dict[str, Decimal] = {}
-    total_kpi: Dict[str, Decimal] = {}
+    partes_kpi: dict[str, Decimal] = {}
+    total_kpi: dict[str, Decimal] = {}
     for k in kpis:
         escopo = str(k.get('escopo'))
         if k.get('vendedor') == TOTAL:
@@ -597,8 +599,8 @@ def conferir_partes_somam_total(
             total_kpi.get(escopo),
         )
 
-    partes_serie: Dict[Tuple[str, int, int], Decimal] = {}
-    total_serie: Dict[Tuple[str, int, int], Decimal] = {}
+    partes_serie: dict[tuple[str, int, int], Decimal] = {}
+    total_serie: dict[tuple[str, int, int], Decimal] = {}
     for s in series:
         chave = (str(s.get('metrica')), int(s['ano']), int(s['mes']))
         if s.get('vendedor') == TOTAL:
@@ -617,7 +619,7 @@ def conferir_partes_somam_total(
 # ---------------------------------------------------------------------- main
 
 
-def escolher_vendedor(ranking: List[Dict[str, Any]], pedido: Optional[str]) -> Optional[str]:
+def escolher_vendedor(ranking: list[dict[str, Any]], pedido: str | None) -> str | None:
     """Quem terá o ranking de clientes conferido.
 
     Sem ``--vendedor``, escolhe o primeiro colocado do mês: é o vendedor com mais
@@ -638,7 +640,7 @@ def escolher_vendedor(ranking: List[Dict[str, Any]], pedido: Optional[str]) -> O
     return str(min(candidatos, key=lambda r: int(r.get('posicao') or 99))['chave'])
 
 
-def data_de_referencia(kpis: Iterable[Dict[str, Any]]) -> Optional[date]:
+def data_de_referencia(kpis: Iterable[dict[str, Any]]) -> date | None:
     """O "hoje" do pipeline, tirado da competência gravada no escopo ``hoje``."""
     for k in kpis:
         if k.get('escopo') == 'hoje' and k.get('vendedor') == TOTAL and k.get('competencia'):
@@ -649,7 +651,7 @@ def data_de_referencia(kpis: Iterable[Dict[str, Any]]) -> Optional[date]:
     return None
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description='Confere os agregados de Vendas: Supabase x HANA.')
     ap.add_argument('--vendedor', help='de quem é o ranking de clientes conferido')
     ap.add_argument('--so-erros', action='store_true', help='imprime só o que divergiu')

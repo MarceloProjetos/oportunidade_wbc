@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import pandas as pd
 
 
 def read_dbapi_query(
-    query: str, connection: Any, params: Optional[Sequence[Any]] = None
+    query: str, connection: Any, params: Sequence[Any] | None = None
 ) -> pd.DataFrame:
     """Execute SQL on a PEP-249 connection and return a DataFrame.
 

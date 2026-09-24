@@ -38,8 +38,9 @@ from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import Iterable
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any
 
 from config import get_settings
 from pedidos_bloqueados import sql_nao_bloqueado
@@ -226,7 +227,7 @@ def sql_orcamentos_mensal(schema: str, ano_inicial: int) -> str:
     '''
 
 
-def janelas(hoje: date) -> Dict[str, tuple]:
+def janelas(hoje: date) -> dict[str, tuple]:
     """Intervalo fechado ``(de, ate)`` de cada escopo, e a competência de cada um.
 
     Mês passado é calculado voltando um dia do dia 1 do mês corrente — a virada
@@ -265,8 +266,8 @@ def _int(v: Any) -> int:
 
 
 def linhas_serie(
-    registros: Iterable[Dict[str, Any]], metrica: str, quando: str
-) -> List[Dict[str, Any]]:
+    registros: Iterable[dict[str, Any]], metrica: str, quando: str
+) -> list[dict[str, Any]]:
     """Linhas de ``bi_vendas_serie_mensal``, com o consolidado incluído.
 
     O ``__TOTAL__`` é somado aqui, e não numa segunda consulta ao HANA, para que
@@ -274,7 +275,7 @@ def linhas_serie(
     divergiriam a cada pedido lançado entre uma e outra, e o app mostraria um
     total que não é a soma do que ele exibe.
     """
-    saida: Dict[tuple, Dict[str, Any]] = {}
+    saida: dict[tuple, dict[str, Any]] = {}
     for r in registros:
         ano, mes = _int(r.get('ANO')), _int(r.get('MES'))
         if not ano or not mes:
@@ -306,10 +307,10 @@ def _no_intervalo(dia: str, de: date, ate: date) -> bool:
 
 
 def linhas_kpi(
-    detalhe: Iterable[Dict[str, Any]],
+    detalhe: Iterable[dict[str, Any]],
     hoje: date,
     quando: str,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Os quatro cartões, por vendedor e consolidado.
 
     Os quatro escopos saem do **mesmo** retorno diário (:func:`sql_detalhe_recente`),
@@ -323,9 +324,9 @@ def linhas_kpi(
     linhas = list(detalhe)
     vendedores = {TOTAL} | {(r.get('VENDEDOR') or '?').strip() for r in linhas}
 
-    saida: List[Dict[str, Any]] = []
+    saida: list[dict[str, Any]] = []
     for escopo, (de, ate, competencia) in janelas(hoje).items():
-        acumulado: Dict[str, Dict[str, float]] = {
+        acumulado: dict[str, dict[str, float]] = {
             v: {'valor': 0.0, 'qtd': 0} for v in vendedores
         }
         for r in linhas:
@@ -352,11 +353,11 @@ def linhas_kpi(
 
 
 def linhas_ranking(
-    detalhe: Iterable[Dict[str, Any]],
+    detalhe: Iterable[dict[str, Any]],
     hoje: date,
     quando: str,
     top_clientes: int = TOP_CLIENTES,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Ranking de vendedores, de clientes e de UFs, **um conjunto por escopo**.
 
     ⚠️ ``tipo='uf'`` exige o CHECK ampliado em ``bi_vendas_ranking``
@@ -378,18 +379,18 @@ def linhas_ranking(
       alcance dele — é o número dos colegas.
     """
     linhas = list(detalhe)
-    saida: List[Dict[str, Any]] = []
+    saida: list[dict[str, Any]] = []
 
     for escopo, (de, ate, competencia) in janelas(hoje).items():
         do_periodo = [r for r in linhas if _no_intervalo(str(r.get('DIA') or ''), de, ate)]
 
-        por_vendedor: Dict[str, float] = {}
+        por_vendedor: dict[str, float] = {}
         # (escopo_visibilidade, cardcode) → {nome, valor}
-        por_cliente: Dict[tuple, Dict[str, Any]] = {}
+        por_cliente: dict[tuple, dict[str, Any]] = {}
         # UF → valor, sobre TODOS os clientes do período (não o top 20): é o
         # agregado que a tabela "Clientes por UF" do web precisa para o
         # subtotal por estado ser o número inteiro, não o do recorte.
-        por_uf: Dict[str, float] = {}
+        por_uf: dict[str, float] = {}
         for r in do_periodo:
             vendedor = (r.get('VENDEDOR') or '?').strip()
             valor = _num(r.get('VALOR'))
@@ -456,7 +457,7 @@ def _linha_ranking(
     posicao: int,
     competencia: date,
     quando: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Uma linha de ranking. ``visibilidade`` é quem alcança, não quem vendeu."""
     return {
         'escopo': escopo,
@@ -474,7 +475,7 @@ def _linha_ranking(
 # ------------------------------------------------------------------ pipeline
 
 
-def _consultar(ex: SAPExtractor, sql: str, rotulo: str) -> List[Dict[str, Any]]:
+def _consultar(ex: SAPExtractor, sql: str, rotulo: str) -> list[dict[str, Any]]:
     """Roda a consulta e devolve dicionários. Falha vira lista vazia + log."""
     df = ex.execute_query(sql)
     if df is None:
@@ -484,7 +485,7 @@ def _consultar(ex: SAPExtractor, sql: str, rotulo: str) -> List[Dict[str, Any]]:
     return df.to_dict('records')
 
 
-def montar_payload(ex: SAPExtractor, schema: str, hoje: date) -> Dict[str, List[Dict[str, Any]]]:
+def montar_payload(ex: SAPExtractor, schema: str, hoje: date) -> dict[str, list[dict[str, Any]]]:
     """Consulta o HANA e devolve as linhas prontas das três tabelas."""
     quando = agora_iso()
     desde = ano_inicial(hoje)
@@ -515,7 +516,7 @@ ROTINA_NOME = 'VENDAS_BI'
 ROTINA_ROTULO = 'Agregados do dashboard Vendas'
 
 
-def main(hoje: Optional[date] = None) -> bool:
+def main(hoje: date | None = None) -> bool:
     """Carga completa dos agregados de Vendas. `True` se tudo entrou.
 
     Envelope de :func:`_carga` que cronometra a execução e **registra o desfecho**
@@ -524,7 +525,7 @@ def main(hoje: Optional[date] = None) -> bool:
     lido por ninguém, e uma falha parcial durou 20 horas sem acender nada.
     """
     inicio = datetime.now().astimezone()
-    falhas: List[str] = []
+    falhas: list[str] = []
     # O loader nasce AQUI, fora do `try`, e não lá dentro: uma consulta que
     # estoura no meio do HANA levaria junto o único objeto capaz de gravar o
     # desfecho, e a falha mais provável de todas terminaria — de novo — calada.
@@ -542,10 +543,10 @@ def main(hoje: Optional[date] = None) -> bool:
 
 
 def _registrar_execucao(
-    loader: Optional[SupabaseLoader],
+    loader: SupabaseLoader | None,
     inicio: datetime,
     ok: bool,
-    falhas: List[str],
+    falhas: list[str],
 ) -> None:
     """Grava o desfecho, se houver com quem gravar. Nunca atrapalha a carga."""
     if loader is None:
@@ -560,7 +561,7 @@ def _registrar_execucao(
     )
 
 
-def _preparar(falhas: List[str]) -> Optional[SupabaseLoader]:
+def _preparar(falhas: list[str]) -> SupabaseLoader | None:
     """Confere as credenciais e devolve com quem gravar. `None` = nem começa.
 
     Sem chave do Supabase não há carga **nem** registro: o desfecho de "faltou
@@ -578,7 +579,7 @@ def _preparar(falhas: List[str]) -> Optional[SupabaseLoader]:
     return SupabaseLoader(s.supabase_url, s.supabase_write_key)
 
 
-def _carga(loader: SupabaseLoader, hoje: Optional[date], falhas: List[str]) -> bool:
+def _carga(loader: SupabaseLoader, hoje: date | None, falhas: list[str]) -> bool:
     """A carga em si. Acrescenta a `falhas` o nome do que não entrou."""
     s = get_settings()
     hoje = hoje or date.today()

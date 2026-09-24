@@ -201,7 +201,7 @@ só se estava rodando). `requirements.txt` é a fonte de instalação — não m
 ```bash
 python -m pytest              # suíte completa (SIS + WBC; ~40 s, sem rede)
 python -m pytest tests/wbc    # só a suíte do WBC (--run-integration liga os de rede)
-python -m ruff check .        # lint (config no pyproject.toml; deve ficar em 0)
+python -m ruff check .        # lint (py314 + UP; deve ficar em 0). Sem ruff instalado: uvx ruff@0.15.20 check .
 python api.py                 # sobe a API local (porta 8077)
 python -m scripts.scheduled_execution   # agendador (loop; Ctrl+C p/ sair)
 python -m wbcpython --help    # CLI do WBC: env, doctor, check-sap, check-hana, pendentes, ciclo, worker, dashboard, pesos, datas-de-abertura, faxina, janela
@@ -210,3 +210,7 @@ python -m wbcpython dashboard # painel WBC (PAINEL_HOST/PAINEL_PORTA do .env)
 ```
 
 Tooling em `pyproject.toml` (pytest + ruff); dependências de dev em `requirements-dev.txt`.
+
+**Gate antes do commit:** `.githooks/pre-commit` roda `ruff check` e a suíte (~40 s) e barra
+o commit se algo falhar — é o único gate automático (não há CI). Clone novo:
+`git config core.hooksPath .githooks`. Não use `--no-verify`: conserte o que ele acusou.

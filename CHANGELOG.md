@@ -6,6 +6,27 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-24] — F2 do PLANO_DX_AGENTE: gate antes do commit e sintaxe do 3.14
+
+- **`.githooks/pre-commit`** (novo, versionado): `ruff check` + a suite inteira (~40 s) antes
+  de todo commit; qualquer falha barra. E' o unico gate automatico do repo (nao ha CI).
+  Ativado nesta maquina com `git config core.hooksPath .githooks`; clone novo precisa do
+  mesmo comando. Sem ruff no Python, o hook usa `uvx ruff@0.15.20` (nada instalado no Python).
+- **`pyproject.toml`**: `target-version = "py314"` (era `py311`, "dev = 3.12") e a regra
+  **`UP`** (pyupgrade). O `ruff --fix` modernizou 355 pontos em 21 arquivos, sem mudar
+  comportamento: `Optional[X]` → `X | None`, `List`/`Dict` → `list`/`dict`, `typing` →
+  `collections.abc`, `timezone.utc` → `datetime.UTC`, imports ordenados. Os
+  **arquivos-irmaos** de outro repo ficam FORA do `UP` (`per-file-ignores`):
+  `ordens_producao_sl`, `windows_update` (+ o teste dele), `situacao_pedidos`,
+  `sap_montagem_labels`, `pedidos_bloqueados`, `wake_altservidor_ia` (Python 3.8+).
+- Os 6 erros de lint que ja existiam (ninguem rodava o ruff: ele nem estava instalado)
+  foram corrigidos — 4 de ordem de import, 2 linhas longas em `maintenance/medir_porta_paletes.py`.
+  `ruff check .` = **0**.
+- `requirements-dev.txt`: `pytest==8.4.2` (a versao que de fato roda aqui).
+
+⚠️ Codigo de producao mudou (so anotacao de tipo e import): vale no proximo deploy, sem
+pressa — nenhum comportamento novo. Suite: **1833 passed**, 0 falhas.
+
 ## [2026-09-24] — F3 do PLANO_DX_AGENTE: limpeza
 
 Nada do que roda muda de comportamento; o que saiu nao tinha nenhuma referencia.

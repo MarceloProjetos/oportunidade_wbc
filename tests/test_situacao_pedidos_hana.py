@@ -22,7 +22,7 @@ from situacao_pedidos import ValidationError
 
 
 class _Cursor:
-    def __init__(self, conexao: "_ConexaoFalsa") -> None:
+    def __init__(self, conexao: _ConexaoFalsa) -> None:
         self._c = conexao
         self.description: list[tuple] | None = None
         self._linhas: list[tuple] = []

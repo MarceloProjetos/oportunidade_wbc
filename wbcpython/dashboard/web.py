@@ -43,9 +43,8 @@ from urllib.parse import quote
 from wbcpython import logs
 from wbcpython.config import Settings, get_settings
 from wbcpython.dashboard import comandos as cmd
-from wbcpython.dashboard import dados
+from wbcpython.dashboard import dados, usuarios
 from wbcpython.dashboard import previsao as prev
-from wbcpython.dashboard import usuarios
 from wbcpython.dashboard.dados import (
     calcular_kpis,
     linha_para_tabela,

@@ -74,14 +74,20 @@ def main() -> int:
     lidas = [(l, quantidade_no_texto(l.ORCTXT)) for l in porta]
     com_numero = [(l, q) for l, q in lidas if q]
     sem_numero = [l for l, q in lidas if not q]
-    fora = [l for l in linhas if not eh_porta_paletes(l.ORCTXT) and quantidade_no_texto(l.ORCTXT) is None and "modulo" in _norm(l.ORCTXT)]
+    fora = [
+        l for l in linhas
+        if not eh_porta_paletes(l.ORCTXT)
+        and quantidade_no_texto(l.ORCTXT) is None
+        and "modulo" in _norm(l.ORCTXT)
+    ]
     grupos_porta = Counter(str(l.GRPCOD) for l in porta)
     dist = Counter(q for _, q in com_numero)
 
     print(f"Linhas em INTEGRACAO_ORCIMP ............ {total:>7}")
     print(f"  com ORCPRDQTD > 0 ..................... {com_qtd_no_wbc:>7}")
     print(f"Linhas de porta-paletes (pelo texto) .... {len(porta):>7}")
-    print(f"  com quantidade lida do texto .......... {len(com_numero):>7}  ({len(com_numero) / max(len(porta), 1):.1%})")
+    fracao = len(com_numero) / max(len(porta), 1)
+    print(f"  com quantidade lida do texto .......... {len(com_numero):>7}  ({fracao:.1%})")
     print(f"  sem número (ficam em 1, com aviso) .... {len(sem_numero):>7}")
     print(f"Linhas com 'Módulo' que NÃO são porta-paletes (ficam em 1, sem aviso): {len(fora)}")
     print(f"GRPCOD das linhas de porta-paletes: {dict(grupos_porta.most_common())}")

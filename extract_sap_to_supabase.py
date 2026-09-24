@@ -3,7 +3,7 @@
 import logging
 import sys
 import time
-from typing import Any, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -51,8 +51,8 @@ def get_sqlserver_connection(
     user: str,
     password: str,
     database: str,
-    driver: Optional[str] = None,
-) -> Optional[Any]:
+    driver: str | None = None,
+) -> Any | None:
     """Connect to SQL Server via pyodbc (tries ODBC 18 → 17 → legacy drivers)."""
     try:
         import pyodbc
@@ -90,7 +90,7 @@ def get_sqlserver_connection(
     return None
 
 
-def query_sqlserver_view(view_name: str, connection: Any) -> Optional[pd.DataFrame]:
+def query_sqlserver_view(view_name: str, connection: Any) -> pd.DataFrame | None:
     """Read every record of a SQL Server view/table into a DataFrame.
 
     Args:
@@ -114,7 +114,7 @@ def query_sqlserver_view(view_name: str, connection: Any) -> Optional[pd.DataFra
         return None
 
 
-def extract_sap_to_dataframe(view_name: Optional[str] = None) -> Optional[pd.DataFrame]:
+def extract_sap_to_dataframe(view_name: str | None = None) -> pd.DataFrame | None:
     """Extract a SAP view into a DataFrame, limited to the last N months.
 
     The filter is applied in the query itself (``WHERE``) over ``FILTRO_COLUNA_DATA``,
@@ -162,8 +162,8 @@ def extract_sap_to_dataframe(view_name: Optional[str] = None) -> Optional[pd.Dat
 
 
 def extract_sqlserver_view(
-    view_name: Optional[str] = None,
-) -> Optional[pd.DataFrame]:
+    view_name: str | None = None,
+) -> pd.DataFrame | None:
     """Fetch enrichment view from SQL Server (default from SQL_ENRICHMENT_VIEW env)."""
     if view_name is None:
         view_name = get_settings().sql_enrichment_view
@@ -194,7 +194,7 @@ def extract_sqlserver_view(
     return df
 
 
-def _sitcod_as_int(value: Any) -> Optional[int]:
+def _sitcod_as_int(value: Any) -> int | None:
     """Normalize SITCOD cell to int or None."""
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return None
@@ -250,9 +250,9 @@ def validate_sitcod_fk(
 
 
 def main(
-    view_name: Optional[str] = None,
+    view_name: str | None = None,
     execution_mode: str = 'snapshot',
-    execution_id: Optional[str] = None,
+    execution_id: str | None = None,
 ) -> bool:
     """Orchestrate the full pipeline: extract from SAP, enrich and load into Supabase.
 
@@ -296,7 +296,7 @@ def main(
     sync_log_table = settings.sync_log_table_name
     qtd_registros = 0
     resultado = False
-    loader: Optional[SupabaseLoader] = None  # reused in the finally to write the log
+    loader: SupabaseLoader | None = None  # reused in the finally to write the log
 
     try:
         # 1. Extract data from SAP

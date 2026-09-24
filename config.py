@@ -6,7 +6,6 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -165,7 +164,7 @@ def parse_janela_horas(expr: str) -> tuple[int, int]:
     return h_start, h_end
 
 
-def _env(*keys: str) -> Optional[str]:
+def _env(*keys: str) -> str | None:
     """Return first non-empty env value among keys."""
     for key in keys:
         value = os.getenv(key)
@@ -220,7 +219,7 @@ def _env_int(key: str, default: int) -> int:
         return default
 
 
-def parse_status_permitidos(bruto: Optional[str]) -> tuple[str, ...]:
+def parse_status_permitidos(bruto: str | None) -> tuple[str, ...]:
     """Parse ``OP_STATUS_PERMITIDOS`` into a tuple of canonical SAP status codes.
 
     Anything that is not one of :data:`OP_STATUS_CODES` is DROPPED — this tuple is what
@@ -246,28 +245,28 @@ def parse_status_permitidos(bruto: Optional[str]) -> tuple[str, ...]:
 class Settings:
     """Environment snapshot for the ETL pipeline."""
 
-    sap_host: Optional[str]
+    sap_host: str | None
     sap_port: int
-    sap_user: Optional[str]
-    sap_password: Optional[str]
-    sap_database: Optional[str]
-    sap_schema: Optional[str]
-    sap_view_name: Optional[str]
+    sap_user: str | None
+    sap_password: str | None
+    sap_database: str | None
+    sap_schema: str | None
+    sap_view_name: str | None
 
-    supabase_url: Optional[str]
-    supabase_key: Optional[str]
-    supabase_service_role_key: Optional[str]
+    supabase_url: str | None
+    supabase_key: str | None
+    supabase_service_role_key: str | None
     table_name: str
     supabase_timeout_s: float
     sync_log_table_name: str
     sitcod_domain_table: str
 
-    sql_host: Optional[str]
+    sql_host: str | None
     sql_port: int
-    sql_user: Optional[str]
-    sql_password: Optional[str]
+    sql_user: str | None
+    sql_password: str | None
     sql_database: str
-    sql_driver: Optional[str]
+    sql_driver: str | None
     sql_enrichment_view: str
 
     # Ordens de Serviço (consolidated view VW_OS_INTEGRACAO)
@@ -277,12 +276,12 @@ class Settings:
     os_sync_log_table: str
     os_execution_mode: str
     os_insert_batch_size: int
-    os_api_key: Optional[str]
+    os_api_key: str | None
     #: Credencial de BAIXO PRIVILÉGIO que abre **só** o ``/status`` completo — a que vai
     #: para a outra equipe e para o OrçaView. Não é aceita por ``_autorizado()``: em
     #: qualquer outra rota ela é 401. Existe separada da ``os_api_key`` para que ler o
     #: diagnóstico não exija a chave que também escreve no SAP e abre o painel WBC.
-    status_id: Optional[str]
+    status_id: str | None
     os_api_host: str
     os_api_port: int
 
@@ -291,8 +290,8 @@ class Settings:
     op_sl_server: str
     op_sl_port: int
     op_sl_company_db: str
-    op_sl_username: Optional[str]
-    op_sl_password: Optional[str]
+    op_sl_username: str | None
+    op_sl_password: str | None
     op_sl_verify_ssl: bool
     op_sl_timeout_connect_s: float
     op_sl_timeout_read_s: float
@@ -314,7 +313,7 @@ class Settings:
     wbc_worker_horario_fim: str     # WORKER_HORARIO_FIM ('HH:MM'; before inicio = crosses midnight)
     wbc_worker_dias: str            # WORKER_DIAS_DE_TRABALHO ('1,2,3,4,5', ISO weekdays)
     wbc_painel_porta: int           # PAINEL_PORTA (FastAPI painel)
-    wbc_painel_url: Optional[str]   # WBC_PAINEL_URL — overrides host:PAINEL_PORTA
+    wbc_painel_url: str | None   # WBC_PAINEL_URL — overrides host:PAINEL_PORTA
 
     # Windows Update (expensive collection, in the background — see windows_update.py)
     wu_enabled: bool           # WU_ENABLED — turns the collection thread off
@@ -418,7 +417,7 @@ class Settings:
         )
 
     @property
-    def supabase_write_key(self) -> Optional[str]:
+    def supabase_write_key(self) -> str | None:
         return self.supabase_service_role_key or self.supabase_key
 
     def sap_ready(self) -> bool:
@@ -456,7 +455,7 @@ class Settings:
         )
 
 
-_settings: Optional[Settings] = None
+_settings: Settings | None = None
 
 
 def get_settings() -> Settings:

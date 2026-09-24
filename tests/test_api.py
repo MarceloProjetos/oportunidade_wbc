@@ -4,6 +4,8 @@ import pytest
 
 pytest.importorskip('flask')  # pula o módulo se flask não estiver instalado
 
+from datetime import UTC
+
 import api as apimod  # noqa: E402
 from config import get_settings, reset_settings  # noqa: E402
 
@@ -1285,11 +1287,11 @@ def test_colaboradores_pagina_a_leitura(monkeypatch):
 def test_colaboradores_frescor_respeita_dia_util(client, monkeypatch):
     """Segunda de manha com carga de sexta NAO e' atraso: a carga so roda em dia
     util as 12:40. Atraso e' ter perdido o ultimo slot que ja passou."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     # Segunda-feira, 09:00.
     monkeypatch.setattr(apimod.sit_ped, 'now_br',
-                        lambda: datetime(2026, 8, 31, 9, 0, tzinfo=timezone.utc))
+                        lambda: datetime(2026, 8, 31, 9, 0, tzinfo=UTC))
 
     sexta = apimod._colab_frescor('2026-08-28T15:40:00+00:00')   # carga de sexta
     assert sexta['desatualizado'] is False

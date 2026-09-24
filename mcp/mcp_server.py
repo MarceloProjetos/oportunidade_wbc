@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 import os
 import unicodedata
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -78,11 +78,11 @@ _DICA_ROTA_INEXISTENTE = (
 )
 
 
-def _headers() -> Dict[str, str]:
+def _headers() -> dict[str, str]:
     return {"X-API-Key": API_KEY} if API_KEY else {}
 
 
-def _tratar_resposta(path: str, resp: httpx.Response) -> Dict[str, Any]:
+def _tratar_resposta(path: str, resp: httpx.Response) -> dict[str, Any]:
     """Traduz uma resposta HTTP da API num dict que o modelo consegue ler.
 
     Nunca estoura exceção. Em erro, prefere o JSON estruturado da própria API (ex.: 404
@@ -110,7 +110,7 @@ def _tratar_resposta(path: str, resp: httpx.Response) -> Dict[str, Any]:
         return {"ok": False, "erro": f"resposta não-JSON de {path}", "corpo": resp.text[:300]}
 
 
-def _get(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def _get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     """GET num endpoint da API, injetando a X-API-Key server-side.
 
     Devolve o JSON decodificado. Em qualquer falha (rede, HTTP != 2xx, corpo não
@@ -129,7 +129,7 @@ def _get(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     return _tratar_resposta(path, resp)
 
 
-def _post(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def _post(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     """POST num endpoint da API (ESCRITA), injetando a X-API-Key server-side.
 
     Mesmo tratamento de erro do ``_get`` (``_tratar_resposta``).
@@ -143,7 +143,7 @@ def _post(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 
 
 @mcp.tool()
-def verificar_saude(checks: str = "", strict: bool = False) -> Dict[str, Any]:
+def verificar_saude(checks: str = "", strict: bool = False) -> dict[str, Any]:
     """Diagnóstico de saúde do servidor de integração SAP/WBC (endpoint /status).
 
     Retorna conexões (SAP HANA, SQL Server/WBC, Supabase, com latência), o sinal do
@@ -161,7 +161,7 @@ def verificar_saude(checks: str = "", strict: bool = False) -> Dict[str, Any]:
         checks: subconjunto opcional de checagens (ex.: "sap,sql,tarefa"). Vazio = todas.
         strict: se True, o /status devolve 503 quando degradado (a tool ainda mostra o corpo).
     """
-    params: Dict[str, Any] = {}
+    params: dict[str, Any] = {}
     if checks:
         params["checks"] = checks
     if strict:
@@ -170,7 +170,7 @@ def verificar_saude(checks: str = "", strict: bool = False) -> Dict[str, Any]:
 
 
 @mcp.tool()
-def listar_sincronizacoes_os(limit: int = 20) -> Dict[str, Any]:
+def listar_sincronizacoes_os(limit: int = 20) -> dict[str, Any]:
     """Últimas sincronizações de Ordens de Serviço (Engenharia) por NPED (endpoint /historico).
 
     Requer a SIS_API_KEY configurada no server MCP. Use para "teve algum sync de OS
@@ -183,7 +183,7 @@ def listar_sincronizacoes_os(limit: int = 20) -> Dict[str, Any]:
 
 
 @mcp.tool()
-def listar_sincronizacoes_oportunidades(limit: int = 20) -> Dict[str, Any]:
+def listar_sincronizacoes_oportunidades(limit: int = 20) -> dict[str, Any]:
     """Últimos sincronismos do pipeline de oportunidades (endpoint /oportunidades/historico).
 
     Requer a SIS_API_KEY. Use para inspecionar a carga agendada de oportunidades
@@ -196,7 +196,7 @@ def listar_sincronizacoes_oportunidades(limit: int = 20) -> Dict[str, Any]:
 
 
 @mcp.tool()
-def info_oportunidades() -> Dict[str, Any]:
+def info_oportunidades() -> dict[str, Any]:
     """Contexto do pipeline de oportunidades (endpoint /oportunidades/info): total de
     linhas na tabela + agenda (intervalo em minutos e janela comercial). Requer a SIS_API_KEY.
 
@@ -209,7 +209,7 @@ def info_oportunidades() -> Dict[str, Any]:
 
 
 @mcp.tool()
-def listar_pedidos_com_os(limit: int = 30) -> Dict[str, Any]:
+def listar_pedidos_com_os(limit: int = 30) -> dict[str, Any]:
     """Lista pedidos (NPED) que já têm Ordem de Serviço criada no SAP, com cliente e data
     (endpoint /ordens-servico/disponiveis). Requer a SIS_API_KEY. Use para descobrir quais
     pedidos podem ser sincronizados.
@@ -229,7 +229,7 @@ def listar_pedidos_com_os(limit: int = 30) -> Dict[str, Any]:
 # ─────────────────────────── Fase 1 — mais leituras ───────────────────────────
 
 @mcp.tool()
-def detalhe_pedido_os(nped: int, incluir_linhas: bool = False) -> Dict[str, Any]:
+def detalhe_pedido_os(nped: int, incluir_linhas: bool = False) -> dict[str, Any]:
     """Detalhe da OS de UM pedido: resumo com cliente, status (+ descrição), total, nº de
     linhas e de OPs, datas de entrega/liberação, observação do pedido, e quando foi
     sincronizado pela última vez. Requer a SIS_API_KEY.
@@ -259,7 +259,7 @@ def detalhe_pedido_os(nped: int, incluir_linhas: bool = False) -> Dict[str, Any]
 
 
 @mcp.tool()
-def estado_tarefa_wbc() -> Dict[str, Any]:
+def estado_tarefa_wbc() -> dict[str, Any]:
     """Estado da tarefa agendada LEGADA "Integração WBC" (bloco scheduled_task do /status).
 
     **Desde 2026-09-08 essa tarefa está desativada de propósito**: a integração WBC → SAP
@@ -279,7 +279,7 @@ def estado_tarefa_wbc() -> Dict[str, Any]:
 
 
 @mcp.tool()
-def estado_integracao_wbc() -> Dict[str, Any]:
+def estado_integracao_wbc() -> dict[str, Any]:
     """Estado do worker da Integração WBC → SAP (bloco ``wbc_worker`` do /status).
 
     O worker lê os orçamentos do WBC e cria/atualiza/cancela cotação e pedido no SAP a
@@ -302,7 +302,7 @@ def estado_integracao_wbc() -> Dict[str, Any]:
 
 
 @mcp.tool()
-def estado_windows_update() -> Dict[str, Any]:
+def estado_windows_update() -> dict[str, Any]:
     """Windows Update do servidor de integração (192.168.7.11): updates pendentes, último
     patch e reboot pendente.
 
@@ -338,7 +338,7 @@ def estado_windows_update() -> Dict[str, Any]:
 
 
 @mcp.tool()
-def ultimos_erros(limit: int = 10) -> Dict[str, Any]:
+def ultimos_erros(limit: int = 10) -> dict[str, Any]:
     """Só as sincronizações de OS que FALHARAM, dentre as últimas execuções (filtra o /historico).
     Requer a SIS_API_KEY. Use para "teve falha de sync hoje?" sem ler o histórico inteiro.
 
@@ -373,7 +373,7 @@ _ANOTACAO_LEITURA = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
 
 
 @mcp.tool(annotations=_ANOTACAO_LEITURA)
-def situacao_pedido(pedido: int, chave: str = "docnum") -> Dict[str, Any]:
+def situacao_pedido(pedido: int, chave: str = "docnum") -> dict[str, Any]:
     """Situação de UM pedido no SAP: liberado ou bloqueado em Financeiro, Produção e
     Entrega, com prazo de entrega, sinal, condição de pagamento, montador, vendedor,
     valor e cotação WBC. Requer a SIS_API_KEY.
@@ -417,7 +417,7 @@ def situacao_pedido(pedido: int, chave: str = "docnum") -> Dict[str, Any]:
 
 
 @mcp.tool(annotations=_ANOTACAO_LEITURA)
-def pedidos_bloqueados(bloqueio: str = "qualquer", status: str = "aberto") -> Dict[str, Any]:
+def pedidos_bloqueados(bloqueio: str = "qualquer", status: str = "aberto") -> dict[str, Any]:
     """Pedidos TRAVADOS no SAP: os que estão bloqueados em Financeiro, Produção ou
     Entrega. Requer a SIS_API_KEY.
 
@@ -463,11 +463,11 @@ _PANORAMA_CAMPOS_RESUMO = (
 _BLOQUEADO = "bloqueado"
 
 
-def _panorama_bloqueios(p: Dict[str, Any]) -> int:
+def _panorama_bloqueios(p: dict[str, Any]) -> int:
     return sum(1 for e in ("financeiro", "producao", "entrega") if _norm(p.get(e)) == _BLOQUEADO)
 
 
-def _panorama_ordenar(pedidos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _panorama_ordenar(pedidos: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Quem importa primeiro: atrasados, depois quem tem mais etapas bloqueadas, depois
     o pedido mais antigo. Estável — empate mantém a ordem da API."""
     return sorted(pedidos, key=lambda p: (not bool(p.get("atrasado")),
@@ -475,8 +475,8 @@ def _panorama_ordenar(pedidos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                                           str(p.get("data_pedido") or "")))
 
 
-def _panorama_filtrar(pedidos: List[Dict[str, Any]], montador: str, vendedor: str,
-                      so_atrasados: bool) -> List[Dict[str, Any]]:
+def _panorama_filtrar(pedidos: list[dict[str, Any]], montador: str, vendedor: str,
+                      so_atrasados: bool) -> list[dict[str, Any]]:
     """Filtros de conversa (substring, sem acento nem caixa) sobre os campos do completo."""
     m, v = _norm(montador), _norm(vendedor)
     saida = []
@@ -491,7 +491,7 @@ def _panorama_filtrar(pedidos: List[Dict[str, Any]], montador: str, vendedor: st
     return saida
 
 
-def _endereco_resumido(p: Dict[str, Any]) -> Dict[str, Any]:
+def _endereco_resumido(p: dict[str, Any]) -> dict[str, Any]:
     """Os 3 campos de entrega do perfil ``resumo``, venha o pedido de qual perfil vier.
 
     A API entrega o endereço em duas formas: o ``resumo`` já traz ``entrega_linha`` /
@@ -509,7 +509,7 @@ def _endereco_resumido(p: Dict[str, Any]) -> Dict[str, Any]:
             "entrega_difere": bool(e.get("difere_do_ponto_de_entrega"))}
 
 
-def _panorama_projetar(pedidos: List[Dict[str, Any]], extras: tuple) -> List[Dict[str, Any]]:
+def _panorama_projetar(pedidos: list[dict[str, Any]], extras: tuple) -> list[dict[str, Any]]:
     """Reduz cada pedido do completo às colunas do resumo (+ os campos filtrados).
 
     O endereço vem por :func:`_endereco_resumido`, e não pela lista de chaves: no
@@ -523,7 +523,7 @@ def _panorama_projetar(pedidos: List[Dict[str, Any]], extras: tuple) -> List[Dic
 @mcp.tool(annotations=_ANOTACAO_LEITURA)
 def panorama_pedidos(campos: str = "resumo", limite: int = _PANORAMA_LIMITE_PADRAO,
                      montador: str = "", vendedor: str = "",
-                     so_atrasados: bool = False) -> Dict[str, Any]:
+                     so_atrasados: bool = False) -> dict[str, Any]:
     """Panorama da carteira: os 5 indicadores + a lista de montadores do recorte inteiro,
     mais os pedidos que importam primeiro (atrasados, depois os com mais etapas
     bloqueadas, depois os mais antigos), até um teto. Requer a SIS_API_KEY.
@@ -606,7 +606,7 @@ def panorama_pedidos(campos: str = "resumo", limite: int = _PANORAMA_LIMITE_PADR
 _COLAB_LIMITE_PADRAO = 200
 
 
-def _colab_dica_404(resposta: Dict[str, Any]) -> Dict[str, Any]:
+def _colab_dica_404(resposta: dict[str, Any]) -> dict[str, Any]:
     """Traduz o 404 de rota inexistente: a .11 ainda não foi atualizada.
 
     Sem isto o modelo recebe "HTTP 404 em /rh/colaboradores" e conclui que não há
@@ -621,7 +621,7 @@ def _colab_dica_404(resposta: Dict[str, Any]) -> Dict[str, Any]:
     return resposta
 
 
-def _colab_setores(payload: Dict[str, Any]) -> List[str]:
+def _colab_setores(payload: dict[str, Any]) -> list[str]:
     """Todos os setores presentes na resposta, ordenados."""
     return sorted({
         s.get("setor") for e in payload.get("empresas", [])
@@ -629,7 +629,7 @@ def _colab_setores(payload: Dict[str, Any]) -> List[str]:
     })
 
 
-def _colab_filtrar_setor(payload: Dict[str, Any], setor: str) -> Dict[str, Any]:
+def _colab_filtrar_setor(payload: dict[str, Any], setor: str) -> dict[str, Any]:
     """Mantém só os setores cujo nome CONTÉM ``setor`` (sem acento, sem caixa)."""
     alvo = _norm(setor)
     empresas = []
@@ -649,9 +649,9 @@ def _colab_filtrar_setor(payload: Dict[str, Any], setor: str) -> Dict[str, Any]:
     }
 
 
-def _colab_buscar(empresa: str, somente_ativos: bool) -> Dict[str, Any]:
+def _colab_buscar(empresa: str, somente_ativos: bool) -> dict[str, Any]:
     """A única chamada HTTP das duas tools (e do resource) de colaboradores."""
-    params: Dict[str, Any] = {}
+    params: dict[str, Any] = {}
     if str(empresa).strip():
         params["empresa"] = str(empresa).strip().lower()
     if somente_ativos:
@@ -659,7 +659,7 @@ def _colab_buscar(empresa: str, somente_ativos: bool) -> Dict[str, Any]:
     return _colab_dica_404(_get("/rh/colaboradores", params or None))
 
 
-def _colab_resumir(resposta: Dict[str, Any]) -> Dict[str, Any]:
+def _colab_resumir(resposta: dict[str, Any]) -> dict[str, Any]:
     """Troca as listas de pessoas por ``{setor: quantidade}``."""
     if not resposta.get("ok", False):
         return resposta
@@ -676,7 +676,7 @@ def _colab_resumir(resposta: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _colab_aplicar_teto(payload: Dict[str, Any], limite: int) -> Dict[str, Any]:
+def _colab_aplicar_teto(payload: dict[str, Any], limite: int) -> dict[str, Any]:
     """Corta a lista de PESSOAS no teto — dizendo que cortou e como ver o resto.
 
     As contagens (``total`` de cada empresa/setor) ficam intactas: o modelo continua
@@ -705,7 +705,7 @@ def _colab_aplicar_teto(payload: Dict[str, Any], limite: int) -> Dict[str, Any]:
 
 @mcp.tool(annotations=_ANOTACAO_LEITURA)
 def listar_colaboradores(empresa: str = "", setor: str = "", somente_ativos: bool = True,
-                         limite: int = _COLAB_LIMITE_PADRAO) -> Dict[str, Any]:
+                         limite: int = _COLAB_LIMITE_PADRAO) -> dict[str, Any]:
     """Quem trabalha nas 3 empresas (Altamira, Tecnequip, Proalta), agrupado por
     empresa e setor, com cargo, matrícula e situação. Requer a SIS_API_KEY.
 
@@ -758,7 +758,7 @@ def listar_colaboradores(empresa: str = "", setor: str = "", somente_ativos: boo
 
 
 @mcp.tool(annotations=_ANOTACAO_LEITURA)
-def resumo_colaboradores(empresa: str = "", somente_ativos: bool = True) -> Dict[str, Any]:
+def resumo_colaboradores(empresa: str = "", somente_ativos: bool = True) -> dict[str, Any]:
     """Quantas pessoas por empresa e por setor — o mesmo quadro do Kairos, só em
     contagens, sem os nomes. Requer a SIS_API_KEY.
 
@@ -815,7 +815,7 @@ _INSTRUCAO_CONFIRMAR = ("Mostre este preview ao usuário e só chame esta tool d
 
 
 @mcp.tool(annotations=_ANOTACAO_ESCRITA)
-def sincronizar_pedido_os(nped: int, confirmar: bool = False) -> Dict[str, Any]:
+def sincronizar_pedido_os(nped: int, confirmar: bool = False) -> dict[str, Any]:
     """ESCRITA: sincroniza (SAP → Supabase) a OS de um pedido. Idempotente (replace_nped).
 
     **Requer confirmação humana.** Com ``confirmar=False`` (default) NÃO sincroniza — devolve um
@@ -845,7 +845,7 @@ def sincronizar_pedido_os(nped: int, confirmar: bool = False) -> Dict[str, Any]:
 
 
 @mcp.tool(annotations=_ANOTACAO_ESCRITA)
-def forcar_carga_oportunidades(confirmar: bool = False) -> Dict[str, Any]:
+def forcar_carga_oportunidades(confirmar: bool = False) -> dict[str, Any]:
     """ESCRITA: força a carga COMPLETA de oportunidades (a mesma do agendador). Operação pesada.
 
     **Requer confirmação humana.** Com ``confirmar=False`` (default) devolve um preview (total atual

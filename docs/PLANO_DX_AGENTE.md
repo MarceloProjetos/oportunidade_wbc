@@ -1,7 +1,9 @@
 # Plano — DX do agente no ServidorIntegracaoSAP
 
-> **Status (24/09/2026): F0, F1 e F3 concluídas.** O Marcelo liberou F0–F3 seguindo as
-> recomendações (§5), com commit por fase. F2 em andamento; F4–F5 não autorizadas ainda.
+> **Status (24/09/2026): F0–F3 concluídas** (commit por fase, tudo no `origin/master`).
+> Nada exige restart; o próximo `deploy_update.bat` leva junto (roda o `pip` — nada novo).
+> F4–F5 não autorizadas ainda. Pendem com o Marcelo: copiar o `settings.json` proposto,
+> apagar `exports/`/logs de junho (D6) e conferir o A7 (`hdbcli`) na `.11`.
 
 Objetivo: deixar o repo mais barato de entender e de mudar para um agente — sem mexer no
 que roda em produção na `.11` além do necessário.
@@ -85,8 +87,14 @@ cosmético.
 - README (badge 3.12, árvore sem ~15 arquivos), `deploy_update.bat:112`,
   `install_wol_task.ps1:106` (fallback Python312), `run_wbc_painel.bat:4`.
 
-### F2 — Gate automático · sem restart · **dele** (instalar) + agente (config)
+### F2 — Gate automático · sem restart · agente — ✅ concluída 24/09
 *Goal: ruff e pytest rodam antes de todo commit, sem depender de lembrar.*
+
+> Sem instalar nada no Python: o ruff roda por `uvx ruff@0.15.20` (o hook tenta `python -m ruff`
+> primeiro). `ruff --fix` com `UP` modernizou **355 pontos em 21 arquivos**, e zerou os 6 erros
+> que já existiam. ⚠️ **O que mordeu:** o `tests/test_windows_update.py` também é irmão do
+> SAP_RDP — o `UP` o reescreveu e foi revertido e excluído. O hook leva **~40 s**, não os 6 s
+> estimados (5 s era só a coleta).
 
 - `pip install -r requirements-dev.txt` no desktop (ruff ausente; pytest 8.4.2 × pin 8.3.5 → alinhar o pin).
 - `pyproject.toml`: `target-version = "py314"`, adicionar `"UP"` com `per-file-ignores`

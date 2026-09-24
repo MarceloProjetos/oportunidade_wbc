@@ -11,7 +11,7 @@ markers = [
 
 [tool.ruff]
 line-length = 120
-target-version = "py311"  # piso conservador (dev = 3.12; não usar sintaxe além de 3.11)
+target-version = "py314"  # o Python da .11 e do desktop desde 14/09/2026
 
 [tool.ruff.lint]
 select = [
@@ -19,6 +19,7 @@ select = [
     "W",  # pycodestyle (avisos)
     "F",  # pyflakes (import morto, nome indefinido, etc.)
     "I",  # isort (ordenação de imports)
+    "UP",  # pyupgrade: sintaxe do target-version (Optional → X | None, typing → collections.abc, …)
 ]
 ignore = [
     "E741",  # `l` em comprehensions existentes — renomear é refactor, não lint
@@ -28,3 +29,13 @@ ignore = [
 # Fixtures SQL do repositório do WBC: INSERTs com as ~40 colunas reais de INTEGRACAO_ORCIMP
 # numa linha só, de propósito (quebrar a lista de colunas esconde qual falta).
 "tests/wbc/infrastructure/test_wbc_repository.py" = ["E501"]
+# Arquivos-IRMÃOS de outro repo (CLAUDE.md, "Convenções"): modernizar só de um lado quebraria
+# o diff com o gêmeo (há teste para situacao_pedidos e sap_montagem_labels). O wake_altservidor_ia
+# é byte-idêntico ao do web e roda em Python 3.8+.
+"ordens_producao_sl.py" = ["UP"]
+"windows_update.py" = ["UP"]
+"tests/test_windows_update.py" = ["UP"]
+"situacao_pedidos.py" = ["UP"]
+"sap_montagem_labels.py" = ["UP"]
+"pedidos_bloqueados.py" = ["UP"]
+"wake_altservidor_ia.py" = ["UP"]

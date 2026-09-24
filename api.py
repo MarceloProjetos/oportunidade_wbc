@@ -65,7 +65,7 @@ import threading
 import time
 from functools import wraps
 from logging.handlers import TimedRotatingFileHandler
-from typing import Any, List, Optional, Tuple
+from typing import Any
 
 from flask import Flask, Response, jsonify, redirect, request, send_from_directory
 
@@ -166,7 +166,7 @@ class _RateLimiter:
         self._hits: dict = {}
         self._lock = threading.Lock()
 
-    def check(self, bucket: str, limite: int, janela_s: float) -> Tuple[bool, float]:
+    def check(self, bucket: str, limite: int, janela_s: float) -> tuple[bool, float]:
         """Record a hit; returns ``(allowed, seconds_until_release)``."""
         agora = time.monotonic()
         corte = agora - janela_s
@@ -209,7 +209,7 @@ _supabase_client = None
 
 #: Cache da lista de perfis ativos: ``(momento, nomes)``. A lista muda em meses;
 #: o painel a pede a cada repintura do cartao. Ver ``usuarios_ativos``.
-_usuarios_cache: Optional[Tuple[float, List[str]]] = None
+_usuarios_cache: tuple[float, list[str]] | None = None
 USUARIOS_CACHE_S = 600
 
 
@@ -226,7 +226,7 @@ def _supabase():
     return _supabase_client
 
 
-def _fetch_log(table: str, limit: int) -> List[dict]:
+def _fetch_log(table: str, limit: int) -> list[dict]:
     """The last ``limit`` syncs (newest first) from table ``table``."""
     res = (
         _supabase().table(table)
@@ -242,7 +242,7 @@ def _clear_log(table: str) -> int:
     return len(res.data or [])
 
 
-def _count_rows(table: str) -> Optional[int]:
+def _count_rows(table: str) -> int | None:
     """Total rows in table ``table`` (via PostgREST's exact count)."""
     res = _supabase().table(table).select('id', count='exact').limit(1).execute()
     return res.count
@@ -298,7 +298,7 @@ def _flag_query(nome: str) -> bool:
     return request.args.get(nome) in ('1', 'true', 'yes')
 
 
-def _resumo_processos(linhas: List[dict]) -> dict:
+def _resumo_processos(linhas: list[dict]) -> dict:
     """Aggregate the process flags: ``{process: {'tem': bool, 'linhas': int}}``.
 
     The flags are PER ITEM — a pedido normally has mixed items (some go to welding, some
@@ -312,7 +312,7 @@ def _resumo_processos(linhas: List[dict]) -> dict:
     return processos
 
 
-def _fetch_os_detalhe(nped: int, incluir_adicionais: bool = False) -> List[dict]:
+def _fetch_os_detalhe(nped: int, incluir_adicionais: bool = False) -> list[dict]:
     """Rows (lean columns) of an N_PED's OS, ordered by id. Empty if there is no OS.
 
     ``incluir_adicionais`` adds ``U_INO_D_Adicionais`` (see ``_OS_COL_ADICIONAIS``) to the
@@ -328,7 +328,7 @@ def _fetch_os_detalhe(nped: int, incluir_adicionais: bool = False) -> List[dict]
     return res.data or []
 
 
-def _soma_total_orcamento(linhas: List[dict]) -> Optional[float]:
+def _soma_total_orcamento(linhas: list[dict]) -> float | None:
     """Sum the rows' ``TotalOrcam`` (goods value, taxes excluded).
 
     ``TotalOrcam`` is PER ROW in the view (350 distinct values on a real pedido), not a
@@ -350,7 +350,7 @@ def _soma_total_orcamento(linhas: List[dict]) -> Optional[float]:
     return round(total, 2) if achou else None
 
 
-def _resumo_os(linhas: List[dict]) -> dict:
+def _resumo_os(linhas: list[dict]) -> dict:
     """Summary of the pedido from rows already read (no extra query).
 
     The VW_OS_INTEGRACAO view is denormalized per item: the HEADER fields (customer,
@@ -392,7 +392,7 @@ def _resumo_os(linhas: List[dict]) -> dict:
     }
 
 
-def _credencial_enviada() -> Optional[str]:
+def _credencial_enviada() -> str | None:
     """The credential that came with the request, or ``None``.
 
     Accepted in three places: the ``X-API-Key`` header, ``Authorization: Bearer <key>``,
@@ -415,7 +415,7 @@ def _credencial_enviada() -> Optional[str]:
     return enviado or None
 
 
-def _confere(enviado: Optional[str], esperado: Optional[str]) -> bool:
+def _confere(enviado: str | None, esperado: str | None) -> bool:
     """Constant-time comparison; ``False`` when either side is missing.
 
     ``compare_digest``: ``==`` short-circuits on the 1st differing byte, and the response
@@ -570,7 +570,7 @@ def _sync_one(nped: int) -> dict:
             'motivo': 'Nao foi possivel sincronizar.'}
 
 
-def _sincronizar(npeds: List[int]) -> Tuple[Any, int]:
+def _sincronizar(npeds: list[int]) -> tuple[Any, int]:
     """Sync the NPEDs (serialized) and return ``(json, http_status)``."""
     resultados = []
     with _sync_lock:
@@ -1097,7 +1097,7 @@ def _chave_docentry() -> bool:
     return (request.args.get('chave') or '').strip().lower() in ('docentry', 'entry', 'absentry')
 
 
-def _resposta_op_erro(exc: op_sl.OPError) -> Tuple[Any, int]:
+def _resposta_op_erro(exc: op_sl.OPError) -> tuple[Any, int]:
     """Turn a domain error into its HTTP answer.
 
     Each ``OPError`` subclass carries its own ``tipo``/``http``, so a new error type in the
@@ -1209,7 +1209,7 @@ def op_status(numero: str):
 # Contrato congelado em 2026-08-24: docs/PLANO_SITUACAO_PEDIDOS_MCP.md secao 5.
 
 
-def _resposta_situacao_erro(exc: Exception) -> Tuple[Any, int]:
+def _resposta_situacao_erro(exc: Exception) -> tuple[Any, int]:
     """Erro de dominio -> resposta HTTP. **503 e 422 nao se misturam.**
 
     ``SAPIndisponivel`` e' 503 (nao e' culpa de quem chamou, e vale tentar de novo);
@@ -1263,7 +1263,7 @@ def _resumir(pedidos: list) -> list:
     return resumidos
 
 
-def _situacao_recorte() -> Tuple[dict, list]:
+def _situacao_recorte() -> tuple[dict, list]:
     """Recorte inteiro da view: ``(dashboard, pedidos_com_alerta)``.
 
     Uma unica ida ao :func:`fetch_status_pedidos` alimenta os dois -- e ela mesma passa
@@ -1534,12 +1534,12 @@ _COLAB_TOLERANCIA_H = 2     # atraso aceitável (o agendador retenta 4x a cada 3
 _COLAB_SEM_SETOR = 'SEM SETOR'
 
 
-def _fetch_colaboradores(empresa: Optional[str] = None,
-                         somente_ativos: bool = False) -> List[dict]:
+def _fetch_colaboradores(empresa: str | None = None,
+                         somente_ativos: bool = False) -> list[dict]:
     """Rows of the roster mirror, paginated (the table only grows: rows are never
     deleted — who leaves becomes ``status='desligado'``/``'ausente'``)."""
     tabela = get_settings().colab_table_name
-    linhas: List[dict] = []
+    linhas: list[dict] = []
     for inicio in range(0, _COLAB_MAX_LINHAS, _COLAB_PAGINA):
         q = _supabase().table(tabela).select(_COLAB_COLS)
         if empresa:
@@ -1555,7 +1555,7 @@ def _fetch_colaboradores(empresa: Optional[str] = None,
     return linhas
 
 
-def _colab_carimbo(linhas: List[dict]) -> Optional[str]:
+def _colab_carimbo(linhas: list[dict]) -> str | None:
     """Newest ``ultima_vista_em`` — the stamp of the last load that saw anybody.
 
     ISO strings with the same offset sort as text; the collector always writes UTC.
@@ -1564,7 +1564,7 @@ def _colab_carimbo(linhas: List[dict]) -> Optional[str]:
     return max(carimbos) if carimbos else None
 
 
-def _colab_frescor(carimbo_iso: Optional[str]) -> dict:
+def _colab_frescor(carimbo_iso: str | None) -> dict:
     """Frescor do espelho: perdeu o último slot? contra qual slot comparou?
 
     Não é um "mais velho que N horas": na segunda de manhã o dado É de sexta e
@@ -1609,7 +1609,7 @@ def _colab_frescor(carimbo_iso: Optional[str]) -> dict:
     }
 
 
-def _agrupar_colaboradores(linhas: List[dict]) -> List[dict]:
+def _agrupar_colaboradores(linhas: list[dict]) -> list[dict]:
     """Empresa → Setor → colaboradores, ordenado e com contagens.
 
     ``cargo`` é CAMPO do colaborador, não um nível: aninhar por cargo criaria um

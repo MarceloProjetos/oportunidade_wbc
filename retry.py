@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ def with_retries(
     attempts: int,
     base_delay: float,
     what: str = 'operation',
-    retry_on: Optional[Callable[[Exception], bool]] = None,
+    retry_on: Callable[[Exception], bool] | None = None,
 ) -> Any:
     """Run ``operation`` with exponential backoff (``base_delay * 2**n``).
 
@@ -45,7 +46,7 @@ def with_retries(
         The last exception, if every attempt fails (or the 1st one, if ``retry_on``
         says not to retry).
     """
-    last_exc: Optional[Exception] = None
+    last_exc: Exception | None = None
     for attempt in range(1, attempts + 1):
         try:
             return operation()

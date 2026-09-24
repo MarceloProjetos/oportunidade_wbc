@@ -25,7 +25,6 @@ import situacao_pedidos as sit_ped  # noqa: E402
 import situacao_pedidos_hana as hana  # noqa: E402
 from config import reset_settings  # noqa: E402
 
-
 #: Os 3 campos de entrega que a B4 acrescentou ao perfil `resumo` (D4): a API resolve
 #: o endereco e entrega pronto, entao quem esta no default NAO recebe o ShipTo e nao
 #: tem como escolher errado. Nao entram em `CAMPOS_RESUMO` porque aquilo e' do nucleo

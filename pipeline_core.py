@@ -16,10 +16,11 @@ import os
 import re
 import socket
 import uuid
+from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -156,7 +157,7 @@ def with_retries(
     attempts: int = RETRY_ATTEMPTS,
     base_delay: float = RETRY_BASE_DELAY_S,
     what: str = "operation",
-    retry_on: Optional[Callable[[Exception], bool]] = None,
+    retry_on: Callable[[Exception], bool] | None = None,
 ) -> Any:
     """Retry with backoff — see ``retry.with_retries``.
 
@@ -216,7 +217,7 @@ def _retry_se_transitorio(exc: Exception) -> bool:
     return not e_erro_de_schema(exc)
 
 
-def _tipo_pg_sugerido(data: List[Dict[str, Any]], coluna: str) -> str:
+def _tipo_pg_sugerido(data: list[dict[str, Any]], coluna: str) -> str:
     """Suggested Postgres type for the ALTER, inferred from the column's 1st non-null value.
 
     It is a SUGGESTION for a human to paste/review — not a truth about HANA.
@@ -239,7 +240,7 @@ def _tipo_pg_sugerido(data: List[Dict[str, Any]], coluna: str) -> str:
     return 'text'
 
 
-def alter_sugerido(table_name: str, faltando: List[str], data: List[Dict[str, Any]]) -> str:
+def alter_sugerido(table_name: str, faltando: list[str], data: list[dict[str, Any]]) -> str:
     """Build the ready-to-paste ``ALTER TABLE`` that aligns the table with the source.
 
     Quoted names preserve the byte-exact case PostgREST requires, and the trailing
@@ -268,7 +269,7 @@ def validate_sql_identifier(name: str, *, what: str = "identifier") -> str:
     return name
 
 
-def build_view_query(view_name: str, schema: Optional[str] = None) -> str:
+def build_view_query(view_name: str, schema: str | None = None) -> str:
     """Build quoted SAP HANA FROM clause (optional schema prefix)."""
     validate_sql_identifier(view_name, what="nome da view SAP")
     if '.' in view_name:
@@ -310,7 +311,7 @@ class SupabaseLoader:
         self,
         supabase_url: str,
         supabase_key: str,
-        timeout_s: Optional[float] = None,
+        timeout_s: float | None = None,
     ):
         """Create Supabase client with explicit REST timeout."""
         if timeout_s is None:
@@ -320,7 +321,7 @@ class SupabaseLoader:
         self.client: Client = create_client(supabase_url, supabase_key, options)
         logger.info(f"Cliente Supabase inicializado (timeout REST: {timeout_s}s)")
 
-    def fetch_sitcod_domain(self, table_name: str) -> Optional[set[int]]:
+    def fetch_sitcod_domain(self, table_name: str) -> set[int] | None:
         """Load valid sitcod values from Supabase domain table (FK reference)."""
         try:
             res = with_retries(
@@ -346,7 +347,7 @@ class SupabaseLoader:
             )
             return None
 
-    def colunas_da_tabela(self, table_name: str) -> Optional[Set[str]]:
+    def colunas_da_tabela(self, table_name: str) -> set[str] | None:
         """Table columns in Supabase, or ``None`` if they cannot be determined.
 
         PostgREST does not expose the schema through a simple call, so we infer it from
@@ -363,7 +364,7 @@ class SupabaseLoader:
         linhas = res.data or []
         return set(linhas[0].keys()) if linhas else None
 
-    def colunas_faltantes(self, table_name: str, data: List[Dict[str, Any]]) -> List[str]:
+    def colunas_faltantes(self, table_name: str, data: list[dict[str, Any]]) -> list[str]:
         """Record columns the table does NOT have — the cause of PGRST204.
 
         Returns:
@@ -385,7 +386,7 @@ class SupabaseLoader:
         inicio: datetime,
         fim: datetime,
         sucesso: bool,
-        erro: Optional[str] = None,
+        erro: str | None = None,
     ) -> bool:
         """Grava a última execução de uma rotina em ``rotinas_execucao``. **Nunca levanta.**
 
@@ -419,7 +420,7 @@ class SupabaseLoader:
             logger.debug('[ROTINAS] ROTINAS_ESTADO_SUPABASE desligada — %s não gravada.', nome)
             return False
 
-        linha: Dict[str, Any] = {
+        linha: dict[str, Any] = {
             'nome': nome,
             'rotulo': rotulo,
             'origem': socket.gethostname(),
@@ -459,7 +460,7 @@ class SupabaseLoader:
     def upsert_data(
         self,
         table_name: str,
-        data: List[Dict[str, Any]],
+        data: list[dict[str, Any]],
         on_conflict: str,
         batch_size: int = INSERT_BATCH_SIZE,
     ) -> bool:
@@ -524,7 +525,7 @@ class SupabaseLoader:
             logger.error(f"Erro no upsert do Supabase: {e}")
             return False
 
-    def delete_por_filtro(self, table_name: str, filtros: Dict[str, Any]) -> bool:
+    def delete_por_filtro(self, table_name: str, filtros: dict[str, Any]) -> bool:
         """Apaga todas as linhas que casam com ``filtros`` (igualdade em cada campo).
 
         Existe para as cargas de chave natural sem data: quando um recorte
@@ -587,7 +588,7 @@ class SupabaseLoader:
             return False
 
     def insert_data(
-        self, table_name: str, data: List[Dict[str, Any]], batch_size: int = INSERT_BATCH_SIZE
+        self, table_name: str, data: list[dict[str, Any]], batch_size: int = INSERT_BATCH_SIZE
     ) -> bool:
         """Insert data into the Supabase table, in batches.
 
@@ -640,7 +641,7 @@ class SupabaseLoader:
             self._reverter_parcial(table_name, data)
             return False
 
-    def _reverter_parcial(self, table_name: str, data: List[Dict[str, Any]]) -> None:
+    def _reverter_parcial(self, table_name: str, data: list[dict[str, Any]]) -> None:
         """Remove rows ALREADY inserted by this execution when the insert fails midway.
 
         The insert is batched and **there is no transaction across batches**: if batch 3
@@ -680,7 +681,7 @@ class SupabaseLoader:
         table_name: str,
         keep_execution_id: str,
         *,
-        where_eq: Optional[Dict[str, Any]] = None,
+        where_eq: dict[str, Any] | None = None,
     ) -> bool:
         """Remove records from previous executions, preserving the current one.
 
@@ -732,9 +733,9 @@ class SupabaseLoader:
         data_hora: str,
         duracao_seg: float,
         status: str,
-        qtd_registros: Optional[int] = None,
+        qtd_registros: int | None = None,
         max_registros: int = SYNC_LOG_MAX_REGISTROS,
-        extra_fields: Optional[Dict[str, Any]] = None,
+        extra_fields: dict[str, Any] | None = None,
     ) -> bool:
         """Write a sync log record and keep only the N most recent ones.
 
@@ -758,7 +759,7 @@ class SupabaseLoader:
             ``True`` if the record was written; ``False`` otherwise.
         """
         try:
-            registro: Dict[str, Any] = {
+            registro: dict[str, Any] = {
                 'data_hora_sincronizacao': data_hora,
                 'duracao_segundos': round(float(duracao_seg), 2),
                 'status': status,
@@ -801,8 +802,8 @@ class SupabaseLoader:
 
 
 def prepare_data(
-    df: pd.DataFrame, execution_id: Optional[str] = None
-) -> Tuple[List[Dict[str, Any]], str]:
+    df: pd.DataFrame, execution_id: str | None = None
+) -> tuple[list[dict[str, Any]], str]:
     """Convert the DataFrame into records ready to insert into Supabase.
 
     Adds the tracking fields ``id_execucao`` and ``data_hora_extracao`` and normalizes

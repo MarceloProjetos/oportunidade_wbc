@@ -19,7 +19,6 @@ import pytest
 
 import extract_orcamentos_espelho as etl
 
-
 COLUNAS = (
     "cotacao", "tipo_doc", "num_doc", "num_oport", "status_wbc", "n_wbc", "versao",
     "data_criacao_pn", "cod_pn", "nome_pn", "contato_cliente", "email_cliente",

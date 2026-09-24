@@ -9,7 +9,6 @@ import threading
 import time
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
-from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -70,7 +69,7 @@ _execution_lock = threading.Lock()
 
 
 def is_within_commercial_window(
-    *, janela_horas: str, now: Optional[datetime] = None,
+    *, janela_horas: str, now: datetime | None = None,
 ) -> bool:
     """True on business day within inclusive hour window."""
     now = now or datetime.now()
@@ -80,7 +79,7 @@ def is_within_commercial_window(
     return h_start <= now.hour <= h_end
 
 
-def can_run_load(*, ignore_hour_window: bool = False, now: Optional[datetime] = None) -> bool:
+def can_run_load(*, ignore_hour_window: bool = False, now: datetime | None = None) -> bool:
     """Business day check + optional hour window."""
     now = now or datetime.now()
     if not is_business_day(now.date()):
