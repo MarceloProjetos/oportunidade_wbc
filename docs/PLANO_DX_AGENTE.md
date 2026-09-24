@@ -3,8 +3,10 @@
 > **Status (24/09/2026): ENCERRADO — F0–F5 NO AR na `.11`.** Segundo deploy às 15:3x;
 > conferido pelo MCP: worker ciclo #3108 (2063 orçamentos, 0 erro), agendador `sucesso`,
 > `listar_pedidos_com_os` (LIMIT literal), `detalhe_pedido_os` e `situacao_pedido` (NPED como
-> parâmetro, `SAP_SCHEMA` validado) respondendo certo. Não exercitadas em produção: as duas
-> rotas de carga completa do F4 (escrevem no Supabase). Sobram com o Marcelo: apagar
+> parâmetro, `SAP_SCHEMA` validado) respondendo certo. As duas rotas de carga completa do F4
+> (`_disparar_carga`) testadas em produção com o OK dele às 15:38: oportunidades 200 (1598
+> linhas, 5,5 s, `sucesso` no histórico) e Vendas BI 200 (3,3 s); sem chave 401; NPED `abc`
+> → 400 pelo `_inteiro_positivo`. Sobram com o Marcelo: apagar
 > `exports/`/logs de junho (D6) e conferir o A7 (`hdbcli`) na `.11`.
 
 Objetivo: deixar o repo mais barato de entender e de mudar para um agente — sem mexer no
