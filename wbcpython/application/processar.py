@@ -259,8 +259,9 @@ class ProcessadorDeOrcamento:
                 orcnum=orcnum, decisao=Decisao(regra="orcamento_inexistente"), erro=mensagem
             )
 
-        estado = self._montar_estado(orcamento, oportunidade)
-        decisao = decidir(estado)
+        estado, decisao = decidir_pelo_orcamento(
+            orcamento, oportunidade, self._documentos, corte_de_pedido=self._corte_de_pedido
+        )
 
         self._tracking.registrar_verificacao(
             orcnum,
@@ -332,14 +333,10 @@ class ProcessadorDeOrcamento:
         por cima seria pior do que não gravar.
         """
         sitcode, revisao = situacao
-        estado = montar_estado(
-            _OrcamentoResumido(orcnum=orcnum, sitcode=sitcode, revisao=revisao),
-            oportunidade,
-            fonte_de_documentos(oportunidade, self._documentos),
-            corte_de_pedido=self._corte_de_pedido,
+        estado, decisao = decidir_pela_situacao(
+            orcnum, situacao, oportunidade, self._documentos, corte_de_pedido=self._corte_de_pedido
         )
-        decisao = decidir(estado)
-        if decisao.tem_acao:
+        if precisa_do_orcamento(decisao):
             return None
 
         self._tracking.registrar_verificacao(
@@ -359,18 +356,6 @@ class ProcessadorDeOrcamento:
             detalhes={"acoes": []},
         )
         return ResultadoProcessamento(orcnum=orcnum, decisao=decisao)
-
-    # ------------------------------------------------------------ montagem
-
-    def _montar_estado(
-        self, orcamento: OrcamentoWbc, oportunidade: dict[str, Any]
-    ) -> EstadoIntegracao:
-        return montar_estado(
-            orcamento,
-            oportunidade,
-            fonte_de_documentos(oportunidade, self._documentos),
-            corte_de_pedido=self._corte_de_pedido,
-        )
 
     # ------------------------------------------------------------- execução
 
@@ -1096,6 +1081,57 @@ def montar_estado(
         orcamento_sem_itens=(itens := getattr(orcamento, "itens", None)) is not None
         and not itens,
     )
+
+
+def decidir_pela_situacao(
+    orcnum: str,
+    situacao: tuple[int, str],
+    oportunidade: dict[str, Any],
+    documentos: Any,
+    *,
+    corte_de_pedido: date | None = None,
+) -> tuple[EstadoIntegracao, Decisao]:
+    """1º passo da decisão: só com `(sitcode, revisao)` lidos em lote, sem as linhas.
+
+    O worker (`ProcessadorDeOrcamento`) e a prévia (`wbcpython pendentes`) chamam ESTA
+    função — antes cada um montava o próprio `_OrcamentoResumido`, e a prévia importava o
+    privado daqui. Uma cópia que derivasse faria a prévia mentir sobre o que o ciclo grava,
+    sem erro nenhum.
+    """
+    sitcode, revisao = situacao
+    estado = montar_estado(
+        _OrcamentoResumido(orcnum=orcnum, sitcode=sitcode, revisao=revisao),
+        oportunidade,
+        fonte_de_documentos(oportunidade, documentos),
+        corte_de_pedido=corte_de_pedido,
+    )
+    return estado, decidir(estado)
+
+
+def precisa_do_orcamento(decisao: Decisao) -> bool:
+    """A porta entre os dois passos: com ação, carrega o orçamento inteiro e decide de novo.
+
+    Um lugar só para a regra. A prévia usava `ACOES_QUE_ESCREVEM`, o worker `tem_acao`: hoje
+    dão no mesmo, mas uma ação nova fora daquele conjunto separaria os dois em silêncio.
+    """
+    return decisao.tem_acao
+
+
+def decidir_pelo_orcamento(
+    orcamento: OrcamentoWbc,
+    oportunidade: dict[str, Any],
+    documentos: Any,
+    *,
+    corte_de_pedido: date | None = None,
+) -> tuple[EstadoIntegracao, Decisao]:
+    """2º passo: a decisão sobre o orçamento inteiro (é ela que autoriza escrever)."""
+    estado = montar_estado(
+        orcamento,
+        oportunidade,
+        fonte_de_documentos(oportunidade, documentos),
+        corte_de_pedido=corte_de_pedido,
+    )
+    return estado, decidir(estado)
 
 
 def _fora_da_janela(oportunidade: dict[str, Any], corte: date | None) -> bool:

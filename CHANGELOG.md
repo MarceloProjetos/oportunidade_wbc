@@ -6,6 +6,40 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-24] — F4 do PLANO_DX_AGENTE: uma decisao, um lugar
+
+⚠️ Toca o worker, o painel, a API e o agendador — vale no proximo deploy (restart dos 5,
+com a parada por arquivo do worker que o `deploy_update.bat` ja faz). Nenhum comportamento
+novo de escrita no SAP.
+
+- **Previa e ciclo decidem pelo MESMO caminho** (achado A6). O `wbcpython pendentes`
+  remontava a decisao de dois passos por conta propria, importando o `_OrcamentoResumido`
+  privado do processador, e carregava o orcamento inteiro por outra porta
+  (`ACOES_QUE_ESCREVEM` em vez de `tem_acao` — iguais hoje so porque os dois conjuntos
+  coincidem). Agora os dois usam `processar.decidir_pela_situacao`,
+  `precisa_do_orcamento` e `decidir_pelo_orcamento`. Na previa, "resultaria em escrita"
+  passa a contar pela decisao FINAL (a do orcamento inteiro pode perder acoes — orcamento
+  sem item), nao pela do 1o passo. Teste novo: `tests/wbc/application/test_decisao_compartilhada.py`
+  (toda `Acao` do dominio conta como escrita na previa; a CLI usa as funcoes do processador).
+- **`api.py`**: `_disparar_carga` junta as rotas de carga completa de oportunidades e de
+  Vendas BI (eram a mesma funcao escrita duas vezes; mensagens e codigos iguais aos de
+  antes); `_inteiro_positivo` + `errorhandler` trocam o `try/except ValueError → 400` que se
+  repetia em 7 rotas (mesma resposta); docstring do modulo lista as 24 rotas (listava 13).
+- **`pipeline_core`**: os 4 locks de arquivo (oportunidades, vendas, espelho, OS por pedido)
+  passam por um `_file_lock` so; os nomes publicos ficam.
+- `venda_comum._inteiro` → `_codigo_ou_none`: e' o unico dos 5 `_inteiro` do pacote em que
+  **0 vira None**; o nome igual convidava a troca.
+- `.env.example`: os 4 tetos anti-loop que faltavam (`RATE_SYNC_OS_MAX`, `RATE_FORCE_OPORT_MAX`,
+  `RATE_VENDAS_BI_MAX`, `SYNC_LOTE_MAX`).
+
+**Ficaram de fora, de proposito**: mover os `RATE_*` para o `Settings` (sao lidos no import
+e 6 testes os trocam por monkeypatch no modulo — ficaram documentados no `.env.example` e no
+CLAUDE.md); anotar as 9 tools MCP antigas como leitura (o proprio `mcp_server.py` registra a
+decisao de nao mexer "ate haver motivo", e o `mcp` desta maquina e' 2.1.1 — o arquivo nem
+importa aqui, nao haveria como testar).
+
+Suite: **1837 passed**, 0 falhas; `ruff check .` = 0.
+
 ## [2026-09-24] — F2 do PLANO_DX_AGENTE: gate antes do commit e sintaxe do 3.14
 
 - **`.githooks/pre-commit`** (novo, versionado): `ruff check` + a suite inteira (~40 s) antes

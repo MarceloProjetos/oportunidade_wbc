@@ -1,8 +1,8 @@
 # Plano — DX do agente no ServidorIntegracaoSAP
 
-> **Status (24/09/2026): F0–F3 concluídas** (commit por fase, tudo no `origin/master`).
-> Nada exige restart; o próximo `deploy_update.bat` leva junto (roda o `pip` — nada novo).
-> F4–F5 não autorizadas ainda. Pendem com o Marcelo: copiar o `settings.json` proposto,
+> **Status (24/09/2026): F0–F4 concluídas; F5 em andamento.** F0–F3 já estão NO AR na `.11`
+> (deploy do Marcelo às 15:0x, worker ciclando sem erro, 5 serviços de pé). F4 pede o próximo
+> deploy (restart dos 5). O `settings.json` proposto já foi copiado. Pendem com o Marcelo:
 > apagar `exports/`/logs de junho (D6) e conferir o A7 (`hdbcli`) na `.11`.
 
 Objetivo: deixar o repo mais barato de entender e de mudar para um agente — sem mexer no
@@ -122,7 +122,16 @@ cosmético.
 | `docs/wbc/DECISOES.md` (110 KB, 95 headings, sem índice): índice no topo + a comparação 514421×514706 (~670 linhas) para apêndice | 1/3 do arquivo é evidência bruta | baixo |
 | `.ruff_cache/` no `.gitignore`; `exports/`, `logs/` de junho e `__pycache__` cpython-312 locais | ignorados, nunca commitados | nenhum — D6 |
 
-### F4 — Refatoração pequena · **exige restart** · agente codifica, ele reinicia
+### F4 — Refatoração pequena · **exige restart** · agente codifica, ele reinicia — ✅ codada 24/09
+
+> Feito: A6 (prévia e ciclo pelas mesmas `decidir_pela_situacao` / `precisa_do_orcamento` /
+> `decidir_pelo_orcamento`), `_disparar_carga` e `_inteiro_positivo` no `api.py`, `_file_lock`,
+> `_codigo_ou_none`. O `TRACKING_DB_URL` já tinha saído na F0. ⚠️ **Ficaram de fora**:
+> `RATE_*` no `Settings` (lidos no import, 6 testes os trocam no módulo — documentados no
+> `.env.example`) e as anotações das 9 tools MCP (o `mcp_server.py` registra a decisão de
+> não mexer, e o `mcp` 2.1.1 desta máquina nem importa o arquivo — sem como testar).
+> Achado de brinde: a prévia contava "resultaria em escrita" pela decisão do 1º passo, não
+> pela final — agora conta pela final.
 *Goal: um lugar só para cada decisão que hoje existe duplicada.*
 
 | Item | Ganho | Risco | Restart |

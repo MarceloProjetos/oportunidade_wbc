@@ -1,4 +1,4 @@
-"""Minimal HTTP API to trigger the OS sync per NPED (on demand).
+"""HTTP API of the ServidorIntegracaoSAP (port 8077): on-demand triggers + read routes.
 
 Designed to be called **by the app** (web/desktop) when a user asks to sync a pedido.
 Writing remains the backend's job (service_role); this service only exposes an HTTP
@@ -11,10 +11,18 @@ Endpoints
                                               when the painel does not answer)
 - ``GET  /sincronizar``                     → the Painel de Sincronização (OS · Oportunidades)
 - ``GET  /health``                          → ``{"status": "ok"}``
+- ``GET  /status``                          → diagnosis (two levels, see below); ``?checks=``, ``?strict=1``
+- ``GET|DELETE /historico``                 → OS sync log (read / clear)
+- ``GET  /usuarios-ativos``                 → active app profiles (cached 10 min)
+- ``GET  /ordens-servico/disponiveis``      → up to 30 pedidos with an OS created in SAP
 - ``GET  /ordens-servico/<nped>``           → detail (summary) of a pedido's OS
 - ``POST /ordens-servico/<nped>/sincronizar`` → syncs + returns the summary (GET's pair)
 - ``POST /sync/ordens-servico/<nped>``      → syncs **one** pedido
 - ``POST /sync/ordens-servico``             → body ``{"nped": N}`` or ``{"npeds": [...]}``
+- ``GET|DELETE /oportunidades/historico``   → oportunidades load log (read / clear)
+- ``GET  /oportunidades/info``              → oportunidades context: total rows + schedule
+- ``POST /oportunidades/sincronizar``       → full oportunidades load (409 if one is running)
+- ``POST /vendas-bi/sincronizar``           → Vendas BI aggregates (409 if one is running)
 - ``GET  /ordens-producao/<numero>``        → one Production Order (status + transitions)
 - ``POST /ordens-producao/<numero>/status`` → **writes into SAP**: Liberada / Encerrada
 - ``GET  /pedidos/situacao``                → order-status cut (blocked / everything)
@@ -835,10 +843,7 @@ def os_detalhe(nped: str):
     Note: the static route ``/ordens-servico/disponiveis`` has priority in Werkzeug's
     router, so it is not captured by this ``<nped>``.
     """
-    try:
-        n = coerce_positive_int(nped, what='NPED')
-    except ValueError as exc:
-        return jsonify(ok=False, error=str(exc)), 400
+    n = _inteiro_positivo(nped, 'NPED')
     quer_linhas = _flag_query('linhas')
     try:
         linhas = _fetch_os_detalhe(
@@ -854,6 +859,27 @@ def os_detalhe(nped: str):
     if quer_linhas:
         payload['linhas'] = linhas
     return jsonify(payload)
+
+
+class _ParametroInvalido(Exception):
+    """Parâmetro de rota inválido — vira 400 no ``errorhandler`` abaixo."""
+
+
+def _inteiro_positivo(valor: object, what: str) -> int:
+    """``coerce_positive_int`` que responde **400** sozinho (via ``_ParametroInvalido``).
+
+    Troca o ``try/except ValueError → 400`` que se repetia em 7 rotas. A resposta é a mesma
+    de antes: ``{"ok": false, "error": "<mensagem>"}``.
+    """
+    try:
+        return coerce_positive_int(valor, what=what)
+    except ValueError as exc:
+        raise _ParametroInvalido(str(exc)) from exc
+
+
+@app.errorhandler(_ParametroInvalido)
+def _responder_parametro_invalido(exc: _ParametroInvalido):
+    return jsonify(ok=False, error=str(exc)), 400
 
 
 def _status_pedido_ordr(nped: int) -> dict:
@@ -895,10 +921,7 @@ def os_sincronizar(nped: str):
     Status: ``200`` (synced **or** a business notice sem_os/cancelada) · ``502`` (sync
     failure) · ``400`` invalid NPED · ``401`` missing/bad X-API-Key.
     """
-    try:
-        n = coerce_positive_int(nped, what='NPED')
-    except ValueError as exc:
-        return jsonify(ok=False, error=str(exc)), 400
+    n = _inteiro_positivo(nped, 'NPED')
 
     limitado = _checar_rate('sync_os', _RATE_SYNC_OS_MAX)
     if limitado is not None:
@@ -977,6 +1000,33 @@ def oport_info():
     )
 
 
+def _disparar_carga(bucket: str, limite: int, trava, carga, *, rotulo: str, ocupado: str, falhou: str):
+    """Carga completa disparada por HTTP: rate-limit + lock de arquivo + resposta por código.
+
+    Oportunidades e Vendas BI eram a mesma função escrita duas vezes. Quem chama passa os
+    nomes do módulo NA HORA da chamada (os testes os trocam por monkeypatch).
+
+    Status: ``200`` ok · ``409`` outra carga já está rodando (o lock é cross-process: o
+    agendador conta) · ``429`` rate-limit · ``502`` a carga falhou ou não carregou nada.
+    O 502 da carga "vazia" é o MESMO problema da exceção (a carga não aconteceu): com 200,
+    todo monitor que decide pelo código — a norma — lia a falha como sucesso.
+    """
+    limitado = _checar_rate(bucket, limite)
+    if limitado is not None:
+        return limitado
+    try:
+        with trava(timeout=0):
+            ok = bool(carga())
+    except FileLockTimeout:
+        return jsonify(ok=False, tipo='ocupado', motivo=ocupado), 409
+    except Exception as exc:
+        logger.error("Erro ao sincronizar %s: %s", rotulo, exc)
+        return jsonify(ok=False, tipo='erro', motivo='Nao foi possivel sincronizar.'), 502
+    if ok:
+        return jsonify(ok=True)
+    return jsonify(ok=False, tipo='erro', motivo=falhou), 502
+
+
 @app.post('/oportunidades/sincronizar')
 @requer_chave
 def oport_sincronizar():
@@ -985,26 +1035,12 @@ def oport_sincronizar():
     Uses a cross-process file lock: if the scheduler (or another trigger) is already
     running, it responds 409 instead of running two snapshot loads at once.
     """
-    limitado = _checar_rate('force_oport', _RATE_FORCE_OPORT_MAX)
-    if limitado is not None:
-        return limitado
-
-    try:
-        with oportunidades_sync_lock(timeout=0):
-            ok = bool(sync_oportunidades())
-    except FileLockTimeout:
-        return jsonify(ok=False, tipo='ocupado',
-                       motivo='Ja ha uma sincronizacao de oportunidades em andamento.'), 409
-    except Exception as exc:
-        logger.error("Erro ao sincronizar oportunidades: %s", exc)
-        return jsonify(ok=False, tipo='erro', motivo='Nao foi possivel sincronizar.'), 502
-    if ok:
-        return jsonify(ok=True)
-    # 502 like the except above: it is the SAME class of problem (the load did not
-    # happen). Without the status code, Flask returned 200 and any monitor that decides by
-    # code — the norm — read the failure as a success.
-    return jsonify(ok=False, tipo='erro',
-                   motivo='Nao foi possivel sincronizar (0 registros?).'), 502
+    return _disparar_carga(
+        'force_oport', _RATE_FORCE_OPORT_MAX, oportunidades_sync_lock, sync_oportunidades,
+        rotulo='oportunidades',
+        ocupado='Ja ha uma sincronizacao de oportunidades em andamento.',
+        falhou='Nao foi possivel sincronizar (0 registros?).',
+    )
 
 
 @app.post('/vendas-bi/sincronizar')
@@ -1016,22 +1052,12 @@ def vendas_bi_sincronizar():
     arquivo — duas cargas simultâneas fariam upsert da mesma chave e a última a
     terminar venceria, o que é inofensivo mas desperdiça duas viagens ao HANA.
     """
-    limitado = _checar_rate('vendas_bi', _RATE_VENDAS_BI_MAX)
-    if limitado is not None:
-        return limitado
-
-    try:
-        with vendas_bi_sync_lock(timeout=0):
-            ok = bool(sync_vendas_bi())
-    except FileLockTimeout:
-        return jsonify(ok=False, tipo='ocupado',
-                       motivo='Ja ha uma carga de vendas em andamento.'), 409
-    except Exception as exc:
-        logger.error("Erro ao sincronizar vendas BI: %s", exc)
-        return jsonify(ok=False, tipo='erro', motivo='Nao foi possivel sincronizar.'), 502
-    if ok:
-        return jsonify(ok=True)
-    return jsonify(ok=False, tipo='erro', motivo='Nao foi possivel sincronizar.'), 502
+    return _disparar_carga(
+        'vendas_bi', _RATE_VENDAS_BI_MAX, vendas_bi_sync_lock, sync_vendas_bi,
+        rotulo='vendas BI',
+        ocupado='Ja ha uma carga de vendas em andamento.',
+        falhou='Nao foi possivel sincronizar.',
+    )
 
 
 @app.post('/sync/ordens-servico/<nped>')
@@ -1039,10 +1065,7 @@ def vendas_bi_sincronizar():
 def sync_um(nped: str):
     """Sync **one** pedido. Requires X-API-Key. Same anti-loop guard as its pair
     ``/ordens-servico/<nped>/sincronizar`` (bucket ``sync_os``)."""
-    try:
-        n = coerce_positive_int(nped, what='NPED')
-    except ValueError as exc:
-        return jsonify(ok=False, error=str(exc)), 400
+    n = _inteiro_positivo(nped, 'NPED')
 
     limitado = _checar_rate('sync_os', _RATE_SYNC_OS_MAX)
     if limitado is not None:
@@ -1075,10 +1098,7 @@ def sync_varios():
             ok=False, error=f'lote grande demais: {len(bruto)} pedidos (max {_SYNC_LOTE_MAX})',
             motivo='Divida em requests menores — o lote roda serializado e segura a fila.',
         ), 413
-    try:
-        npeds = [coerce_positive_int(n, what='NPED') for n in bruto]
-    except ValueError as exc:
-        return jsonify(ok=False, error=str(exc)), 400
+    npeds = [_inteiro_positivo(n, 'NPED') for n in bruto]
 
     limitado = _checar_rate('sync_os', _RATE_SYNC_OS_MAX)
     if limitado is not None:
@@ -1121,10 +1141,7 @@ def op_detalhe(numero: str):
     ``OP_STATUS_PERMITIDOS`` and by the order's own status), which is what lets a screen
     grey out the wrong button instead of finding out on the POST.
     """
-    try:
-        n = coerce_positive_int(numero, what='numero da OP')
-    except ValueError as exc:
-        return jsonify(ok=False, error=str(exc)), 400
+    n = _inteiro_positivo(numero, 'numero da OP')
     try:
         op = op_sl.consultar_op(n, por_docentry=_chave_docentry())
     except op_sl.OPError as exc:
@@ -1162,10 +1179,7 @@ def op_status(numero: str):
                     'Defina OS_API_KEY no .env e reinicie a API.'),
         ), 503
 
-    try:
-        n = coerce_positive_int(numero, what='numero da OP')
-    except ValueError as exc:
-        return jsonify(ok=False, error=str(exc)), 400
+    n = _inteiro_positivo(numero, 'numero da OP')
 
     body = request.get_json(silent=True) or {}
     if not body.get('status'):
@@ -1374,10 +1388,7 @@ def situacao_pedido_unico(numero: str):
     Aqui o default e' ``campos=completo`` (e' um registro so, cabe); ``?campos=resumo``
     corta para as 10 colunas da tela.
     """
-    try:
-        n = coerce_positive_int(numero, what='numero do pedido')
-    except ValueError as exc:
-        return jsonify(ok=False, error=str(exc)), 400
+    n = _inteiro_positivo(numero, 'numero do pedido')
 
     campo = 'doc_entry' if _chave_docentry() else 'doc_num'
     try:

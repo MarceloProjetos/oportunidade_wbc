@@ -118,8 +118,8 @@ def campos_comuns(
         payload["U_INO_ORCAMENTO"] = snapshot_id
 
     if oportunidade:
-        vendedor = _inteiro(oportunidade.get("SalesPerson"))
-        contato = _inteiro(oportunidade.get("ContactPerson"))
+        vendedor = _codigo_ou_none(oportunidade.get("SalesPerson"))
+        contato = _codigo_ou_none(oportunidade.get("ContactPerson"))
         if vendedor:
             payload["SalesPersonCode"] = vendedor
         # O contato pertence ao parceiro da oportunidade. Numa troca de PN ele
@@ -132,8 +132,12 @@ def campos_comuns(
     return payload
 
 
-def _inteiro(valor: Any) -> int | None:
-    """Inteiro tolerante: o SAP devolve `0`, `''` e `None` para "não tem"."""
+def _codigo_ou_none(valor: Any) -> int | None:
+    """Código do SAP ou `None`: o SAP devolve `0`, `''` e `None` para "não tem".
+
+    Não é o `_inteiro` dos outros módulos (processar, cli, previsao, hana): aqui **0 vira
+    None**, lá não. O nome diferente é para ninguém trocar um pelo outro.
+    """
     try:
         numero = int(valor)
     except (TypeError, ValueError):

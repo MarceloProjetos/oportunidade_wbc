@@ -430,15 +430,14 @@ def _cmd_pendentes(
         para_json,
     )
     from wbcpython.application.processar import (
-        _OrcamentoResumido,
-        fonte_de_documentos,
-        montar_estado,
+        decidir_pela_situacao,
+        decidir_pelo_orcamento,
+        precisa_do_orcamento,
         total_do_payload,
     )
     from wbcpython.domain import janela as jn
     from wbcpython.domain.cotacao import linhas as linhas_da_cotacao
     from wbcpython.domain.pedido import linhas as linhas_do_pedido
-    from wbcpython.domain.sitcode import decidir
     from wbcpython.host.worker import janela_padrao
     from wbcpython.infrastructure.hana.oportunidades import RepositorioOportunidadesHana
     from wbcpython.infrastructure.service_layer.client import ServiceLayerClient
@@ -561,23 +560,19 @@ def _cmd_pendentes(
                     )
                     continue
 
-                # Decide pela situação lida em lote; só carrega o orçamento
-                # inteiro (279 ms) quando há ação — igual ao ciclo.
-                estado = montar_estado(
-                    _OrcamentoResumido(orcnum, situacao[0], situacao[1]),
-                    oportunidade,
-                    fonte_de_documentos(oportunidade, documentos),
-                    corte_de_pedido=corte_de_pedido,
+                # Os MESMOS dois passos e a MESMA porta do ciclo
+                # (`processar.decidir_pela_situacao` / `precisa_do_orcamento` /
+                # `decidir_pelo_orcamento`): só carrega o orçamento inteiro (279 ms)
+                # quando há ação.
+                estado, decisao = decidir_pela_situacao(
+                    orcnum, situacao, oportunidade, documentos, corte_de_pedido=corte_de_pedido
                 )
-                decisao = decidir(estado)
                 acoes = tuple(a.value for a in decisao.acoes)
-                escreve = any(a in ACOES_QUE_ESCREVEM for a in acoes)
 
                 valor = None
                 resumo_das_linhas: tuple[str, ...] = ()
                 avisos: tuple[str, ...] = ()
-                if escreve:
-                    com_acao += 1
+                if precisa_do_orcamento(decisao):
                     orc = wbc.buscar_orcamento(orcnum)
                     if orc is None:
                         problema = "não encontrado no WBC — viraria erro no ciclo."
@@ -591,13 +586,9 @@ def _cmd_pendentes(
                             )
                         )
                         continue
-                    estado = montar_estado(
-                        orc,
-                        oportunidade,
-                        fonte_de_documentos(oportunidade, documentos),
-                        corte_de_pedido=corte_de_pedido,
+                    estado, decisao = decidir_pelo_orcamento(
+                        orc, oportunidade, documentos, corte_de_pedido=corte_de_pedido
                     )
-                    decisao = decidir(estado)
                     acoes = tuple(a.value for a in decisao.acoes)
                     if any(a in ACOES_DE_DOCUMENTO for a in acoes):
                         # A prévia mostra as linhas do documento que a decisão
@@ -623,6 +614,13 @@ def _cmd_pendentes(
                         # distinto de propósito, porque reusá-lo aqui zerou o
                         # resumo uma vez.
                         valor = total_do_payload({"DocumentLines": list(linhas.linhas)})
+
+                # "Resultaria em escrita" pela decisão FINAL — a do orçamento inteiro
+                # pode perder ações (orçamento sem item), e contar pela prévia
+                # anunciava escrita que o ciclo não faria.
+                escreve = any(a in ACOES_QUE_ESCREVEM for a in acoes)
+                if escreve:
+                    com_acao += 1
 
                 documentos_no_sap = oportunidade.get("documentos") or {}
                 registro = LinhaDePrevisao(

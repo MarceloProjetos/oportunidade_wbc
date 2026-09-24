@@ -50,7 +50,22 @@ except ImportError:  # pragma: no cover - filelock is a production dependency
         """Fallback for when 'filelock' is not installed."""
 
 _LOCK_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.locks')
-_OPORTUNIDADES_LOCK_PATH = os.path.join(_LOCK_DIR, 'oportunidades_sync.lock')
+
+
+@contextmanager
+def _file_lock(arquivo: str, rotulo: str, timeout: float):
+    """O corpo comum dos 4 locks de arquivo abaixo: ``FileLock`` em ``.locks/<arquivo>``.
+
+    Sem ``filelock`` instalado vira **no-op** com aviso — o mesmo contrato que os quatro
+    repetiam. ``_LOCK_DIR`` é lido na hora (os testes o trocam por monkeypatch).
+    """
+    if FileLock is None:
+        logger.warning("filelock não instalado — %s SEM lock cross-process", rotulo)
+        yield
+        return
+    os.makedirs(_LOCK_DIR, exist_ok=True)
+    with FileLock(os.path.join(_LOCK_DIR, arquivo), timeout=timeout):
+        yield
 
 
 @contextmanager
@@ -68,12 +83,7 @@ def oportunidades_sync_lock(timeout: float = 0):
         Without ``filelock`` installed this becomes a **no-op** (no cross-process
         protection) — install it with ``pip install filelock``.
     """
-    if FileLock is None:
-        logger.warning("filelock não instalado — carga de oportunidades SEM lock cross-process")
-        yield
-        return
-    os.makedirs(_LOCK_DIR, exist_ok=True)
-    with FileLock(_OPORTUNIDADES_LOCK_PATH, timeout=timeout):
+    with _file_lock('oportunidades_sync.lock', 'carga de oportunidades', timeout):
         yield
 
 
@@ -85,12 +95,7 @@ def vendas_bi_sync_lock(timeout: float = 0):
     diferentes e escrevem tabelas diferentes, então uma travar a outra só
     atrasaria as duas sem proteger nada.
     """
-    if FileLock is None:
-        logger.warning("filelock não instalado — carga de vendas SEM lock cross-process")
-        yield
-        return
-    os.makedirs(_LOCK_DIR, exist_ok=True)
-    with FileLock(os.path.join(_LOCK_DIR, 'vendas_bi_sync.lock'), timeout=timeout):
+    with _file_lock('vendas_bi_sync.lock', 'carga de vendas', timeout):
         yield
 
 
@@ -102,12 +107,7 @@ def orcamentos_espelho_sync_lock(timeout: float = 0):
     outras cargas. O lock importa aqui porque este também é snapshot — duas
     execuções simultâneas fariam uma podar as linhas da outra.
     """
-    if FileLock is None:
-        logger.warning("filelock não instalado — espelho de orçamentos SEM lock cross-process")
-        yield
-        return
-    os.makedirs(_LOCK_DIR, exist_ok=True)
-    with FileLock(os.path.join(_LOCK_DIR, 'orcamentos_espelho_sync.lock'), timeout=timeout):
+    with _file_lock('orcamentos_espelho_sync.lock', 'espelho de orçamentos', timeout):
         yield
 
 
@@ -142,12 +142,7 @@ def os_sync_lock(nped: object, timeout: float = 0):
         oportunidades lock).
     """
     nped_int = coerce_positive_int(nped, what='NPED')
-    if FileLock is None:
-        logger.warning("filelock não instalado — sync de OS SEM lock cross-process")
-        yield
-        return
-    os.makedirs(_LOCK_DIR, exist_ok=True)
-    with FileLock(os.path.join(_LOCK_DIR, f'os_sync_{nped_int}.lock'), timeout=timeout):
+    with _file_lock(f'os_sync_{nped_int}.lock', 'sync de OS', timeout):
         yield
 
 
