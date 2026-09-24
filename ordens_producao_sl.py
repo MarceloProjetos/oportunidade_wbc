@@ -31,7 +31,7 @@ Guards
   order, missing permission); retrying only buries the real message. Retry exists on the
   login alone, which is the genuinely transient step.
 
-Kept deliberately diffable with ``web_orcaview_V117/backend/services/compras_sap_service.py``
+Kept deliberately diffable with ``web_orcaview_V118/backend/services/compras_sap_service.py``
 — same session/re-login/error-extraction shape. A fix in one belongs in the other.
 
 TLS: the internal Service Layer serves a **self-signed** certificate, so

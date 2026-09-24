@@ -1,7 +1,7 @@
 # Plano — DX do agente no ServidorIntegracaoSAP
 
-> **Status (24/09/2026): F0 concluída.** O Marcelo liberou F0–F3 seguindo as recomendações
-> (§5), com commit por fase. F1–F3 em andamento; F4–F5 não autorizadas ainda.
+> **Status (24/09/2026): F0 e F1 concluídas.** O Marcelo liberou F0–F3 seguindo as
+> recomendações (§5), com commit por fase. F2–F3 em andamento; F4–F5 não autorizadas ainda.
 
 Objetivo: deixar o repo mais barato de entender e de mudar para um agente — sem mexer no
 que roda em produção na `.11` além do necessário.
@@ -63,8 +63,13 @@ cosmético.
 - `requirements.txt`: `httpx>=0.27,<1` explícito; piso do `pymssql` para `>=2.4.1` (o
   primeiro com roda cp314); corrigir os 3 comentários que falam em 3.12.
 
-### F1 — CLAUDE.md e docs de agente · sem restart · agente
+### F1 — CLAUDE.md e docs de agente · sem restart · agente — ✅ concluída 24/09
 *Goal: o CLAUDE.md diz só o que é verdade hoje, em ~150 linhas em vez de 231.*
+
+> Fechou em **210 linhas**, não 150: o mapa ganhou os ~10 módulos que faltavam (é o que o
+> agente mais consulta), e a história foi para `docs/INCIDENTES.md`. O `.claude/settings.json`
+> do repo **não foi tocado**: config do agente é do Marcelo (no web o classificador barrou a
+> auto-modificação em 24/09) — a proposta ficou no scratchpad para ele copiar.
 
 - **Corrigir** (§4.1): 3.12→3.14, V117→V118 (também em 9 docstrings), agendador com 4 jobs,
   imports reais do `api.py`, `run_wbc_*.bat` (só existe o do painel), "843 testes",

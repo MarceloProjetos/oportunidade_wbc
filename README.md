@@ -6,7 +6,7 @@ view do **SAP B1 (HANA)**, enriquece com a situação do orçamento vinda do **S
 também a **Integração WBC → SAP** (`wbcpython/`): o worker que cria cotação e pedido no SAP
 a partir dos orçamentos do WBC, com o painel que é a porta de entrada das duas telas.
 
-![Python](https://img.shields.io/badge/Python-3.12-blue)
+![Python](https://img.shields.io/badge/Python-3.14-blue)
 ![SAP HANA](https://img.shields.io/badge/SAP-HANA-orange)
 ![SQL Server](https://img.shields.io/badge/SQL%20Server-2016-red)
 ![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-darkgreen)
@@ -78,7 +78,7 @@ a partir dos orçamentos do WBC, com o painel que é a porta de entrada das duas
 
 | Componente | Versão | Obrigatório | Observação |
 |------------|--------|:-----------:|------------|
-| Python | 3.12+ | ✅ | |
+| Python | 3.14 | ✅ | |
 | SAP HANA (`hdbcli`) | — | ✅ | Leitura da view de oportunidades |
 | Supabase | Free/Pro | ✅ | Destino dos dados (PostgreSQL) |
 | SQL Server (`pyodbc`) | 2016+ | ⬜ | Apenas para `SITCOD`/`ORCALTDTH` |
@@ -840,6 +840,16 @@ ServidorIntegracaoSAP/
 ├── pipeline_core.py             # Núcleo compartilhado (SupabaseLoader, prepare_data, …)
 ├── extract_sap_to_supabase.py   # Pipeline de oportunidades (SAP + SQL Server → Supabase)
 ├── extract_ordens_servico_engenharia.py  # Sync de OS por N_PED (VW_OS_INTEGRACAO, replace_nped)
+├── extract_vendas_bi.py         # Agregados de Vendas BI (VW_PEDIDO_ALTA + VW_FATO_FATURAMENTO → bi_vendas_*)
+├── extract_orcamentos_espelho.py  # Espelho de VW_EVOL_ORCAMENTO_ALT no Supabase
+├── situacao_pedidos.py          # /pedidos/situacao: regra pura (porte do web, diffável)
+├── situacao_pedidos_hana.py     # /pedidos/*: leitura HANA + cache + endereço de entrega
+├── sap_montagem_labels.py       # Rótulos de montagem (porte do web)
+├── pedidos_bloqueados.py        # Pedidos fora dos agregados (hardcode; 3 cópias: SIS, web, app)
+├── ordens_producao_sl.py        # Status de OP no SAP via Service Layer (escrita; nasce desligado)
+├── windows_update.py            # Reboot/updates pendentes (porte do SAP_RDP)
+├── retry.py                     # Retry compartilhado (SAP e Supabase)
+├── wake_altservidor_ia.py       # Wake-on-LAN do .90 (byte-idêntico ao do web)
 ├── monitoring.py                # Diagnóstico do /status (conexões, agendador, tarefa)
 ├── api.py                       # API HTTP de disparo + /status (Flask, porta 8077)
 ├── wbcpython/                   # Integração WBC → SAP: worker + painel + CLI (python -m wbcpython)
@@ -847,20 +857,26 @@ ServidorIntegracaoSAP/
 ├── sql/                         # DDL + policies do Supabase
 ├── scripts/
 │   └── scheduled_execution.py   # Agendamento via APScheduler (IntervalTrigger)
-├── mcp/                         # Fachada MCP read-only sobre a API (FastMCP/stdio)
-├── maintenance/                 # Manutenção do servidor (limpeza de logs do Azure)
+├── mcp/                         # Fachada MCP read-only sobre a API (stdio no cliente; HTTP 8078 na .11)
+├── maintenance/                 # Conferidor de Vendas BI + scripts de disco e logs do servidor
 ├── monitor_wbc_task.ps1         # Monitora a tarefa "Integração WBC" → state/*.json
 ├── install_monitor_task.ps1     # Registra a tarefa do monitor (a cada 10 min, SYSTEM)
 ├── run_scheduler.bat            # Wrapper p/ Task Scheduler / NSSM (agendador, boot 24/7)
 ├── run_api.bat                  # Wrapper p/ Task Scheduler / NSSM (API, boot 24/7)
 ├── run_wbc_painel.bat           # Wrapper NSSM do painel WBC (PAINEL_HOST:PAINEL_PORTA)
-├── install_services.bat         # Registra agendador + API no NSSM (os outros 3 têm instalador próprio)
+├── run_mcp.bat                  # Wrapper NSSM da fachada MCP HTTP (porta 8078)
+├── install_services.bat         # Registra agendador + API no NSSM
+├── install_mcp_service.bat      # Registra a fachada MCP HTTP no NSSM
+├── install_wbc_services.bat     # Registra painel + worker WBC (o worker com python.exe absoluto)
+├── install_wol_task.ps1         # Registra a tarefa de Wake-on-LAN do .90
 ├── deploy_update.bat            # Atualiza a .11: para os 5 serviços, git pull, pip se preciso, religa
 ├── docs/                        # Planos deste repo · docs/wbc/ = guia, decisões e histórico do WBC
 ├── requirements.txt             # Dependências Python
-├── requirements-dev.txt         # pytest (testes unitários)
+├── requirements-dev.txt         # pytest + ruff
 ├── tests/                       # Suíte pytest (tests/wbc/ = a do pacote wbcpython)
 ├── .env.example                 # Template de variáveis de ambiente
+├── API_*.md                     # Contratos HTTP entregues a outras equipes
+├── CLAUDE.md                    # Guia para agentes
 ├── CHANGELOG.md                 # Histórico de mudanças
 └── README.md                    # Este arquivo
 ```

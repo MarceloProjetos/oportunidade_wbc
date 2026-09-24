@@ -539,7 +539,7 @@ bom senso, e uma consequência prática:
 ## 17. Por dentro (para quem mantém)
 
 - **Tabela:** `kairos_colaboradores` no Supabase (chave `empresa` + `person_id`), escrita
-  **só** pelo `web_orcaview_V117` com a service key; esta API lê com a mesma chave.
+  **só** pelo `web_orcaview_V118` com a service key; esta API lê com a mesma chave.
 - **Este repositório não tem credencial do Kairos** e não deve ganhar uma: quem fala com
   o Kairos é o `.90`, onde já vive o cliente com todas as armadilhas de tenant tratadas.
 - **Leitura paginada** de 1000 em 1000 — o PostgREST corta em 1000 linhas com HTTP 200, e

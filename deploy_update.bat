@@ -109,7 +109,7 @@ REM --- dependencias: instalar quando o CONTEUDO dos requirements difere do que 
 REM     instalado da ultima vez (hash em state\deps.sha256). Nao depende de como o pull
 REM     aconteceu: um "git pull" feito a mao antes do deploy nao esconde mais uma
 REM     dependencia nova (foi assim que o painel WBC subiu sem fastapi em 08/09/2026).
-REM     venv\ se existir; senao, o Python do sistema (e o caso da .11: Python312, sem venv).
+REM     venv\ se existir; senao, o Python do sistema (e o caso da .11: Python314, sem venv).
 set "PYEXE=python"
 if exist "venv\Scripts\python.exe" set "PYEXE=venv\Scripts\python.exe"
 set "REQHASH="

@@ -1511,7 +1511,7 @@ def _pedido_cancelado_ordr(n: int, info: dict) -> dict:
 # ---------------------------------------------------------------------------
 # RH — espelho de colaboradores do Kairos (LEITURA)
 # ---------------------------------------------------------------------------
-# Quem escreve a tabela é o web_orcaview_V117 (.90), 12:40 em dias úteis. Este
+# Quem escreve a tabela é o web_orcaview_V118 (.90), 12:40 em dias úteis. Este
 # repo NÃO tem credencial do Kairos e não deve ganhar uma: aqui só se lê o
 # espelho, como no GET /ordens-servico/<nped>.
 
@@ -1666,7 +1666,7 @@ def rh_colaboradores():
     ``desatualizado=true`` diz que a carga do último 12:40 de dia útil não
     chegou — o dado ainda é servido (é o último bom conhecido), mas quem
     consome fica sabendo. Fonte: espelho ``kairos_colaboradores`` no Supabase,
-    escrito pelo web_orcaview_V117; esta API só lê.
+    escrito pelo web_orcaview_V118; esta API só lê.
     """
     empresa = (request.args.get('empresa') or '').strip().lower()
     if empresa and empresa not in COLAB_EMPRESAS:

@@ -1,6 +1,6 @@
 """situacao_pedidos -- Situacao dos Pedidos (view DDP) para a API 8077 e o MCP.
 
-**PORTE do nucleo puro de** ``web_orcaview_V117/backend/services/situacao_pedidos_service.py``.
+**PORTE do nucleo puro de** ``web_orcaview_V118/backend/services/situacao_pedidos_service.py``.
 Decisao D1 do plano ``docs/PLANO_SITUACAO_PEDIDOS_MCP.md`` (2026-08-24): as duas maquinas
 leem o MESMO HANA e rodam a MESMA logica; a copia e' mantida honesta por
 ``tests/test_situacao_pedidos_diffavel.py``, que compara funcao por funcao com o original

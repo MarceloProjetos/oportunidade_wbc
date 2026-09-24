@@ -3,6 +3,30 @@
 Mudanças notáveis deste projeto. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [2026-09-24] — F1 do PLANO_DX_AGENTE: CLAUDE.md so com o que e' verdade hoje
+
+So documentacao e comentario — nenhum comportamento muda.
+
+- **`CLAUDE.md`** (231 → 210 linhas): corrigidas as afirmacoes velhas — pip no **Python 3.14**
+  (a linha 168 ainda dizia 3.12 e contradizia a 202), agendador com **4 jobs** (nao so
+  oportunidades), os imports reais do `api.py`, "843 testes", "28 linhas", `run_wbc_*.bat`
+  (so existe o do painel), o servico `OrcaView-MCP`, a pasta `web_orcaview_V118`.
+  Acrescentados ao mapa os modulos que faltavam (`situacao_pedidos*`, `pedidos_bloqueados`
+  com as 3 copias, `wake_altservidor_ia` byte-identico, `extract_orcamentos_espelho`,
+  `retry`, `API_*.md`, `maintenance/`), linhas da tabela "Tarefa → ler" para Vendas BI,
+  `/pedidos/*`, RH e `/usuarios-ativos`, e os gotchas novos: a trava da suite (F0), o
+  `.gitignore _*.py`, os defaults do worker em dois configs, o `hdbcli` que derruba o
+  processo. **Regra nova: comentarios e docstrings em portugues** (D1 do plano).
+- **`docs/INCIDENTES.md`** (novo): a historia que saiu do CLAUDE.md (610 dias da .12, ciclo
+  #133, worker meio dia no 3.12, R$ do Power BI, `-1116`…), sem perder fato.
+- `web_orcaview_V117/` → `V118/` nos caminhos citados em comentario (`api`, `config`,
+  `monitoring`, `ordens_producao_sl`, `mcp_server`, `situacao_pedidos`, `sap_montagem_labels`,
+  `requirements.txt`, `API_RH_COLABORADORES.md`). Numeros de versao antigos (`V117.834`)
+  ficaram — sao historia.
+- README (badge e tabela 3.14, arvore com os ~15 arquivos que faltavam),
+  `deploy_update.bat` (comentario Python312), `install_wol_task.ps1` (sem o fallback do
+  Python312, desinstalado em 14/09), `run_wbc_painel.bat` (instalador certo).
+
 ## [2026-09-24] — F0 do PLANO_DX_AGENTE: a suite nao alcanca mais producao
 
 Plano novo: `docs/PLANO_DX_AGENTE.md` (o que facilita o trabalho do agente neste repo). Esta

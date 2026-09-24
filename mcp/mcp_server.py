@@ -598,7 +598,7 @@ def panorama_pedidos(campos: str = "resumo", limite: int = _PANORAMA_LIMITE_PADR
 
 
 # ──────────── Colaboradores (F5) — o espelho do quadro do Kairos ────────────
-# O espelho é gravado pelo web_orcaview_V117 (.90) às 12:40 em dias úteis; a API 8077
+# O espelho é gravado pelo web_orcaview_V118 (.90) às 12:40 em dias úteis; a API 8077
 # só lê, e estas tools só chamam a API. O filtro por setor e o teto de pessoas moram
 # AQUI, não no endpoint: são cuidados de conversa (caber no contexto do modelo, dar
 # ao usuário o setor certo quando ele erra o nome), não regra de negócio.

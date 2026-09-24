@@ -103,7 +103,7 @@ if (-not (Test-Path -LiteralPath $scriptPath)) {
 # muda de pasta. Rode este instalador de novo depois de qualquer troca de Python.
 $python = (Get-Command python.exe -ErrorAction SilentlyContinue).Source
 if (-not $python) {
-    $python = @('C:\Program Files\Python314\python.exe', 'C:\Program Files\Python312\python.exe') |
+    $python = @('C:\Program Files\Python314\python.exe') |
         Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 }
 if (-not $python -or -not (Test-Path -LiteralPath $python)) {

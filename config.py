@@ -50,7 +50,7 @@ EXECUTION_MODES = ('snapshot', 'insert')
 # underscore) — unlike the older "NPED".
 OS_SAP_VIEW_NAME_DEFAULT = 'VW_OS_INTEGRACAO'
 OS_TABLE_NAME_DEFAULT = 'vw_os_integracao'
-# Espelho do quadro de colaboradores do Kairos. Quem ESCREVE é o web_orcaview_V117
+# Espelho do quadro de colaboradores do Kairos. Quem ESCREVE é o web_orcaview_V118
 # (.90, 12:40 em dias úteis); aqui a tabela é só LIDA — este repo não tem, e não deve
 # ganhar, credencial do Kairos.
 COLAB_TABLE_NAME_DEFAULT = 'kairos_colaboradores'

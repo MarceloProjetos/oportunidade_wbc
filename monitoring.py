@@ -52,7 +52,7 @@ DISK_PCT_ALERT = 90.0  # or more than this used
 # Checks that ?checks= can select (system is always included, it is local/cheap).
 #
 # ⚠️ CROSS-REPO CONTRACT — these names are a PUBLIC API, not an internal detail.
-# The web app (web_orcaview_V117) sends them in `?checks=` from `sap_os_service.py`
+# The web app (web_orcaview_V118) sends them in `?checks=` from `sap_os_service.py`
 # (`CHECKS_ACEITOS` there mirrors this tuple), and since 2026-07-16 `collect_status`
 # answers **400** to an unknown name. So renaming/removing an entry here does not
 # degrade the web — it BREAKS it (the /status panel and the Mira assistant). Adding is

@@ -1,7 +1,7 @@
 @echo off
 REM ---------------------------------------------------------------------------
 REM Wrapper para o PAINEL da Integracao WBC -> SAP (python -m wbcpython dashboard).
-REM Registrado no NSSM como OrcaView-WBC-Painel (install_services.bat).
+REM Registrado no NSSM como OrcaView-WBC-Painel (install_wbc_services.bat).
 REM   - cwd = raiz do projeto (.env, state\wbc_tracking.db, logs\wbcpython.log)
 REM   - Python do venv se existir; senao, o do sistema
 REM   - host/porta vem do .env (PAINEL_HOST / PAINEL_PORTA; na .11: 0.0.0.0 / 8079)
