@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import pandas as pd
@@ -138,11 +138,12 @@ class SAPExtractor:
             logger.error('SAP HANA connection failed: %s', exc)
             return False
 
-    def execute_query(self, query: str) -> pd.DataFrame | None:
+    def execute_query(self, query: str, params: Sequence[Any] | None = None) -> pd.DataFrame | None:
+        """Run ``query`` (``?`` placeholders + ``params``; build both with ``sql_seguro.sql``)."""
         try:
             if not self.connection:
                 raise RuntimeError('Not connected to SAP HANA')
-            df = read_dbapi_query(query, self.connection)
+            df = read_dbapi_query(query, self.connection, params)
             logger.info('Query OK: %s rows', len(df))
             return df
         except Exception as exc:

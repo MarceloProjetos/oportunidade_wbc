@@ -19,11 +19,8 @@ def read_dbapi_query(
         params: placeholder values (parameterized query — prevents SQL injection).
 
     Note:
-        No caller passes ``params`` today (the last one, ``extract_wbc_arvore``, was
-        removed in the 2026-07-14 consolidation), so the parameterized branch is
-        unreachable. This is **deliberate**: it is the only door to a parameterized
-        query when the next ``WHERE x = ?`` shows up. Dropping it would save 3 lines
-        and remove the injection defense — not worth it.
+        ``SAPExtractor.execute_query`` passes ``params`` since 2026-09-24 (the OS pipeline
+        builds its queries with ``sql_seguro.sql(t"...")``).
     """
     cursor = connection.cursor()
     if params is None:

@@ -6,6 +6,39 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-24] — F5 do PLANO_DX_AGENTE: SQL do HANA com t-string
+
+⚠️ Vale no proximo deploy (API e agendador leem o HANA por aqui; o worker pelo `batched`).
+
+- **`sql_seguro.py`** (novo): `sql(t"...")` — primeira coisa do repo que so existe no
+  Python 3.14 (PEP 750). `{valor}` vira `?` + parametro (o driver manda o dado separado do
+  SQL); `{nome:ident}` cola identificador conferido por regex; `{n:int}` cola literal
+  inteiro onde o HANA nao aceita `?` (`LIMIT`); qualquer outro formato e' erro.
+  `nome_simples()` confere o `SAP_SCHEMA`. 17 testes (`tests/test_sql_seguro.py`).
+- **`SAPExtractor.execute_query(sql, params=None)`**: o parametro chega ao `cursor.execute`
+  (o `db_utils` ja aceitava; nenhum caller usava).
+- **Pipeline de OS** (`extract_ordens_servico_engenharia`): as 5 consultas em que o NPED
+  vem da URL passam a mandar o numero como **parametro**, nao colado no texto (antes era
+  `coerce_positive_int` + f-string — seguro por disciplina). Conferido **contra o HANA de
+  producao, so leitura**: `listar_pedidos_com_os(3)` → 3 linhas (o `LIMIT` literal),
+  `extract_os_to_dataframe(84425)` → 44 linhas, `diagnosticar_nped` e
+  `consultar_status_pedido` com o pedido certo.
+- **`situacao_pedidos_hana._schema()`**: o `SAP_SCHEMA` do `.env` entrava no SQL entre
+  aspas **sem validacao**; agora passa por `nome_simples` (invalido → `SAPIndisponivel`).
+- **`itertools.batched`** nos 3 lacos que fatiavam lote na mao (upsert e insert do
+  `SupabaseLoader`, situacoes do WBC em lotes de 1000). Teste novo do fatiamento real
+  (`tests/wbc/infrastructure/test_situacoes_em_lote.py`). ⚠️ O de situacoes nao foi rodado
+  contra o SQL Server do WBC: o `pymssql` so existe na .11.
+- CLAUDE.md: regra "valor de fora no SQL do HANA = `sql(t...)`" e a nota do
+  `python -m pdb -p <PID>` do 3.14 (anexar a processo vivo — nao exercitado ainda).
+
+**Ficaram como estao, de proposito**: Vendas BI e o conferidor (o ano ja e' `int()`, o schema
+ja e' validado e os testes cravam o texto do SQL — trocar seria churn); o `IN (...)` de
+municipios do `situacao_pedidos_hana` (inteiros vindos de `isdigit()`); `pedidos_bloqueados`
+(3 copias em 3 repos); `-{MESES_RETROATIVOS}` (constante do codigo, nao entrada).
+
+Suite: **1856 passed**, 0 falhas; `ruff check .` = 0.
+
 ## [2026-09-24] — F4 do PLANO_DX_AGENTE: uma decisao, um lugar
 
 ⚠️ Toca o worker, o painel, a API e o agendador — vale no proximo deploy (restart dos 5,

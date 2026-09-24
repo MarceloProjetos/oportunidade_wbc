@@ -20,6 +20,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal
+from itertools import batched
 from typing import Any
 
 import numpy as np
@@ -500,9 +501,9 @@ class SupabaseLoader:
             return False
 
         try:
-            for inicio in range(0, total, batch_size):
-                lote = data[inicio:inicio + batch_size]
-                num_lote = inicio // batch_size + 1
+            feitos = 0
+            for num_lote, tupla in enumerate(batched(data, batch_size), start=1):
+                lote = list(tupla)
                 with_retries(
                     lambda l=lote: self.client.table(table_name)
                     .upsert(l, on_conflict=on_conflict)
@@ -510,10 +511,8 @@ class SupabaseLoader:
                     what=f"upsert lote {num_lote} ('{table_name}')",
                     retry_on=_retry_se_transitorio,
                 )
-                logger.info(
-                    f"Lote {num_lote}: {len(lote)} registro(s) upsert "
-                    f"({min(inicio + batch_size, total)}/{total})"
-                )
+                feitos += len(lote)
+                logger.info(f"Lote {num_lote}: {len(lote)} registro(s) upsert ({feitos}/{total})")
             logger.info(f"{total} registro(s) gravados em '{table_name}'")
             return True
         except Exception as e:
@@ -617,18 +616,16 @@ class SupabaseLoader:
             return False
 
         try:
-            for inicio in range(0, total, batch_size):
-                lote = data[inicio:inicio + batch_size]
-                num_lote = inicio // batch_size + 1
+            feitos = 0
+            for num_lote, tupla in enumerate(batched(data, batch_size), start=1):
+                lote = list(tupla)
                 with_retries(
                     lambda l=lote: self.client.table(table_name).insert(l).execute(),
                     what=f"insert lote {num_lote} ('{table_name}')",
                     retry_on=_retry_se_transitorio,  # schema errors fail on the 1st try
                 )
-                logger.info(
-                    f"Lote {num_lote}: {len(lote)} registro(s) inseridos "
-                    f"({min(inicio + batch_size, total)}/{total})"
-                )
+                feitos += len(lote)
+                logger.info(f"Lote {num_lote}: {len(lote)} registro(s) inseridos ({feitos}/{total})")
             logger.info(f"{total} registro(s) inseridos com sucesso na tabela '{table_name}'")
             return True
         except Exception as e:

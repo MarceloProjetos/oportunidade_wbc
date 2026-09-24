@@ -1,9 +1,9 @@
 # Plano — DX do agente no ServidorIntegracaoSAP
 
-> **Status (24/09/2026): F0–F4 concluídas; F5 em andamento.** F0–F3 já estão NO AR na `.11`
-> (deploy do Marcelo às 15:0x, worker ciclando sem erro, 5 serviços de pé). F4 pede o próximo
-> deploy (restart dos 5). O `settings.json` proposto já foi copiado. Pendem com o Marcelo:
-> apagar `exports/`/logs de junho (D6) e conferir o A7 (`hdbcli`) na `.11`.
+> **Status (24/09/2026): F0–F5 concluídas — plano fechado do lado do agente.** F0–F3 NO AR na
+> `.11` (deploy às 15:0x, worker ciclando sem erro). **F4 e F5 pedem o próximo deploy** (restart
+> dos 5, parada do worker por arquivo — o `deploy_update.bat` faz). Pendem com o Marcelo:
+> esse deploy, apagar `exports/`/logs de junho (D6) e conferir o A7 (`hdbcli`) na `.11`.
 
 Objetivo: deixar o repo mais barato de entender e de mudar para um agente — sem mexer no
 que roda em produção na `.11` além do necessário.
@@ -143,7 +143,14 @@ cosmético.
 | `venda_comum._inteiro` (0→None) renomeado — há 5 `_inteiro` com semânticas diferentes | baixo | baixo | worker |
 | MCP: `annotations=_ANOTACAO_LEITURA` nas 9 tools antigas + helper de `limit` | baixo | baixo | MCP |
 
-### F5 — Python 3.14 de verdade · restart API/agendador · agente
+### F5 — Python 3.14 de verdade · restart API/agendador · agente — ✅ codada 24/09
+
+> `sql_seguro.sql(t"...")` + `execute_query(sql, params)`; as 5 consultas do pipeline de OS
+> (NPED da URL) viraram parâmetro — **conferidas só-leitura contra o HANA de produção** (LIMIT
+> literal ok, `?` ok). `SAP_SCHEMA` do `situacao_pedidos_hana` agora validado. `batched` nos 3
+> laços, com teste novo. ⚠️ Vendas BI **não** foi convertido: já é `int()` + schema validado e
+> os testes cravam o texto — seria churn. O `batched` das situações do WBC não rodou contra o
+> SQL Server (sem `pymssql` no desktop); está coberto por teste com espião.
 *Goal: SQL do HANA sem interpolação de valor, com o identificador validado.*
 
 - `SAPExtractor.execute_query(query, params=None)` — hoje não aceita parâmetros; o

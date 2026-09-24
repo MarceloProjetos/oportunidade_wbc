@@ -48,7 +48,8 @@ O pacote `wbcpython/` (ex-projeto WBCPython, importado em 2026-09-08) tem guia p
 | `windows_update.py` | Reboot pendente (winreg) + updates pendentes/último patch (COM via PowerShell, thread daemon + cache). **Porte** do homônimo do repo SAP_RDP — diffável |
 | `ordens_producao_sl.py` | Escrita em SAP nº 1: status de Ordem de Produção via Service Layer (REST). Nasce desligado (`OP_SL_ENABLED`). Irmão diffável de `web_orcaview_V118/backend/services/compras_sap_service.py` |
 | `wbcpython/` | Escrita em SAP nº 2 (o worker). `domain/` (máquina de estados do SitCode, sem I/O), `application/processar.py` (o caso de uso), `infrastructure/{service_layer,wbc_sql,hana}/`, `tracking/` (SQLite de acompanhamento), `host/worker.py` (APScheduler + trava), `dashboard/` (painel FastAPI+HTMX), `cli.py`, `safety.py` (travas). Imports absolutos `wbcpython.*` |
-| `sap_connection.py` · `db_utils.py` · `retry.py` | `SAPExtractor` (HANA via hdbcli) · `read_dbapi_query` · retry compartilhado |
+| `sap_connection.py` · `db_utils.py` · `retry.py` | `SAPExtractor` (HANA via hdbcli; `execute_query(sql, params)`) · `read_dbapi_query` · retry compartilhado |
+| `sql_seguro.py` | `sql(t"...")` (t-string, Python 3.14): `{valor}` vira `?` + parâmetro, `{nome:ident}` identificador conferido, `{n:int}` literal inteiro (LIMIT); `nome_simples()` para o `SAP_SCHEMA` |
 | `feriados_br.py` | Feriados nacionais BR até 2030 (o agendador pula) |
 | `wake_altservidor_ia.py` | Wake-on-LAN do `.90` (tarefa `OrcaView-WOL-AltservidorIA`, `install_wol_task.ps1`). **Byte-idêntico** a `web_orcaview_V118/tools/wake_altservidor_ia.py`, stdlib-only, Python 3.8+ |
 | `scripts/scheduled_execution.py` | Loop do agendador (APScheduler, janela 7-18, seg-sex) |
@@ -103,6 +104,9 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   Identificadores, logs e mensagens HTTP já são PT. Os `.ps1` são **ASCII de propósito**
   (PowerShell 5.1/BOM) — sem acentos; e o PowerShell escreve o stdout em **cp850**: quem lê
   saída de PS força `[Console]::OutputEncoding` na 1ª linha do script.
+- **SQL do HANA com valor vindo de fora** (URL, body, `.env`): monte com `sql(t"...")` do
+  `sql_seguro` e passe `execute_query(*sql(...))` — nunca f-string com o valor colado. Nome de
+  objeto (schema/view) vai como `{x:ident}` ou por `nome_simples`, porque não pode ser `?`.
 - **Arquivos-irmãos de outro repo não se reescrevem de um lado só** (nem `ruff --fix`):
   `ordens_producao_sl.py`, `windows_update.py`, `situacao_pedidos.py`,
   `sap_montagem_labels.py`, `wake_altservidor_ia.py`, `pedidos_bloqueados.py`.
@@ -188,6 +192,9 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   sem vínculo (`docs/wbc/RETOMADA.md`). Ver `wbcpython/host/parada.py`.
 - ⚠️ **`hdbcli` 2.29.25 no Python 3.14 derruba o processo (access violation) quando a conexão
   falha** — medido no desktop em 24/09/2026; na `.11` (pin 2.29.23) não conferido.
+- Processo travado na .11 (worker ou API sob o NSSM): o Python 3.14 anexa um depurador a um
+  processo VIVO — `python -m pdb -p <PID>` (PID pelo `Get-CimInstance` acima; precisa do mesmo
+  usuário ou de admin). **Não exercitado aqui ainda**: é leitura de estado, não pare nada por ele.
 
 ## Deploy
 

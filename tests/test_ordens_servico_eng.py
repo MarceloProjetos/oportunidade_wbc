@@ -25,6 +25,7 @@ def _set_supabase_env(monkeypatch):
 class _FakeSAP:
     """SAPExtractor falso que grava a query e devolve um DataFrame fixo."""
     last_query = None
+    last_params = None
 
     def __init__(self, *a, **k):
         pass
@@ -32,8 +33,9 @@ class _FakeSAP:
     def connect(self):
         return True
 
-    def execute_query(self, query):
+    def execute_query(self, query, params=None):
         _FakeSAP.last_query = query
+        _FakeSAP.last_params = params
         return pd.DataFrame({'N_PED': [84080], 'N_OP': [1]})
 
     def close(self):
@@ -47,10 +49,12 @@ def test_extract_query_uses_quoted_schema_and_int_nped(monkeypatch):
     df = mod.extract_os_to_dataframe(84080)
 
     assert df is not None and len(df) == 1
+    # Desde 24/09/2026 o NPED vai como PARÂMETRO (sql_seguro), não colado no texto.
     assert _FakeSAP.last_query == (
         'SELECT * FROM "SBOALTAMIRAPROD"."VW_OS_INTEGRACAO" '
-        'WHERE "N_PED" = 84080'
+        'WHERE "N_PED" = ?'
     )
+    assert _FakeSAP.last_params == [84080]
 
 
 def test_extract_accepts_numeric_string(monkeypatch):
@@ -58,7 +62,8 @@ def test_extract_accepts_numeric_string(monkeypatch):
     monkeypatch.setattr(mod, 'SAPExtractor', _FakeSAP)
 
     mod.extract_os_to_dataframe('84080')
-    assert _FakeSAP.last_query.endswith('WHERE "N_PED" = 84080')
+    assert _FakeSAP.last_query.endswith('WHERE "N_PED" = ?')
+    assert _FakeSAP.last_params == [84080]          # a string virou int antes de sair
 
 
 @pytest.mark.parametrize('bad', [
@@ -129,7 +134,7 @@ def _fake_sap_diag(os_statuses, pedido_rows):
         def connect(self):
             return True
 
-        def execute_query(self, query):
+        def execute_query(self, query, params=None):
             if 'OWOR' in query:
                 return pd.DataFrame({'Status': os_statuses})
             return None if pedido_rows is None else pd.DataFrame(pedido_rows)
@@ -401,7 +406,7 @@ def _fake_sap_lista(rows):
         def connect(self):
             return True
 
-        def execute_query(self, query):
+        def execute_query(self, query, params=None):
             assert 'MAX(T1."CANCELED")' in query and 'COUNT(T1."DocEntry")' in query
             return pd.DataFrame(rows)
 

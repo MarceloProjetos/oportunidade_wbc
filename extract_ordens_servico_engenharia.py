@@ -45,6 +45,7 @@ from pipeline_core import (
     prepare_data,
 )
 from sap_connection import SAPExtractor
+from sql_seguro import sql
 
 # UTF-8 console on Windows
 try:
@@ -98,9 +99,8 @@ def extract_os_to_dataframe(nped: object) -> pd.DataFrame | None:
         return None
 
     base = build_view_query(settings.os_sap_view_name, settings.sap_schema)
-    # nped_int is a validated integer → safe to interpolate. VW_OS_INTEGRACAO uses "N_PED".
-    query = f'SELECT * FROM {base} WHERE "N_PED" = {nped_int}'
-    df = sap.execute_query(query)
+    # VW_OS_INTEGRACAO uses "N_PED". The NPED goes as a bind parameter (sql_seguro).
+    df = sap.execute_query(*sql(t'SELECT * FROM {base:ident} WHERE "N_PED" = {nped_int}'))
     sap.close()
 
     if df is None:
@@ -145,9 +145,9 @@ def diagnosticar_nped(nped: object) -> dict:
 
     base = build_view_query('OWOR', settings.sap_schema)  # "SCHEMA"."OWOR"
     # GROUP BY → only the DISTINCT statuses (few rows), instead of one row per OP.
-    df = sap.execute_query(
-        f'SELECT "Status" FROM {base} WHERE "OriginNum" = {nped_int} GROUP BY "Status"'
-    )
+    df = sap.execute_query(*sql(
+        t'SELECT "Status" FROM {base:ident} WHERE "OriginNum" = {nped_int} GROUP BY "Status"'
+    ))
     if df is None:
         sap.close()
         return {'erro': 'consulta'}
@@ -155,9 +155,9 @@ def diagnosticar_nped(nped: object) -> dict:
     # Pedido (ORDR), on the SAME connection — best-effort: a failure here does not
     # invalidate the OS diagnosis.
     ordr = build_view_query('ORDR', settings.sap_schema)  # "SCHEMA"."ORDR"
-    df_ped = sap.execute_query(
-        f'SELECT "CANCELED", "DocStatus" FROM {ordr} WHERE "DocNum" = {nped_int}'
-    )
+    df_ped = sap.execute_query(*sql(
+        t'SELECT "CANCELED", "DocStatus" FROM {ordr:ident} WHERE "DocNum" = {nped_int}'
+    ))
     sap.close()
 
     statuses = [str(s).strip() for s in df['Status'].tolist()] if len(df) else []
@@ -235,10 +235,10 @@ def consultar_status_pedido(nped: object) -> dict | None:
         return None
 
     ordr = build_view_query('ORDR', settings.sap_schema)  # "SCHEMA"."ORDR"
-    df_ped = sap.execute_query(
-        f'SELECT "CANCELED", "DocStatus", "CardCode", "CardName", "DocDate", '
-        f'"DocTotal", "DocCur" FROM {ordr} WHERE "DocNum" = {nped_int}'
-    )
+    df_ped = sap.execute_query(*sql(
+        t'SELECT "CANCELED", "DocStatus", "CardCode", "CardName", "DocDate", '
+        t'"DocTotal", "DocCur" FROM {ordr:ident} WHERE "DocNum" = {nped_int}'
+    ))
     sap.close()
     if df_ped is None:
         logger.error("Falha ao consultar o status do pedido %s na ORDR", nped_int)
@@ -313,20 +313,19 @@ def listar_pedidos_com_os(limit: int = 30) -> list[dict] | None:
 
     owor = build_view_query('OWOR', settings.sap_schema)  # "SCHEMA"."OWOR"
     ordr = build_view_query('ORDR', settings.sap_schema)  # "SCHEMA"."ORDR"
-    # limit_int is a validated integer → safe to interpolate. OriginNum > 0 discards
-    # manual OPs (no originating pedido). MAX(DocEntry) sorts by the newest OS.
-    query = (
-        f'SELECT T0."OriginNum" AS "NPED", MAX(T1."CardName") AS "Cliente", '
-        f'MAX(T0."DocNum") AS "OS", MAX(T0."PostDate") AS "Data", '
-        f'MAX(T1."CANCELED") AS "Canceled", MAX(T1."DocStatus") AS "DocStatus", '
-        f'COUNT(T1."DocEntry") AS "PedidoExiste" '
-        f'FROM {owor} T0 LEFT JOIN {ordr} T1 ON T1."DocNum" = T0."OriginNum" '
-        f"WHERE T0.\"OriginNum\" > 0 AND T0.\"Status\" <> 'C' "
-        f'GROUP BY T0."OriginNum" '
-        f'ORDER BY MAX(T0."DocEntry") DESC '
-        f'LIMIT {limit_int}'
-    )
-    df = sap.execute_query(query)
+    # OriginNum > 0 discards manual OPs (no originating pedido). MAX(DocEntry) sorts by
+    # the newest OS. LIMIT takes no bind parameter in HANA → validated int literal (:int).
+    df = sap.execute_query(*sql(
+        t'SELECT T0."OriginNum" AS "NPED", MAX(T1."CardName") AS "Cliente", '
+        t'MAX(T0."DocNum") AS "OS", MAX(T0."PostDate") AS "Data", '
+        t'MAX(T1."CANCELED") AS "Canceled", MAX(T1."DocStatus") AS "DocStatus", '
+        t'COUNT(T1."DocEntry") AS "PedidoExiste" '
+        t'FROM {owor:ident} T0 LEFT JOIN {ordr:ident} T1 ON T1."DocNum" = T0."OriginNum" '
+        t"WHERE T0.\"OriginNum\" > 0 AND T0.\"Status\" <> 'C' "
+        t'GROUP BY T0."OriginNum" '
+        t'ORDER BY MAX(T0."DocEntry") DESC '
+        t'LIMIT {limit_int:int}'
+    ))
     sap.close()
 
     if df is None:

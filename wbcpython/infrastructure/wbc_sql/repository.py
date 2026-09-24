@@ -23,6 +23,7 @@ import logging
 from collections.abc import Iterable, Sequence
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from itertools import batched
 from typing import Any, Protocol
 
 from sqlalchemy import Engine, bindparam, create_engine, text
@@ -290,10 +291,7 @@ class RepositorioOrcamentosWbcSql:
         silêncio.
         """
         situacoes: dict[str, tuple[int, str]] = {}
-        for inicio in range(0, len(orcnums), TAMANHO_DO_LOTE):
-            lote = tuple(orcnums[inicio : inicio + TAMANHO_DO_LOTE])
-            if not lote:
-                continue
+        for lote in batched(orcnums, TAMANHO_DO_LOTE):
             linhas = self._executar(
                 queries.SITUACOES_EM_LOTE, expandir=("orcnums",), orcnums=list(lote)
             )

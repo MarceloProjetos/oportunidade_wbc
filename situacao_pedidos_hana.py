@@ -36,6 +36,7 @@ import sap_montagem_labels
 from config import get_settings
 from sap_connection import connect_sap_hana
 from situacao_pedidos import _MAX_LINHAS, ValidationError
+from sql_seguro import nome_simples
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +159,12 @@ def _schema() -> str:
             "Consulta ao SAP não configurada (faltam SAP_HOST/SAP_USER/SAP_PASSWORD).")
     if not s.sap_schema:
         raise SAPIndisponivel("Consulta ao SAP não configurada (falta SAP_SCHEMA).")
-    return s.sap_schema
+    # O schema vem do .env e entra no SQL como "{schema}" (nome de objeto não é parâmetro):
+    # conferido pela mesma regra do resto do repo antes de virar texto de consulta.
+    try:
+        return nome_simples(s.sap_schema, what="SAP_SCHEMA")
+    except ValueError as e:
+        raise SAPIndisponivel(f"SAP_SCHEMA inválido no .env: {e}") from e
 
 
 def _conectar():
