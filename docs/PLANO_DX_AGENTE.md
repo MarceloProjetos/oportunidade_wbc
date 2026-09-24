@@ -1,9 +1,11 @@
 # Plano — DX do agente no ServidorIntegracaoSAP
 
-> **Status (24/09/2026): F0–F5 concluídas — plano fechado do lado do agente.** F0–F3 NO AR na
-> `.11` (deploy às 15:0x, worker ciclando sem erro). **F4 e F5 pedem o próximo deploy** (restart
-> dos 5, parada do worker por arquivo — o `deploy_update.bat` faz). Pendem com o Marcelo:
-> esse deploy, apagar `exports/`/logs de junho (D6) e conferir o A7 (`hdbcli`) na `.11`.
+> **Status (24/09/2026): ENCERRADO — F0–F5 NO AR na `.11`.** Segundo deploy às 15:3x;
+> conferido pelo MCP: worker ciclo #3108 (2063 orçamentos, 0 erro), agendador `sucesso`,
+> `listar_pedidos_com_os` (LIMIT literal), `detalhe_pedido_os` e `situacao_pedido` (NPED como
+> parâmetro, `SAP_SCHEMA` validado) respondendo certo. Não exercitadas em produção: as duas
+> rotas de carga completa do F4 (escrevem no Supabase). Sobram com o Marcelo: apagar
+> `exports/`/logs de junho (D6) e conferir o A7 (`hdbcli`) na `.11`.
 
 Objetivo: deixar o repo mais barato de entender e de mudar para um agente — sem mexer no
 que roda em produção na `.11` além do necessário.
