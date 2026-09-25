@@ -71,7 +71,7 @@ def _lote() -> list[dict[str, Any]]:
     """Cinco pedidos com contagens conhecidas -- e' o lote das asserções de KPI.
 
     2 travados no financeiro (um deles ha 48 dias, em aberto), 2 na producao,
-    1 na entrega, 1 atrasado em aberto, 1 fechado que foi entregue atrasado.
+    2 na entrega (a 83832 espera a producao), 1 atrasado em aberto, 1 fechado que foi entregue atrasado.
     """
     return [
         _row(),  # tudo liberado, aberto
@@ -145,6 +145,23 @@ def test_pedido_fechado_nao_conta_como_atrasado():
     assert p["atrasado_sap"] is True
 
 
+def test_entrega_espera_a_producao():
+    """Regra do dono (25/09/2026): a Entrega nunca sai liberada antes da Producao.
+
+    O SAP marca Entrega "Liberada" com a Producao ainda bloqueada; o pedido espera e as
+    duas saem juntas. O valor cru fica em ``entrega_sap``.
+    """
+    p = sp.normalizar([_row(Producao="Bloqueada", Entrega="Liberada")], hoje=HOJE)[0]
+    assert p["entrega"] == "Bloqueado"
+    assert p["entrega_sap"] == "Liberado"
+
+    q = sp.normalizar([_row(Producao="Liberada", Entrega="Liberada")], hoje=HOJE)[0]
+    assert q["entrega"] == q["entrega_sap"] == "Liberado"
+
+    r = sp.normalizar([_row(Producao="Liberada", Entrega="Bloqueada")], hoje=HOJE)[0]
+    assert r["entrega"] == "Bloqueado"
+
+
 def test_kpis_e_tabela_derivam_da_mesma_lista():
     """A invariante da conferencia: divergencia entre card e tabela e' bug."""
     d = sp.montar_dashboard(_lote())
@@ -156,7 +173,7 @@ def test_kpis_contam_cada_etapa():
     k = sp.montar_dashboard(_lote())["kpis"]
     assert k["financeiro_bloqueado"] == 3
     assert k["producao_bloqueada"] == 2
-    assert k["entrega_bloqueada"] == 1
+    assert k["entrega_bloqueada"] == 2
     assert k["atrasados"] == 1  # o fechado com Atrasado='S' NAO entra
 
 
@@ -240,7 +257,7 @@ def test_filtrar_bloqueio_por_etapa():
     pedidos = sp.normalizar(_lote(), hoje=HOJE)
     assert len(sp.filtrar_bloqueio(pedidos, "financeiro")) == 3
     assert len(sp.filtrar_bloqueio(pedidos, "producao")) == 2
-    assert len(sp.filtrar_bloqueio(pedidos, "entrega")) == 1
+    assert len(sp.filtrar_bloqueio(pedidos, "entrega")) == 2
 
 
 def test_filtrar_bloqueio_nenhum_e_o_complemento_de_qualquer():

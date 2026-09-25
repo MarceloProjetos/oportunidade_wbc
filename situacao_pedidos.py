@@ -235,6 +235,13 @@ def _pedido(r: dict[str, Any], hoje: date) -> dict[str, Any]:
     atrasado_sap = _flag(r.get("Atrasado"))
     fechado = status.casefold() == "fechado"
     financeiro = _status(r.get("Financeiro"))
+    # Delivery is never released before production (owner, 2026-09-25): SAP can
+    # flag Entrega "Liberada" while Producao is still blocked, and consumers read
+    # it as "released". Such an order WAITS and both go out together once
+    # production is released. The raw value stays in ``entrega_sap``.
+    producao = _status(r.get("Producao"))
+    entrega_sap = _status(r.get("Entrega"))
+    entrega = "Bloqueado" if producao == "Bloqueado" else entrega_sap
     # Finance-release aging: counted from the ORDER date (not the delivery
     # window). A closed order never alarms — same rationale as ``atrasado``.
     dias_desde_pedido = _dias_desde(r.get("Data_Pedido"), hoje)
@@ -269,8 +276,9 @@ def _pedido(r: dict[str, Any], hoje: date) -> dict[str, Any]:
             "dias_desde_pedido": dias_desde_pedido,
             "fin_liberacao_atrasada": fin_liberacao_atrasada,
             "sinal": _flag(r.get("Sinal")),
-            "producao": _status(r.get("Producao")),
-            "entrega": _status(r.get("Entrega")),
+            "producao": producao,
+            "entrega": entrega,
+            "entrega_sap": entrega_sap,
             "data_entrega": r.get("Data_Entrega"),
             "prazo_entrega": (r.get("Prazo_Entrega") or "").strip(),
             # Aging: window end as a real date + days since then (positive = past

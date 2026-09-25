@@ -142,7 +142,7 @@ def test_lista_sem_filtro_devolve_o_recorte_inteiro(client):
     assert b['total_no_recorte'] == 4
     assert b['total_filtrado'] == 4
     assert b['kpis'] == {'total': 4, 'atrasados': 0, 'financeiro_bloqueado': 2,
-                         'producao_bloqueada': 2, 'entrega_bloqueada': 1}
+                         'producao_bloqueada': 2, 'entrega_bloqueada': 2}
     assert b['cache_idade_s'] == 12.3
     assert b['gerado_em']
 
@@ -184,7 +184,7 @@ def test_bloqueio_qualquer_pega_as_tres_etapas(client):
 
 
 def test_bloqueio_por_etapa(client):
-    for etapa, esperado in (('financeiro', 2), ('producao', 2), ('entrega', 1)):
+    for etapa, esperado in (('financeiro', 2), ('producao', 2), ('entrega', 2)):
         b = client.get(f'/pedidos/situacao?bloqueio={etapa}').get_json()
         assert b['total_filtrado'] == esperado, etapa
 

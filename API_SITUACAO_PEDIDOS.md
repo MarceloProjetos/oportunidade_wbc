@@ -446,7 +446,7 @@ errado. Se precisar dele, peça `campos=completo`.
 As três etapas (`financeiro`, `producao`, `entrega`) trazem `"Liberado"`, `"Bloqueado"`
 ou — em pedido cancelado no SAP — `"Cancelado"` (2.2).
 
-### 6.2 Perfil `completo` — 36 campos
+### 6.2 Perfil `completo` — 37 campos
 
 | Campo | Tipo | O que é |
 | --- | --- | --- |
@@ -459,7 +459,8 @@ ou — em pedido cancelado no SAP — `"Cancelado"` (2.2).
 | `pymnt_group` | str | Condição de pagamento **por extenso**. Ex.: `30% SINAL / 20% ENTREGA / 30% 45DDL` |
 | **`financeiro`** | str | `"Liberado"` \| `"Bloqueado"` — ver 2.4 |
 | **`producao`** | str | `"Liberado"` \| `"Bloqueado"` |
-| **`entrega`** | str | `"Liberado"` \| `"Bloqueado"` |
+| **`entrega`** | str | `"Liberado"` \| `"Bloqueado"`. **A Entrega nunca vem liberada antes da Produção** (desde 25/09/2026): se `producao` está `"Bloqueado"`, `entrega` também vem, e as duas liberam juntas |
+| `entrega_sap` | str | O valor **cru** da Entrega no SAP, sem a regra acima. É o único lugar onde aparece "Entrega liberada com Produção bloqueada" |
 | `sinal` | bool | O pedido exige sinal |
 | `ddo` | bool | Condição 100% DDP, **sem** sinal |
 | `integrar` | bool | Marcado para integração |
