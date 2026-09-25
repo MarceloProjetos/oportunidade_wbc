@@ -28,6 +28,8 @@ Plano: `docs/PLANO_DATAS_LIBERACAO_NF.md`.
 - **Entrega nunca liberada antes da Producao** (`situacao_pedidos._pedido`, com a web):
   `entrega` segue `producao` quando esta bloqueada; o valor cru fica em `entrega_sap`.
 - 20 testes novos (o da descricao MCP e' pulado no desktop, que tem mcp 2.x; roda na .11).
+- **`API_SITUACAO_PEDIDOS_NOVOS_CAMPOS.md`** (novo): guia para a equipe consumidora — campos,
+  tipos, o que parar de usar, regras, exemplos em TS/Python/JS e casos reais para testar.
 
 ## [2026-09-25] — Vendas BI: vendedor que sumiu do mês deixa de ficar na série
 

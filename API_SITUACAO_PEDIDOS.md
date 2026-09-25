@@ -14,6 +14,9 @@ vai** (§2.7):
 
 As duas leem exatamente a mesma coisa; a MCP é uma camada fina sobre a REST.
 
+> **Novidade de 25/09/2026:** data e hora reais de liberação e a primeira nota fiscal.
+> Guia de atualização: [`API_SITUACAO_PEDIDOS_NOVOS_CAMPOS.md`](API_SITUACAO_PEDIDOS_NOVOS_CAMPOS.md).
+
 > Os endpoints de **Ordens de Serviço** (`/ordens-servico/...`) e de **Ordens de
 > Produção** (`/ordens-producao/...`) são outra coisa e estão em `API_OS_INTEGRACAO.md` e
 > `API_ORDENS_PRODUCAO.md`.
@@ -180,6 +183,9 @@ Entrega têm sempre o mesmo status no SAP**, então `lib_entrega_em` é igual a
 Quando não dá para afirmar a hora (pedido sem histórico, sinal quitado por outro
 caminho — 6 de 274 hoje), o campo vem **`null`**. Não caia de volta em `data_lib_prod`
 para preencher: ela é uma estimativa, não um fato.
+
+Passo a passo para atualizar o seu projeto, com tipos e exemplos:
+[`API_SITUACAO_PEDIDOS_NOVOS_CAMPOS.md`](API_SITUACAO_PEDIDOS_NOVOS_CAMPOS.md).
 
 ---
 
