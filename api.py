@@ -1257,6 +1257,20 @@ def _aplicar_endereco(pedidos: list, linhas: list) -> None:
         p['entrega_endereco'] = sit_ped_hana.endereco_entrega_efetivo(crua)
 
 
+def _aplicar_liberacao_e_nf(pedidos: list, linhas: list) -> None:
+    """Poe os 10 campos de liberacao real + primeira NF em cada pedido, **no lugar**.
+
+    Mesmo desenho do :func:`_aplicar_endereco` (e fora do nucleo portado pelo mesmo
+    motivo): casa por ``DocEntry`` e pedido sem linha crua recebe as MESMAS chaves, com
+    ``None`` ("nao foi possivel saber"). So o perfil ``completo`` os mostra — o ``resumo``
+    corta para ``CAMPOS_RESUMO``. Plano: ``docs/PLANO_DATAS_LIBERACAO_NF.md``.
+    """
+    por_docentry = {r.get('DocEntry'): r for r in linhas}
+    for p in pedidos:
+        crua = por_docentry.get(p.get('doc_entry')) or {}
+        p.update(sit_ped_hana.liberacao_e_nf(crua))
+
+
 def _resumir(pedidos: list) -> list:
     """``resumir()`` do nucleo + os 3 campos de entrega, ja resolvidos.
 
@@ -1287,6 +1301,7 @@ def _situacao_recorte() -> tuple[dict, list]:
     linhas = sit_ped_hana.fetch_status_pedidos(recarregar=_flag_query('recarregar'))
     dashboard = sit_ped.montar_dashboard(linhas)
     _aplicar_endereco(dashboard['pedidos'], linhas)
+    _aplicar_liberacao_e_nf(dashboard['pedidos'], linhas)
     return dashboard, sit_ped.com_alerta(dashboard['pedidos'])
 
 
@@ -1516,6 +1531,9 @@ def _pedido_cancelado_ordr(n: int, info: dict) -> dict:
         logger.warning("[SIT_PED] endereco do pedido cancelado %s indisponivel: %s", n, exc)
     pedido = sit_ped.com_alerta(sit_ped.normalizar([crua]))[0]
     _aplicar_endereco([pedido], [{**crua, 'DocEntry': pedido.get('doc_entry')}])
+    # Cancelado nao passa pela view nem pelas consultas de liberacao: as chaves entram
+    # nulas (primeira_nf_emitida = false), para o formato ser o mesmo do caminho da view.
+    _aplicar_liberacao_e_nf([pedido], [])
     return pedido
 
 

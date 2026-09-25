@@ -38,6 +38,17 @@ class _Cursor:
             cols, linhas = ["FldValue", "Descr"], self._c.udf
         elif '"OCNT"' in sql:
             cols, linhas = ["AbsId", "Name"], self._c.ocnt
+        # As 4 consultas da liberacao real + NF (PLANO_DATAS_LIBERACAO_NF). Vazias por
+        # padrao: sem isso cairiam no ``else`` e receberiam as linhas da view.
+        elif '"ADOC"' in sql:
+            cols, linhas = ["DocEntry", "UpdateDate", "UpdateTS", "U_INO_PedLib"], self._c.adoc
+        elif '"DPI1"' in sql:
+            cols, linhas = ["BaseEntry", "DocEntry", "DocStatus", "CANCELED"], self._c.odpi
+        elif '"RCT2"' in sql:
+            cols, linhas = ["DocEntry", "CreateDate", "CreateTS", "Canceled"], self._c.rct
+        elif "VW_EVOL_ORCAMENTO_ALT" in sql:
+            cols, linhas = (["NumDoc", "DataCriacaoPN", "Representante", "NumNF", "DataNF",
+                             "Serial"], self._c.evol)
         else:
             cols, linhas = self._c.colunas, self._c.linhas
         self.description = [(c,) for c in cols]
@@ -54,12 +65,16 @@ class _ConexaoFalsa:
     """HANA de mentira. Guarda os SQLs recebidos para as asserções de contrato."""
 
     def __init__(self, *, colunas=None, linhas=None, total=None, udf=None, erro_em=None,
-                 ocnt=None):
+                 ocnt=None, adoc=None, odpi=None, rct=None, evol=None):
         self.colunas = colunas or []
         self.linhas = linhas or []
         self.total = total if total is not None else len(self.linhas)
         self.udf = udf or []
         self.ocnt = ocnt or []
+        self.adoc = adoc or []
+        self.odpi = odpi or []
+        self.rct = rct or []
+        self.evol = evol or []
         self.erro_em = erro_em
         self.sqls: list[str] = []
         self.params: list[tuple] = []
@@ -203,7 +218,8 @@ def test_fecha_conexao_e_cursor(monkeypatch):
     c = _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS, linhas=[_linha()]))
     hana.fetch_status_pedidos()
     assert c.fechada is True
-    assert c.cursores_fechados == 2  # o COUNT e o SELECT
+    # COUNT + SELECT + ADOC + DPI1 + VW_EVOL (o RCT2 so vai quando ha ODPI).
+    assert c.cursores_fechados == 5
 
 
 # --- cache ------------------------------------------------------------------
@@ -577,3 +593,141 @@ def test_as_chaves_do_endereco_sao_sempre_as_mesmas():
     assert cheio == {"fonte", "difere_do_ponto_de_entrega", "logradouro", "numero",
                      "complemento", "bairro", "cidade", "uf", "cep", "pais",
                      "municipio", "linha", "ponto_entrega"}
+
+
+# --- liberacao real + primeira NF (PLANO_DATAS_LIBERACAO_NF) ----------------
+
+def _m(dia: int, hhmmss: int) -> dt.datetime:
+    return hana.momento(dt.date(2026, 9, dia), hhmmss)
+
+
+def test_momento_junta_data_e_hora_do_b1_com_fuso():
+    m = hana.momento(dt.datetime(2026, 9, 23), 165116)
+    assert (m.hour, m.minute, m.second) == (16, 51, 16)
+    assert m.tzinfo is not None
+    assert hana.momento(dt.date(2026, 9, 23), 80401).hour == 8
+    # Sem hora nao se inventa meia-noite.
+    assert hana.momento(dt.date(2026, 9, 23), None) is None
+    assert hana.momento(None, 165116) is None
+
+
+def test_ultima_liberacao_pega_a_passagem_para_s():
+    # 84428: bloqueado nas 3 primeiras versoes, liberado na 4a (23/09 16:51:16).
+    vs = [("N", _m(23, 163657)), ("N", _m(23, 164912)), ("S", _m(23, 165116)),
+          ("S", _m(24, 81945))]
+    assert hana.ultima_liberacao(vs) == _m(23, 165116)
+
+
+def test_ultima_liberacao_pedido_que_nasce_liberado():
+    assert hana.ultima_liberacao([("S", _m(10, 90000)), ("S", _m(11, 90000))]) == _m(10, 90000)
+
+
+def test_ultima_liberacao_vale_a_mais_recente_depois_de_rebloqueio():
+    vs = [("N", _m(1, 80000)), ("S", _m(2, 80000)), ("N", _m(3, 80000)), ("S", _m(4, 80000))]
+    assert hana.ultima_liberacao(vs) == _m(4, 80000)
+
+
+def test_ultima_liberacao_bloqueado_no_fim_ou_sem_historico_e_none():
+    assert hana.ultima_liberacao([("S", _m(2, 80000)), ("N", _m(3, 80000))]) is None
+    assert hana.ultima_liberacao([]) is None
+
+
+def test_sinal_reemitido_e_aberto_nao_esta_pago():
+    """84326: pagou o sinal em 02/09, ganhou ODPI nova em 22/09 e voltou a bloquear."""
+    odpis = [{"DocEntry": 2627, "DocStatus": "C", "CANCELED": "N"},
+             {"DocEntry": 2664, "DocStatus": "O", "CANCELED": "N"}]
+    assert hana.sinal_pago_em(odpis, {2627: [_m(2, 100000)]}) is None
+
+
+def test_sinal_pago_e_o_registro_mais_tardio_da_ultima_odpi():
+    odpis = [{"DocEntry": 10, "DocStatus": "C", "CANCELED": "N"},
+             {"DocEntry": 11, "DocStatus": "C", "CANCELED": "N"}]
+    rec = {10: [_m(1, 90000)], 11: [_m(5, 90000), _m(6, 143000), None]}
+    assert hana.sinal_pago_em(odpis, rec) == _m(6, 143000)
+
+
+def test_sinal_ignora_odpi_cancelada_e_sem_recebimento_e_none():
+    odpis = [{"DocEntry": 10, "DocStatus": "C", "CANCELED": "N"},
+             {"DocEntry": 11, "DocStatus": "C", "CANCELED": "Y"}]
+    assert hana.sinal_pago_em(odpis, {10: [_m(1, 90000)]}) == _m(1, 90000)
+    assert hana.sinal_pago_em(odpis, {}) is None
+    assert hana.sinal_pago_em([], {}) is None
+
+
+def _crua(**over: Any) -> dict:
+    base = {"Producao": "Liberada", "Sinal": "N",
+            "_LibFinEm": "2026-09-23T16:51:16-03:00", "_SinalPagoEm": None,
+            "_DataCriacaoPN": "2025-03-10", "_Representante": "Neto",
+            "_NfDocNum": 5729, "_NfNumeroFiscal": 32228, "_NfData": "2026-09-17"}
+    base.update(over)
+    return base
+
+
+def test_liberacao_sem_sinal_e_a_do_financeiro():
+    f = hana.liberacao_e_nf(_crua())
+    assert f["lib_producao_em"] == f["lib_entrega_em"] == "2026-09-23T16:51:16-03:00"
+
+
+def test_liberacao_com_sinal_e_o_mais_tardio_dos_dois():
+    f = hana.liberacao_e_nf(_crua(Sinal="S", _SinalPagoEm="2026-09-24T10:15:00-03:00"))
+    assert f["lib_producao_em"] == "2026-09-24T10:15:00-03:00"
+    g = hana.liberacao_e_nf(_crua(Sinal="S", _SinalPagoEm="2026-09-20T10:15:00-03:00"))
+    assert g["lib_producao_em"] == "2026-09-23T16:51:16-03:00"
+
+
+def test_liberacao_sem_todas_as_horas_ou_bloqueada_e_none():
+    assert hana.liberacao_e_nf(_crua(Sinal="S"))["lib_producao_em"] is None
+    assert hana.liberacao_e_nf(_crua(_LibFinEm=None))["lib_producao_em"] is None
+    assert hana.liberacao_e_nf(_crua(Producao="Bloqueada"))["lib_producao_em"] is None
+
+
+def test_primeira_nf_e_as_chaves_do_contrato():
+    cheio = hana.liberacao_e_nf(_crua())
+    vazio = hana.liberacao_e_nf({})
+    assert cheio["primeira_nf_emitida"] is True
+    assert vazio["primeira_nf_emitida"] is False
+    assert set(cheio) == set(vazio) == {
+        "lib_fin_em", "sinal_pago_em", "lib_producao_em", "lib_entrega_em",
+        "data_criacao_pn", "representante", "nf_doc_num", "nf_numero_fiscal",
+        "nf_data", "primeira_nf_emitida"}
+    assert all(v is None for k, v in vazio.items() if k != "primeira_nf_emitida")
+
+
+def _conexao_com_liberacao(**over):
+    kw = dict(
+        colunas=COLUNAS, linhas=[_linha(Financeiro="Liberado", Producao="Liberada")],
+        adoc=[(15118, dt.datetime(2026, 9, 23), 164912, "N"),
+              (15118, dt.datetime(2026, 9, 23), 165116, "S")],
+        odpi=[(15118, 2627, "C", "N")],
+        rct=[(2627, dt.datetime(2026, 9, 24), 101500, "N")],
+        evol=[(84260, dt.datetime(2025, 3, 10), "Neto  ", 5729,
+               dt.datetime(2026, 9, 17), 32228)])
+    kw.update(over)
+    return _ConexaoFalsa(**kw)
+
+
+def test_a_leitura_injeta_liberacao_e_nf_nas_linhas(monkeypatch):
+    c = _ligar(monkeypatch, _conexao_com_liberacao())
+    r = hana.fetch_status_pedidos()[0]
+    assert r["_LibFinEm"] == "2026-09-23T16:51:16-03:00"
+    assert r["_SinalPagoEm"] == "2026-09-24T10:15:00-03:00"
+    assert (r["_DataCriacaoPN"], r["_Representante"]) == ("2025-03-10", "Neto")
+    assert (r["_NfDocNum"], r["_NfNumeroFiscal"], r["_NfData"]) == (5729, 32228, "2026-09-17")
+    adoc = next(s for s in c.sqls if '"ADOC"' in s)
+    assert "\"ObjType\" = '17'" in adoc and "IN (15118)" in adoc
+    evol = next(s for s in c.sqls if "VW_EVOL_ORCAMENTO_ALT" in s)
+    assert "\"TipoDoc\" = '17'" in evol and "LEFT JOIN" in evol
+
+
+def test_historico_fora_do_ar_nao_derruba_a_situacao_nem_a_nf(monkeypatch):
+    _ligar(monkeypatch, _conexao_com_liberacao(erro_em='"ADOC"'))
+    r = hana.fetch_status_pedidos()[0]
+    assert r["_LibFinEm"] is None
+    assert r["_SinalPagoEm"] == "2026-09-24T10:15:00-03:00"
+    assert r["_NfDocNum"] == 5729
+
+
+def test_pedido_fora_da_view_de_orcamentos_fica_com_as_chaves_nulas(monkeypatch):
+    _ligar(monkeypatch, _conexao_com_liberacao(evol=[], adoc=[], odpi=[], rct=[]))
+    r = hana.fetch_status_pedidos()[0]
+    assert all(r[k] is None for k in hana.LIBERACAO_CHAVES)

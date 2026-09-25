@@ -35,7 +35,7 @@ normalização — não é um espelho, não é uma fila, não passa por banco in
 
 ---
 
-## 2. Antes de tudo: as sete armadilhas
+## 2. Antes de tudo: as oito armadilhas
 
 Leia esta seção inteira. Cada item aqui já custou caro para alguém.
 
@@ -154,6 +154,32 @@ pedido tem um local de entrega separado do cadastro" — é o mesmo selo da tela
 é comparação de cidade: dos 38 pedidos com o selo, 24 mudam de cidade e 14 são outro
 endereço na mesma cidade. E não tente comparar as cidades você mesmo — o SAP grava
 `'BELO HORIZONTE'` num campo e `'Belo Horizonte'` no outro.
+
+### 2.8 Quando foi liberado: use os campos `*_em`, **nunca** `data_lib_*` ⭐ (25/09/2026)
+
+`data_lib_fin`, `data_lib_prod` e `data_pagto` vêm da view do SAP e **nenhuma é o
+momento da liberação**:
+
+- `data_lib_prod` é **calculada**: a maior entre `data_lib_fin` e `data_pagto`, mais 3
+  dias corridos. Por isso caía em sábado, domingo e no futuro.
+- `data_lib_fin` é **digitada** à mão, e em 182 de 252 pedidos está 1 dia depois do real.
+- `data_pagto` é a **emissão** da Solicitação de Adiantamento (o sinal), paga ou não.
+
+Os campos **`lib_fin_em`**, **`sinal_pago_em`**, **`lib_producao_em`** e
+**`lib_entrega_em`** (perfil `completo`, §6.2) trazem **data e hora reais**, lidas do
+histórico de alterações do pedido e do registro do recebimento do sinal no SAP. Exemplo
+real, o pedido 84348: a view dizia Produção em 12/09 (um sábado); a liberação de verdade
+foi em **25/09 às 08:13**, quando o recebimento do sinal entrou no SAP.
+
+A regra que o SAP aplica, medida em 281 de 281 pedidos: **a Produção libera quando o
+Financeiro liberou e, se o pedido tem sinal, a ÚLTIMA Solicitação de Adiantamento está
+paga.** Sinal reemitido faz um pedido que já tinha pago voltar a bloquear. **Produção e
+Entrega têm sempre o mesmo status no SAP**, então `lib_entrega_em` é igual a
+`lib_producao_em`.
+
+Quando não dá para afirmar a hora (pedido sem histórico, sinal quitado por outro
+caminho — 6 de 274 hoje), o campo vem **`null`**. Não caia de volta em `data_lib_prod`
+para preencher: ela é uma estimativa, não um fato.
 
 ---
 
@@ -446,7 +472,7 @@ errado. Se precisar dele, peça `campos=completo`.
 As três etapas (`financeiro`, `producao`, `entrega`) trazem `"Liberado"`, `"Bloqueado"`
 ou — em pedido cancelado no SAP — `"Cancelado"` (2.2).
 
-### 6.2 Perfil `completo` — 37 campos
+### 6.2 Perfil `completo` — 47 campos
 
 | Campo | Tipo | O que é |
 | --- | --- | --- |
@@ -477,6 +503,16 @@ ou — em pedido cancelado no SAP — `"Cancelado"` (2.2).
 | `data_lib_fin` | str \| null | Quando o Financeiro liberou, ISO |
 | `data_lib_prod` | str \| null | ⚠️ **Não é o dia em que a Produção liberou.** A view do SAP a *calcula*: a maior entre `data_lib_fin` e `data_pagto`, **+ 3 dias corridos** — e nenhuma das duas é o momento real (`data_lib_fin` é digitada; `data_pagto` é a emissão do sinal). Por isso cai em sábado/domingo e pode estar no futuro. Não há, nesta API, a data real da liberação da Produção. ISO |
 | `data_pagto` | str \| null | ⚠️ **Não é a data do pagamento.** É a data de emissão da Solicitação de Adiantamento (sinal) no SAP, paga ou não. ISO |
+| **`lib_fin_em`** | str \| null | **Quando o Financeiro liberou, com hora** (ISO com fuso). Última passagem de bloqueado para liberado no histórico do pedido — ver 2.8 |
+| `sinal_pago_em` | str \| null | Quando o sinal ficou pago: o registro no SAP do recebimento que quitou a **última** Solicitação de Adiantamento. `null` sem sinal, com sinal em aberto ou reemitido |
+| **`lib_producao_em`** | str \| null | **Quando a Produção foi liberada, com hora.** O mais tardio entre `lib_fin_em` e `sinal_pago_em` (este só se o pedido tem sinal). `null` se a Produção está bloqueada ou se falta uma das horas |
+| **`lib_entrega_em`** | str \| null | Quando a Entrega foi liberada. **Igual a `lib_producao_em`**: o SAP não separa as duas |
+| `data_criacao_pn` | str \| null | Data de criação do cliente (PN) no SAP, ISO |
+| `representante` | str \| null | Representante do pedido na view de orçamentos do SAP. Quase sempre igual a `vendedor` (1 de 280 difere) |
+| `nf_doc_num` | int \| null | Número **interno** no SAP da **primeira** nota fiscal do pedido |
+| `nf_numero_fiscal` | int \| null | Número **da DANFE** dessa mesma nota — é o que está impresso no papel |
+| `nf_data` | str \| null | Data da primeira nota fiscal, ISO |
+| **`primeira_nf_emitida`** | bool | `true` quando a primeira nota fiscal do pedido já foi emitida |
 | `valor_total` | float | Valor do pedido |
 | `moeda` | str | Ex.: `"R$"` |
 | `vendedor` | str | Nome do vendedor |
@@ -498,8 +534,14 @@ ou — em pedido cancelado no SAP — `"Cancelado"` (2.2).
 | `montador` | str | Nome do montador; cai para o CNPJ se o cadastro não resolver |
 | `montador_cnpj` | str | **É a chave** do filtro `montador=` — o nome se repete |
 
-> **Datas:** todas as datas são `YYYY-MM-DD` (sem hora), exceto `gerado_em`, que é ISO
-> completo com fuso (`-03:00`). Campo sem valor vem **`null`**, nunca `""` nem `0`.
+> **Datas:** todas as datas são `YYYY-MM-DD` (sem hora), exceto `gerado_em` e os campos
+> terminados em **`_em`** (`lib_fin_em`, `sinal_pago_em`, `lib_producao_em`,
+> `lib_entrega_em`), que são ISO completo com fuso: `2026-09-25T08:13:35-03:00`. Campo sem
+> valor vem **`null`**, nunca `""` nem `0`.
+>
+> **Os campos da nota e do cliente** (`data_criacao_pn`, `representante`, `nf_*`) vêm da
+> view de orçamentos do SAP, que começa em 06/01/2025: pedido mais antigo vem com eles
+> `null` e `primeira_nf_emitida: false`.
 
 ---
 

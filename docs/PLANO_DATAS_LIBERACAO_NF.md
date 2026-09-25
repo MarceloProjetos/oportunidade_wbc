@@ -1,7 +1,8 @@
 # PLANO — Datas reais de liberação + dados de NF na API de Situação dos Pedidos
 
-**Status (25/09/2026):** **F0 concluída** (sonda só de leitura no HANA de produção, §3).
-Decisões do §6 fechadas pelo Marcelo (todas as recomendações). Próxima: F1. Nada codado.
+**Status (25/09/2026):** **F0, F1 e F2 concluídas e no `master`** — codado, testado e
+conferido contra o HANA de produção (0,82 s; hora real em 268 de 274). **Falta a F3:**
+restart da API na .11 (Marcelo) e a conferência ao vivo nos pedidos de referência.
 Artifact: <https://claude.ai/artifact/BFc4XFUoJtKd8A4Hk1uM6j>
 
 ## 0. O pedido, reescrito
@@ -89,7 +90,7 @@ paridade verde.
 - Nenhuma NF cancelada na `VW_EVOL`; `OINV.DocNum` não se repete (Serial sai por join simples).
 - Scripts: `f0.py`, `f0b.py`, `f0c.py`, `f0d.py` no scratchpad da sessão (descartáveis).
 
-### F1 — Consultas + regra pura · minha
+### F1 — Consultas + regra pura · ✅ concluída 25/09/2026
 Objetivo: a API sabe calcular os campos novos.
 - `situacao_pedidos_hana.py`: as 3 consultas de enriquecimento, por `DocEntry`, dentro do
   mesmo cache; falha nelas não derruba a rota (campos vêm `null`, com log).
@@ -97,15 +98,20 @@ Objetivo: a API sabe calcular os campos novos.
 - Testes com stub: só Financeiro, nasce liberado, sinal pago depois, re-bloqueio, sinal
   reemitido (ODPI nova aberta), sem histórico, várias notas, sem nota.
 
-### F2 — Contrato · minha
+### F2 — Contrato · ✅ concluída 25/09/2026
 Objetivo: o grupo lê os campos novos na API e na documentação.
 - Perfil `completo`: os 10 campos do §4. Campo sem valor = `null` ("não foi possível saber").
-- `API_SITUACAO_PEDIDOS.md` §6.2 + a tool MCP `situacao_pedido`.
+- `API_SITUACAO_PEDIDOS.md` §6.2 + armadilha §2.8 + a tool MCP `situacao_pedido`.
+- Conferido no HANA de produção com o código novo: 84428 → 23/09 16:51:16 (sem sinal);
+  84348 → Financeiro 08/09 15:06, sinal registrado **25/09 08:13** (a view dizia 12/09);
+  84326/84420 → `null` (sinal reemitido em aberto); 84080 → NF 5729 / DANFE 32228.
+- ⚠️ 84420 tem a 1ª NF emitida (25/09) com a Produção bloqueada — é o dado, não defeito.
+- O teste da tool MCP é pulado no desktop (mcp 2.x instalado); roda na .11 (mcp<2).
 
 ### F3 — No ar · Marcelo
 - `deploy_update.bat` na .11.
-- Conferência em 3 pedidos reais: 84428 (sem sinal, liberado 23/09 16:51), um com sinal pago
-  depois do Financeiro, 84080 (8 notas).
+- Conferência ao vivo na API: 84428 (sem sinal, 23/09 16:51), 84348 (sinal pago depois do
+  Financeiro, 25/09 08:13), 84080 (8 notas, DANFE 32228).
 - Aviso ao grupo com a lista de campos.
 
 ## 4. Campos novos (perfil `completo`)

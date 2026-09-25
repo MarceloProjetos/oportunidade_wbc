@@ -29,13 +29,14 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
 import sap_montagem_labels
 from config import get_settings
 from sap_connection import connect_sap_hana
-from situacao_pedidos import _MAX_LINHAS, ValidationError
+from situacao_pedidos import _MAX_LINHAS, ValidationError, now_br
 from sql_seguro import nome_simples
 
 logger = logging.getLogger(__name__)
@@ -281,6 +282,218 @@ def _injetar_municipios(conn, schema: str, linhas: list[dict[str, Any]]) -> None
     logger.info("[SIT_PED] %d municipios resolvidos na OCNT.", len(nomes))
 
 
+# ─────────────── Liberacao real + primeira NF (PLANO_DATAS_LIBERACAO_NF) ───────────────
+# As datas da view NAO sao liberacao: `Data_Lib_Prod` e' MAX(Data_Lib_Fin, Data_Pagto) + 3
+# dias corridos, `Data_Lib_Fin` e' digitada (+1 dia em 182 de 252) e `Data_Pagto` e' a
+# EMISSAO do sinal, nao o pagamento. Medido em 25/09/2026 nos 281 pedidos do recorte.
+#
+# A regra que o SAP aplica (281 de 281, zero excecao): Producao (= Entrega, sempre iguais)
+# liberada <=> Financeiro liberado E (sem sinal OU a ULTIMA Solicitacao de Adiantamento
+# nao cancelada esta fechada). Sinal reemitido re-bloqueia pedido que ja tinha pago.
+# Entao o momento real e' o mais tardio entre:
+#   - a ultima passagem de `U_INO_PedLib` de 'N' para 'S' no historico (ADOC);
+#   - o REGISTRO do recebimento que fechou a ultima ODPI (ORCT.CreateDate + CreateTS). A
+#     `DocDate` do recebimento e' contabil e vem retroativa (44 de 46 diferem).
+
+#: A view de orcamentos, a mesma do ``extract_orcamentos_espelho``. A linha do pedido e'
+#: ``TipoDoc = '17'``, com ``NumDoc`` = DocNum do pedido.
+VIEW_ORCAMENTOS = "VW_EVOL_ORCAMENTO_ALT"
+
+#: Chaves injetadas nas linhas cruas. Comecam com ``_`` porque nao sao colunas da view,
+#: como :data:`MUNICIPIO_CHAVES`. Existem sempre; ``None`` = "nao foi possivel saber".
+LIBERACAO_CHAVES = ("_LibFinEm", "_SinalPagoEm", "_DataCriacaoPN", "_Representante",
+                    "_NfDocNum", "_NfNumeroFiscal", "_NfData")
+
+
+def momento(data: Any, hhmmss: Any) -> datetime | None:
+    """Data + hora inteira ``HHMMSS`` do B1 (``UpdateTS``, ``CreateTS``) → datetime com fuso.
+
+    O B1 grava a hora a parte, como inteiro (``165116`` = 16:51:16), no fuso do servidor,
+    que e' o de Sao Paulo. Sem data ou sem hora devolve ``None``: meia-noite inventada
+    pareceria um dado.
+    """
+    if data is None or hhmmss is None:
+        return None
+    try:
+        ts = int(hhmmss)
+        h, m, s = ts // 10000, (ts // 100) % 100, ts % 100
+        base = data if isinstance(data, date) else date.fromisoformat(str(data)[:10])
+        return datetime(base.year, base.month, base.day, h, m, s, tzinfo=now_br().tzinfo)
+    except (TypeError, ValueError):
+        return None
+
+
+def ultima_liberacao(versoes: list[tuple[Any, datetime | None]]) -> datetime | None:
+    """Momento da ULTIMA passagem do Financeiro para liberado, pelo historico.
+
+    ``versoes`` = ``[(U_INO_PedLib, momento), ...]`` na ordem do ``LogInstanc``. Pedido
+    que ja nasce ``'S'`` conta a primeira versao (liberado desde a criacao). Pedido
+    re-bloqueado e liberado de novo (11 no recorte de 25/09) vale a liberacao mais
+    recente. Se a ultima versao do historico nao esta liberada, ``None``.
+    """
+    liberado_em, anterior = None, None
+    for pl, quando in versoes:
+        pl = str(pl or "").strip().upper()
+        if pl == "S" and anterior != "S":
+            liberado_em = quando
+        anterior = pl
+    return liberado_em if anterior == "S" else None
+
+
+def sinal_pago_em(odpis: list[dict[str, Any]],
+                  recebimentos: dict[int, list[datetime | None]]) -> datetime | None:
+    """Quando o sinal do pedido ficou pago, ou ``None``.
+
+    Vale so a ULTIMA Solicitacao de Adiantamento nao cancelada (maior ``DocEntry``):
+    as anteriores sao reemissoes do mesmo sinal, e uma nova aberta volta a bloquear o
+    pedido. Aberta → ``None``. Fechada → o registro mais tardio dos recebimentos dela.
+    """
+    vivas = [o for o in odpis if str(o.get("CANCELED") or "N").strip().upper() == "N"]
+    if not vivas:
+        return None
+    ultima = max(vivas, key=lambda o: int(o["DocEntry"]))
+    if str(ultima.get("DocStatus") or "").strip().upper() != "C":
+        return None
+    momentos = [m for m in recebimentos.get(int(ultima["DocEntry"]), []) if m is not None]
+    return max(momentos) if momentos else None
+
+
+def _iso(v: datetime | None) -> str | None:
+    return v.isoformat(timespec="seconds") if v is not None else None
+
+
+def _int(v: Any) -> int | None:
+    try:
+        return int(v) if v is not None and str(v).strip() != "" else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _injetar_liberacao_e_nf(conn, schema: str, linhas: list[dict[str, Any]]) -> None:
+    """Grava :data:`LIBERACAO_CHAVES` nas linhas cruas: 3 consultas para o recorte inteiro.
+
+    Mesmo desenho do :func:`_injetar_municipios`: mesma conexao, sem cache proprio (viaja
+    nas linhas, que ja tem o de 120 s) e **best-effort por consulta** — o historico fora
+    do ar nao derruba a Situacao nem apaga a NF. Custo medido em 25/09: ~1,0 s no recorte
+    de 281 pedidos.
+
+    As listas do ``IN`` sao montadas com ``int()`` em cada elemento, como no municipio.
+    """
+    for r in linhas:
+        for k in LIBERACAO_CHAVES:
+            r[k] = None
+    entries = sorted({e for e in (_int(r.get("DocEntry")) for r in linhas) if e is not None})
+    docnums = sorted({n for n in (_int(r.get("DocNum")) for r in linhas) if n is not None})
+    por_entry = {_int(r.get("DocEntry")): r for r in linhas}
+    if not entries:
+        return
+    in_entries = ",".join(str(e) for e in entries)
+
+    # 1) Financeiro: historico do pedido (ADOC, ObjType 17).
+    try:
+        versoes: dict[int, list[tuple[Any, datetime | None]]] = {}
+        for h in _linhas(conn,
+                         f'SELECT "DocEntry", "UpdateDate", "UpdateTS", "U_INO_PedLib" '
+                         f'FROM "{schema}"."ADOC" WHERE "ObjType" = \'17\' '
+                         f'AND "DocEntry" IN ({in_entries}) '
+                         f'ORDER BY "DocEntry", "LogInstanc"'):
+            versoes.setdefault(int(h["DocEntry"]), []).append(
+                (h.get("U_INO_PedLib"), momento(h.get("UpdateDate"), h.get("UpdateTS"))))
+        for e, vs in versoes.items():
+            if e in por_entry:
+                por_entry[e]["_LibFinEm"] = _iso(ultima_liberacao(vs))
+    except Exception as e:
+        logger.warning("[SIT_PED] historico (ADOC) indisponivel (%s) — seguindo sem.", e)
+
+    # 2) Sinal: ultima ODPI do pedido e os recebimentos dela (RCT2 InvType 203 → ORCT).
+    try:
+        odpis: dict[int, list[dict[str, Any]]] = {}
+        for o in _linhas(conn,
+                         f'SELECT d."BaseEntry", p."DocEntry", p."DocStatus", p."CANCELED" '
+                         f'FROM "{schema}"."DPI1" d '
+                         f'JOIN "{schema}"."ODPI" p ON p."DocEntry" = d."DocEntry" '
+                         f'WHERE d."BaseType" = 17 AND d."LineNum" = 0 '
+                         f'AND d."BaseEntry" IN ({in_entries})'):
+            odpis.setdefault(int(o["BaseEntry"]), []).append(o)
+        todas = sorted({int(o["DocEntry"]) for os_ in odpis.values() for o in os_})
+        recebimentos: dict[int, list[datetime | None]] = {}
+        if todas:
+            for r in _linhas(conn,
+                             f'SELECT x."DocEntry", r."CreateDate", r."CreateTS", r."Canceled" '
+                             f'FROM "{schema}"."RCT2" x '
+                             f'JOIN "{schema}"."ORCT" r ON r."DocEntry" = x."DocNum" '
+                             f'WHERE x."InvType" = \'203\' '
+                             f'AND x."DocEntry" IN ({",".join(str(d) for d in todas)})'):
+                if str(r.get("Canceled") or "N").strip().upper() != "Y":
+                    recebimentos.setdefault(int(r["DocEntry"]), []).append(
+                        momento(r.get("CreateDate"), r.get("CreateTS")))
+        for e, os_ in odpis.items():
+            if e in por_entry:
+                por_entry[e]["_SinalPagoEm"] = _iso(sinal_pago_em(os_, recebimentos))
+    except Exception as e:
+        logger.warning("[SIT_PED] sinal (ODPI/ORCT) indisponivel (%s) — seguindo sem.", e)
+
+    # 3) View de orcamentos (linha do pedido) + numero da DANFE da primeira nota.
+    if not docnums:
+        return
+    try:
+        por_docnum: dict[int, dict[str, Any]] = {}
+        for v in _linhas(conn,
+                         f'SELECT e."NumDoc", e."DataCriacaoPN", e."Representante", '
+                         f'e."NumNF", e."DataNF", i."Serial" '
+                         f'FROM "{schema}"."{VIEW_ORCAMENTOS}" e '
+                         f'LEFT JOIN "{schema}"."OINV" i ON i."DocNum" = e."NumNF" '
+                         f'WHERE e."TipoDoc" = \'17\' '
+                         f'AND e."NumDoc" IN ({",".join(str(n) for n in docnums)})'):
+            n = _int(v.get("NumDoc"))
+            # Linha com NF ganha de linha sem NF se o pedido aparecer duas vezes.
+            if n is not None and (n not in por_docnum or _int(v.get("NumNF")) is not None):
+                por_docnum[n] = v
+        for r in linhas:
+            v = por_docnum.get(_int(r.get("DocNum")))
+            if not v:
+                continue
+            r["_DataCriacaoPN"] = _data_iso(v.get("DataCriacaoPN"))
+            r["_Representante"] = (str(v.get("Representante") or "").strip() or None)
+            r["_NfDocNum"] = _int(v.get("NumNF"))
+            r["_NfNumeroFiscal"] = _int(v.get("Serial")) if r["_NfDocNum"] else None
+            r["_NfData"] = _data_iso(v.get("DataNF")) if r["_NfDocNum"] else None
+    except Exception as e:
+        logger.warning("[SIT_PED] %s indisponivel (%s) — seguindo sem.", VIEW_ORCAMENTOS, e)
+
+
+def liberacao_e_nf(r: dict[str, Any]) -> dict[str, Any]:
+    """Linha crua (com :data:`LIBERACAO_CHAVES`) → os 10 campos do contrato.
+
+    Pura. ``lib_producao_em`` so existe com a Producao liberada AGORA e com todas as
+    condicoes datadas: sem a hora do Financeiro, ou com sinal exigido e sem a hora do
+    pagamento, vem ``None`` — um "quase" aqui seria uma data inventada.
+    ``lib_entrega_em`` e' a mesma: o SAP nao separa Producao de Entrega (281 de 281).
+    """
+    fin = r.get("_LibFinEm")
+    sinal = r.get("_SinalPagoEm")
+    lib_prod = None
+    if str(r.get("Producao") or "").strip().lower().startswith("liberad") and fin:
+        if str(r.get("Sinal") or "").strip().lower().startswith("s"):
+            if sinal:
+                lib_prod = max(fin, sinal, key=datetime.fromisoformat)
+        else:
+            lib_prod = fin
+    nf = r.get("_NfDocNum")
+    return {
+        "lib_fin_em": fin,
+        "sinal_pago_em": sinal,
+        "lib_producao_em": lib_prod,
+        "lib_entrega_em": lib_prod,
+        "data_criacao_pn": r.get("_DataCriacaoPN"),
+        "representante": r.get("_Representante"),
+        "nf_doc_num": nf,
+        "nf_numero_fiscal": r.get("_NfNumeroFiscal"),
+        "nf_data": r.get("_NfData"),
+        "primeira_nf_emitida": nf is not None,
+    }
+
+
 # ─────────────────── B3: qual dos dois enderecos vale ───────────────────
 # O SAP guarda DOIS enderecos de entrega no mesmo pedido, e eles podem apontar para
 # cidades diferentes. Medido em 10/09 no recorte: 38 pedidos de 266 tem "Local de
@@ -451,6 +664,8 @@ def _buscar_no_hana() -> list[dict[str, Any]]:
         # Ainda com a conexao aberta: o nome do municipio entra nas MESMAS linhas, que
         # ja vao para o cache de 120 s do recorte.
         _injetar_municipios(conn, schema, linhas)
+        # Idem para a liberacao real e a primeira NF (PLANO_DATAS_LIBERACAO_NF).
+        _injetar_liberacao_e_nf(conn, schema, linhas)
     finally:
         try:
             conn.close()

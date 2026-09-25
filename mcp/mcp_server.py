@@ -401,6 +401,14 @@ def situacao_pedido(pedido: int, chave: str = "docnum") -> dict[str, Any]:
     O campo ``alerta_liberacao`` traz o texto "Mais de 10 dias preso no financeiro (N
     dias)" quando o pedido estourou o limite, e ``null`` quando não estourou.
 
+    **"Quando foi liberado?"** Responda com ``lib_fin_em`` (Financeiro) e
+    ``lib_producao_em`` / ``lib_entrega_em`` (Produção e Entrega, sempre iguais no SAP):
+    são data e hora reais. **Nunca** responda com ``data_lib_prod`` (é uma estimativa:
+    liberação do Financeiro ou emissão do sinal + 3 dias), nem trate ``data_pagto`` como
+    pagamento (é a emissão da solicitação do sinal). ``null`` num campo ``*_em`` = não dá
+    para afirmar a hora; diga isso em vez de estimar. ``primeira_nf_emitida`` diz se a
+    primeira nota fiscal já saiu; ``nf_numero_fiscal`` é o número da DANFE.
+
     **Endereço de entrega:** ``entrega_endereco`` traz o endereço de **despacho JÁ
     RESOLVIDO** — é para lá que a mercadoria vai. Responda com ele. O
     ``entrega_endereco.ponto_entrega`` aninhado é o cadastro do cliente, **não** o

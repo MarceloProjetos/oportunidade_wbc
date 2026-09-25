@@ -6,6 +6,29 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-25] — Situação dos Pedidos: liberação real (data e hora) + primeira NF
+
+⚠️ Vale no proximo deploy (API; a fachada MCP so muda a descricao da tool).
+Plano: `docs/PLANO_DATAS_LIBERACAO_NF.md`.
+
+- **Bug de contrato**: `data_lib_prod` era documentada como "quando a Producao liberou" e e'
+  `MAX(Data_Lib_Fin, Data_Pagto) + 3 dias` calculado pela view — o grupo consumidor exibia
+  sabado/domingo/futuro como fato. `data_pagto` e' a EMISSAO do sinal (ODPI), nao o
+  pagamento. Doc corrigida; os campos antigos ficam como estao.
+- **Perfil `completo` ganha 10 campos**: `lib_fin_em`, `sinal_pago_em`, `lib_producao_em`,
+  `lib_entrega_em` (data e hora reais, ISO com fuso), `data_criacao_pn`, `representante`,
+  `nf_doc_num`, `nf_numero_fiscal`, `nf_data`, `primeira_nf_emitida`. O `resumo` nao muda.
+- **`situacao_pedidos_hana._injetar_liberacao_e_nf`**: 4 consultas por recorte (ADOC;
+  DPI1/ODPI; RCT2/ORCT; `VW_EVOL_ORCAMENTO_ALT` + OINV), mesma conexao e cache de 120 s,
+  best-effort por consulta. Medido no HANA de producao: 0,82 s o recorte inteiro, hora real
+  em 268 de 274 pedidos liberados, nenhuma em fim de semana. Regra (281/281): Producao =
+  Entrega liberada ⇔ Financeiro liberado e (sem sinal ou ultima ODPI fechada).
+- **`liberacao_e_nf`** (pura) e `api._aplicar_liberacao_e_nf`: fora do nucleo portado da web
+  (o teste de paridade segue verde). Cancelado recebe as mesmas chaves, nulas.
+- **Entrega nunca liberada antes da Producao** (`situacao_pedidos._pedido`, com a web):
+  `entrega` segue `producao` quando esta bloqueada; o valor cru fica em `entrega_sap`.
+- 20 testes novos (o da descricao MCP e' pulado no desktop, que tem mcp 2.x; roda na .11).
+
 ## [2026-09-25] — Vendas BI: vendedor que sumiu do mês deixa de ficar na série
 
 ⚠️ Vale no proximo deploy (agendador e API rodam o pipeline no proprio processo).
