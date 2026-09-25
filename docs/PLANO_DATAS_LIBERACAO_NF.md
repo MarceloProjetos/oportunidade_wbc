@@ -1,7 +1,7 @@
 # PLANO — Datas reais de liberação + dados de NF na API de Situação dos Pedidos
 
-**Status (25/09/2026):** plano escrito, **nada codado**. Sondagem de leitura no HANA de
-produção feita (§2). Pendem as decisões do §6 antes da F1.
+**Status (25/09/2026):** **F0 concluída** (sonda só de leitura no HANA de produção, §3).
+Decisões do §6 fechadas pelo Marcelo (todas as recomendações). Próxima: F1. Nada codado.
 Artifact: <https://claude.ai/artifact/BFc4XFUoJtKd8A4Hk1uM6j>
 
 ## 0. O pedido, reescrito
@@ -19,13 +19,12 @@ Artifact: <https://claude.ai/artifact/BFc4XFUoJtKd8A4Hk1uM6j>
 > Reaproveitar o que existe: a leitura da view de orçamentos, o SELECT e o cache das rotas
 > `/pedidos/*`. Não mudar os campos atuais — só acrescentar.
 
-**Ambiguidades do pedido original** (viraram decisões no §6):
+**Ambiguidades do pedido original** (fechadas no §6):
 
 - "Através da `VW_EVOL_ORCAMENTO_ALT`" não vale para as datas de liberação: a view não tem
-  nenhuma delas. Elas vêm do histórico do pedido no SAP (`ADOC`).
+  nenhuma delas. Elas vêm do histórico do pedido (`ADOC`) e do recebimento do sinal (`ORCT`).
 - "Primeira nota **de entrega**": não há nota de entrega no SAP (a `ODLN` está vazia para
-  pedidos). Toda nota é de saída (`OINV`). Se houver venda com simples faturamento + remessa,
-  a primeira nota pode não ser a que acompanha a carga.
+  pedidos). Toda nota é de saída (`OINV`).
 - `NumNF` da view é o **número interno** da nota no SAP, não o número impresso na DANFE.
 - `Y/N` como texto destoa do resto da API, que usa `true`/`false`.
 
@@ -35,105 +34,106 @@ Artifact: <https://claude.ai/artifact/BFc4XFUoJtKd8A4Hk1uM6j>
 | --- | --- |
 | `Financeiro` = `ORDR.U_INO_PedLib` (`S`/`N`) e `Data_Lib_Fin` = `ORDR.U_INO_DT_PED_LIB` | 281 de 281 |
 | **Produção = Entrega**, sempre o mesmo valor | 281 de 281 |
-| Produção liberada ⇔ Financeiro liberado **e** (sem sinal **ou** sinal pago) | 281 de 281, zero exceção |
+| **Produção liberada ⇔ Financeiro liberado e (sem sinal ou a ÚLTIMA Solicitação de Adiantamento `ODPI` fechada)** | 281 de 281, zero exceção |
+| ⚠️ `Data_Pagto` **não é pagamento**: é a data de EMISSÃO da Solicitação de Adiantamento (`ODPI.DocDate`) | 129 de 129 |
 | `Data_Lib_Prod` = maior entre `Data_Lib_Fin` e `Data_Pagto`, **+ 3 dias corridos** | 270 de 270 com as duas datas |
-| `Data_Lib_Fin` é **digitada** e pode não ser o dia real: o 84428 foi liberado em **23/09 às 16:51** (ADOC) e o campo diz **24/09** | 1 caso visto; F0 mede o tamanho |
-| `ADOC` guarda cada versão do pedido com `UpdateDate` + `UpdateTS` (HHMMSS) + usuário | presente no 84428 |
-| Pagamento (`ORCT`) tem `DocTime` e `CreateTS` | colunas existem |
-| `NumNF` da view = `OINV.DocNum` da **primeira** nota do pedido | 1.359 de 1.359 com nota |
+| ⚠️ `Data_Lib_Fin` é **digitada** e quase nunca é o dia real: +1 dia em 182, +3 em 47, igual em só 7 | 252 com transição no histórico |
+| `ADOC` guarda cada versão do pedido com `UpdateDate` + `UpdateTS` (HHMMSS) | 279 de 281 pedidos têm histórico |
+| Pedidos re-bloqueados no Financeiro depois de liberados | 11 |
+| Sinal reemitido: pedido pago volta a bloquear quando nasce `ODPI` nova (84326, 84420) | 2 hoje |
+| Recebimento (`ORCT`) é registrado dias depois da data de lançamento (`CreateDate ≠ DocDate`) | 44 de 46 |
+| `NumNF` da view = `OINV.DocNum` da **primeira** nota do pedido; nenhuma cancelada | 1.359 de 1.359 |
 | Pedidos com mais de uma nota | 215 de 2.529 (até 42 notas) |
-| Pedidos sem nota em `VW_EVOL` (`TipoDoc=17`) | 151 |
+| `Representante` (VW_EVOL) ≠ `vendedor` (OSLP) | 1 de 280 (84278: "Administração" × "Neto") |
+| Pedidos da view sem linha na `VW_EVOL` | 1 de 281 |
+| Custo das 3 consultas novas no recorte inteiro | ~1,0 s (ADOC 0,32 + sinal 0,23 + VW_EVOL 0,45) |
 
-Consequência: **a data real da liberação da Produção (e da Entrega) é o momento em que a
-última das duas condições ficou verdadeira** — liberação do Financeiro (hora no ADOC) ou
-pagamento do sinal (hora no ORCT). Não existe um campo "liberei a produção" no SAP.
+Consequência: **a liberação real da Produção (e da Entrega) é o momento em que a última das
+duas condições ficou verdadeira** — a última passagem do Financeiro de `N` para `S` (hora no
+`ADOC`) ou o registro do recebimento que fechou a última `ODPI` (`ORCT.CreateDate` +
+`CreateTS`). Não existe um campo "liberei a produção" no SAP.
 
 ## 2. Arquitetura
 
 ```
 VW_STATUS_PEDIDO_DDP + ORDR (SELECT atual, NÃO muda)
             │
-            ├─ consulta nova de enriquecimento (1 por recorte, mesmo cache de 120 s)
-            │     ├─ ADOC   → 1ª versão com U_INO_PedLib='S' depois do último 'N' → lib_fin_em
-            │     ├─ ORCT   → hora do pagamento do sinal → pagto_sinal_em   (fonte confirmada na F0)
-            │     └─ VW_EVOL_ORCAMENTO_ALT (TipoDoc='17', NumDoc=DocNum)
-            │            → data_criacao_pn, representante, nf_doc_num, nf_data
-            │       + OINV.Serial da nota → nf_numero_fiscal
+            ├─ consultas de enriquecimento (1 vez por recorte, mesmo cache de 120 s)
+            │     ├─ ADOC   → última passagem U_INO_PedLib N→S → lib_fin_em
+            │     │           (pedido que já nasce 'S' = hora da 1ª versão)
+            │     ├─ DPI1→ODPI (última não cancelada) → RCT2 (InvType 203) → ORCT
+            │     │           → sinal_pago_em = CreateDate + CreateTS do recebimento
+            │     └─ VW_EVOL_ORCAMENTO_ALT (TipoDoc='17', NumDoc=DocNum) + OINV.Serial
+            │            → data_criacao_pn, representante, nf_doc_num, nf_numero_fiscal, nf_data
             │
             └─ função pura `com_liberacao_e_nf()` (fora do núcleo diffável, como `com_alerta`)
-                  → lib_producao_em = lib_entrega_em = max(lib_fin_em, pagto_sinal_em)
+                  → lib_producao_em = lib_entrega_em = max(lib_fin_em, sinal_pago_em)
                   → primeira_nf_emitida = nf_doc_num is not None
 ```
 
 **Por que fora do núcleo:** `situacao_pedidos._pedido` e o SELECT são cópia conferida por teste
-do serviço da web. Enriquecer depois, numa consulta própria, deixa a web intocada e o teste de
+do serviço da web. Enriquecer depois, em consultas próprias, deixa a web intocada e o teste de
 paridade verde.
 
 ## 3. Fases
 
-### F0 — Sonda (só leitura) · minha
-Objetivo: saber, com número, se as fontes batem antes de escrever código.
-- De onde sai `Data_Pagto` (ORCT direto, ou ORCT pagando a ODPI do adiantamento) e se a hora
-  do ORCT casa com ela nos 129 pedidos com sinal pago.
-- Cobertura do ADOC nos 281: quantos têm a transição `N→S` registrada; quantos foram
-  re-bloqueados depois de liberados.
-- Quanto `U_INO_DT_PED_LIB` diverge do dia da transição no ADOC (o 84428 é um dia).
-- Notas canceladas (`OINV.CANCELED`) e se a view já as exclui.
-- Custo da consulta de enriquecimento no recorte inteiro (tempo medido).
-- Saída: tabela de números neste plano; ajuste do desenho se algo não bater.
+### F0 — Sonda (só leitura) · ✅ concluída 25/09/2026
+- Regra da Produção confirmada **com a `ODPI`**, não com `Data_Pagto` (281/281).
+- Cobertura da hora real nos 274 pedidos com Produção liberada: **268 calculados**, 5 sem hora
+  do Financeiro no histórico, 1 com sinal sem recebimento achado para a última `ODPI`.
+  Esses 6 vêm `null`.
+- A `data_lib_prod` calculada erra o dia real de −118 a +15 dias; o mais comum é +4 (94
+  pedidos) e +3 (43).
+- Momento do sinal: `ORCT.CreateDate`+`CreateTS` (quando o recebimento entrou no sistema, que
+  é quando a Produção de fato destravou). `DocDate` é a data contábil, lançada retroativa.
+- Nenhuma NF cancelada na `VW_EVOL`; `OINV.DocNum` não se repete (Serial sai por join simples).
+- Scripts: `f0.py`, `f0b.py`, `f0c.py`, `f0d.py` no scratchpad da sessão (descartáveis).
 
-### F1 — Consulta + regra pura · minha
+### F1 — Consultas + regra pura · minha
 Objetivo: a API sabe calcular os campos novos.
-- `situacao_pedidos_hana.py`: consulta de enriquecimento por `DocEntry`, dentro do mesmo cache.
+- `situacao_pedidos_hana.py`: as 3 consultas de enriquecimento, por `DocEntry`, dentro do
+  mesmo cache; falha nelas não derruba a rota (campos vêm `null`, com log).
 - `situacao_pedidos.py`: `com_liberacao_e_nf()` fora de `FUNCOES_NUCLEO`.
-- Testes com stub (a suíte não alcança produção): liberação só Financeiro, com sinal pago
-  depois, re-bloqueio, sem ADOC, pedido com várias notas, sem nota.
+- Testes com stub: só Financeiro, nasce liberado, sinal pago depois, re-bloqueio, sinal
+  reemitido (ODPI nova aberta), sem histórico, várias notas, sem nota.
 
 ### F2 — Contrato · minha
 Objetivo: o grupo lê os campos novos na API e na documentação.
-- Perfil `completo`: `lib_fin_em`, `pagto_sinal_em`, `lib_producao_em`, `lib_entrega_em`,
-  `data_criacao_pn`, `representante`, `nf_doc_num`, `nf_numero_fiscal`, `nf_data`,
-  `primeira_nf_emitida`.
+- Perfil `completo`: os 10 campos do §4. Campo sem valor = `null` ("não foi possível saber").
 - `API_SITUACAO_PEDIDOS.md` §6.2 + a tool MCP `situacao_pedido`.
-- Campo sem valor = `null` ("não foi possível saber"), como o resto da API.
 
 ### F3 — No ar · Marcelo
 - `deploy_update.bat` na .11.
-- Conferência em 3 pedidos reais: 84428 (sem sinal), um com sinal pago depois do Financeiro,
-  um com várias notas (84080).
+- Conferência em 3 pedidos reais: 84428 (sem sinal, liberado 23/09 16:51), um com sinal pago
+  depois do Financeiro, 84080 (8 notas).
 - Aviso ao grupo com a lista de campos.
 
 ## 4. Campos novos (perfil `completo`)
 
 | Campo | Tipo | Fonte |
 | --- | --- | --- |
-| `lib_fin_em` | datetime ISO \| null | ADOC, transição `U_INO_PedLib` N→S |
-| `pagto_sinal_em` | datetime ISO \| null | ORCT (F0 confirma) |
+| `lib_fin_em` | datetime ISO \| null | ADOC, última passagem `U_INO_PedLib` N→S |
+| `sinal_pago_em` | datetime ISO \| null | registro do recebimento que fechou a última `ODPI` |
 | `lib_producao_em` | datetime ISO \| null | maior dos dois acima; `null` se Produção bloqueada |
 | `lib_entrega_em` | datetime ISO \| null | igual a `lib_producao_em` (o SAP não separa) |
 | `data_criacao_pn` | date ISO \| null | `VW_EVOL.DataCriacaoPN` |
 | `representante` | str \| null | `VW_EVOL.Representante` |
 | `nf_doc_num` | int \| null | `VW_EVOL.NumNF` (nº interno da 1ª nota) |
-| `nf_numero_fiscal` | int \| null | `OINV.Serial` da mesma nota |
+| `nf_numero_fiscal` | int \| null | `OINV.Serial` da mesma nota (número da DANFE) |
 | `nf_data` | date ISO \| null | `VW_EVOL.DataNF` |
 | `primeira_nf_emitida` | bool | `nf_doc_num` não nulo |
 
 ## 5. Riscos
 
-- Pedido editado antes de o ADOC existir (pedido antigo) fica sem hora: vem `null`.
-- Liberação manual do Financeiro sem sinal registrado no SAP fica com a data do Financeiro.
-- A `VW_EVOL_ORCAMENTO_ALT` começa em 06/01/2025: pedido anterior fica sem os 4 campos dela.
+- Pedido sem histórico no `ADOC` fica sem hora (5 hoje): vem `null`.
+- Sinal quitado por outro caminho que não o recebimento da `ODPI` (1 hoje): vem `null`.
+- A `VW_EVOL_ORCAMENTO_ALT` começa em 06/01/2025: pedido anterior fica sem os campos dela.
 
-## 6. Decisões
+## 6. Decisões (fechadas em 25/09/2026 — todas as recomendações)
 
-1. **Entrega tem data própria?** O SAP não separa Produção de Entrega (281/281 iguais).
-   **Recomendado:** `lib_entrega_em` igual a `lib_producao_em`, e dizer isso na doc.
-2. **"Primeira nota de entrega" = primeira nota de saída?** Não há nota de entrega no SAP.
-   **Recomendado:** sim, a primeira `OINV` não cancelada. Confirmar se há simples faturamento.
-3. **Formato do sim/não:** `true`/`false` ou `"Y"`/`"N"`. **Recomendado:** `true`/`false`,
-   igual a `sinal`, `ddo` e `atrasado`.
-4. **Número da nota:** interno (`NumNF`) ou o da DANFE (`Serial`). **Recomendado:** os dois.
-5. **`representante` × `vendedor`:** a API já tem `vendedor` (OSLP). **Recomendado:**
-   acrescentar `representante` separado e conferir na F0 quantos divergem.
-6. **Perfil `resumo`:** entra só `primeira_nf_emitida` ou nada. **Recomendado:** nada; o
-   `resumo` espelha as colunas da tela.
+1. ✅ `lib_entrega_em` igual a `lib_producao_em`; a documentação diz que o SAP não separa.
+2. ✅ "Primeira nota" = primeira nota de saída (`OINV`) não cancelada.
+3. ✅ `true`/`false`, igual a `sinal`, `ddo` e `atrasado`.
+4. ✅ Os dois números da nota: `nf_doc_num` (interno) e `nf_numero_fiscal` (DANFE).
+5. ✅ `representante` separado de `vendedor` (divergem em 1 de 280).
+6. ✅ Nada novo no perfil `resumo`.

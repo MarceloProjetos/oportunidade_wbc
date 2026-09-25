@@ -475,8 +475,8 @@ ou — em pedido cancelado no SAP — `"Cancelado"` (2.2).
 | `fin_liberacao_atrasada` | bool | Passou dos 10 dias no Financeiro — ver §7 |
 | **`alerta_liberacao`** | str \| null | O texto pronto: `"Mais de 10 dias preso no financeiro (12 dias)"`, ou `null` |
 | `data_lib_fin` | str \| null | Quando o Financeiro liberou, ISO |
-| `data_lib_prod` | str \| null | ⚠️ **Não é o dia em que a Produção liberou.** A view do SAP a *calcula*: a maior entre `data_lib_fin` e `data_pagto`, **+ 3 dias corridos**. Por isso cai em sábado/domingo e pode estar no futuro. Não há, nesta API, a data real da liberação da Produção. ISO |
-| `data_pagto` | str \| null | Data de pagamento, ISO |
+| `data_lib_prod` | str \| null | ⚠️ **Não é o dia em que a Produção liberou.** A view do SAP a *calcula*: a maior entre `data_lib_fin` e `data_pagto`, **+ 3 dias corridos** — e nenhuma das duas é o momento real (`data_lib_fin` é digitada; `data_pagto` é a emissão do sinal). Por isso cai em sábado/domingo e pode estar no futuro. Não há, nesta API, a data real da liberação da Produção. ISO |
+| `data_pagto` | str \| null | ⚠️ **Não é a data do pagamento.** É a data de emissão da Solicitação de Adiantamento (sinal) no SAP, paga ou não. ISO |
 | `valor_total` | float | Valor do pedido |
 | `moeda` | str | Ex.: `"R$"` |
 | `vendedor` | str | Nome do vendedor |
