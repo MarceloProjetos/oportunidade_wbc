@@ -4,7 +4,7 @@ Guia de atualização para quem consome a API de Situação dos Pedidos do servi
 `192.168.7.11:8077`. Diz **o que entrou**, **de que tipo é cada campo**, **o que parar de
 usar** e **como atualizar o seu projeto** — com casos reais para testar.
 
-> Contrato completo: [`API_SITUACAO_PEDIDOS.md`](API_SITUACAO_PEDIDOS.md) (seções 2.8 e 6.2).
+> Contrato completo: [`API_SITUACAO_PEDIDOS.md`](../API_SITUACAO_PEDIDOS.md) (seções 2.8 e 6.2).
 > No ar desde **25/09/2026, 15:35**.
 
 ---
