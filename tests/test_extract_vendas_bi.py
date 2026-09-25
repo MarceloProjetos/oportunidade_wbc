@@ -343,6 +343,149 @@ class TestPoda:
         assert _podar(loader, QUANDO, self.ANO_INICIAL) is False
 
 
+class TestPodaSerieMesesLidos:
+    """Vendedor que sumiu da origem num mês que a execução LEU (achado de 25/09/2026).
+
+    Caso real: 2026/09 'pedidos' do Adilson Soares (R$ 318.029,68) ficou com o
+    carimbo de 21/09 depois que o pedido saiu da origem; o resto do mês, com o
+    ``__TOTAL__``, tinha o carimbo novo — a soma dos vendedores deixou de bater
+    com o total e o app mostrava o valor fantasma ao representante.
+    """
+
+    ANTIGO = '2026-09-21T14:08:00'
+
+    class TabelaFake:
+        """Simula `bi_vendas_serie_mensal` com os filtros do PostgREST."""
+
+        def __init__(self, linhas):
+            self.linhas = [dict(linha) for linha in linhas]
+            self.chamadas = []
+
+        def delete_nao_carimbadas(self, tabela, coluna, carimbo):
+            from extract_vendas_bi import TABELA_SERIE
+
+            assert tabela != TABELA_SERIE, 'a série nunca é podada por carimbo inteira'
+            return True  # KPI e ranking: fora deste teste
+
+        def delete_menor_que(self, tabela, coluna, limite):
+            self.linhas = [x for x in self.linhas if not x[coluna] < limite]
+            return True
+
+        def delete_nao_carimbadas_no_recorte(self, tabela, coluna, carimbo, filtros, em=None):
+            self.chamadas.append((tabela, dict(filtros), em))
+
+            def casa(x):
+                if x[coluna] == carimbo:
+                    return False
+                if any(x[c] != v for c, v in filtros.items()):
+                    return False
+                return em is None or x[em[0]] in em[1]
+
+            self.linhas = [x for x in self.linhas if not casa(x)]
+            return True
+
+    @staticmethod
+    def _linha(vendedor, ano, mes, valor, quando, metrica='pedidos'):
+        return {
+            'metrica': metrica,
+            'vendedor': vendedor,
+            'ano': ano,
+            'mes': mes,
+            'valor': valor,
+            'qtd_pedidos': 1,
+            'atualizado_em': quando,
+        }
+
+    def _cenario(self):
+        """Tabela como estava ANTES da execução + o payload desta execução."""
+        antes = [
+            # Setembro: Adilson teve o pedido cancelado — não volta no HANA.
+            self._linha('Adilson Soares', 2026, 9, 318029.68, self.ANTIGO),
+            self._linha('Clayton', 2026, 9, 500.0, self.ANTIGO),
+            self._linha(TOTAL, 2026, 9, 318529.68, self.ANTIGO),
+            # Agosto de faturamento: métrica cuja consulta FALHOU nesta execução.
+            self._linha('Adilson Soares', 2026, 8, 700.0, self.ANTIGO, 'faturamento'),
+            self._linha(TOTAL, 2026, 8, 700.0, self.ANTIGO, 'faturamento'),
+            # Julho de pedidos: mês fora do retorno desta execução.
+            self._linha('Robson', 2026, 7, 900.0, self.ANTIGO),
+            self._linha(TOTAL, 2026, 7, 900.0, self.ANTIGO),
+        ]
+        serie = linhas_serie(
+            [{'ANO': 2026, 'MES': 9, 'VENDEDOR': 'Clayton', 'VALOR': 500.0, 'QTD': 1}],
+            'pedidos',
+            QUANDO,
+        )
+        tabela = self.TabelaFake(antes)
+        # O upsert da execução, como o PostgREST faria (chave metrica,vendedor,ano,mes).
+        chave = lambda x: (x['metrica'], x['vendedor'], x['ano'], x['mes'])  # noqa: E731
+        novas = {chave(x): x for x in serie}
+        tabela.linhas = [x for x in tabela.linhas if chave(x) not in novas] + list(novas.values())
+        return tabela, serie
+
+    def test_vendedor_que_sumiu_de_mes_lido_e_apagado(self):
+        from extract_vendas_bi import _podar
+
+        tabela, serie = self._cenario()
+        assert _podar(tabela, QUANDO, 2024, serie) is True
+        setembro = [x for x in tabela.linhas if (x['metrica'], x['mes']) == ('pedidos', 9)]
+        assert {x['vendedor'] for x in setembro} == {'Clayton', TOTAL}
+        # E a soma dos vendedores volta a bater com o consolidado.
+        partes = sum(x['valor'] for x in setembro if x['vendedor'] != TOTAL)
+        total = next(x['valor'] for x in setembro if x['vendedor'] == TOTAL)
+        assert partes == total == 500.0
+
+    def test_meses_e_metricas_nao_lidos_ficam_intocados(self):
+        from extract_vendas_bi import _podar
+
+        tabela, serie = self._cenario()
+        _podar(tabela, QUANDO, 2024, serie)
+        antigas = {
+            (x['metrica'], x['vendedor'], x['mes'])
+            for x in tabela.linhas
+            if x['atualizado_em'] == self.ANTIGO
+        }
+        assert antigas == {
+            ('faturamento', 'Adilson Soares', 8),
+            ('faturamento', TOTAL, 8),
+            ('pedidos', 'Robson', 7),
+            ('pedidos', TOTAL, 7),
+        }
+
+    def test_uma_chamada_por_metrica_e_ano_com_os_meses_em_in(self):
+        from extract_vendas_bi import TABELA_SERIE, _podar
+
+        tabela = self.TabelaFake([])
+        serie = linhas_serie(
+            [
+                {'ANO': 2026, 'MES': 9, 'VENDEDOR': 'A', 'VALOR': 1, 'QTD': 1},
+                {'ANO': 2026, 'MES': 8, 'VENDEDOR': 'B', 'VALOR': 1, 'QTD': 1},
+                {'ANO': 2025, 'MES': 12, 'VENDEDOR': 'A', 'VALOR': 1, 'QTD': 1},
+            ],
+            'pedidos',
+            QUANDO,
+        )
+        assert _podar(tabela, QUANDO, 2024, serie) is True
+        assert tabela.chamadas == [
+            (TABELA_SERIE, {'metrica': 'pedidos', 'ano': 2025}, ('mes', [12])),
+            (TABELA_SERIE, {'metrica': 'pedidos', 'ano': 2026}, ('mes', [8, 9])),
+        ]
+
+    def test_sem_serie_nenhuma_poda_por_mes(self):
+        from extract_vendas_bi import _podar
+
+        tabela = self.TabelaFake([self._linha('X', 2026, 9, 1.0, self.ANTIGO)])
+        assert _podar(tabela, QUANDO, 2024, []) is True
+        assert tabela.chamadas == []
+        assert len(tabela.linhas) == 1
+
+    def test_falha_na_poda_por_mes_derruba_o_resultado(self):
+        from extract_vendas_bi import _podar
+
+        tabela, serie = self._cenario()
+        tabela.delete_nao_carimbadas_no_recorte = lambda *a, **k: False
+        assert _podar(tabela, QUANDO, 2024, serie) is False
+
+
 class TestAnoInicial:
     """A mesma conta serve à consulta e à poda — se divergirem, ou a poda come
     dado vivo, ou o lixo volta a acumular."""

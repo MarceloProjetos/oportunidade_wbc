@@ -617,7 +617,7 @@ def _carga(loader: SupabaseLoader, hoje: date | None, falhas: list[str]) -> bool
     if ok:
         carimbo = payload[TABELA_KPI][0]['atualizado_em'] if payload[TABELA_KPI] else None
         if carimbo:
-            if not _podar(loader, carimbo, ano_inicial(hoje)):
+            if not _podar(loader, carimbo, ano_inicial(hoje), payload[TABELA_SERIE]):
                 falhas.append('poda falhou')
                 ok = False
     else:
@@ -628,7 +628,12 @@ def _carga(loader: SupabaseLoader, hoje: date | None, falhas: list[str]) -> bool
     return ok
 
 
-def _podar(loader: SupabaseLoader, quando: str, desde: int) -> bool:
+def _podar(
+    loader: SupabaseLoader,
+    quando: str,
+    desde: int,
+    serie: Iterable[dict[str, Any]] = (),
+) -> bool:
     """Apaga o que a execução NÃO reescreveu e nenhuma futura reescreveria.
 
     Por que existe: `bi_vendas_kpi` tem chave `(escopo, vendedor)` e
@@ -658,11 +663,52 @@ def _podar(loader: SupabaseLoader, quando: str, desde: int) -> bool:
     carimbo não serve para ela: consulta HANA que falha vira lista vazia, e a
     poda por carimbo apagaria a métrica inteira que a execução não conseguiu
     ler.
+
+    Dentro da janela a série TAMBÉM é podada por carimbo, mas só nos meses que
+    esta execução leu (ver :func:`_podar_serie_meses_lidos`).
     """
     ok = True
     for tabela in (TABELA_KPI, TABELA_RANKING):
         ok = loader.delete_nao_carimbadas(tabela, 'atualizado_em', quando) and ok
     ok = loader.delete_menor_que(TABELA_SERIE, 'ano', desde) and ok
+    ok = _podar_serie_meses_lidos(loader, quando, serie) and ok
+    return ok
+
+
+def _podar_serie_meses_lidos(
+    loader: SupabaseLoader, quando: str, serie: Iterable[dict[str, Any]]
+) -> bool:
+    """Apaga, nos meses que esta execução leu, o vendedor que sumiu da origem.
+
+    Achado de 25/09/2026: o upsert da série só reescreve o vendedor que VOLTOU
+    no retorno do HANA. Se o único pedido do mês de um representante é
+    cancelado, a linha dele some da origem e fica na tabela para sempre com o
+    carimbo antigo — a soma dos vendedores deixa de bater com o ``__TOTAL__`` e
+    o app (modo Vendas lê a linha do próprio vendedor) mostra um valor fantasma.
+    Caso real: 2026/09 'pedidos' do Adilson Soares, R$ 318.029,68, parado em
+    21/09 enquanto o resto do mês tinha o carimbo novo.
+
+    "Mês lido" = (métrica, ano, mês) em que esta execução gravou o
+    ``__TOTAL__``. Mês que não voltou (consulta que falhou vira lista vazia)
+    fica intocado — é o motivo de a série não entrar na poda por carimbo da
+    tabela inteira. Uma chamada por (métrica, ano), com os meses em IN.
+    """
+    lidos: dict[tuple[str, int], set[int]] = {}
+    for linha in serie:
+        if linha.get('vendedor') == TOTAL and linha.get('atualizado_em') == quando:
+            lidos.setdefault((linha['metrica'], linha['ano']), set()).add(linha['mes'])
+    ok = True
+    for (metrica, ano), meses in sorted(lidos.items()):
+        ok = (
+            loader.delete_nao_carimbadas_no_recorte(
+                TABELA_SERIE,
+                'atualizado_em',
+                quando,
+                {'metrica': metrica, 'ano': ano},
+                em=('mes', sorted(meses)),
+            )
+            and ok
+        )
     return ok
 
 

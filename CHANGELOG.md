@@ -6,6 +6,23 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-25] — Vendas BI: vendedor que sumiu do mês deixa de ficar na série
+
+⚠️ Vale no proximo deploy (agendador e API rodam o pipeline no proprio processo).
+
+- **Bug**: o upsert de `bi_vendas_serie_mensal` so reescreve o vendedor que VOLTOU do HANA.
+  Pedido cancelado que era o unico do mes de um representante deixava a linha dele parada
+  para sempre com o carimbo antigo — soma dos vendedores != `__TOTAL__`, e o modo Vendas do
+  app mostrava o valor fantasma. Caso real: 2026/09 `pedidos` do Adilson Soares,
+  R$ 318.029,68, carimbo de 21/09.
+- **`_podar`** agora tambem apaga, em cada (metrica, ano, mes) em que a execucao gravou o
+  `__TOTAL__`, as linhas com `atualizado_em` diferente do carimbo da execucao. Mes/metrica
+  que nao voltou (consulta que falhou vira lista vazia) fica intocado, como antes. Uma
+  chamada por (metrica, ano), com os meses em `IN`.
+- **`SupabaseLoader.delete_nao_carimbadas_no_recorte`** (novo): poda por carimbo restrita a
+  filtros de igualdade + um `IN`.
+- 5 testes novos (`TestPodaSerieMesesLidos`).
+
 ## [2026-09-24] — F5 do PLANO_DX_AGENTE: SQL do HANA com t-string
 
 ⚠️ Vale no proximo deploy (API e agendador leem o HANA por aqui; o worker pelo `batched`).

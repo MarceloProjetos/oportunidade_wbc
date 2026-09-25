@@ -561,6 +561,37 @@ class SupabaseLoader:
             logger.error("Erro ao podar '%s': %s", table_name, exc)
             return False
 
+    def delete_nao_carimbadas_no_recorte(
+        self,
+        table_name: str,
+        coluna: str,
+        carimbo: Any,
+        filtros: dict[str, Any],
+        em: tuple[str, list[Any]] | None = None,
+    ) -> bool:
+        """Poda por carimbo, mas só DENTRO de um recorte que a execução reescreveu.
+
+        Igual a :meth:`delete_nao_carimbadas`, restrita às linhas que casam com
+        ``filtros`` (igualdade) e, se vier, com ``em = (coluna, valores)`` (IN).
+        Serve às cargas cuja chave tem período: podar a tabela inteira por
+        carimbo apagaria o período que a execução não leu; podar só o período
+        que ela leu apaga apenas a linha que sumiu da origem (pedido cancelado).
+        """
+        try:
+            q = self.client.table(table_name).delete().neq(coluna, carimbo)
+            for col, valor in filtros.items():
+                q = q.eq(col, valor)
+            if em is not None:
+                q = q.in_(em[0], list(em[1]))
+            with_retries(
+                lambda: q.execute(),
+                what=f"poda ('{table_name}' {filtros} {em} fora de {carimbo})",
+            )
+            return True
+        except Exception as exc:
+            logger.error("Erro ao podar '%s' (%s): %s", table_name, filtros, exc)
+            return False
+
     def delete_menor_que(self, table_name: str, coluna: str, limite: Any) -> bool:
         """Apaga toda linha com ``coluna`` estritamente menor que ``limite``.
 
