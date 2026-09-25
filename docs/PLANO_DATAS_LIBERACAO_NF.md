@@ -1,8 +1,7 @@
 # PLANO — Datas reais de liberação + dados de NF na API de Situação dos Pedidos
 
-**Status (25/09/2026):** **F0, F1 e F2 concluídas e no `master`** — codado, testado e
-conferido contra o HANA de produção (0,82 s; hora real em 268 de 274). **Falta a F3:**
-restart da API na .11 (Marcelo) e a conferência ao vivo nos pedidos de referência.
+**Status (25/09/2026): ✅ PLANO ENTREGUE — no ar na .11 desde 15:35** (deploy `a770d7a`,
+conferido ao vivo na API). Nada pendente de código; resta avisar o grupo consumidor.
 Artifact: <https://claude.ai/artifact/BFc4XFUoJtKd8A4Hk1uM6j>
 
 ## 0. O pedido, reescrito
@@ -108,7 +107,10 @@ Objetivo: o grupo lê os campos novos na API e na documentação.
 - ⚠️ 84420 tem a 1ª NF emitida (25/09) com a Produção bloqueada — é o dado, não defeito.
 - O teste da tool MCP é pulado no desktop (mcp 2.x instalado); roda na .11 (mcp<2).
 
-### F3 — No ar · Marcelo
+### F3 — No ar · ✅ concluída 25/09/2026 15:36
+- Ao vivo (`situacao_pedido`, cache 0 s): 84428 → 23/09 16:51:16; 84348 → Fin 08/09 15:06,
+  sinal e Produção 25/09 08:13:35; 84080 → NF 5729 / DANFE 32228; 84420 → `null`
+  (sinal em aberto) com NF 5788 / DANFE 32280. `/status` sap ok (25 ms).
 - `deploy_update.bat` na .11.
 - Conferência ao vivo na API: 84428 (sem sinal, 23/09 16:51), 84348 (sinal pago depois do
   Financeiro, 25/09 08:13), 84080 (8 notas, DANFE 32228).
