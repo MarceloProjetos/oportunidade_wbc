@@ -99,9 +99,11 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
 
 ## Convenções
 
-- **Comentários e docstrings em português** (decisão de 24/09/2026). Os 11 módulos da raiz
-  traduzidos para inglês em jul/2026 ficam como estão; código novo e trechos reescritos, em PT.
-  Identificadores, logs e mensagens HTTP já são PT. Os `.ps1` são **ASCII de propósito**
+- **Comentários e docstrings em inglês técnico** (decisão de 28/09/2026, que reverte a de
+  24/09/2026 — regra única em todos os projetos). Só onde precisa: o porquê, nunca narrar a
+  linha. Não traduzir retroativamente: o que está em PT fica; trecho reescrito sai em EN.
+  Arquivos-irmãos (lista abaixo) só mudam de idioma nos dois lados, no mesmo commit.
+  Identificadores, logs e mensagens HTTP continuam PT. Os `.ps1` são **ASCII de propósito**
   (PowerShell 5.1/BOM) — sem acentos; e o PowerShell escreve o stdout em **cp850**: quem lê
   saída de PS força `[Console]::OutputEncoding` na 1ª linha do script.
 - **SQL do HANA com valor vindo de fora** (URL, body, `.env`): monte com `sql(t"...")` do

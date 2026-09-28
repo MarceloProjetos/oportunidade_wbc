@@ -6,6 +6,14 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-28] — Convenção: comentários e docstrings em inglês técnico
+
+- **Reverte a decisão de 24/09/2026** (comentários em PT): comentários e docstrings de código
+  novo ou reescrito saem em inglês técnico — regra única em todos os projetos (web, mobile,
+  SAP_RDP e este). Nada é traduzido retroativamente; arquivos-irmãos só mudam de idioma nos
+  dois lados, no mesmo commit. Identificadores, logs e mensagens HTTP seguem PT.
+- Só documentação (`CLAUDE.md`): nenhum código muda, nada a implantar.
+
 ## [2026-09-25] — Situação dos Pedidos: liberação real (data e hora) + primeira NF
 
 ⚠️ Vale no proximo deploy (API; a fachada MCP so muda a descricao da tool).
