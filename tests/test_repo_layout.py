@@ -5,9 +5,10 @@ Em 08/09/2026 o pacote `wbcpython/` chegou ao servidor SEM nenhum `__init__.py` 
 nomes, e localmente tudo funcionava porque os arquivos existiam no disco. Na .11,
 `python -m wbcpython` respondia "No module named wbcpython.__main__".
 
-Este teste pergunta ao git, não ao disco: todo diretório de `wbcpython/` e `tests/wbc/`
-que tenha `.py` versionado precisa ter o `__init__.py` versionado, e o `__main__.py`
-do pacote precisa estar lá. Fora de um clone git (zip, cópia) o teste é pulado.
+Este teste pergunta ao git, não ao disco: todo diretório de `wbcpython/`, `tests/wbc/`,
+`controleproducao/` e `tests/controleproducao/` que tenha `.py` versionado precisa ter o
+`__init__.py` versionado, e o `__main__.py` de cada pacote (`wbcpython`, `controleproducao`)
+precisa estar lá. Fora de um clone git (zip, cópia) o teste é pulado.
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ def _versionados() -> list[str]:
 
 def test_todo_pacote_versionado_leva_o_seu_init():
     arquivos = _versionados()
-    assert arquivos, 'git ls-files não devolveu nada para wbcpython/ e tests/wbc/'
+    assert arquivos, 'git ls-files não devolveu nada para wbcpython/, controleproducao/ e seus tests/'
     pastas_com_py = {os.path.dirname(a) for a in arquivos if a.endswith('.py')}
     sem_init = sorted(p for p in pastas_com_py if f'{p}/__init__.py' not in arquivos)
     assert not sem_init, (

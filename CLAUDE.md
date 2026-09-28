@@ -164,7 +164,11 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   `POST /ordens-producao/<n>/status` é **fail-closed** (sem `OS_API_KEY` → **503**, ao
   contrário das outras rotas, que escrevem no Supabase, reversível); (3) alvo == status atual
   devolve `ja_estava` **sem PATCH**. A allowlist `OP_STATUS_PERMITIDOS` é conferida **antes da
-  rede**. Cancelar e voltar para Planejada estão **fora de escopo** (decisão 2026-08-07).
+  rede**. Cancelar e voltar para Planejada estão **fora de escopo** (decisão 2026-08-07);
+  **Encerrar saiu do default em 28/09/2026 (D9)**: encerrar OP com estoque é o `controleproducao`
+  (Manutenção de OP), e um PATCH puro fecharia sem OIGE/OIGN — `OP_STATUS_PERMITIDOS_DEFAULT =
+  'boposReleased'` no `config.py`; `OP_STATUS_PERMITIDOS=boposReleased,boposClosed` no `.env` é o
+  rollback, não o normal.
 - **Vendas BI: "Pedidos" é `SUM("VlrPedido")`, sem índice**; faturamento é `SUM("Valor")` de
   `VW_FATO_FATURAMENTO`, sem `ValorAdiant`. Trocar diverge do Power BI **sem erro**. Vendedor
   casa por **nome** (`OSLP.SlpName` = `app_profiles.slp_name`), nunca por `slp_code`.
@@ -217,14 +221,21 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   queda no meio = pedido "processado" sem OP; retomada = `manutencao-op buscar` →
   `cancelar-ops` → `processar-novos` **sem `--force`** (`--force` duplica OP, na CLI e na web);
   (2) `reprocessar-integrados` cancela **toda** OP planejada do pedido (de qualquer origem) e
-  **não recria**; (3) `Liberar`/`Replanejar` gravam no 1º POST; `encerrar` faz OIGE+OIGN
-  (irreversível) e o módulo 3 está **pendente de reteste** em homolog; (4) `HANA_SCHEMA` **não é
+  **não recria**; (3) `Liberar` grava no 1º POST; `Replanejar` é **só pela CLI** desde 28/09
+  (D9 — a tela recusa `acao=p`); `encerrar` faz OIGE+OIGN (irreversível) e é o **único**
+  caminho de encerrar OP (a API 8077 só libera por default, D9); (4) `HANA_SCHEMA` **não é
   lido** pelo pacote — `hana_schema` = `SL_COMPANY_DB` (bug de 21/09: ler num schema, gravar
   noutro); (5) três escritores no mesmo `ORDR`/`OWOR` — worker, pacote e o addon C# legado no
   cliente SAP; o worker cancela-e-recria pedido **sem olhar OWOR**; (6) `deploy_update.bat`
   **aborta** se `/health/ocupado` = 1 — nunca `nssm stop` com tarefa em andamento;
   (7) SQL do módulo é `str.format` (herdado) — validar dígitos na borda; porte para
-  `sql_seguro` é etapa própria; (8) o pacote **não** tem expediente: fora do ar = alerta.
+  `sql_seguro` é etapa própria; (8) o pacote **não** tem expediente: fora do ar = alerta;
+  (9) `CP_HOST` decide quem alcança a tela: `0.0.0.0` (a .11 desde a F6, com regra de firewall
+  da 8080 só para a LAN) = a mesma exposição do painel; `127.0.0.1` = só a própria máquina, e aí
+  o painel tem de ser aberto por `http://localhost:8079` (os botões montam o link com o host da
+  página e o cookie é por host) — de fora, a 8080 **recusa conexão**, não é queda (o `/status`
+  sonda `127.0.0.1:CP_PORTA` e continua verde). O `.env` é lido na subida: linha nova =
+  `nssm restart OrcaView-ControleProducao` (mordeu em 28/09 com `WBC_SQL_DRIVER`).
 - **`?checks=wbc` é o SQL Server, não o worker** (alias antigo). O worker é `wbc_worker`
   (aliases `worker`, `integracao_wbc`); não alarma antes do primeiro ciclo registrado.
 - **A tarefa legada "Integração WBC" está desativada desde 2026-09-08.** O check
@@ -233,7 +244,7 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
 - **Nunca `git subtree add` do repo antigo `MCPs\WBCPython`**: o histórico dele versiona um
   `.env.bak` com senha, e este repo é público.
 - ⚠️⚠️ **O worker chama o `python.exe` por caminho absoluto** (NSSM `Application`, gravado no
-  dia do `install_wbc_services.bat`); os outros 4 pegam o `python` do PATH no reboot. **Trocar
+  dia do `install_wbc_services.bat`); os outros 5 pegam o `python` do PATH no reboot. **Trocar
   o Python da máquina não alcança o worker** — calado. Depois de trocar:
   `nssm set OrcaView-WBC-Worker Application "<novo>\python.exe"` (com a parada por arquivo
   antes). Quem diz a verdade é o processo, não o `/status`:

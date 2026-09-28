@@ -85,9 +85,13 @@ OP_SL_SESSION_TTL_S_DEFAULT = 2700.0
 # The four statuses SAP knows for a Production Order. Only these may reach a PATCH body.
 OP_STATUS_CODES = ('boposPlanned', 'boposReleased', 'boposClosed', 'boposCancelled')
 # Allowlist of statuses this API may SET. Deliberately narrower than OP_STATUS_CODES:
-# cancelling and moving back to Planned are out of scope (decision 2026-08-07). Widening
-# this is an explicit decision, not a config tweak.
-OP_STATUS_PERMITIDOS_DEFAULT = 'boposReleased,boposClosed'
+# cancelling and moving back to Planned are out of scope (decision 2026-08-07), and since
+# 2026-09-28 (D9 of docs/PLANO_CONTROLE_PRODUCAO_11.md) closing is out too: a bare status
+# PATCH closes the OP WITHOUT the stock movements (OIGE/OIGN), while `controleproducao`
+# (Manutenção de OP) closes it with them — two meanings of "encerrar" on the same machine
+# is what D9 removes. Widening this back (`OP_STATUS_PERMITIDOS=boposReleased,boposClosed`
+# in the .env) is the rollback, and an explicit decision — not a config tweak.
+OP_STATUS_PERMITIDOS_DEFAULT = 'boposReleased'
 
 # Monitor for the "Integração WBC" scheduled task (Windows Task Scheduler).
 # The PowerShell script ``monitor_wbc_task.ps1`` (scheduled every 10 min) queries the

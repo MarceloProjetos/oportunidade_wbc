@@ -7,8 +7,9 @@ Cancelar e Encerrar. O desenho aqui é o mesmo; o que muda é o que a migração
   (`core/tarefas.py`): 68 OPs são ~270 chamadas à Service Layer, na casa de minutos.
 - **A ordem é calculada, não escolhida**: filha antes da mãe, porque a saída de insumo de
   uma OP pai consome o item que a filha produz. Um ciclo recusa a operação inteira.
-- **Liberar e replanejar são reversíveis** (mudam só o status) — pedem confirmação simples,
-  sem plano com token; em produção ainda exigem a digitação, como na CLI.
+- **Liberar is reversible** (status only) — simple confirmation, no token plan. Replanejar
+  (Liberada -> Planejada) left the screen on 28/09/2026 (D9 of the plan) and lives in the
+  CLI only: next to a half-failed `encerrar` it would break the stock chain.
 
 A regra de negócio de 22/09: uma OP só pode ser apontada estando Liberada, então o
 encerramento libera antes a que estiver Planejada. Isso aparece na coluna "Ação" do plano,
@@ -102,16 +103,27 @@ async def mudar_status(
     op_docnums: list[str] = Form(default=[]),
     acao: str = Form(default=""),
 ):
-    if acao not in {"l", "p"}:
-        # Só liberar e replanejar saem por aqui. Cancelar em lote é do módulo 2 (que
-        # levanta o pedido inteiro e bloqueia se houver OP fora do status permitido) e
-        # encerrar tem caminho próprio, com movimentação de estoque.
-        return _erro(request, "Ação inválida nesta tela: use liberar ou replanejar.")
+    if acao == "p":
+        # Replanejar (Liberada -> Planejada) is CLI-only since 28/09/2026 (D9 of the plan):
+        # on the screen it sits one click away from an `encerrar` that half-failed, and
+        # replanning there breaks the stock chain (the issue must be reversed first). The
+        # CLI keeps it as the recovery path, with the operator reading the log.
+        return _erro(
+            request,
+            "Replanejar não está disponível na tela: use a CLI na .11 — "
+            "`python -m controleproducao manutencao-op replanejar` (decisão D9).",
+            titulo="Replanejar é só pela CLI",
+        )
+    if acao != "l":
+        # Only "liberar" leaves through here. Bulk cancel belongs to module 2 (it loads the
+        # whole order and refuses when an OP is outside the allowed status) and "encerrar"
+        # has its own path, with stock movements.
+        return _erro(request, "Ação inválida nesta tela: use liberar.")
     if not op_docnums:
         return _erro(request, "Nenhuma OP selecionada.")
 
-    nome = "Liberar OPs" if acao == "l" else "Replanejar OPs"
-    avisa_escrita(f"manutencao-op {'liberar' if acao == 'l' else 'replanejar'}")
+    nome = "Liberar OPs"
+    avisa_escrita("manutencao-op liberar")
 
     leitor = _leitor()
     try:

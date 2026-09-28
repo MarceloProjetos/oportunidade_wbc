@@ -134,8 +134,9 @@ if ($Confirmar) {
 #      - NOME: se um servico estiver PARADO, o log dele congela e envelhece - e e'
 #        justamente ali que esta a evidencia de por que ele parou. Esse nao se apaga.
 $LOGS_VIVOS = @(
-    'api.log', 'scheduled_execution.log', 'mcp_service.log', 'wbcpython.log',
-    'api_service.log', 'scheduler_service.log', 'wbc_painel_service.log', 'wbc_worker_service.log'
+    'api.log', 'scheduled_execution.log', 'mcp_service.log', 'wbcpython.log', 'controleproducao.log',
+    'api_service.log', 'scheduler_service.log', 'wbc_painel_service.log', 'wbc_worker_service.log',
+    'controleproducao_service.log'
 )
 $LOGS_SIS = 'C:\Python\ServidorIntegracaoSAP\logs'
 foreach ($filtro in @('*.log', '*.log.*')) {

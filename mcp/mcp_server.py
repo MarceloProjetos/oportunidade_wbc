@@ -55,6 +55,9 @@ A Integração WBC → SAP (cotações e pedidos criados no SAP a partir dos or�
 WBC; worker + painel na porta 8079) roda nesta mesma máquina: `estado_integracao_wbc`
 diz se o worker está ciclando. A "tarefa WBC" de `estado_tarefa_wbc` é a tarefa agendada
 LEGADA do Windows, desativada em 2026-09-08: vem `retired=true`, e isso não é falha.
+Também roda aqui, desde 2026-09-28, o Controle de Produção (Pedidos WBC → Ordens de
+Produção e Manutenção de OP; tela na porta 8080, serviço `OrcaView-ControleProducao`):
+`verificar_saude(checks="cp")` diz se ele responde.
 
 Não é o servidor RDP do SAP (192.168.7.12): esse é o servidor MCP `sap-rdp`, com tools
 próprias. Não confunda as respostas de Windows Update das duas máquinas.
@@ -147,8 +150,11 @@ def verificar_saude(checks: str = "", strict: bool = False) -> dict[str, Any]:
     """Diagnóstico de saúde do servidor de integração SAP/WBC (endpoint /status).
 
     Retorna conexões (SAP HANA, SQL Server/WBC, Supabase, com latência), o sinal do
-    agendador de oportunidades, o estado da tarefa agendada "Integração WBC"
-    (scheduled_task) e métricas de sistema (CPU/memória/disco). Use para responder
+    agendador de oportunidades, o worker WBC → SAP (``wbc_worker``), a tela do Controle
+    de Produção (``controle_producao``: sonda ``127.0.0.1:CP_PORTA/health``; sem alerta
+    antes da 1ª subida), o estado da tarefa agendada LEGADA "Integração WBC"
+    (``scheduled_task``, ``retired=true`` desde 2026-09-08), o Windows Update
+    (``windows_update``) e métricas de sistema (CPU/memória/disco). Use para responder
     "o servidor de integração está saudável?" ou "algum alerta agora?".
 
     Desde 10/09/2026 o ``/status`` responde em dois níveis. Esta tool manda a
@@ -158,7 +164,11 @@ def verificar_saude(checks: str = "", strict: bool = False) -> dict[str, Any]:
     falta de credencial**, não que o servidor parou de informar.
 
     Args:
-        checks: subconjunto opcional de checagens (ex.: "sap,sql,tarefa"). Vazio = todas.
+        checks: subconjunto opcional de checagens, separadas por vírgula. Aceitos: sap,
+            sql_server (sql, wbc — é o SQL Server, NÃO o worker), supabase, scheduler
+            (agendador), scheduled_task (tarefa), wbc_worker (worker, integracao_wbc),
+            windows_update (update, reboot), controle_producao (cp, producao). Nome fora
+            dessa lista → 400 com a lista `aceitos`. Vazio = todas.
         strict: se True, o /status devolve 503 quando degradado (a tool ainda mostra o corpo).
     """
     params: dict[str, Any] = {}

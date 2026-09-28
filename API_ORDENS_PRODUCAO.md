@@ -4,11 +4,19 @@ Documento para quem vai **consumir** a API. Descreve dois endpoints do Servidor 
 Integração SAP (`192.168.7.11:8077`):
 
 - **consultar** uma Ordem de Produção (status, item, quantidade);
-- **mudar o status** de uma OP para **Liberada** ou **Encerrada** — a mudança acontece
-  **dentro do SAP**, na base de produção, na hora.
+- **mudar o status** de uma OP para **Liberada** — a mudança acontece **dentro do SAP**, na
+  base de produção, na hora.
 
 Não é um espelho nem uma fila: a chamada vai direto ao SAP pelo Service Layer e a resposta
 já reflete o que ficou gravado.
+
+> ⚠️ **Mudança em 28/09/2026 — `encerrada` saiu desta API.** Encerrar uma OP passou a ser
+> feito só pela tela **Manutenção de OP** do Controle de Produção (mesmo servidor, porta
+> 8080), porque lá o encerramento lança a **saída de insumos e a entrada do produto**
+> (estoque) antes de fechar; por aqui a OP fechava **sem** esses lançamentos. Um `POST` com
+> `"status":"encerrada"` agora responde **400** (`status_invalido`) e `transicoes_permitidas`
+> nunca traz `"encerrada"`. Consultar e liberar continuam iguais. Se a sua tela tinha o
+> botão "Encerrar" ligado nesta API, ele precisa sair ou apontar para a Manutenção de OP.
 
 > Os endpoints de **Ordens de Serviço** (`/ordens-servico/...`) são outra coisa e estão
 > documentados em `API_OS_INTEGRACAO.md`.
@@ -90,10 +98,10 @@ curl "http://192.168.7.11:8077/ordens-producao/131431?chave=docentry" \
 Já vem filtrado pelo status atual da OP **e** pelo que a API tem permissão de fazer. Use
 ele para habilitar/desabilitar botões na sua tela em vez de reimplementar a regra:
 
-| Status da OP | `transicoes_permitidas` |
+| Status da OP | `transicoes_permitidas` (desde 28/09/2026) |
 | --- | --- |
-| Planejada | `["liberada", "encerrada"]` |
-| Liberada | `["encerrada"]` |
+| Planejada | `["liberada"]` |
+| Liberada | `[]` |
 | Encerrada | `[]` |
 | Cancelada | `[]` |
 
@@ -112,7 +120,7 @@ curl -X POST "http://192.168.7.11:8077/ordens-producao/129850/status" \
 
 | Campo | Obrigatório | Valores | Para que serve |
 | --- | --- | --- | --- |
-| `status` | **sim** | `"liberada"` ou `"encerrada"` (também aceita `boposReleased` / `boposClosed`) | O status que a OP deve ficar |
+| `status` | **sim** | `"liberada"` (também aceita `boposReleased`). `"encerrada"`/`boposClosed` → **400** desde 28/09/2026 (ver o aviso no topo) | O status que a OP deve ficar |
 | `status_atual` | não, mas **recomendado** | o status que você acredita que a OP tem agora | Se não bater com o SAP, a API **não escreve** e devolve 409 |
 
 `status_atual` é a sua proteção contra duas pessoas mexendo na mesma OP. Sem ele, quem
@@ -140,15 +148,16 @@ SAP. Isso é normal e é a resposta certa — não trate como erro.
 
 ## 5. O que pode e o que não pode
 
-| Status atual | → `liberada` | → `encerrada` |
+| Status atual | → `liberada` | → `encerrada` (desde 28/09/2026) |
 | --- | --- | --- |
-| **Planejada** | ✅ muda | ✅ muda |
-| **Liberada** | 200 `ja_estava: true` | ✅ muda |
-| **Encerrada** | ⛔ 409 | 200 `ja_estava: true` |
-| **Cancelada** | ⛔ 409 | ⛔ 409 |
+| **Planejada** | ✅ muda | ⛔ 400 — só pela Manutenção de OP |
+| **Liberada** | 200 `ja_estava: true` | ⛔ 400 — só pela Manutenção de OP |
+| **Encerrada** | ⛔ 409 | ⛔ 400 |
+| **Cancelada** | ⛔ 409 | ⛔ 400 |
 
 **Fora do escopo desta API** (pedido desses volta **400**, sem sequer consultar o SAP):
 
+- encerrar uma OP (desde 28/09/2026 — é da tela Manutenção de OP, com estoque);
 - cancelar uma OP;
 - voltar uma OP para Planejada;
 - criar OP, mudar quantidade, item, datas ou componentes.
@@ -208,7 +217,9 @@ def consultar(doc_num: int) -> dict:
 
 
 def encerrar(doc_num: int) -> dict:
-    """Encerra a OP conferindo antes que ninguem mexeu nela."""
+    """Exemplo HISTORICO (ate 28/09/2026): hoje 'encerrada' responde 400 nesta API —
+    encerrar OP e' pela tela Manutencao de OP. O padrao consultar -> conferir
+    transicoes_permitidas -> POST com status_atual vale igual para 'liberada'."""
     op = consultar(doc_num)
 
     if op["status"] == "boposClosed":

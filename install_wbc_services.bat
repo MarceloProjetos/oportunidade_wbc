@@ -35,7 +35,7 @@ REM durante o STOP_PENDING e era recusado (08/09/2026). Direto, o python recebe 
 REM termina o ciclo e sai em segundos. venv se existir; senao o python do PATH.
 REM
 REM ATENCAO - o preco disso: o caminho abaixo fica CONGELADO no dia em que este
-REM instalador roda. Os outros 4 servicos chamam "python" do PATH e seguem o
+REM instalador roda. Os outros 5 servicos chamam "python" do PATH e seguem o
 REM interpretador da maquina sozinhos; o worker NAO. Trocou o Python da .11?
 REM rode este .bat de novo (ou nssm set OrcaView-WBC-Worker Application "<novo>\python.exe"),
 REM senao o worker continua no Python antigo, calado - e o /status nao denuncia,
@@ -122,7 +122,10 @@ echo   1. bloco WBC no .env  (TRACKING_DB_URL=sqlite:///./state/wbc_tracking.db,
 echo      PAINEL_HOST=0.0.0.0, PAINEL_PORTA=8079 + SL_*, WBC_SQL_*, HANA_*, WORKER_*)
 echo   2. python -m wbcpython doctor
 echo   3. nssm start OrcaView-WBC-Painel   ^(se parar: Get-Content .\logs\wbc_painel_service.log -Tail 30 -Encoding utf8^)
-echo   4. bloco CP no .env ^(CP_HOST=127.0.0.1 ate o piloto - 0.0.0.0 so na F6 com a regra de firewall da 8080;
-echo      CP_PORTA=8080, WBC_SQL_DRIVER conforme Get-OdbcDriver^)
+echo   4. bloco CP no .env ^(CP_HOST=0.0.0.0 + regra de firewall da 8080 so para a LAN - README, "Controle de Producao";
+echo      127.0.0.1 = so a propria maquina, e ai o painel abre por http://localhost:8079; CP_PORTA=8080;
+echo      WBC_SQL_DRIVER=ODBC Driver 17 for SQL Server - a .11 so tem o 17, o default do config e o 18 e nao ha
+echo      fallback: a subida nao acusa, so o primeiro "buscar"^)
 echo      e  nssm start OrcaView-ControleProducao   ^(confere: curl http://127.0.0.1:8080/health^)
+echo      ^(.env editado com o servico ja rodando? nssm restart OrcaView-ControleProducao - o .env e lido na subida^)
 endlocal

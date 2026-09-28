@@ -6,11 +6,43 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-28] — Controle de Produção: F6 (rede + módulo 3) e o pré-voo do piloto
+
+⚠️ Vale no próximo deploy. **Muda o contrato da API de OP** (`API_ORDENS_PRODUCAO.md`): `POST
+/ordens-producao/<n>/status` com `encerrada` passa a responder **400** — encerrar OP é só pela
+tela Manutenção de OP (com estoque). Na .11, depois do `deploy_update.bat`: conferir que o
+`.env` não fixa `OP_STATUS_PERMITIDOS`; `CP_HOST=0.0.0.0` + regra de firewall da 8080 (receita
+no README) + `nssm restart OrcaView-ControleProducao`. Plano: `docs/PLANO_CONTROLE_PRODUCAO_11.md`, F6.
+
+- **`config.py`:** `OP_STATUS_PERMITIDOS_DEFAULT = 'boposReleased'` (D9 — duas semânticas de
+  "encerrar" na mesma máquina: o PATCH puro fechava a OP sem OIGE/OIGN). Constante, não flag;
+  `OP_STATUS_PERMITIDOS=boposReleased,boposClosed` no `.env` é o rollback.
+  `ordens_producao_sl.py` (irmão do web) intacto. Testes: default pinado; a máquina de estados
+  roda com a allowlist ampla explícita.
+- **Módulo 3 na tela:** `Replanejar` saiu de `manutencao_op.html`; `POST /manutencao-op/status`
+  com `acao=p` responde 400 "só pela CLI", sem consulta nem escrita. Liberar e Encerrar seguem.
+- **Rede:** `CP_HOST=0.0.0.0` como referência (`.env.example`, `install_wbc_services.bat`,
+  README com a receita da regra de firewall da 8080 só para a LAN, CLAUDE.md gotcha 9).
+- **`maintenance/pre_voo_controleproducao.py`** (só leitura): candidatos a OP, as duas
+  localizações do pedido, flags INO, linhas/grupos, `GGF_`, `@INO_LOG`, OPs existentes, quem
+  criou OP nos últimos dias (addon vivo?) e OPs órfãs. Rodado em 28/09 contra PROD: 1
+  candidata (84435), addon `projeto06` criando OP até hoje, 0 órfãs, 4 orçamentos com rateio
+  falho (porte, 22–24/09).
+- **Docs pós-deploy (varredura de 28/09, 60 achados):** README (6 processos, tabela de
+  operação, logs, árvore, instaladores, `/sincronizar`, ODBC), CLAUDE.md ("outros 5"), `api.py`
+  e `mcp_server.py` (check `controle_producao` nas listas), `install_services.bat`,
+  `maintenance/disco_limpeza.ps1` (protege os logs do 6º serviço), `test_repo_layout.py`,
+  `.env.example` (o `.env` é lido na subida; Driver 17 na .11), `PARA_O_ANDERSON.md` (no ar +
+  resultado das consultas de limpeza), plano (F0–F6 e decisões).
+
 ## [2026-09-28] — Controle de Produção entra como pacote do SIS (6º serviço)
 
-⚠️ Vale no próximo deploy: `requirements.txt` ganhou `typer` e `rich` (o `deploy_update.bat`
-roda o `pip` pelo hash) e há um serviço NSSM novo a registrar (`install_wbc_services.bat`).
-Plano, riscos e decisões: `docs/PLANO_CONTROLE_PRODUCAO_11.md`.
+✅ **No ar na .11 em 28/09, 13:26** — `deploy_update.bat` (~13:22) trouxe o `200519a` e o `pip`
+instalou `typer 0.27.2` e `rich`; `install_wbc_services.bat` registrou o
+`OrcaView-ControleProducao` e o `nssm start` o subiu em `127.0.0.1:8080` (`/health` = `ok`,
+`producao=true`, `chave_configurada=true`; `/status?checks=cp&strict=1` → 200). A .11 só tem o
+ODBC Driver 17 → `WBC_SQL_DRIVER=ODBC Driver 17 for SQL Server` no `.env` + `nssm restart`
+(a linha entrou depois do 1º start). Plano, riscos e decisões: `docs/PLANO_CONTROLE_PRODUCAO_11.md`.
 
 - **`controleproducao/`** — o pacote ControleProducao do Anderson (24/09) importado no molde do
   `wbcpython/`: `python_app/app` → `controleproducao/` (achatado), `tests` →
@@ -34,9 +66,11 @@ Plano, riscos e decisões: `docs/PLANO_CONTROLE_PRODUCAO_11.md`.
   `OS_API_KEY`, `destino_local`) extraído do painel e reusado pelo pacote — uma entrada vale
   para as duas telas; `/docs` fechado; POST por cookie exige `Origin`/`Referer` do mesmo host;
   sem `OS_API_KEY` as rotas de escrita do pacote ficam em 503 (fail-closed).
-- **Links de menu:** painel WBC → "Controle de Produção" (`GET /controle-producao`, `CP_URL`
-  ou host:`CP_PORTA`); tela → "Painel WBC"; API 8077 → `GET /controle-producao`;
-  `web/entrada.html` ganhou o botão.
+- **Links de menu:** painel WBC → dois botões no topo, "Pedidos WBC → OPs"
+  (`/controle-producao/pedidos` → 302 `…/pedidos-wbc`) e "Manutenção de OP"
+  (`/controle-producao/ops` → 302 `…/manutencao-op`), destino por `CP_URL` ou host:`CP_PORTA`
+  (o painel segue a página principal — decisão de 28/09 13h); tela → "Painel WBC"; API 8077 →
+  `GET /controle-producao`; `web/entrada.html` ganhou o botão.
 - **`/status`:** check `controle_producao` (aliases `cp`, `controleproducao`, `producao`) sonda
   `127.0.0.1:CP_PORTA/health`; três níveis como o `wbc_worker` (o log do pacote é a marca
   "já subiu"); `CP_PORTA_DEFAULT`/`CP_LOG_FILE_DEFAULT` no `config.py` da raiz com teste de

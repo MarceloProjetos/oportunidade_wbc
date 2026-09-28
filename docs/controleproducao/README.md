@@ -44,14 +44,18 @@ em produção, então nunca num script.
 ## Configuração: o `.env` da raiz
 
 O pacote lê **o mesmo `.env`** do SIS, por caminho fixo (`controleproducao/config.py` acha a
-raiz pelo próprio arquivo — funciona de qualquer diretório). Nomes iguais aos do bloco WBC:
+raiz pelo próprio arquivo — funciona de qualquer diretório). O serviço lê o `.env` **uma vez,
+na subida** (`get_settings` é `lru_cache`): linha nova ou alterada na .11 só vale depois de
+`nssm restart OrcaView-ControleProducao` (o `deploy_update.bat` também religa); a CLI é
+processo novo a cada comando e lê na hora. Foi o que mordeu em 28/09 com `WBC_SQL_DRIVER`,
+que entrou depois do primeiro start. Nomes iguais aos do bloco WBC:
 
 | O que | Variáveis | Observação |
 | --- | --- | --- |
 | Service Layer (escrita) | `SL_BASE_URL`, `SL_COMPANY_DB`, `SL_USERNAME`, `SL_PASSWORD`, `SL_VERIFY_SSL`, `SL_CA_BUNDLE`, `SL_TIMEOUT_SECONDS` | usuário/senha vazios caem em `OP_SL_USERNAME`/`OP_SL_PASSWORD` (também com a linha presente e vazia — `env_ignore_empty`) |
 | HANA (só leitura) | `HANA_HOST`, `HANA_PORT`, `HANA_USERNAME`, `HANA_PASSWORD` | vazios caem em `SAP_*`. **`HANA_SCHEMA` não é lido**: o pacote lê ORDR/OWOR na company de `SL_COMPANY_DB` (`Settings.hana_schema` é uma propriedade). `HANA_SCHEMA_LEGADO` só para `comparar-ops` |
-| SQL Server do WBC (só leitura) | `WBC_SQL_HOST/PORT/DATABASE/USERNAME/PASSWORD`, `WBC_SQL_DRIVER`, `WBC_SQL_TRUST_SERVER_CERTIFICATE` | vazios caem em `SQL_*`/`SQLSERVER_*`. O driver é o nome **exato** do ODBC instalado (`Get-OdbcDriver -Platform 64-bit`) |
-| A tela | `CP_HOST` (127.0.0.1), `CP_PORTA` (8080), `CP_LOG_FILE` (`logs/controleproducao.log`), `CP_URL` (link vindo do painel; vazio = mesmo host:porta) | os defaults existem em três configs (raiz, `wbcpython`, aqui) — `tests/test_config_paridade_wbc.py` cobra |
+| SQL Server do WBC (só leitura) | `WBC_SQL_HOST/PORT/DATABASE/USERNAME/PASSWORD`, `WBC_SQL_DRIVER`, `WBC_SQL_TRUST_SERVER_CERTIFICATE` | vazios caem em `SQL_*`/`SQLSERVER_*`. O driver é o nome **exato** do ODBC instalado (`Get-OdbcDriver -Platform 64-bit`), **sem fallback** — o default do `config.py` é o **18** (o pipeline de oportunidades tenta 18 → 17; este pacote não) e o erro só aparece no 1º `pedidos-wbc buscar`, não na subida. A .11 só tem o **17** (conferido 28/09/2026): lá o `.env` traz `WBC_SQL_DRIVER=ODBC Driver 17 for SQL Server` |
+| A tela | `CP_HOST` (default 127.0.0.1 = só a máquina; na .11 é `0.0.0.0` desde a F6, com a regra de firewall da 8080 só para a LAN), `CP_PORTA` (8080), `CP_LOG_FILE` (`logs/controleproducao.log`), `CP_URL` (link vindo do painel; vazio = mesmo host:porta) | os defaults existem em três configs (raiz, `wbcpython`, aqui) — `tests/test_config_paridade_wbc.py` cobra |
 | Login | `OS_API_KEY` | a mesma da API 8077 e do painel. **Sem ela, a tela fica só leitura** (escrita responde 503) |
 | Módulo 3 | `SL_BUSINESS_PLACE_ID` | filial dos lançamentos de estoque quando não dá para derivar do dado (0 = derivar) |
 
@@ -107,9 +111,24 @@ pelo hash do `requirements.txt`; religa; valida `/health`) e `install_wbc_servic
 (registra `OrcaView-ControleProducao` → `run_controleproducao.bat` → `python -m controleproducao
 web`, cwd na raiz, stdout em `logs\controleproducao_service.log` zerado a cada start). O log
 do Python é `logs/controleproducao.log` (5 MB × 3) — é também a marca "já subiu" do check
-`controle_producao` do `/status` (`/status?checks=cp`). O painel WBC (8079) tem os botões
-"Pedidos WBC → OPs" e "Manutenção de OP"; a tela tem "Painel WBC"; a API 8077 responde
-`GET /controle-producao`.
+`controle_producao` do `/status` (`/status?checks=cp` com `X-API-Key` ou `STATUS_ID`; sem
+credencial vem a visão pública, `restrito:true`, e o bloco `controle_producao` não sai). O
+painel WBC (8079) tem os botões "Pedidos WBC → OPs" e "Manutenção de OP"; a tela tem "Painel
+WBC"; a API 8077 responde `GET /controle-producao`.
+
+**Rede (F6, 28/09/2026):** na .11 `CP_HOST=0.0.0.0` + regra de firewall da 8080 **só para a
+LAN** (molde: a regra da 8079; receita no README, seção "Controle de Produção") +
+`nssm restart OrcaView-ControleProducao` — a exposição vira a mesma do painel: quem tem a
+`OS_API_KEY`. Com `CP_HOST=127.0.0.1` (o default do código) o serviço só escuta em loopback:
+de fora a 8080 **recusa conexão** (não é queda) e, na própria .11, o painel tem de ser aberto
+por `http://localhost:8079/` — os botões montam o link com o host da página e o cookie
+`wbc_painel` é por host.
+
+**Módulo 3 (D9):** `Liberar` e `Encerrar` pela tela; `Replanejar` só pela CLI
+(`python -m controleproducao manutencao-op replanejar`); a API 8077 deixou de encerrar OP
+(`OP_STATUS_PERMITIDOS_DEFAULT = 'boposReleased'`) — encerrar com estoque é só aqui.
+Pré-voo do piloto (só leitura, PROD): `python maintenance/pre_voo_controleproducao.py
+<orçamento>`.
 
 ## Mapa
 

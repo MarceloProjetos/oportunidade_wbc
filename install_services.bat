@@ -5,9 +5,9 @@ REM boot, restart automatico em caso de queda e log em arquivo:
 REM   - OrcaView-Scheduler  : agendador de oportunidades (run_scheduler.bat)
 REM   - OrcaView-OS-API     : API / Painel de Sincronizacao na porta 8077 (run_api.bat)
 REM
-REM Os outros tres tem instalador proprio, e NAO se misturam com este:
-REM   - OrcaView-MCP                        -> install_mcp_service.bat
-REM   - OrcaView-WBC-Painel e -WBC-Worker   -> install_wbc_services.bat
+REM Os outros quatro tem instalador proprio, e NAO se misturam com este:
+REM   - OrcaView-MCP                                          -> install_mcp_service.bat
+REM   - OrcaView-WBC-Painel, -WBC-Worker e -ControleProducao  -> install_wbc_services.bat
 REM
 REM Rode COMO ADMINISTRADOR, uma vez. Requer o NSSM (https://nssm.cc) no PATH.
 REM Depois disso, os servicos sobem sozinhos no boot (nao precisa iniciar na mao).
@@ -75,7 +75,7 @@ echo.
 echo OK. Servicos registrados (sobem no boot e reiniciam se cairem):
 echo   - OrcaView-Scheduler   -^> logs\scheduler_service.log
 echo   - OrcaView-OS-API      -^> logs\api_service.log         (porta 8077)
-echo Faltam o MCP (install_mcp_service.bat) e os dois do WBC (install_wbc_services.bat).
+echo Faltam o MCP (install_mcp_service.bat) e os tres do install_wbc_services.bat (painel WBC, worker WBC, Controle de Producao).
 echo Gerencie em services.msc  ou:  nssm restart OrcaView-OS-API
 echo IMPORTANTE: feche janelas manuais de run_*.bat (brigam pela porta / pela trava do worker).
 echo Para remover depois:  nssm remove ^<servico^> confirm

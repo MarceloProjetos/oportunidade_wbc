@@ -694,7 +694,8 @@ _CHECK_ALIASES = {
 @app.get('/status')
 def status_detalhado():
     """**On-demand** diagnosis: SAP, SQL Server (WBC), Supabase (with latency), scheduler
-    signal and system (CPU/memory/disk/IP/uptime).
+    signal, WBC worker, Controle de Produção (``/health`` on ``CP_PORTA``), Windows Update
+    and system (CPU/memory/disk/IP/uptime).
 
     **Open, in two levels.** With no credential the answer is the **minimal** view
     (:func:`_status_publico`): ``ok``, ``healthy``, one boolean per check, the alert
@@ -709,7 +710,8 @@ def status_detalhado():
     Runs only when called (no polling). Parameters:
     - ``?checks=sap,sql`` — runs only the listed checks (sap, sql/sql_server, supabase,
       scheduler/agendador, scheduled_task/tarefa, windows_update/update/reboot,
-      wbc_worker/worker/integracao_wbc). Omitted =
+      wbc_worker/worker/integracao_wbc, controle_producao/cp/controleproducao/producao).
+      Omitted =
       all of them. ``system`` always comes. An invalid name → **400** with the list of what
       is accepted (see ``collect_status``: a typo used to return ``healthy: true`` without
       checking anything).

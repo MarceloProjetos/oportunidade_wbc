@@ -158,7 +158,9 @@ def test_credencial_ausente_nao_derruba_o_get_settings(monkeypatch):
 
 def test_op_status_permitidos_default():
     reset_settings()
-    assert get_settings().op_status_permitidos == ('boposReleased', 'boposClosed')
+    # D9 (2026-09-28): closing with stock movements is the controleproducao package's job;
+    # this API only releases unless the .env widens the allowlist back.
+    assert get_settings().op_status_permitidos == ('boposReleased',)
 
 
 @pytest.mark.parametrize(('bruto', 'esperado'), [

@@ -670,6 +670,25 @@ def test_post_com_op_terminal_barra_o_lote_inteiro(cliente):
     mudar.assert_not_called()
 
 
+def test_replanejar_pela_tela_e_recusado(cliente):
+    """D9 (28/09/2026): replanejar is CLI-only. The screen refuses ``acao=p`` before any
+    lookup or write — the button is gone from the template, so a ``p`` here is a stale page
+    or a hand-made POST, and both deserve the explicit message, not a silent no-op."""
+    with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
+         patch("controleproducao.core.web.get_settings", return_value=_settings()), \
+         patch("controleproducao.modules.manutencao_op.service.levanta_ops") as levanta, \
+         patch("controleproducao.modules.manutencao_op.service.muda_status", AsyncMock()) as mudar:
+        resposta = cliente.post(
+            "/manutencao-op/status",
+            data={"op_docnums": ["155747"], "acao": "p"},
+        )
+
+    assert resposta.status_code == 400
+    assert "CLI" in resposta.text
+    levanta.assert_not_called()
+    mudar.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # 11. A linha do banco vira modelo (23/09/2026)
 # ---------------------------------------------------------------------------

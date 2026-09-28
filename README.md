@@ -26,6 +26,7 @@ a partir dos orçamentos do WBC, com o painel que é a porta de entrada das duas
 - [Como Rodar](#como-rodar)
 - [Ordens de Produção — escrita de status no SAP](#ordens-de-produção--escrita-de-status-no-sap)
 - [Integração WBC → SAP (wbcpython)](#integração-wbc--sap-wbcpython)
+- [Controle de Produção (controleproducao)](#controle-de-produção-controleproducao)
 - [Agendamento (Automático)](#agendamento-automático)
 - [Monitoramento](#monitoramento)
 - [Versionamento (GitHub)](#versionamento-github)
@@ -439,7 +440,7 @@ curl -X POST http://localhost:8077/sync/ordens-servico/84080 -H "X-API-Key: SUA_
 | `/oportunidades/info` | GET | Total de linhas na tabela + agenda (intervalo/janela). Requer `X-API-Key`. |
 | `/oportunidades/sincronizar` | POST | **Força** a carga completa de oportunidades (lock cross-process; `409` se já houver uma rodando). |
 
-> 🖱️ **Jeito mais fácil:** abra `http://<servidor>:8077/` no navegador — uma telinha
+> 🖱️ **Jeito mais fácil:** abra `http://<servidor>:8077/sincronizar` no navegador — uma telinha
 > ([web/sincronizar.html](web/sincronizar.html)) com campo do pedido, chave (com "lembrar")
 > e botão **Sincronizar** (aceita vários pedidos). Sem curl/DevTools.
 
@@ -500,11 +501,15 @@ respondem `503` e não abrem socket. `OP_SL_ENABLED` é ignorada.
 
 ### O que dá para fazer
 
-Só **Liberar** (`boposReleased`) e **Encerrar** (`boposClosed`). Cancelar e voltar para
-Planejada estão fora de escopo — um pedido desses é recusado com `400` **antes** de
-qualquer chamada ao SAP (allowlist `OP_STATUS_PERMITIDOS`).
+Por default, só **Liberar** (`boposReleased`). **Encerrar saiu do default em 28/09/2026
+(D9 de `docs/PLANO_CONTROLE_PRODUCAO_11.md`):** um PATCH de status fecha a OP **sem** a saída
+de insumos e a entrada do produto; quem encerra com estoque é a tela Manutenção de OP do
+Controle de Produção (8080). Cancelar e voltar para Planejada continuam fora de escopo. Um
+pedido fora da allowlist é recusado com `400` **antes** de qualquer chamada ao SAP
+(`OP_STATUS_PERMITIDOS_DEFAULT` no `config.py`; `OP_STATUS_PERMITIDOS=boposReleased,boposClosed`
+no `.env` é o rollback, não o normal).
 
-| Status atual | → `liberada` | → `encerrada` |
+| Status atual | → `liberada` | → `encerrada` (só com a allowlist ampliada no `.env`) |
 | --- | --- | --- |
 | Planejada | ✅ | ✅ |
 | Liberada | 200 `ja_estava` (sem PATCH) | ✅ |
@@ -605,10 +610,37 @@ módulo 3 (*Manutenção de OP*) libera, replaneja e **encerra com movimentaçã
 - **Configuração:** bloco "Controle de Produção" do `.env.example` (`CP_HOST`, `CP_PORTA`,
   `CP_LOG_FILE`, `WBC_SQL_DRIVER`, `HANA_SCHEMA_LEGADO`, `SL_BUSINESS_PLACE_ID`); as
   credenciais são as `SL_*`/`HANA_*`/`WBC_SQL_*` do bloco WBC, com os mesmos fallbacks.
-  `HANA_SCHEMA` **não** é lido: o pacote lê ORDR/OWOR na company de `SL_COMPANY_DB`.
-- **Links:** o painel WBC (8079) tem o botão "Controle de Produção"; a tela tem "Painel WBC";
-  a API 8077 redireciona em `GET /controle-producao`. Uma entrada com a `OS_API_KEY` vale
-  para as três telas (cookie compartilhado, `wbcpython/dashboard/acesso.py`).
+  `HANA_SCHEMA` **não** é lido: o pacote lê ORDR/OWOR na company de `SL_COMPANY_DB`. Na .11
+  (28/09): `WBC_SQL_DRIVER=ODBC Driver 17 for SQL Server` — a máquina só tem o 17, o default
+  do pacote é o 18 e **não há fallback** (diferente do pipeline de oportunidades); o erro só
+  aparece no 1º `buscar`. O serviço lê o `.env` na subida: linha nova = `nssm restart
+  OrcaView-ControleProducao`.
+- **Links:** o painel WBC (8079) tem dois botões no topo, "Pedidos WBC → OPs"
+  (`/controle-producao/pedidos` → `/pedidos-wbc`) e "Manutenção de OP"
+  (`/controle-producao/ops` → `/manutencao-op`), montados com `CP_URL` ou o host da
+  requisição na `CP_PORTA`; a tela tem "Painel WBC"; a API 8077 redireciona em
+  `GET /controle-producao`. Uma entrada com a `OS_API_KEY` vale para as três telas (cookie
+  compartilhado, `wbcpython/dashboard/acesso.py`).
+- **Rede (F6, 28/09/2026):** `CP_HOST=0.0.0.0` no `.env` da .11 + regra de firewall da 8080
+  **só para a LAN** (mesmo alcance da regra da 8079) + `nssm restart OrcaView-ControleProducao`.
+  Com `CP_HOST=127.0.0.1` (default do código) o serviço só escuta em loopback: de fora a 8080
+  **recusa conexão** (não é queda) e na .11 o painel tem de ser aberto por
+  `http://localhost:8079/` para os botões e o cookie valerem. Receita da regra (PowerShell,
+  Administrador; copia o alcance da regra da 8079 e cai em `LocalSubnet` se ela não existir):
+
+  ```powershell
+  $molde = Get-NetFirewallRule -DisplayName '*8079*' -ErrorAction SilentlyContinue | Select-Object -First 1
+  $alcance = 'LocalSubnet'
+  if ($molde) { $alcance = ($molde | Get-NetFirewallAddressFilter).RemoteAddress }
+  New-NetFirewallRule -DisplayName 'OrcaView ControleProducao 8080' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8080 -RemoteAddress $alcance -Profile Any
+  ```
+- **Módulo 3 (D9):** `Liberar` e `Encerrar` pela tela; `Replanejar` só pela CLI
+  (`python -m controleproducao manutencao-op replanejar`). A API 8077 deixou de encerrar OP
+  (seção "Ordens de Produção" acima): encerrar com estoque é só aqui.
+- **Pré-voo do piloto (só leitura, PROD):** `python maintenance/pre_voo_controleproducao.py
+  <orçamento>` — lista os pedidos pendentes de OP, as duas localizações do pedido, as flags
+  INO, linhas/grupos, `GGF_`, `@INO_LOG`, OPs existentes, quem criou OP nos últimos dias
+  (addon vivo?) e a auditoria de OPs órfãs.
 - **Monitoração:** `/status?checks=controle_producao` (aliases `cp`, `producao`) sonda
   `127.0.0.1:CP_PORTA/health`; sem alerta enquanto o serviço nunca subiu na máquina.
 - **Histórico e regras:** `docs/controleproducao/migration_guide.md` (§7 é o diário),
@@ -682,7 +714,7 @@ OrcaView-ETL ...`), que aparece em `services.msc`.
 
 ## Operação (iniciar / parar / serviços)
 
-No servidor rodam **cinco processos** 24/7 (os quatro abaixo + a fachada MCP, que tem
+No servidor rodam **seis processos** 24/7 (os cinco abaixo + a fachada MCP, que tem
 instalador próprio — `install_mcp_service.bat`):
 
 | Processo | O que faz | Sobe com | Serviço NSSM |
@@ -691,10 +723,14 @@ instalador próprio — `install_mcp_service.bat`):
 | **API / Painel de Sincronização** | endpoints em `:8077`; `GET /` leva ao painel WBC (a entrada), a página de OS/Oportunidades fica em `/sincronizar` | `run_api.bat` | `OrcaView-OS-API` |
 | **Painel WBC** | a porta de entrada, em `:8079` (`PAINEL_PORTA`) — lê só o acompanhamento | `run_wbc_painel.bat` | `OrcaView-WBC-Painel` |
 | **Worker WBC** | cotação/pedido no SAP a partir do WBC, a cada 3 min no expediente — **escreve em produção** | `python.exe -m wbcpython worker` (sem wrapper) | `OrcaView-WBC-Worker` |
+| **Controle de Produção** | Pedidos WBC → OPs e Manutenção de OP em `:8080` (`CP_PORTA`; escuta em `CP_HOST`) — **escreve em produção** (OPs, itens, recursos, estoque), só pelo IP da .11 | `run_controleproducao.bat` | `OrcaView-ControleProducao` |
 
 **Entrada única:** abrir `http://192.168.7.11:8077` leva ao painel WBC (ou, se o serviço dele
 estiver parado, mostra o aviso e o botão para o Painel de Sincronização). O Painel de
-Sincronização vive em `http://192.168.7.11:8077/sincronizar`.
+Sincronização vive em `http://192.168.7.11:8077/sincronizar`. Os botões "Pedidos WBC → OPs" e
+"Manutenção de OP" do painel só alcançam a tela do Controle de Produção pelo IP com
+`CP_HOST=0.0.0.0` + regra de firewall da 8080 (F6); com `127.0.0.1`, só na própria .11 e
+abrindo o painel por `http://localhost:8079/`.
 
 ### Iniciar
 
@@ -703,10 +739,12 @@ Sincronização vive em `http://192.168.7.11:8077/sincronizar`.
   ```bat
   install_services.bat
   ```
-  Registra `OrcaView-Scheduler`, `OrcaView-OS-API`, `OrcaView-WBC-Painel` (auto-start no
-  boot, restart se cair, log em `logs/`) e `OrcaView-WBC-Worker` (**manual, parado**: só liga
-  na virada, com o legado desligado — `nssm set OrcaView-WBC-Worker Start SERVICE_AUTO_START`
-  e `nssm start`). Gerencie em `services.msc`.
+  Registra só `OrcaView-Scheduler` e `OrcaView-OS-API` (auto-start no boot, restart se cair,
+  log em `logs/`). Os demais têm instalador próprio: `install_mcp_service.bat` (`OrcaView-MCP`)
+  e `install_wbc_services.bat` (`OrcaView-WBC-Painel` e `OrcaView-ControleProducao`, auto-start,
+  o 1º `nssm start` é à mão; `OrcaView-WBC-Worker` nasce **manual, parado** — só liga na virada,
+  com o legado desligado: `nssm set OrcaView-WBC-Worker Start SERVICE_AUTO_START` e
+  `nssm start`). Gerencie em `services.msc`.
 - **Atualizar** (git pull + pip se preciso + religar tudo): `deploy_update.bat` como
   Administrador. O worker WBC só religa se estava rodando.
 - **Manual (teste/temporário)** — cada um isolado em sua janela: `run_scheduler.bat`
@@ -740,7 +778,8 @@ Sincronização vive em `http://192.168.7.11:8077/sincronizar`.
 | `logs/scheduled_execution.log` | agendador (rotação diária, 12 dias) |
 | `logs/api.log` | API (rotação diária, 12 dias) |
 | `logs/wbcpython.log` | worker + CLI do WBC (o mesmo texto da aba "Log" do painel; 5 MB × 3) |
-| `logs/scheduler_service.log` · `logs/api_service.log` · `logs/wbc_painel_service.log` · `logs/wbc_worker_service.log` | saída bruta dos serviços (via NSSM) |
+| `logs/controleproducao.log` | tela do Controle de Produção (`python -m controleproducao web`; 5 MB × 3) — é a marca "já subiu" do check `controle_producao` do `/status`; a CLI do pacote escreve só no console |
+| `logs/scheduler_service.log` · `logs/api_service.log` · `logs/wbc_painel_service.log` · `logs/wbc_worker_service.log` · `logs/controleproducao_service.log` | saída bruta dos serviços (via NSSM) |
 
 > Os logs são gravados em **UTF-8**. No **PowerShell**, leia com `-Encoding utf8`,
 > senão os acentos saem trocados (ex.: `execuÃ§Ã£o`):
@@ -894,7 +933,8 @@ ServidorIntegracaoSAP/
 ├── monitoring.py                # Diagnóstico do /status (conexões, agendador, tarefa)
 ├── api.py                       # API HTTP de disparo + /status (Flask, porta 8077)
 ├── wbcpython/                   # Integração WBC → SAP: worker + painel + CLI (python -m wbcpython)
-├── web/                         # Página servida pela API (sincronizar.html)
+├── controleproducao/            # Controle de Produção: Pedidos WBC → OPs + Manutenção de OP (python -m controleproducao; porta CP_PORTA=8080)
+├── web/                         # Páginas servidas pela API (entrada.html = GET /, sincronizar.html = /sincronizar)
 ├── sql/                         # DDL + policies do Supabase
 ├── scripts/
 │   └── scheduled_execution.py   # Agendamento via APScheduler (IntervalTrigger)
@@ -905,16 +945,17 @@ ServidorIntegracaoSAP/
 ├── run_scheduler.bat            # Wrapper p/ Task Scheduler / NSSM (agendador, boot 24/7)
 ├── run_api.bat                  # Wrapper p/ Task Scheduler / NSSM (API, boot 24/7)
 ├── run_wbc_painel.bat           # Wrapper NSSM do painel WBC (PAINEL_HOST:PAINEL_PORTA)
+├── run_controleproducao.bat     # Wrapper NSSM do Controle de Produção (CP_HOST:CP_PORTA)
 ├── run_mcp.bat                  # Wrapper NSSM da fachada MCP HTTP (porta 8078)
 ├── install_services.bat         # Registra agendador + API no NSSM
 ├── install_mcp_service.bat      # Registra a fachada MCP HTTP no NSSM
-├── install_wbc_services.bat     # Registra painel + worker WBC (o worker com python.exe absoluto)
+├── install_wbc_services.bat     # Registra painel WBC, worker WBC (python.exe absoluto) e Controle de Produção
 ├── install_wol_task.ps1         # Registra a tarefa de Wake-on-LAN do .90
-├── deploy_update.bat            # Atualiza a .11: para os 5 serviços, git pull, pip se preciso, religa
+├── deploy_update.bat            # Atualiza a .11: aborta se o Controle de Produção estiver ocupado, para os 6 serviços, git pull, pip se preciso, religa
 ├── docs/                        # Planos deste repo · docs/wbc/ = guia, decisões e histórico do WBC
 ├── requirements.txt             # Dependências Python
 ├── requirements-dev.txt         # pytest + ruff
-├── tests/                       # Suíte pytest (tests/wbc/ = a do pacote wbcpython)
+├── tests/                       # Suíte pytest (tests/wbc/ = a do wbcpython; tests/controleproducao/ = a do controleproducao)
 ├── .env.example                 # Template de variáveis de ambiente
 ├── API_*.md                     # Contratos HTTP entregues a outras equipes
 ├── CLAUDE.md                    # Guia para agentes
@@ -943,7 +984,12 @@ RLS ativo sem policy de leitura para a `anon`. Crie a policy (ver SQLs acima) ou
 via `service_role` no servidor (**nunca** exponha a `service_role` no front-end).
 
 ### `Data source name not found` / driver ODBC não encontrado
-O ODBC Driver 18 não está instalado. Ver [passo 3 da Instalação](#3-odbc-driver-18-para-sql-server).
+Pipeline de oportunidades: nenhum driver ODBC do SQL Server instalado — ele tenta
+`18 → 17 → Native Client 11.0 → SQL Server` sozinho, então instale o Driver 18, ver
+[passo 3 da Instalação](#3-odbc-driver-18-para-sql-server). `controleproducao`: **não há
+fallback** — `WBC_SQL_DRIVER` do `.env` (sem a linha, `ODBC Driver 18 for SQL Server`)
+precisa bater com um nome de `Get-OdbcDriver -Platform 64-bit`; na .11 é
+`ODBC Driver 17 for SQL Server`, e o serviço precisa de `nssm restart` depois da linha.
 
 ### SQL Server: conexão recusada (10061)
 Host/porta errados ou serviço inacessível. Teste a porta:

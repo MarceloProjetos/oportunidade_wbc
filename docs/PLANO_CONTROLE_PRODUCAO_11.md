@@ -6,7 +6,12 @@
 > um deploy, telas ligadas por menu. **F0 fechada (commit `200519a`, 2.227 testes, `ruff` 0);
 > F1 com os documentos para o Anderson prontos; F3 FEITA — `OrcaView-ControleProducao` NO AR
 > na .11 desde 28/09 13:26 em `127.0.0.1:8080` (produção, chave configurada, `/status?checks=cp`
-> sem alerta).** A 1ª versão deste plano (manhã de 28/09) recomendava instalar
+> sem alerta); F4 coberta por decisão do Marcelo (28/09 15h: o código rodou 1 semana no
+> notebook do Anderson — sem reteste da versão integrada); F5 com o pré-voo feito do notebook
+> (1 candidata: pedido 84435 / orç. 00125460; addon C# ativo todo dia útil); F6 com o CÓDIGO
+> PRONTO no repo (D9: API 8077 só libera, Replanejar só CLI; `CP_HOST=0.0.0.0` documentado) —
+> falta o deploy + `.env` + regra de firewall + restart, do Marcelo.** A 1ª versão deste plano
+> (manhã de 28/09) recomendava instalar
 > isolado em `C:\ControleProducao` — está superada; o que dela vale (riscos, fatos,
 > reteste, piloto) foi incorporado aqui.
 
@@ -39,12 +44,22 @@ máquina do Anderson, `anderson.marques@altamira.com.br`, dono da aplicação; m
   `GET /controle-producao`, `web/entrada.html`), check `controle_producao` no `/status`,
   `run_controleproducao.bat` + bloco no `install_wbc_services.bat`, `deploy_update.bat`
   (6 serviços; **aborta** se o pacote tiver tarefa em andamento), `.env.example`, CLAUDE.md,
-  README, CHANGELOG. Lado do pacote em curso: cópia achatada, rename, `conftest`, `config.py`
-  (fallbacks, `hana_schema` = `SL_COMPANY_DB`), `ruff`, `typer`/`rich`; depois entram a trava
-  pelo IP + `/Logout` no cliente SL, o gate de cookie + `Origin` + `/docs` fechado, o comando
-  `web` com log próprio, `/health`. Commit só com `ruff` em 0 e a suíte inteira verde.
-- **Na .11:** nada. Já existe o que precisa: Python 3.14.7 global, `nssm` no PATH, porta 8080
-  livre (8077/8078/8079 em uso), o `.env` com o bloco WBC. Falta conferir o ODBC Driver 18.
+  README, CHANGELOG. Lado do pacote fechado no mesmo commit (`200519a`): cópia achatada,
+  rename, `conftest`, `config.py` (fallbacks, `hana_schema` = `SL_COMPANY_DB`), `ruff` 0,
+  `typer`/`rich`, trava pelo IP + `/Logout` no cliente SL, gate de cookie + `Origin` + `/docs`
+  fechado, comando `web` com log próprio, `/health`. Suíte inteira verde no pre-commit.
+- **Na .11 (F3 feita, 28/09 13:26):** `OrcaView-ControleProducao` no ar em `127.0.0.1:8080`
+  (`/health` ok, produção, chave configurada; `/status?checks=cp&strict=1` → 200) — o "como
+  foi" está na F3. F2 ficou parcial: `typer`/`rich` vieram pelo deploy das ~13:22 (`200519a`);
+  ODBC = **só o Driver 17** → `WBC_SQL_DRIVER` no `.env` **e `nssm restart` já feitos**; o 2º
+  deploy (~13:37, `8406ffa`, só docs) religou os 6 serviços. De fora, a 8080 recusa conexão
+  (esperado até a F6 entrar). Firewall, versão do `nssm` e reboot pendente (F2) não conferidos.
+- **F6 no repo (28/09 tarde), à espera do deploy:** `OP_STATUS_PERMITIDOS_DEFAULT =
+  'boposReleased'` (a API 8077 não encerra mais OP — D9), `Replanejar` fora da tela do módulo
+  3 (só CLI), `CP_HOST=0.0.0.0` como valor de referência em `.env.example`/bats/docs, receita
+  da regra de firewall da 8080 no README, `maintenance/pre_voo_controleproducao.py`. Na .11
+  faltam: `deploy_update.bat`, `CP_HOST=0.0.0.0` no `.env`, a regra de firewall, `nssm restart
+  OrcaView-ControleProducao`, e conferir que o `.env` não fixa `OP_STATUS_PERMITIDOS`.
 - **O que o pacote trazia e a integração resolve:** sem login → cookie do painel; sem trava
   → `wbcpython.safety` pelo IP; sem `/Logout` → logout ao fechar; `HANA_SCHEMA` ≠ company de
   escrita → derivado de `SL_COMPANY_DB`; pins incompatíveis → um Python, pins do SIS; 2º
@@ -128,7 +143,7 @@ do painel, isso levaria o acompanhamento do worker junto. O que é compartilhado
 Regra geral: a .11 não tem Claude nem WinRM. Cada passo lá é um bloco PowerShell 5.1 que o
 Marcelo cola e devolve **a saída inteira**. `pip`, `nssm` e restart são dele.
 
-### F0 — Importar e adaptar (notebook) — `em andamento · Claude`
+### F0 — Importar e adaptar (notebook) — `✅ fechada 28/09 (commit 200519a, 2.227 testes, ruff 0)`
 
 *Ao fechar: `python -m controleproducao web` sobe no notebook com o `.env` local, pede a
 mesma chave do painel, recusa escrita em produção (não é a .11), e `ruff` + suíte inteira
@@ -197,7 +212,8 @@ Feito em 28/09 (durante a F3): `typer 0.27.2`/`rich` instalados pelo `pip` do de
 (linha 74). Não conferidos ainda: perfil/estado do firewall, regra da 8079 (molde da 8080),
 versão do `nssm`, reboot pendente. O bloco abaixo continua valendo para o que falta.
 
-*Ao fechar: sabemos o que existe na .11 e nada foi instalado.*
+*Ao fechar: sabemos o que existe na .11; o que resta desta fase é só leitura — o que se
+instalou (`typer`/`rich`, o serviço) veio pela F3, não por aqui.*
 
 ```powershell
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
@@ -215,8 +231,9 @@ Select-String -Path .\.env -Pattern '^(SL_USERNAME|SL_COMPANY_DB|HANA_SCHEMA|SL_
   a 8079 é o molde da regra da 8080 (F5); `SL_COMPANY_DB=SBOALTAMIRAPROD` (a company dos
   dois); `SL_USERNAME` vazio ou preenchido — tanto faz, o pacote cai no `OP_SL_*` como o
   worker. **Nada do `.env` vem para o chat além dos nomes.**
-- Reboot pendente (D10): antes do F3, com `state\wbc_worker.stop` gravado; o das 06:12 é o
-  teste de "volta sozinho" do serviço novo.
+- Reboot pendente (D10): a F3 subiu sem conferir. Se acusar reboot pendente, fazer antes da
+  F5, com `state\wbc_worker.stop` gravado e `/health/ocupado`=0; o das 06:12 é o teste de
+  "volta sozinho" dos 6 serviços.
 
 ### F3 — Deploy na .11 — `✅ feita 28/09 13:26`
 
@@ -230,9 +247,12 @@ só regravados); `nssm start` → `SERVICE_RUNNING`, `/health` = `ok`, `producao
 `company_db=SBOALTAMIRAPROD`, `ocupado=false`, `chave_configurada=true`; log com
 `Application startup complete` e `Uvicorn running on http://127.0.0.1:8080`;
 `/status?checks=cp&strict=1` → 200 sem alerta. <span class="warn">O que mordeu:</span> a linha
-`WBC_SQL_DRIVER` entrou no `.env` **depois** do primeiro start — precisa de
-`nssm restart OrcaView-ControleProducao` para o processo ler o Driver 17 (só importa no
-`buscar`, não na subida). Falta o passo 5 (navegador da .11 por `localhost:8079`).
+`WBC_SQL_DRIVER` entrou no `.env` **depois** do primeiro start — foi preciso
+`nssm restart OrcaView-ControleProducao` para o processo ler o Driver 17 (feito, `/health` ok
+de novo; só importa no `buscar`, não na subida). O 2º `deploy_update.bat` (~13:37, `8406ffa`,
+só docs) religou os 6. Passo 5: o Marcelo abriu o painel pelo **IP**, do notebook, e o botão
+deu `ERR_CONNECTION_REFUSED` na 8080 — esperado com `CP_HOST=127.0.0.1`; o teste de tela
+sem chave fica para a F6, já pelo IP.
 
 1. Bloco CP no `.env` da .11 (Bloco de Notas, sem colar no chat): `CP_HOST=127.0.0.1`
    (D4: abre para a rede só depois do piloto), `CP_PORTA=8080`,
@@ -256,10 +276,20 @@ só regravados); `nssm start` → `SERVICE_RUNNING`, `/health` = `ok`, `producao
    `U_INO_Integrar` (D16), não defeito. (Na F6, com `CP_HOST=0.0.0.0`, o IP passa a valer.)
 6. Dia seguinte, após as 06:12: os 6 serviços `Running`.
 
-### F4 — Homologação, a partir do notebook — `aberta · Claude + Anderson`
+### F4 — Homologação, a partir do notebook — `coberta por decisão · 28/09 15h`
 
 *Ao fechar: cada operação que vai ao ar rodou de verdade contra `SBOALTAMIRAHOMOLOG`, com
 DocEntry anotados, e o rollback do `encerrar` foi provado — sem tocar na .11 nem em PROD.*
+
+**Decisão do Marcelo (28/09 15h):** a F4 fica coberta pelo uso real — o código original rodou
+uma semana no notebook do Anderson (22–24/09 em PROD: 84420, 84422, 84425, 84426) — e o
+ensaio em HOMOLOG não se repete. <span class="warn">O que isso NÃO cobre:</span> a versão
+integrada (trava pelo IP, cookie, `/Logout`, `hana_schema` = `SL_COMPANY_DB`) tem só a suíte
+(2.227) e o smoke local; o módulo 3 segue sem reteste desde o diário do Anderson (1
+`encerrar` em homolog, OP 156209). Do notebook ficou provado só o que é leitura: o `.env`
+local resolve `SBOALTAMIRAHOMOLOG` com `is_production=False`, e HANA + SQL Server do WBC
+respondem (`pedidos-wbc buscar` e `manutencao-op buscar` em PROD por variável de ambiente).
+O roteiro abaixo fica como referência para quando o Anderson quiser rodá-lo.
 
 - Por que do notebook: o `.env` da .11 é o do worker; trocar `SL_COMPANY_DB` lá apontaria o
   worker para HOMOLOG. No notebook, `.env` local com `SL_COMPANY_DB=SBOALTAMIRAHOMOLOG`
@@ -280,6 +310,32 @@ DocEntry anotados, e o rollback do `encerrar` foi provado — sem tocar na .11 n
 *Ao fechar: três orçamentos reais processados pela tela (RDP na .11) ou pela CLI na .11,
 conferidos OP a OP no SAP, sem divergência, e o addon parou de tocar neles.*
 
+**Pré-voo feito em 28/09** (do notebook, só leitura em PROD —
+`maintenance/pre_voo_controleproducao.py`):
+
+- **Candidata única:** pedido **84435** (DocEntry 20176; orç. WBC **00125460**; C012002
+  ACERVO; R$ 874.289,61; 25/09). As duas localizações (`ORDR.U_INO_COTWBC` e
+  `OOPR.U_ORCNUM_WBC` via OPR1) devolvem o mesmo DocEntry; `U_INO_Integrar=Y`,
+  `U_INO_ProcessWBC` nulo, `U_INO_EntregaMultipla=N`, 5 linhas do **mesmo item** (`I000003`,
+  68 un.), 0 linhas com `U_INO_OP`, nenhuma OP, nenhum `GGF_`, nada no `@INO_LOG` — é o caso
+  do rateio que a F4 pedia. D16 respondida: a lista **não** vem vazia (101 pedidos abertos com
+  `Integrar='Y'`; só este sem OP). <span class="warn">Uma hora depois a lista já tinha 2:</span>
+  entrou o **84433** (C011680, R$ 40.804,53, 25/09, 0 OPs) — menor, é a candidata melhor para
+  o **1º** piloto; a lista muda ao longo do dia, rodar o pré-voo na hora.
+- <span class="warn">`U_INO_UpdateDetalhe='Y'` é o estado normal</span> — todos os 101 têm;
+  o critério "fica fora" abaixo é inaplicável. Processar o 84435 passa pela recriação das
+  linhas (`_update_pedido`), como nas execuções do Anderson. Confirmar com ele.
+- <span class="warn">O addon C# está vivo e processa todo dia útil:</span> `projeto06` criou
+  OPs em 21, 22, 23, 24, 25 e **28/09** (55 OPs, pedidos 84431–84434). O 84435 será dele em
+  breve se o PCP não for avisado **antes** do piloto (D14). `financeiro04` = as execuções do
+  porte (22–24/09).
+- Base da auditoria: **0 OPs órfãs**; 4 orçamentos com "Erro ao preencher recurso" no
+  `@INO_LOG` (00124709, 00125644, 00125551, 00125540 — pedidos 84420/84422/84425/84426, porte
+  22–24/09, OPs vivas 30/12/20/67); a consulta "PlannedQty ≠ linha" devolve 504 linhas
+  históricas (padrão `I000003`/`I000002` com `PlannedQty=1`) e não serve de gate como está.
+- Do notebook a trava barra escrita em PROD antes do login; o piloto é na .11, pela tela (F6)
+  ou pela CLI.
+
 - Anderson nomeia 3 orçamentos "da web" e avisa o PCP antes ("não processar nem atualizar
   no addon"). <span class="warn">Em 23/09 o addon reprocessou o 84426 depois do porte: OPs em dobro.</span>
 - Antes de cada um: no painel WBC, o orçamento não tem `atualizar_pedido`/
@@ -295,13 +351,51 @@ conferidos OP a OP no SAP, sem divergência, e o addon parou de tocar neles.*
   mão, só depois de olhar `/tarefas`.
 - Gate: 0 divergências nos 3 → addon desligado para pedidos novos (D14).
 
-### F6 — Abrir para a rede e módulo 3 — `aberta · bloqueada por F4/F5`
+### F6 — Abrir para a rede e módulo 3 — `código pronto · 28/09 tarde — deploy, .env e firewall do Marcelo`
 
-- `CP_HOST=0.0.0.0` no `.env` da .11 + regra de firewall da 8080 igual à da 8079 (só a LAN)
-  + `nssm restart OrcaView-ControleProducao`. A exposição passa a ser a mesma do painel: quem
-  tem a `OS_API_KEY`. Testar de uma estação: entrar no painel → link → sem chave de novo.
-- Módulo 3 só depois da F4: `OP_STATUS_PERMITIDOS=boposReleased` no `.env` do SIS (D9) e
-  restart da API.
+*Ao fechar: a tela abre pelo IP de qualquer estação da LAN com o cookie do painel; a API 8077
+só libera OP; encerrar com estoque é só pela Manutenção de OP.*
+
+**No repo (para conferir no diff):**
+
+- `config.py`: `OP_STATUS_PERMITIDOS_DEFAULT = 'boposReleased'` (D9) — constante, não flag
+  (regra "função de produção não tem flag no `.env`"); `OP_STATUS_PERMITIDOS=boposReleased,boposClosed`
+  no `.env` é o rollback. `ordens_producao_sl.py` (irmão do web) não foi tocado. Testes: o
+  default novo pinado (`test_default_desde_d9_so_libera`); a máquina de estados roda com a
+  allowlist ampla explícita.
+- Módulo 3 na tela: `Replanejar` saiu do `manutencao_op.html`; o router recusa `acao=p` com
+  "só pela CLI" (400, sem consulta nem escrita — `test_replanejar_pela_tela_e_recusado`);
+  `Liberar` e `Encerrar` seguem.
+- `.env.example` (`CP_HOST=0.0.0.0` como referência; o `.env` é lido na subida),
+  `install_wbc_services.bat` (próximos passos), README (receita da regra de firewall da 8080
+  na seção "Controle de Produção"; tabela de operação com o 6º serviço), CLAUDE.md (gotcha 9),
+  `API_ORDENS_PRODUCAO.md` (aviso datado: `encerrada` → 400), `docs/controleproducao/README.md`.
+- `maintenance/pre_voo_controleproducao.py` — o pré-voo da F5, repetível.
+
+**Na .11 (Marcelo, nesta ordem):**
+
+1. `.\deploy_update.bat` (Administrador) — traz o código; a API sobe com a allowlist nova.
+2. `Select-String -Path .\.env -Pattern '^OP_STATUS_PERMITIDOS'` → se existir a linha, ela
+   **vence** o default: apagar (ou deixar só `boposReleased`) e `nssm restart OrcaView-OS-API`.
+3. No `.env` (Bloco de Notas): `CP_HOST=0.0.0.0`.
+4. Regra de firewall + restart (PowerShell, Administrador) — copia o alcance da regra da
+   8079 e cai em `LocalSubnet` se ela não existir:
+
+```powershell
+$molde = Get-NetFirewallRule -DisplayName '*8079*' -ErrorAction SilentlyContinue | Select-Object -First 1
+$alcance = 'LocalSubnet'
+if ($molde) { $alcance = ($molde | Get-NetFirewallAddressFilter).RemoteAddress }
+New-NetFirewallRule -DisplayName 'OrcaView ControleProducao 8080' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8080 -RemoteAddress $alcance -Profile Any
+nssm restart OrcaView-ControleProducao; Start-Sleep 4; Get-NetTCPConnection -LocalPort 8080 -State Listen | Select-Object LocalAddress, LocalPort
+```
+
+5. Da estação: `http://192.168.7.11:8079/` → "Pedidos WBC → OPs" abre **sem pedir a chave**;
+   "Manutenção de OP" mostra só Liberar/Encerrar. Só "Buscar".
+6. `curl "http://192.168.7.11:8077/ordens-producao/129850" -H "X-API-Key: …"` →
+   `transicoes_permitidas` sem `encerrada`.
+- <span class="warn">Quem consome `encerrada` na API 8077 (contrato `API_ORDENS_PRODUCAO.md`,
+  entregue a outra equipe) passa a receber 400.</span> Nenhum caller no web nem no app
+  (grep em 28/09); se houver tela externa, avisar antes do deploy.
 
 ### F7 — Operação contínua — `aberta`
 
@@ -321,7 +415,7 @@ conferidos OP a OP no SAP, sem divergência, e o addon parou de tocar neles.*
 | `processar-novos` (módulo 2) | POST `OrcDetalhe` (um novo a cada execução); PATCH `Orders` cabeçalho (`U_INO_ProcessWBC`, `U_INO_Congelado='Y'`) ou **DocumentLines inteiras** (se `U_INO_UpdateDetalhe='Y'`); POST `Items` (333/332/358); PATCH `Items` (332 Solda); POST `Resources` (`GGF_…`); POST `ProductionOrders` (recursivo); PATCH linhas `U_INO_OP`; POST `INO_LOG` | Só OPs e vínculos (`cancelar-ops`). Itens, recursos, OrcDetalhe e `Congelado` **não** |
 | `cancelar-ops` | PATCH `ProductionOrders` `boposCancelled` (só se todas em P/C); limpa `U_INO_OP`, `ProcessWBC='N'` | — |
 | `reprocessar-integrados` | Cancela **toda** OP planejada do pedido; PATCH `SalesOpportunities` (`sos_Open` → estágio → `sos_Sold`, sem `finally`); OrcDetalhe novo. **Não recria** | Não. Fora da 1ª entrega |
-| `liberar` / `replanejar` (módulo 3) | PATCH `ProductionOrders` status R/P — **na web, no 1º clique** | Reversíveis entre si; linhas ficam `im_Manual` |
+| `liberar` (módulo 3; `replanejar` só pela CLI desde 28/09 — D9) | PATCH `ProductionOrders` status R (P só pela CLI) — **na web, no 1º clique** | Reversíveis entre si; linhas ficam `im_Manual` |
 | `encerrar` | PATCH (libera se P; `im_Manual`) → POST `InventoryGenExits` → POST `InventoryGenEntries` → PATCH `boposClosed` | Estoque: cancelar OIGN e OIGE no cliente SAP (a provar na F4) |
 
 Tudo isso passa por **uma** guarda: `ServiceLayerClient._request`/`_via_batch` recusam
@@ -332,14 +426,14 @@ levanta antes de criar tarefa (503 na web, saída 2 na CLI). GET continua livre.
 
 | # | Risco | Como fica |
 |---|---|---|
-| 1 | Sem login/CSRF, `/docs` aberto, `0.0.0.0` + sub-rede do SAP | **Fechado em F0:** cookie do painel, `Origin` nos POST, `/docs` off; `CP_HOST=127.0.0.1` até o piloto (D4) |
+| 1 | Sem login/CSRF, `/docs` aberto, `0.0.0.0` + sub-rede do SAP | **Fechado em F0:** cookie do painel, `Origin` nos POST, `/docs` off; `CP_HOST=127.0.0.1` no 1º deploy (D4) e `0.0.0.0` só com a regra de firewall da LAN (F6) |
 | 2 | Sem `/Logout` — sessões SL acumulam; mesmo SL do worker | **Fechado em F0:** `/Logout` em `aclose()`, molde do worker |
 | 3 | `ProcessWBC='Y'` antes da 1ª OP; `--force` duplica | **Aberto (negócio):** procedimento de retomada (F5); pedir ao Anderson gravar depois da 1ª OP |
 | 4 | `reprocessar` cancela OPs de qualquer origem, não recria | **Aberto:** fora da 1ª entrega (D8); esconder do menu (F7) |
-| 5 | Módulo 3 pendente de reteste | **Aberto:** F4 obrigatória; módulo 3 só na F6 |
+| 5 | Módulo 3 pendente de reteste | **Aceito pelo Marcelo (28/09):** F4 coberta pelo uso no notebook do Anderson; módulo 3 entra na F6 com Replanejar só CLI; 1º `encerrar` real com o Anderson ao lado |
 | 6 | Produção decidida só por `SL_COMPANY_DB`; `HANA_SCHEMA` divergente | **Fechado em F0:** `hana_schema` = `SL_COMPANY_DB`; trava pelo IP |
 | 7 | Worker refaz linhas/recria pedido sem olhar OWOR; OPs órfãs | **Aberto (negócio):** conferir painel antes; auditoria de órfãs (F5); D13 |
-| 8 | Duas semânticas de "encerrar" na mesma máquina | **Aberto:** D9 (`OP_STATUS_PERMITIDOS=boposReleased`) na F6 |
+| 8 | Duas semânticas de "encerrar" na mesma máquina | **Fechado no código (F6, 28/09):** `OP_STATUS_PERMITIDOS_DEFAULT = 'boposReleased'` — a API 8077 só libera; vale na .11 após o deploy |
 | 9 | Addon C# continua criando OPs | **Aberto (negócio):** lista nominal, PCP avisado, addon desligado na saída (D14) |
 | 10 | Pacote dentro do repo público | **Resolvido pelo desenho:** o código entra no repo como o `wbcpython`; wheels/scripts ficam de fora; pasta original ignorada |
 | 11 | Pins incompatíveis / 2º Python | **Resolvido pelo desenho:** um Python, pins do SIS, `typer`/`rich` no `requirements.txt` |
@@ -371,23 +465,26 @@ para os seis, `/status` vê os seis.
    do commit de F0 (o histórico está em `docs/controleproducao/` e o zip com o Anderson) e
    tirar a linha do `.gitignore`.
 3. **Claude na .11** — ✅ não. Você cola blocos PowerShell (F2/F3) e devolve a saída.
-4. **Acesso** — *aberta.* **Recomendado:** `CP_HOST=127.0.0.1` no 1º deploy (uso por RDP na
-   .11 durante o piloto); `0.0.0.0` + regra de firewall da LAN na F6, quando a exposição vira
-   a mesma do painel.
+4. **Acesso** — ✅ decidido 28/09: `CP_HOST=127.0.0.1` no 1º deploy (feito, F3) e `0.0.0.0` +
+   regra de firewall da LAN na F6 (código e docs prontos; falta o `.env`, a regra e o restart
+   na .11).
 5. **Usuários de banco** — *aberta.* Com o `.env` único o default virou "os mesmos do
    worker" (fallback `OP_SL_*`/`SAP_*`/`SQL_*`). **Recomendado:** manter no piloto (menos
    peças) e criar usuário SL próprio quando o módulo 3 subir, para separar o rastro no
    `@INO_LOG`.
 6. **TLS do SL** — ✅ segue o worker: `SL_VERIFY_SSL` do `.env` único (hoje `false`, com aviso
    no log). Exportar o certificado para `SL_CA_BUNDLE` é melhoria comum aos dois, sem prazo.
-7. **Homologação** — *aberta.* **Recomendado:** do notebook (F4), nunca na .11. Pré-condição:
-   credenciais que alcancem `SBOALTAMIRAHOMOLOG` e homolog restaurada de PROD.
-8. **Escopo da 1ª entrega** — *aberta.* **Recomendado:** Buscar + `processar-novos` +
-   `cancelar-ops`; `reprocessar` fora; módulo 3 só depois da F4.
-9. **Dono das transições de OP** — *aberta.* **Recomendado:** SIS só Liberar
-   (`OP_STATUS_PERMITIDOS=boposReleased`); Encerrar com estoque = pacote; Replanejar só CLI.
-10. **Reboot pendente** — *aberta.* **Recomendado:** antes do F3, com o worker parado por
-    arquivo; o das 06:12 é o teste de volta.
+7. **Homologação** — ✅ decidido 28/09 15h: coberta pelo uso de 1 semana no notebook do
+   Anderson; sem reteste em HOMOLOG. Nunca na .11 (o `.env` é o do worker).
+8. **Escopo da 1ª entrega** — ✅ decidido 28/09 (F6): Buscar + `processar-novos` +
+   `cancelar-ops` + módulo 3 (Liberar/Encerrar pela tela; Replanejar só CLI); `reprocessar`
+   fora do menu (F7).
+9. **Dono das transições de OP** — ✅ no código (F6, 28/09): API 8077 só Liberar
+   (`OP_STATUS_PERMITIDOS_DEFAULT = 'boposReleased'`, constante — não flag); Encerrar com
+   estoque = pacote; Replanejar só CLI. Pende: avisar quem consome `encerrada` na API (contrato).
+10. **Reboot pendente** — *aberta (a F3 foi sem conferir).* **Recomendado:** conferir no resto
+    da F2; reiniciar à mão só com o worker parado por arquivo (`state\wbc_worker.stop`) e
+    `/health/ocupado`=0; o reboot das 06:12 de 29/09 é o teste de "volta sozinho" dos 6 serviços.
 11. **Check no `/status` + CLAUDE.md** — ✅ feito em F0.
 
 **Anderson**
@@ -404,8 +501,9 @@ para os seis, `/status` vê os seis.
 15. **Regras que só ele conhece** — *aberta.* `EntregaMultipla='Y'` pular a OP principal sem
     constar em `sem_op`? `U_INO_ORCAMENTO` nunca gravado (`Weight1` morto) — deixar e registrar?
     `im_Manual` nas linhas após replanejar importa para quem aponta pelo SAP?
-16. **Quem grava `ORDR.U_INO_Integrar='Y'`** — *aberta.* Sem isso a lista "Pedidos Novos" vem
-    vazia na .11.
+16. **Quem grava `ORDR.U_INO_Integrar='Y'`** — *aberta, sem urgência:* em 28/09 a lista
+    "Pedidos Novos" em PROD trouxe o 84435, e 101 pedidos abertos têm `Integrar='Y'` — alguém
+    grava (addon? cadastro?). Falta só saber quem, para a saída do addon (D14).
 
 ---
 
@@ -415,12 +513,14 @@ para os seis, `/status` vê os seis.
 > Anderson: Pedidos WBC → Ordens de Produção e Manutenção de OP) sobe na **.11** como 6º
 > serviço NSSM, `OrcaView-ControleProducao`, porta `CP_PORTA` (8080), pelo fluxo normal do SIS:
 > `deploy_update.bat` + `install_wbc_services.bat`. Siga
-> `docs/PLANO_CONTROLE_PRODUCAO_11.md`, fases F2–F6. Regras: a .11 não tem Claude — um bloco
+> `docs/PLANO_CONTROLE_PRODUCAO_11.md`. F3 está feita (28/09 13:26) e a F6 tem o código no
+> repo; resta o que falta da F2 (firewall, `nssm`, reboot), o deploy da F6 e a F5. Regras: a
+> .11 não tem Claude — um bloco
 > PowerShell 5.1 por passo para o Marcelo colar, e leia a saída inteira antes do próximo; não
 > instale nada à mão (o deploy instala `typer`/`rich` pelo hash do `requirements.txt`); o
 > `.env` é o do SIS — o Marcelo acrescenta o bloco `CP_*` no Bloco de Notas, sem colar valor
 > no chat, e `SL_COMPANY_DB` é a company do worker também (homologação do pacote é do
-> notebook, nunca na .11); `CP_HOST=127.0.0.1` até o piloto; nenhum comando ou botão que
+> notebook, nunca na .11); `CP_HOST=0.0.0.0` só com a regra de firewall da 8080; nenhum comando ou botão que
 > grava no SAP sem autorização nominal por pedido; `--force`/`--sim` proibidos; nunca `nssm
 > stop` com tarefa em andamento (`/health/ocupado`). Antes de começar, confira D2, D4, D7,
 > D8, D10 (Marcelo) e D12–D16 (Anderson) no §4 — as fases que dependem delas não começam

@@ -5,7 +5,9 @@
 > como `controleproducao/`, do mesmo jeito que o WBCPython virou `wbcpython/` em 08/09 — um
 > Python, um `.env`, um login, um deploy, um serviço a mais na .11. Este documento diz **o que
 > mudou no seu código e por quê, como trabalhar daqui em diante, e o que só você pode decidir**.
-> Nada disso foi instalado na .11 ainda.
+> Desde 28/09 13:26 o serviço `OrcaView-ControleProducao` está no ar na .11 (F3 do plano;
+> a F6 abre a tela para a rede). Nada foi gravado no SAP por ele lá ainda: o piloto (F5)
+> depende das decisões abaixo.
 
 ## 1. O que mudou no seu código
 
@@ -122,6 +124,16 @@ SELECT W."DocEntry", W."DocNum", W."OriginNum", W."ItemCode",
  WHERE W."Status" <> 'C' AND W."PlannedQty" <> L."Quantity"
  ORDER BY W."DocEntry" DESC;
 ```
+
+**Resultado em 28/09 (rodado do notebook, só leitura, PROD):** a 1ª consulta devolve **4
+orçamentos**, todos de execuções do porte (`financeiro04`): 00124709 (pedido 84420, 22/09),
+00125644 (84422, 23/09), 00125551 (84425, 23/09) e 00125540 (84426, 23/09) — os quatro
+pedidos estão com OPs Planejadas vivas de 22–24/09 (84420: 30; 84422: 12; 84425: 20;
+84426: 67). A 2ª consulta devolve **504 linhas**, quase todas anteriores ao porte e do
+padrão `I000002`/`I000003` com `PlannedQty=1` × quantidade da linha — do jeito que está,
+ela não serve de gate "0 = limpo"; se a regra for outra para o item-conjunto, diga qual.
+Nenhuma OP órfã (OWOR viva com pedido `CANCELED='Y'`). Roteiro completo em
+`maintenance/pre_voo_controleproducao.py`.
 
 E, pelo que o diário registra: as OPs em dobro do 84426 (addon + porte), os OrcDetalhe órfãos
 (um novo a cada execução) e itens que podem ter nascido no grupo 358 em vez de 332 antes do

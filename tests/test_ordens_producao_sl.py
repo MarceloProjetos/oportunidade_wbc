@@ -90,7 +90,9 @@ def _ambiente(monkeypatch):
     monkeypatch.setenv('OP_SL_COMPANY_DB', 'SBOTESTE')
     monkeypatch.setenv('OP_SL_USERNAME', 'usuario')
     monkeypatch.setenv('OP_SL_PASSWORD', 'senha-secreta')
-    monkeypatch.delenv('OP_STATUS_PERMITIDOS', raising=False)
+    # The state-machine tests below exercise BOTH transitions, so they run with the wide
+    # allowlist set explicitly; the default (release only, D9 of 2026-09-28) has its own test.
+    monkeypatch.setenv('OP_STATUS_PERMITIDOS', 'boposReleased,boposClosed')
     reset_settings()
     opsl._sessao = None
     opsl._sessao_criada_em = 0.0
@@ -365,6 +367,22 @@ def test_allowlist_do_env_e_respeitada(sessao, monkeypatch):
         opsl.atualizar_status(125060, 'liberada')
     sessao.respostas = [_RespFake(200, {'value': [_op(status='boposPlanned')]}), _RespFake(204)]
     assert opsl.atualizar_status(125060, 'encerrada')['ja_estava'] is False
+
+
+def test_default_desde_d9_so_libera(sessao, monkeypatch):
+    """D9 (2026-09-28): closing an OP is the controleproducao package's job (Manutenção de
+    OP closes WITH the stock movements); a bare status PATCH would close without them. So
+    with no ``OP_STATUS_PERMITIDOS`` in the .env this API only releases — and refuses
+    ``encerrada`` before any HTTP call, like every other allowlist miss."""
+    monkeypatch.delenv('OP_STATUS_PERMITIDOS', raising=False)
+    reset_settings()
+    assert opsl.get_settings().op_status_permitidos == ('boposReleased',)
+    with pytest.raises(opsl.OPStatusInvalido) as exc:
+        opsl.atualizar_status(125060, 'encerrada')
+    assert exc.value.http == 400
+    assert sessao.chamadas == [], 'a recusa vem antes de qualquer HTTP'
+    sessao.respostas = [_RespFake(200, {'value': [_op(status='boposPlanned')]})]
+    assert opsl.consultar_op(125060)['transicoes_permitidas'] == ['liberada']
 
 
 def test_compare_and_swap_divergente_bloqueia(sessao):

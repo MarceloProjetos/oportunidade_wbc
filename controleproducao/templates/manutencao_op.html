@@ -21,7 +21,7 @@
   <span class="simbolo">{{ icone('ops', 30) }}</span>
   <div>
     <h1>Manutenção de OP</h1>
-    <p>Liberar, replanejar e encerrar Ordens de Produção</p>
+    <p>Liberar e encerrar Ordens de Produção</p>
   </div>
 </header>
 
@@ -134,14 +134,14 @@
     <span class="ov-separador" aria-hidden="true"></span>
     <button type="submit" class="ov-btn-ghost" formaction="/manutencao-op/status" name="acao" value="l">
       {{ icone('check') }} Liberar selecionadas</button>
-    <button type="submit" class="ov-btn-ghost" formaction="/manutencao-op/status" name="acao" value="p">
-      {{ icone('voltar') }} Replanejar selecionadas</button>
+    {# Replanejar saiu da tela em 28/09/2026 (D9): fica na CLI, como caminho de recuperação. #}
     <button type="submit" class="ov-btn ov-btn--perigo" formaction="/manutencao-op/encerrar/conferir">
       {{ icone('raio') }} Encerrar selecionadas…</button>
   </div>
-  <p class="ov-nota">Liberar e replanejar mudam apenas o status e são reversíveis.
+  <p class="ov-nota">Liberar muda apenas o status (Planejada → Liberada).
     <strong>Encerrar</strong> gera saída de insumos e entrada do produto — a próxima tela
-    mostra a ordem calculada e pede confirmação.</p>
+    mostra a ordem calculada e pede confirmação. Replanejar (voltar a Planejada) é só pela
+    CLI, na .11.</p>
 </form>
 
 <h2>Encerrar todas as OPs de um pedido</h2>
