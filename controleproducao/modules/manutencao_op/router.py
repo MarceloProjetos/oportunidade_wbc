@@ -95,7 +95,7 @@ async def buscar(
 
 
 # ---------------------------------------------------------------------------
-# Liberar / replanejar — reversíveis, confirmação simples
+# Liberar — reversible, simple confirmation (replanejar is CLI-only since 28/09/2026, D9)
 # ---------------------------------------------------------------------------
 @router.post("/status", response_class=HTMLResponse)
 async def mudar_status(

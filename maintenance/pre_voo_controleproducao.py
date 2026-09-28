@@ -17,10 +17,12 @@ What it answers, in the order the pilot needs it:
   failures logged by the package.
 
 Run from the repository root. From the notebook the local ``.env`` resolves HOMOLOG; to look
-at production pass the company for this process only::
+at production set the company for this shell only (the env var wins over the ``.env``)::
 
-    SL_COMPANY_DB=SBOALTAMIRAPROD python maintenance/pre_voo_controleproducao.py 00125460
+    $env:SL_COMPANY_DB = 'SBOALTAMIRAPROD'          # PowerShell; Git Bash: SL_COMPANY_DB=... python ...
+    python maintenance/pre_voo_controleproducao.py 00125460
     python maintenance/pre_voo_controleproducao.py --pedido 84435 --dias 10
+    Remove-Item Env:SL_COMPANY_DB
 
 On the .11 the ``.env`` already points at production. Writes are impossible here by
 construction (no Service Layer client is created), and the IP gate would refuse them anyway

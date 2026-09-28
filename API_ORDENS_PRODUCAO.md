@@ -66,7 +66,8 @@ curl "http://192.168.7.11:8077/ordens-producao/129850" \
      -H "X-API-Key: SUA_CHAVE"
 ```
 
-Resposta real (OP 129850, em 07/08/2026):
+Resposta real (OP 129850, em 07/08/2026; `transicoes_permitidas` já como fica desde 28/09/2026 —
+antes vinha `["liberada", "encerrada"]`):
 
 ```json
 {
@@ -81,7 +82,7 @@ Resposta real (OP 129850, em 07/08/2026):
     "origem": "bopooSalesOrder",
     "origem_numero": 83955,
     "data_entrega": "2026-06-07",
-    "transicoes_permitidas": ["liberada", "encerrada"]
+    "transicoes_permitidas": ["liberada"]
   }
 }
 ```
@@ -216,22 +217,20 @@ def consultar(doc_num: int) -> dict:
     return r.json()["op"]
 
 
-def encerrar(doc_num: int) -> dict:
-    """Exemplo HISTORICO (ate 28/09/2026): hoje 'encerrada' responde 400 nesta API —
-    encerrar OP e' pela tela Manutencao de OP. O padrao consultar -> conferir
-    transicoes_permitidas -> POST com status_atual vale igual para 'liberada'."""
+def liberar(doc_num: int) -> dict:
+    """Libera a OP conferindo antes que ninguem mexeu nela."""
     op = consultar(doc_num)
 
-    if op["status"] == "boposClosed":
-        return op                          # ja encerrada, nada a fazer
+    if op["status"] == "boposReleased":
+        return op                          # ja liberada, nada a fazer
 
-    if "encerrada" not in op["transicoes_permitidas"]:
-        raise RuntimeError(f"OP {doc_num} esta {op['status_desc']} - nao da para encerrar")
+    if "liberada" not in op["transicoes_permitidas"]:
+        raise RuntimeError(f"OP {doc_num} esta {op['status_desc']} - nao da para liberar")
 
     r = requests.post(
         f"{BASE}/ordens-producao/{doc_num}/status",
         headers=HEADERS, timeout=TIMEOUT,
-        json={"status": "encerrada", "status_atual": op["status"]},
+        json={"status": "liberada", "status_atual": op["status"]},
     )
     if r.status_code == 409:
         raise RuntimeError(r.json()["motivo"])   # alguem mudou no meio do caminho
@@ -239,7 +238,7 @@ def encerrar(doc_num: int) -> dict:
     return r.json()
 
 
-print(encerrar(129850))
+print(liberar(129850))
 ```
 
 ### JavaScript (fetch)

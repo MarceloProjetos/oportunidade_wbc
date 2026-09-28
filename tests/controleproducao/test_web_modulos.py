@@ -639,6 +639,9 @@ def test_tela_nao_oferece_caixa_para_op_terminal(cliente):
     selecionaveis = _re.findall(r'name="op_docnums" value="(\d+)"', resposta.text)
     assert selecionaveis == ["155747", "155744"]      # só Planejada e Liberada
     assert resposta.text.count("<input type=\"checkbox\" disabled") == 2
+    # D9 (28/09/2026): Liberar is the only status action the screen offers; Replanejar is CLI-only.
+    assert 'name="acao" value="l"' in resposta.text
+    assert 'name="acao" value="p"' not in resposta.text
 
 
 def test_post_com_op_terminal_barra_o_lote_inteiro(cliente):

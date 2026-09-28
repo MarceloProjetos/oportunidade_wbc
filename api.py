@@ -1180,9 +1180,12 @@ def op_detalhe(numero: str):
 def op_status(numero: str):
     """Change the status of ONE Production Order **in the SAP**. Requires X-API-Key.
 
-    Body: ``{"status": "liberada"|"encerrada", "status_atual": "<opcional>"}``. ``status``
-    also accepts the raw code (``boposReleased``/``boposClosed``). ``status_atual`` is a
-    compare-and-swap: sent and divergent → 409, nothing written.
+    Body: ``{"status": "liberada", "status_atual": "<opcional>"}``. ``status`` also accepts
+    the raw code (``boposReleased``). ``encerrada``/``boposClosed`` → ``400`` since D9
+    (2026-09-28): closing an OP is the ``controleproducao`` package's job (Manutenção de OP,
+    with the stock movements); ``OP_STATUS_PERMITIDOS`` in the .env can widen the allowlist
+    (rollback). ``status_atual`` is a compare-and-swap: sent and divergent → 409, nothing
+    written.
 
     Status: ``200`` changed (or ``ja_estava: true``, with no PATCH sent) · ``400`` invalid
     number/status or status outside the allowlist · ``401`` missing X-API-Key · ``404`` no
@@ -1207,7 +1210,8 @@ def op_status(numero: str):
     if not body.get('status'):
         return jsonify(
             ok=False, error="informe 'status'",
-            motivo="Corpo esperado: {'status': 'liberada'|'encerrada'}.",
+            motivo=("Corpo esperado: {'status': 'liberada'}. Encerrar uma OP é pela tela "
+                    'Manutenção de OP do Controle de Produção, não por esta rota.'),
         ), 400
 
     # After validating the body: a malformed request never reaches the SAP, so it should

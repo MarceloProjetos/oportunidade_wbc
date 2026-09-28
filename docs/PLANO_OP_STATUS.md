@@ -1,5 +1,12 @@
 # Plano — atualizar status de Ordem de Produção (OP) via Service Layer
 
+> **Atualização 28/09/2026 — o que segue é histórico (08/2026).** Dois pontos mudaram desde
+> então: (1) a rota liga pelo **IP da .11** (`wbcpython/safety.py`), sem `OP_SL_ENABLED`;
+> (2) **`Encerrar` saiu do default** (D9 de `docs/PLANO_CONTROLE_PRODUCAO_11.md`):
+> `OP_STATUS_PERMITIDOS_DEFAULT = 'boposReleased'` — encerrar OP com estoque é a tela
+> Manutenção de OP do `controleproducao`; `OP_STATUS_PERMITIDOS=boposReleased,boposClosed` no
+> `.env` é o rollback. O texto abaixo descreve o desenho original.
+
 Endpoint novo no `ServidorIntegracaoSAP` (API 8077) que **escreve no SAP B1** mudando o
 status de uma Ordem de Produção. Base de referência: o notebook `production_order_sl.ipynb`
 (explora `ProductionOrders` no Service Layer) e os dois clientes SL já provados em produção

@@ -230,8 +230,10 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   **aborta** se `/health/ocupado` = 1 — nunca `nssm stop` com tarefa em andamento;
   (7) SQL do módulo é `str.format` (herdado) — validar dígitos na borda; porte para
   `sql_seguro` é etapa própria; (8) o pacote **não** tem expediente: fora do ar = alerta;
-  (9) `CP_HOST` decide quem alcança a tela: `0.0.0.0` (a .11 desde a F6, com regra de firewall
-  da 8080 só para a LAN) = a mesma exposição do painel; `127.0.0.1` = só a própria máquina, e aí
+  (9) `CP_HOST` decide quem alcança a tela: `0.0.0.0` (o alvo da .11 a partir da F6, com regra
+  de firewall da 8080 só para a LAN — `.env`, regra e restart são do Marcelo; status no plano)
+  = a mesma exposição do painel; **nunca o IP da máquina** (o `deploy_update.bat` e o `/status`
+  sondam `127.0.0.1:CP_PORTA`); `127.0.0.1` = só a própria máquina, e aí
   o painel tem de ser aberto por `http://localhost:8079` (os botões montam o link com o host da
   página e o cookie é por host) — de fora, a 8080 **recusa conexão**, não é queda (o `/status`
   sonda `127.0.0.1:CP_PORTA` e continua verde). O `.env` é lido na subida: linha nova =

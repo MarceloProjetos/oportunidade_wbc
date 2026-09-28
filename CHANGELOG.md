@@ -25,9 +25,9 @@ no README) + `nssm restart OrcaView-ControleProducao`. Plano: `docs/PLANO_CONTRO
   README com a receita da regra de firewall da 8080 só para a LAN, CLAUDE.md gotcha 9).
 - **`maintenance/pre_voo_controleproducao.py`** (só leitura): candidatos a OP, as duas
   localizações do pedido, flags INO, linhas/grupos, `GGF_`, `@INO_LOG`, OPs existentes, quem
-  criou OP nos últimos dias (addon vivo?) e OPs órfãs. Rodado em 28/09 contra PROD: 1
-  candidata (84435), addon `projeto06` criando OP até hoje, 0 órfãs, 4 orçamentos com rateio
-  falho (porte, 22–24/09).
+  criou OP nos últimos dias (addon vivo?) e OPs órfãs. Rodado em 28/09 contra PROD: 2
+  candidatas (84435 e, 1 h depois, 84433 — a menor é o 1º piloto), addon `projeto06` criando OP
+  até hoje, 0 órfãs, 4 orçamentos com rateio falho (porte, 22–24/09).
 - **Docs pós-deploy (varredura de 28/09, 60 achados):** README (6 processos, tabela de
   operação, logs, árvore, instaladores, `/sincronizar`, ODBC), CLAUDE.md ("outros 5"), `api.py`
   e `mcp_server.py` (check `controle_producao` nas listas), `install_services.bat`,

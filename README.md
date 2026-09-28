@@ -522,10 +522,10 @@ no `.env` é o rollback, não o normal).
 # consultar (DocNum = o número da tela do SAP)
 curl "http://192.168.7.11:8077/ordens-producao/129850" -H "X-API-Key: SUA_CHAVE"
 
-# encerrar, conferindo antes que ela ainda está Liberada (compare-and-swap)
+# liberar, conferindo antes que ela ainda está Planejada (compare-and-swap)
 curl -X POST "http://192.168.7.11:8077/ordens-producao/129850/status" \
      -H "X-API-Key: SUA_CHAVE" -H "Content-Type: application/json" \
-     -d '{"status":"encerrada","status_atual":"liberada"}'
+     -d '{"status":"liberada","status_atual":"planejada"}'
 
 # pelo DocEntry (chave interna) em vez do DocNum
 curl "http://192.168.7.11:8077/ordens-producao/126599?chave=docentry" -H "X-API-Key: SUA_CHAVE"
@@ -629,11 +629,18 @@ módulo 3 (*Manutenção de OP*) libera, replaneja e **encerra com movimentaçã
   Administrador; copia o alcance da regra da 8079 e cai em `LocalSubnet` se ela não existir):
 
   ```powershell
-  $molde = Get-NetFirewallRule -DisplayName '*8079*' -ErrorAction SilentlyContinue | Select-Object -First 1
+  $molde = Get-NetFirewallRule -DisplayName '*8079*' -Direction Inbound -Action Allow -Enabled True -ErrorAction SilentlyContinue | Select-Object -First 1
   $alcance = 'LocalSubnet'
   if ($molde) { $alcance = ($molde | Get-NetFirewallAddressFilter).RemoteAddress }
-  New-NetFirewallRule -DisplayName 'OrcaView ControleProducao 8080' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8080 -RemoteAddress $alcance -Profile Any
+  "molde: $($molde.DisplayName) / alcance: $alcance"
+  New-NetFirewallRule -Name 'OrcaView-ControleProducao-8080' -DisplayName 'OrcaView ControleProducao 8080' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8080 -RemoteAddress $alcance -Profile Any | Out-Null
+  Get-NetFirewallRule -Name 'OrcaView-ControleProducao-8080' | Get-NetFirewallAddressFilter | Select-Object RemoteAddress
   ```
+
+  Se `alcance` sair `Any`, a regra da 8079 já era aberta a tudo e a da 8080 copiou isso —
+  "igual à da 8079", mas não "só a LAN"; trocar as duas para `LocalSubnet` é decisão do
+  Marcelo. Nunca `CP_HOST=<IP da máquina>`: o `deploy_update.bat` e o `/status` sondam
+  `127.0.0.1:CP_PORTA`.
 - **Módulo 3 (D9):** `Liberar` e `Encerrar` pela tela; `Replanejar` só pela CLI
   (`python -m controleproducao manutencao-op replanejar`). A API 8077 deixou de encerrar OP
   (seção "Ordens de Produção" acima): encerrar com estoque é só aqui.

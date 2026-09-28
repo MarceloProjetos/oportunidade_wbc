@@ -8,7 +8,8 @@
 > na .11 desde 28/09 13:26 em `127.0.0.1:8080` (produção, chave configurada, `/status?checks=cp`
 > sem alerta); F4 coberta por decisão do Marcelo (28/09 15h: o código rodou 1 semana no
 > notebook do Anderson — sem reteste da versão integrada); F5 com o pré-voo feito do notebook
-> (1 candidata: pedido 84435 / orç. 00125460; addon C# ativo todo dia útil); F6 com o CÓDIGO
+> (candidatas em 28/09: 84435 / orç. 00125460 e, 1 h depois, 84433 — a menor, 84433, é o 1º
+> piloto; a lista muda ao longo do dia; addon C# ativo todo dia útil); F6 com o CÓDIGO
 > PRONTO no repo (D9: API 8077 só libera, Replanejar só CLI; `CP_HOST=0.0.0.0` documentado) —
 > falta o deploy + `.env` + regra de firewall + restart, do Marcelo.** A 1ª versão deste plano
 > (manhã de 28/09) recomendava instalar
@@ -255,7 +256,7 @@ deu `ERR_CONNECTION_REFUSED` na 8080 — esperado com `CP_HOST=127.0.0.1`; o tes
 sem chave fica para a F6, já pelo IP.
 
 1. Bloco CP no `.env` da .11 (Bloco de Notas, sem colar no chat): `CP_HOST=127.0.0.1`
-   (D4: abre para a rede só depois do piloto), `CP_PORTA=8080`,
+   (D4: abre para a rede só na F6), `CP_PORTA=8080`,
    `CP_LOG_FILE=logs/controleproducao.log`, `WBC_SQL_DRIVER=` conforme F2,
    `HANA_SCHEMA_LEGADO=SBOALTAMIRAPROD`, `SL_BUSINESS_PLACE_ID=0`,
    `WBC_SQL_TRUST_SERVER_CERTIFICATE=true`.
@@ -264,8 +265,9 @@ sem chave fica para a F6, já pelo IP.
    global; os 5 serviços religam. Conferir na saída: `[pip] instalado`.
 3. `.\install_wbc_services.bat` (Administrador): registra `OrcaView-ControleProducao`
    (idempotente; não mexe no painel/worker além de regravar os parâmetros).
-4. `nssm start OrcaView-ControleProducao` → `curl http://127.0.0.1:8080/health` (JSON com
-   `ok`, `ocupado`, `producao=true`) → `curl "http://127.0.0.1:8077/status?checks=cp" -H
+4. `nssm start OrcaView-ControleProducao` → `curl.exe http://127.0.0.1:8080/health` (JSON com
+   `ok`, `ocupado`, `producao=true`; no PowerShell é `curl.exe` — `curl` é alias do
+   `Invoke-WebRequest` e `-H` não funciona) → `curl.exe "http://127.0.0.1:8077/status?checks=cp" -H
    "X-API-Key: …"` (`controle_producao.healthy=true`) → `Get-Content .\logs\controleproducao.log
    -Tail 20 -Encoding utf8`.
 5. No navegador **da .11** (RDP), abrir o painel por **`http://localhost:8079/`** — não pelo
@@ -382,16 +384,20 @@ só libera OP; encerrar com estoque é só pela Manutenção de OP.*
    8079 e cai em `LocalSubnet` se ela não existir:
 
 ```powershell
-$molde = Get-NetFirewallRule -DisplayName '*8079*' -ErrorAction SilentlyContinue | Select-Object -First 1
+$molde = Get-NetFirewallRule -DisplayName '*8079*' -Direction Inbound -Action Allow -Enabled True -ErrorAction SilentlyContinue | Select-Object -First 1
 $alcance = 'LocalSubnet'
 if ($molde) { $alcance = ($molde | Get-NetFirewallAddressFilter).RemoteAddress }
-New-NetFirewallRule -DisplayName 'OrcaView ControleProducao 8080' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8080 -RemoteAddress $alcance -Profile Any
+"molde: $($molde.DisplayName) / alcance: $alcance"
+New-NetFirewallRule -Name 'OrcaView-ControleProducao-8080' -DisplayName 'OrcaView ControleProducao 8080' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8080 -RemoteAddress $alcance -Profile Any | Out-Null
+Get-NetFirewallRule -Name 'OrcaView-ControleProducao-8080' | Get-NetFirewallAddressFilter | Select-Object RemoteAddress
 nssm restart OrcaView-ControleProducao; Start-Sleep 4; Get-NetTCPConnection -LocalPort 8080 -State Listen | Select-Object LocalAddress, LocalPort
 ```
 
+   Se `alcance` sair `Any`, a regra da 8079 já era aberta a tudo e a da 8080 copiou isso —
+   "igual à da 8079", mas não "só a LAN": trocar as duas para `LocalSubnet` é decisão sua.
 5. Da estação: `http://192.168.7.11:8079/` → "Pedidos WBC → OPs" abre **sem pedir a chave**;
    "Manutenção de OP" mostra só Liberar/Encerrar. Só "Buscar".
-6. `curl "http://192.168.7.11:8077/ordens-producao/129850" -H "X-API-Key: …"` →
+6. `curl.exe "http://192.168.7.11:8077/ordens-producao/129850" -H "X-API-Key: …"` →
    `transicoes_permitidas` sem `encerrada`.
 - <span class="warn">Quem consome `encerrada` na API 8077 (contrato `API_ORDENS_PRODUCAO.md`,
   entregue a outra equipe) passa a receber 400.</span> Nenhum caller no web nem no app

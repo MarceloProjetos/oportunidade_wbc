@@ -13,7 +13,7 @@ READING, like the painel; writes are refused by ``core.web.avisa_escrita`` (503)
 
 CSRF: a POST authenticated by the cookie must carry an ``Origin`` (or ``Referer``) whose host
 is this server's own host. ``samesite=lax`` alone still sends the cookie on top-level
-navigations, and ``Liberar``/``Replanejar`` write on the first POST. Requests authenticated
+navigations, and ``Liberar`` writes on the first POST. Requests authenticated
 by the key header (scripts, ``curl``) are exempt: they never carry the cookie.
 """
 
