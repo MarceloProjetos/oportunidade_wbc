@@ -3,8 +3,10 @@
 > **Status (28/09/2026, 2ª versão): DESENHO MUDOU — um projeto só.** Decisão do Marcelo
 > às 12h: o pacote ControleProducao do Anderson vira `controleproducao/` dentro do
 > ServidorIntegracaoSAP, como o `wbcpython/` virou em 08/09 — um Python, um `.env`, um login,
-> um deploy, telas ligadas por menu. **F0 (importar e adaptar, no notebook) em andamento;
-> NADA instalado na .11.** A 1ª versão deste plano (manhã de 28/09) recomendava instalar
+> um deploy, telas ligadas por menu. **F0 fechada (commit `200519a`, 2.227 testes, `ruff` 0);
+> F1 com os documentos para o Anderson prontos; F3 FEITA — `OrcaView-ControleProducao` NO AR
+> na .11 desde 28/09 13:26 em `127.0.0.1:8080` (produção, chave configurada, `/status?checks=cp`
+> sem alerta).** A 1ª versão deste plano (manhã de 28/09) recomendava instalar
 > isolado em `C:\ControleProducao` — está superada; o que dela vale (riscos, fatos,
 > reteste, piloto) foi incorporado aqui.
 
@@ -188,7 +190,12 @@ propriedade do pedido estão escritas.*
 - Anderson: revisa o diff do commit de F0 (tabela do documento), responde D13–D16, roda as
   consultas de limpeza em PROD (só leitura) e escolhe os orçamentos/OPs do reteste.
 
-### F2 — Preparo da .11 (só leitura) — `aberta · Marcelo`
+### F2 — Preparo da .11 (só leitura) — `parcial · 28/09`
+
+Feito em 28/09 (durante a F3): `typer 0.27.2`/`rich` instalados pelo `pip` do deploy; ODBC da
+.11 = **só o Driver 17** (não há 18) → `WBC_SQL_DRIVER=ODBC Driver 17 for SQL Server` no `.env`
+(linha 74). Não conferidos ainda: perfil/estado do firewall, regra da 8079 (molde da 8080),
+versão do `nssm`, reboot pendente. O bloco abaixo continua valendo para o que falta.
 
 *Ao fechar: sabemos o que existe na .11 e nada foi instalado.*
 
@@ -211,10 +218,21 @@ Select-String -Path .\.env -Pattern '^(SL_USERNAME|SL_COMPANY_DB|HANA_SCHEMA|SL_
 - Reboot pendente (D10): antes do F3, com `state\wbc_worker.stop` gravado; o das 06:12 é o
   teste de "volta sozinho" do serviço novo.
 
-### F3 — Deploy na .11 — `aberta · Marcelo`
+### F3 — Deploy na .11 — `✅ feita 28/09 13:26`
 
 *Ao fechar: o 6º serviço está no ar em 127.0.0.1:8080, o `/status` o enxerga, e o painel
 leva até ele sem pedir a chave de novo.*
+
+**Como foi (28/09):** `deploy_update.bat` às ~13:22 (trouxe `200519a`, instalou `typer`/`rich`,
+religou os 5 serviços; API e painel confirmados daqui pelos redirects novos);
+`install_wbc_services.bat` registrou o `OrcaView-ControleProducao` (idempotente, os outros dois
+só regravados); `nssm start` → `SERVICE_RUNNING`, `/health` = `ok`, `producao=true`,
+`company_db=SBOALTAMIRAPROD`, `ocupado=false`, `chave_configurada=true`; log com
+`Application startup complete` e `Uvicorn running on http://127.0.0.1:8080`;
+`/status?checks=cp&strict=1` → 200 sem alerta. <span class="warn">O que mordeu:</span> a linha
+`WBC_SQL_DRIVER` entrou no `.env` **depois** do primeiro start — precisa de
+`nssm restart OrcaView-ControleProducao` para o processo ler o Driver 17 (só importa no
+`buscar`, não na subida). Falta o passo 5 (navegador da .11 por `localhost:8079`).
 
 1. Bloco CP no `.env` da .11 (Bloco de Notas, sem colar no chat): `CP_HOST=127.0.0.1`
    (D4: abre para a rede só depois do piloto), `CP_PORTA=8080`,
