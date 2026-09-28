@@ -313,6 +313,18 @@ def _de_ate(de: date, ate: date) -> tuple[str, str]:
     return f'{de.isoformat()} 00:00:00', f'{(ate + timedelta(days=1)).isoformat()} 00:00:00'
 
 
+def _pedidos_distintos(schema: str) -> str:
+    """The orders view with its repeated rows collapsed -- written differently on purpose.
+
+    ``VW_PEDIDO_ALTA`` repeats some orders (a join fan-out: 83891 comes 4×). The
+    pipeline collapses them with ``GROUP BY "DOC"`` + ``MAX``; this check uses
+    ``SELECT DISTINCT`` over the columns it sums. If a repeat ever differs in value,
+    the two sides disagree and the check says so instead of both hiding it alike.
+    """
+    return (f'(SELECT DISTINCT "DOC", "DATA", "CodVend", "CardCode", "VlrPedido" '
+            f'FROM "{schema}"."VW_PEDIDO_ALTA")')
+
+
 def hana_total_periodo(
     ex: SAPExtractor, schema: str, de: date, ate: date
 ) -> tuple[Decimal, int]:
@@ -326,7 +338,7 @@ def hana_total_periodo(
     linhas = _consulta(
         ex,
         f'''SELECT SUM("VlrPedido") AS VALOR, COUNT(*) AS QTD
-              FROM "{schema}"."VW_PEDIDO_ALTA"
+              FROM {_pedidos_distintos(schema)} d
              WHERE "DATA" >= ? AND "DATA" < ?
                {sql_nao_bloqueado('"DOC"', prefixo="AND ")}''',
         (ini, fim),
@@ -348,7 +360,7 @@ def hana_serie_mensal(
     """
     if metrica == 'pedidos':
         sql = f'''SELECT YEAR("DATA") AS ANO, MONTH("DATA") AS MES, SUM("VlrPedido") AS VALOR
-                    FROM "{schema}"."VW_PEDIDO_ALTA"
+                    FROM {_pedidos_distintos(schema)} d
                    WHERE YEAR("DATA") >= {int(ano_inicial)}
                      {sql_nao_bloqueado('"DOC"', prefixo="AND ")}
                    GROUP BY YEAR("DATA"), MONTH("DATA")'''
@@ -378,7 +390,7 @@ def hana_clientes_do_vendedor(
     linhas = _consulta(
         ex,
         f'''SELECT "CardCode" AS CHAVE, SUM("VlrPedido") AS VALOR
-              FROM "{schema}"."VW_PEDIDO_ALTA"
+              FROM {_pedidos_distintos(schema)} d
              WHERE "DATA" >= ? AND "DATA" < ? AND "CodVend" = ?
                {sql_nao_bloqueado('"DOC"', prefixo="AND ")}
              GROUP BY "CardCode"''',

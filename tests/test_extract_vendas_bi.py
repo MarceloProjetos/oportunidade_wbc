@@ -14,6 +14,7 @@ sustentam a tela e nenhum deles falha com erro — todos falham com número erra
    dia não se deriva do ranking do mês.
 """
 
+import re
 from datetime import date
 
 import pytest
@@ -545,6 +546,14 @@ class TestSql:
         # A UF vem do cadastro do parceiro (OCRD.State1), por LEFT JOIN — o
         # mesmo campo que alimenta o espelho sap_clientes que o web usa.
         assert 'LEFT JOIN' in sql and '"OCRD"' in sql and '"State1"' in sql
+
+    def test_pedido_repetido_na_view_conta_uma_vez(self):
+        # The view repeats orders (83891 comes 4×, probed 28/09/2026): both order
+        # queries read a derived table with one row per DOC, never the raw view.
+        for sql in (sql_pedidos_mensal('SBOALTAMIRAPROD', 2024),
+                    sql_detalhe_recente('SBOALTAMIRAPROD', date(2026, 7, 1), date(2026, 8, 12))):
+            assert sql.count('"VW_PEDIDO_ALTA"') == 1
+            assert re.search(r'"VW_PEDIDO_ALTA"\s+GROUP BY "DOC"\)', sql)
 
     def test_intervalo_do_detalhe_e_meio_aberto_e_inclui_hoje_inteiro(self):
         sql = sql_detalhe_recente('SBOALTAMIRAPROD', date(2026, 7, 1), date(2026, 8, 12))

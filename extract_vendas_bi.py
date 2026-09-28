@@ -105,6 +105,23 @@ def ano_inicial(hoje: date) -> int:
 # ---------------------------------------------------------------- SQL (HANA)
 
 
+def _pedidos_unicos(schema: str) -> str:
+    """``VW_PEDIDO_ALTA`` with ONE row per ``DOC``, as a derived table.
+
+    ⚠️ The view repeats some orders -- a join fan-out inside it (probed
+    28/09/2026): 83891 comes 4× with two different ``AcaoContato``, 81568 4×,
+    80628 2× with ``Primeiro_Pedido`` S and N. Summing the raw view counted
+    R$ 49.899,33 and 3 orders too many in 2026 (R$ 105.229,56 and 4 in 2024).
+    The columns read here are identical across the repeats, so ``MAX`` only picks
+    among equal values. Web twin: ``resultados_estado_service.normalizar_pedidos``.
+    """
+    return f'''(SELECT "DOC", MAX("DATA") AS "DATA", MAX("CodVend") AS "CodVend",
+                       MAX("CardCode") AS "CardCode", MAX("Cliente") AS "Cliente",
+                       MAX("VlrPedido") AS "VlrPedido"
+                  FROM "{schema}"."VW_PEDIDO_ALTA"
+                 GROUP BY "DOC")'''
+
+
 def sql_pedidos_mensal(schema: str, ano_inicial: int) -> str:
     """Pedidos por ano/mês/vendedor.
 
@@ -118,7 +135,7 @@ def sql_pedidos_mensal(schema: str, ano_inicial: int) -> str:
         SELECT YEAR("DATA") AS ANO, MONTH("DATA") AS MES,
                "CodVend" AS VENDEDOR,
                SUM("VlrPedido") AS VALOR, COUNT(*) AS QTD
-          FROM "{schema}"."VW_PEDIDO_ALTA"
+          FROM {_pedidos_unicos(schema)} u
          WHERE YEAR("DATA") >= {int(ano_inicial)}
            AND "DATA" < ADD_DAYS(CURRENT_DATE, 1)
            {sql_nao_bloqueado('"DOC"', prefixo="AND ")}
@@ -145,7 +162,7 @@ def sql_detalhe_recente(schema: str, de: date, ate: date) -> str:
                p."CardCode" AS CHAVE, MAX(p."Cliente") AS NOME,
                MAX(c."State1") AS UF,
                SUM(p."VlrPedido") AS VALOR, COUNT(*) AS QTD
-          FROM "{schema}"."VW_PEDIDO_ALTA" p
+          FROM {_pedidos_unicos(schema)} p
           LEFT JOIN "{schema}"."OCRD" c ON c."CardCode" = p."CardCode"
          WHERE p."DATA" >= '{de.isoformat()} 00:00:00'
            AND p."DATA" <  '{(ate + timedelta(days=1)).isoformat()} 00:00:00'

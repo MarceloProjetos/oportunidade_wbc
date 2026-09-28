@@ -6,6 +6,23 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-28] — Vendas BI conta cada pedido uma vez
+
+⚠️ Vale no próximo deploy do Agendador. **Muda os números da Vendas Resultados e do app**: 2026
+cai R$ 49.899,33 e 3 pedidos; 2024, R$ 105.229,56 e 4.
+
+- **Por quê:** a `VW_PEDIDO_ALTA` repete pedidos, um fan-out de junção dentro da view (sondado
+  em 28/09): 83891 vem 4× (dois `AcaoContato`), 81568 4×, 80628 2× (`Primeiro_Pedido` S e N).
+  O pipeline somava a view crua.
+- **`extract_vendas_bi.py`:** `_pedidos_unicos()` — as duas consultas de pedidos leem uma tabela
+  derivada com uma linha por `DOC` (`GROUP BY "DOC"` + `MAX`, que só escolhe entre iguais).
+  Conferido ao vivo no HANA: 2026 R$ 60.144.490,39 em 634 pedidos; set/26 R$ 5.170.042,22 em 63.
+- **`maintenance/conferir_vendas_bi.py`:** o mesmo dedup escrito de outro jeito (`SELECT
+  DISTINCT`), para o conferidor não abençoar o pipeline por construção.
+- Origem: decisão 5 do plano Resultados por Estado do web
+  (`web_orcaview_V118/docs/PLANO_RESULTADOS_ESTADO.md`), cuja API já conta assim (V118.356).
+- Testes: `test_extract_vendas_bi.py` 55 verdes.
+
 ## [2026-09-28] — Convenção: comentários e docstrings em inglês técnico
 
 - **Reverte a decisão de 24/09/2026** (comentários em PT): comentários e docstrings de código
