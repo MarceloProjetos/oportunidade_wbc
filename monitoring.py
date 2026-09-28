@@ -19,6 +19,7 @@ import shutil
 import socket
 import sqlite3
 import time
+import urllib.request
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
@@ -60,7 +61,7 @@ DISK_PCT_ALERT = 90.0  # or more than this used
 # safe; renaming means updating `CHECKS_ACEITOS` on the web side too. The `_CHECK_ALIASES`
 # in api.py (sql→sql_server, wu→windows_update, …) are part of the same contract.
 SELECTABLE_CHECKS = ('sap', 'sql_server', 'supabase', 'scheduler', 'scheduled_task', 'wbc_worker',
-                     'windows_update')
+                     'windows_update', 'controle_producao')
 # Note: classifying LastTaskResult (success/running/never-run/refused) lives in
 # monitor_wbc_task.ps1 — Python only READS the state JSON the script writes.
 # Note 2: `windows_update` is cheap HERE (~0.2 ms of winreg + a cache read) because the
@@ -476,6 +477,62 @@ def _wbc_worker_alerts(w: dict[str, Any]) -> list:
     return alerts
 
 
+# ------------------------------------------------------------ controle_producao
+
+CP_PROBE_TIMEOUT_S = 2.0
+
+
+def _sondar_controle_producao(porta: int) -> dict[str, Any] | None:
+    """``GET http://127.0.0.1:<porta>/health`` of the Controle de Produção app; ``None`` unless
+    it answers 200 + JSON. Proxies are bypassed on purpose: a corporate proxy in the
+    environment turns a loopback call into "connection refused" (the MCP facade already
+    pays for that with ``trust_env=False``)."""
+    url = f'http://127.0.0.1:{porta}/health'
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(url, timeout=CP_PROBE_TIMEOUT_S) as resp:
+            if resp.status != 200:
+                return None
+            return json.loads(resp.read().decode('utf-8'))
+    except Exception:
+        return None
+
+
+def _controle_producao_signal() -> dict[str, Any]:
+    """State of the Controle de Produção web app (``OrcaView-ControleProducao``).
+
+    Three levels, like ``wbc_worker``: the log file the app creates at its first start
+    (``CP_LOG_FILE``) is the "it has run here" marker — before it exists there is nothing to
+    watch and NO alert (a dev box, or the .11 before the service is installed, must not turn
+    ``?strict=1`` into 503). Once installed, no answer on ``/health`` = unhealthy: it is a
+    screen people use during the day, and there is no business-hours window to hide behind.
+    """
+    s = get_settings()
+    base: dict[str, Any] = {'available': False, 'installed': False, 'healthy': None,
+                            'porta': s.cp_porta, 'log': s.cp_log_file}
+    if not os.path.exists(s.cp_log_file):
+        return {**base, 'note': ('log ainda não existe — o Controle de Produção nunca subiu '
+                                 'nesta máquina')}
+    saude = _sondar_controle_producao(s.cp_porta)
+    if saude is None:
+        return {**base, 'installed': True, 'healthy': False,
+                'error': f'sem resposta em http://127.0.0.1:{s.cp_porta}/health'}
+    return {**base, 'installed': True, 'available': True, 'healthy': bool(saude.get('ok', True)),
+            'ocupado': bool(saude.get('ocupado')), 'tarefas_ativas': saude.get('tarefas_ativas'),
+            'producao': saude.get('producao')}
+
+
+def _controle_producao_alerts(cp: dict[str, Any]) -> list:
+    """Readable alerts for the ``controle_producao`` block. Nothing before the first start."""
+    if not cp.get('installed'):
+        return []
+    if cp.get('error'):
+        return [f"Controle de Produção: {cp['error']} — serviço OrcaView-ControleProducao parado?"]
+    if cp.get('healthy') is False:
+        return ['Controle de Produção: /health respondeu ok=false']
+    return []
+
+
 def _windows_update_signal() -> dict[str, Any]:
     """Pending reboot + pending updates + last patch (the ``windows_update`` block).
 
@@ -575,6 +632,7 @@ def collect_status(only: set | None = None) -> dict[str, Any]:
         alerts), ``checks`` (connectivity), ``scheduler`` (indirect signal),
         ``scheduled_task`` (state of the "Integração WBC" task, read from the monitor),
         ``wbc_worker`` (the WBC → SAP integration worker, read from its tracking DB),
+        ``controle_producao`` (the Controle de Produção screen, probed on CP_PORTA),
         ``windows_update`` (pending reboot + pending updates + last patch), ``system``,
         ``api_auth`` (whether OS_API_KEY is configured — information only, never an
         alert) and ``alerts`` (list of readable warnings: low disk, scheduler stopped,
@@ -614,6 +672,7 @@ def collect_status(only: set | None = None) -> dict[str, Any]:
     scheduler = _scheduler_signal() if 'scheduler' in sel else None
     scheduled_task = _scheduled_task_signal() if 'scheduled_task' in sel else None
     wbc_worker = _wbc_worker_signal() if 'wbc_worker' in sel else None
+    controle_producao = _controle_producao_signal() if 'controle_producao' in sel else None
     wu_estado = _windows_update_signal() if 'windows_update' in sel else None
     system = _system_info()
     # Whether the API requires X-API-Key. Without OS_API_KEY every route except the SAP
@@ -635,6 +694,8 @@ def collect_status(only: set | None = None) -> dict[str, Any]:
         alerts.extend(_scheduled_task_alerts(scheduled_task))
     if wbc_worker is not None:
         alerts.extend(_wbc_worker_alerts(wbc_worker))
+    if controle_producao is not None:
+        alerts.extend(_controle_producao_alerts(controle_producao))
     # The windows_update block raises NO alert — neither pending reboot nor pending update.
     # Marcelo's decision (2026-07-16, revising the plan's D1): this is INFORMATION, not
     # system health. "If one day the server does not reboot, it does not matter" — what
@@ -664,6 +725,8 @@ def collect_status(only: set | None = None) -> dict[str, Any]:
         out['scheduled_task'] = scheduled_task
     if wbc_worker is not None:
         out['wbc_worker'] = wbc_worker
+    if controle_producao is not None:
+        out['controle_producao'] = controle_producao
     if wu_estado is not None:
         out['windows_update'] = wu_estado
     return out

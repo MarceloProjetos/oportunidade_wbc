@@ -117,6 +117,14 @@ WBC_WORKER_HORARIO_FIM_DEFAULT = '19:00'
 WBC_WORKER_DIAS_DEFAULT = '1,2,3,4,5'
 WBC_PAINEL_PORTA_DEFAULT = 8079
 
+# Controle de Produção (``controleproducao/``: Pedidos WBC → OPs, Manutenção de OP), a
+# separate FastAPI process (``OrcaView-ControleProducao``). The ``/status`` check probes
+# ``127.0.0.1:CP_PORTA/health``; the log file is the "it has run here" marker (no alert
+# before the first start — same idea as the worker's tracking DB). Same defaults as
+# ``controleproducao.config`` and ``wbcpython.config`` (paridade test).
+CP_PORTA_DEFAULT = 8080
+CP_LOG_FILE_DEFAULT = 'logs/controleproducao.log'
+
 # Windows Update / pending reboot (``windows_update.py``; full plan in
 # ``../SAP_RDP/docs/PLANO_WINDOWS_UPDATE.md``). Every number here comes from MEASUREMENT
 # on the two real servers, not from an estimate.
@@ -316,6 +324,12 @@ class Settings:
     wbc_painel_porta: int           # PAINEL_PORTA (FastAPI painel)
     wbc_painel_url: str | None   # WBC_PAINEL_URL — overrides host:PAINEL_PORTA
 
+    # Controle de Produção (``controleproducao/``): the ``controle_producao`` check and the
+    # ``GET /controle-producao`` redirect.
+    cp_porta: int                # CP_PORTA
+    cp_url: str | None           # CP_URL — overrides host:CP_PORTA
+    cp_log_file: str             # CP_LOG_FILE — the "installed" marker for the check
+
     # Windows Update (expensive collection, in the background — see windows_update.py)
     wu_enabled: bool           # WU_ENABLED — turns the collection thread off
     rotinas_estado_supabase: bool  # ROTINAS_ESTADO_SUPABASE — grava em `rotinas_execucao`
@@ -402,6 +416,9 @@ class Settings:
             wbc_worker_dias=os.getenv('WORKER_DIAS_DE_TRABALHO') or WBC_WORKER_DIAS_DEFAULT,
             wbc_painel_porta=_env_int('PAINEL_PORTA', WBC_PAINEL_PORTA_DEFAULT),
             wbc_painel_url=(os.getenv('WBC_PAINEL_URL') or '').strip() or None,
+            cp_porta=_env_int('CP_PORTA', CP_PORTA_DEFAULT),
+            cp_url=(os.getenv('CP_URL') or '').strip() or None,
+            cp_log_file=(os.getenv('CP_LOG_FILE') or '').strip() or CP_LOG_FILE_DEFAULT,
             wu_enabled=_env_bool('WU_ENABLED', WU_ENABLED_DEFAULT),
             rotinas_estado_supabase=_env_bool(
                 'ROTINAS_ESTADO_SUPABASE', ROTINAS_ESTADO_SUPABASE_DEFAULT

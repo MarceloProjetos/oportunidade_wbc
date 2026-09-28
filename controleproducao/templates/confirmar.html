@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% from "_icones.html" import icone %}
+{% block title %}Confirmar — {{ plano.operacao }}{% endblock %}
+{% block content %}
+<header class="ov-topbar">
+  <span class="simbolo" style="color:var(--color-danger)">{{ icone('escudo', 30) }}</span>
+  <div>
+    <h1>Confirmar: {{ plano.operacao }}</h1>
+    <p>Nada foi gravado ainda — confira e confirme</p>
+  </div>
+</header>
+
+<section class="ov-confirmacao">
+  <p class="ov-alerta is-erro" style="margin-top:0">{{ icone('alerta', 16) }}
+    <span><strong>Operação irreversível.</strong> {{ aviso_operacao }}</span></p>
+
+  <ul class="ov-resumo">
+    {% for chave, valor in plano.resumo.items() %}
+    <li><b>{{ valor }}</b> {{ chave }}</li>
+    {% endfor %}
+  </ul>
+
+  {% if plano.itens %}
+  <p class="ov-nota">O que será feito, exatamente — confira antes de confirmar:</p>
+  <div class="ov-table-card">
+    <div class="ov-scroll">
+      <table class="ov-table">
+        <thead><tr>{% for c in colunas %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for item in plano.itens %}
+          <tr>{% for c in colunas %}<td>{{ item.get(c, '') }}</td>{% endfor %}</tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <form method="post" action="{{ acao }}">
+    <input type="hidden" name="token" value="{{ plano.token }}">
+    {% set amb = amb_atual() %}
+    {% if amb.em_producao %}
+    {# Aviso, não barreira: a trava de produção saiu em 22/09/2026 a pedido do Anderson.
+       A faixa vermelha do topo já diz o ambiente; aqui ela é repetida junto ao botão,
+       que é onde a decisão acontece. #}
+    <p class="ov-alerta is-erro">{{ icone('alerta', 16) }}
+      <span>Esta gravação é em <strong>PRODUÇÃO</strong> — company DB
+        <code>{{ amb.company_db }}</code>.</span></p>
+    {% endif %}
+    <p class="ov-nota">Esta conferência vale até
+      <strong>{{ plano.valido_ate.replace('T', ' ') }}</strong>. Depois disso é preciso
+      refazê-la — o que seria feito é recalculado sobre o estado atual do SAP.</p>
+    <div class="ov-acoes-lote">
+      <button type="submit" class="ov-btn ov-btn--perigo">{{ icone('play') }} Confirmar e executar</button>
+      <a href="{{ voltar }}" class="ov-btn-ghost">Cancelar</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

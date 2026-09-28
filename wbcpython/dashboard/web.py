@@ -30,8 +30,6 @@ ciclo (ver `_reprocessar`).
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import secrets
 import sys
 from dataclasses import dataclass
@@ -42,8 +40,8 @@ from urllib.parse import quote
 
 from wbcpython import logs
 from wbcpython.config import Settings, get_settings
+from wbcpython.dashboard import acesso, dados, usuarios
 from wbcpython.dashboard import comandos as cmd
-from wbcpython.dashboard import dados, usuarios
 from wbcpython.dashboard import previsao as prev
 from wbcpython.dashboard.dados import (
     calcular_kpis,
@@ -80,13 +78,24 @@ ESTATICOS = AQUI / "static"
 RITMO_DO_LOG = 5
 RITMO_DOS_NUMEROS = 30
 
-#: Cookie que prova que a chave já foi conferida neste navegador. Guarda um
-#: token derivado da chave (HMAC), nunca a chave.
-COOKIE_DE_ACESSO = "wbc_painel"
+#: O cookie de acesso e o HMAC moram em `acesso.py`: o Controle de Produção (outro processo,
+#: CP_PORTA) valida o MESMO cookie — uma entrada vale para as duas telas. Re-exported here
+#: under the old names for the painel's tests and callers.
+COOKIE_DE_ACESSO = acesso.COOKIE_DE_ACESSO
+_token_da_chave = acesso.token_da_chave
+_igual = acesso.igual
+_destino_local = acesso.destino_local
 
-#: O que abre sem chave: a própria tela de entrada e a ida para a outra tela.
+#: As telas do Controle de Produção (outro processo, CP_PORTA) atrás de cada botão do topo:
+#: caminho do botão aqui → caminho na tela de lá. Sem entrada = a raiz de lá.
+TELAS_DO_CONTROLE_DE_PRODUCAO = {"pedidos": "pedidos-wbc", "ops": "manutencao-op"}
+
+#: O que abre sem chave: a própria tela de entrada e a ida para as outras telas.
 #: `/static/*` também (o CSS da tela de entrada vem de lá).
-ROTAS_ABERTAS = frozenset({"/entrar", "/sair", "/sincronizacao", "/favicon.ico"})
+ROTAS_ABERTAS = frozenset(
+    {"/entrar", "/sair", "/sincronizacao", "/controle-producao", "/favicon.ico"}
+    | {f"/controle-producao/{tela}" for tela in TELAS_DO_CONTROLE_DE_PRODUCAO}
+)
 
 #: Quantas linhas de acompanhamento o painel busca de uma vez. O mesmo teto
 #: que o Streamlit usava: alto o bastante para a janela inteira, baixo o
@@ -186,13 +195,7 @@ def criar_app(
     token_esperado = _token_da_chave(chave) if chave else ""
 
     def _autenticado(request: Request) -> bool:
-        if not chave:
-            return True
-        cookie = request.cookies.get(COOKIE_DE_ACESSO, "")
-        if cookie and _igual(cookie, token_esperado):
-            return True
-        enviada = request.headers.get("x-api-key") or request.query_params.get("key") or ""
-        return bool(enviada) and _igual(enviada, chave)
+        return acesso.autenticado(request, chave, token_esperado)
 
     @app.middleware("http")
     async def exigir_chave(request: Request, call_next: Any) -> Any:
@@ -259,6 +262,19 @@ def criar_app(
         o mesmo host da requisição, na porta da API — o caso da .11.
         """
         return RedirectResponse(_url_da_sincronizacao(config, request), status_code=302)
+
+    @app.get("/controle-producao")
+    @app.get("/controle-producao/{tela}")
+    def controle_producao(request: Request, tela: str = "") -> RedirectResponse:
+        """The top buttons to the Controle de Produção screens: ``/pedidos`` (Pedidos WBC →
+        OPs) and ``/ops`` (Manutenção de OP); anything else lands on its home.
+
+        Another process on CP_PORTA, same key: the browser sends this painel's cookie
+        there too (cookies ignore the port), so no second login.
+        """
+        base = _url_do_controle_producao(config, request).rstrip("/")
+        caminho = TELAS_DO_CONTROLE_DE_PRODUCAO.get(tela, "")
+        return RedirectResponse(f"{base}/{caminho}", status_code=302)
 
     # ------------------------------------------------------------------ casca
 
@@ -894,28 +910,13 @@ def _numero(valor: Any) -> str:
     return f"{int(valor):,}".replace(",", ".")
 
 
-def _token_da_chave(chave: str) -> str:
-    """O que vai no cookie: HMAC da chave, e não a chave.
-
-    Quem lê o cookie não recupera a chave; quem troca a chave no `.env`
-    derruba todos os cookies emitidos, sem estado no servidor.
-    """
-    return hmac.new(chave.encode("utf-8"), b"painel-wbc", hashlib.sha256).hexdigest()
-
-
-def _igual(a: str, b: str) -> bool:
-    """`compare_digest` sobre bytes: comparar `str` vaza tempo, e uma chave com
-    acento faria `compare_digest` levantar `TypeError` (vira 500 em vez de 401)."""
-    return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
-
-
-def _destino_local(proximo: str) -> str:
-    """Só volta para um caminho DESTA página. `//outro-host` e `http://…` viram `/`:
-    o `proximo` vem da URL, e a tela de entrada não pode virar redirecionador."""
-    proximo = (proximo or "").strip()
-    if not proximo.startswith("/") or proximo.startswith("//") or "\\" in proximo:
-        return "/"
-    return proximo
+def _url_do_controle_producao(config: Settings, request: Request) -> str:
+    """Where the Controle de Produção screen lives: ``CP_URL`` verbatim, or the same host
+    on ``CP_PORTA`` — the .11 case, all screens on one machine."""
+    configurado = config.cp_url.strip()
+    if configurado:
+        return configurado
+    return f"{request.url.scheme}://{request.url.hostname}:{config.cp_porta}/"
 
 
 def _url_da_sincronizacao(config: Settings, request: Request) -> str:

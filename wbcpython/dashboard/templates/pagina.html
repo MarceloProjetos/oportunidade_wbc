@@ -53,6 +53,17 @@
           Sincronização SAP → Supabase
         </a>
 
+        {# As duas telas do Controle de Produção: outro processo desta máquina, na CP_PORTA.
+           Mesma chave de acesso — o cookie vale para as duas telas, ninguém digita de novo. #}
+        <a class="acao discreta" href="/controle-producao/pedidos"
+           title="Controle de Produção: pedidos de venda do WBC → itens, estruturas e Ordens de Produção no SAP (OrcaView-ControleProducao)">
+          Pedidos WBC → OPs
+        </a>
+        <a class="acao discreta" href="/controle-producao/ops"
+           title="Controle de Produção: liberar, replanejar e encerrar Ordens de Produção (com movimentação de estoque)">
+          Manutenção de OP
+        </a>
+
         <button class="acao discreta" type="button" onclick="alternarTema()" title="Alternar claro/escuro">
           Tema
         </button>

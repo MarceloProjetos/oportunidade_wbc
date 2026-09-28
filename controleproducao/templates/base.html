@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="pt-BR">
+{% from "_icones.html" import icone %}
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Controle de Produção — WBC{% endblock %}</title>
+
+  {#
+    Anti-FOUC, conforme §1.2 do guia: o tema é escrito no <html> ANTES de
+    qualquer <link>. Lê depois faria a página piscar em branco a cada
+    navegação para quem usa o escuro.
+
+    Chave `orcaview-theme` e atributo `data-theme` são os da casa. Este app
+    serve de outra porta, então o navegador não compartilha o storage com o
+    OrçaView — seguir a convenção não custa nada e evita duas grafias para a
+    mesma ideia se um dia forem servidos juntos.
+  #}
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("orcaview-theme");
+        document.documentElement.setAttribute("data-theme", t === "light" ? "light" : "dark");
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "dark");
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="/static/style.css?v=2">
+</head>
+<body>
+  <nav class="ov-nav">
+    <span class="marca">{{ icone('fabrica', 20) }} Controle de Produção</span>
+    <a class="item {% if ativo == 'pedidos' %}ativo{% endif %}" href="/pedidos-wbc">
+      {{ icone('pedidos') }} Pedidos WBC</a>
+    <a class="item {% if ativo == 'ops' %}ativo{% endif %}" href="/manutencao-op">
+      {{ icone('ops') }} Manutenção de OP</a>
+    <span class="direita">
+      {# O painel da Integração WBC × SAP: outro processo desta máquina (PAINEL_PORTA), mesma
+         chave — o cookie vale para as duas telas, então não pede a chave de novo. #}
+      <a class="item" href="/painel-wbc" title="Painel da Integração WBC × SAP (cotações e pedidos)">
+        ⇄ Painel WBC</a>
+      <a class="item {% if ativo == 'tarefas' %}ativo{% endif %}" href="/tarefas">
+        {{ icone('execucoes') }} Execuções</a>
+      {% if exige_chave() %}
+      <form method="post" action="/sair" class="sair" style="display:inline">
+        <button class="item" type="submit" title="Esquecer a chave neste navegador">Sair</button>
+      </form>
+      {% endif %}
+      <button id="btnToggleTheme" class="theme-toggle-btn" type="button"
+              aria-label="Alternar tema claro/escuro" title="Alternar tema (claro/escuro)">
+        <span id="icone-tema" aria-hidden="true">{{ icone('sol') }}</span>
+      </button>
+    </span>
+  </nav>
+
+  {% set amb = amb_atual() %}
+  {% if amb.em_producao %}
+  <div class="ov-faixa ov-faixa--producao">
+    {{ icone('alerta', 15) }} Gravando em <strong>PRODUÇÃO</strong> — company DB {{ amb.company_db }}
+  </div>
+  {% else %}
+  <div class="ov-faixa ov-faixa--ambiente">{{ icone('escudo', 13) }} Ambiente: {{ amb.ambiente }}</div>
+  {% endif %}
+
+  <main id="mainContent" class="ov-shell">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script>
+    (function () {
+      var raiz = document.documentElement;
+      var alvo = document.getElementById("icone-tema");
+      var sol = {{ icone('sol')|tojson }};
+      var lua = {{ icone('lua')|tojson }};
+      function pinta() { alvo.innerHTML = raiz.getAttribute("data-theme") === "light" ? lua : sol; }
+      pinta();
+      document.getElementById("btnToggleTheme").addEventListener("click", function () {
+        var novo = raiz.getAttribute("data-theme") === "light" ? "dark" : "light";
+        raiz.setAttribute("data-theme", novo);
+        try { localStorage.setItem("orcaview-theme", novo); } catch (e) {}
+        pinta();
+        // Quem desenhar canvas ou gráfico um dia escuta este evento e redesenha (§1.2).
+        document.dispatchEvent(new CustomEvent("themechange", { detail: { theme: novo } }));
+      });
+    })();
+  </script>
+</body>
+</html>

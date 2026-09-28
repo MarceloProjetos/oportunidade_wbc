@@ -1,8 +1,9 @@
 @echo off
 REM ===========================================================================
-REM Registra (ou CORRIGE) so os dois servicos da Integracao WBC -> SAP no NSSM:
-REM   - OrcaView-WBC-Painel : painel FastAPI na PAINEL_PORTA do .env (auto-start)
-REM   - OrcaView-WBC-Worker : worker (MANUAL: so liga na virada, com o legado desligado)
+REM Registra (ou CORRIGE) os servicos da Integracao WBC -> SAP e do Controle de Producao no NSSM:
+REM   - OrcaView-WBC-Painel       : painel FastAPI na PAINEL_PORTA do .env (auto-start)
+REM   - OrcaView-WBC-Worker       : worker (MANUAL: so liga na virada, com o legado desligado)
+REM   - OrcaView-ControleProducao : Controle de Producao (Pedidos WBC -> OPs) na CP_PORTA (auto-start)
 REM
 REM Idempotente: se o servico ja existe, o "nssm install" avisa e segue; todos os
 REM parametros sao (re)gravados com o caminho REAL desta pasta. Serve tambem para
@@ -94,10 +95,26 @@ nssm set OrcaView-WBC-Worker AppRotateFiles 0
 nssm set OrcaView-WBC-Worker AppStdoutCreationDisposition 2
 nssm set OrcaView-WBC-Worker AppStderrCreationDisposition 2
 
+echo === Controle de Producao (OrcaView-ControleProducao) ===
+REM Mesmo molde do painel: .bat no meio (python do PATH, segue o interpretador da maquina),
+REM cwd = raiz, stdout zerado a cada start. Escreve em SAP de PRODUCAO pelo Service Layer;
+REM o deploy_update.bat confere /health/ocupado antes de parar (OP pela metade se parar no meio).
+nssm install OrcaView-ControleProducao "%PROJ%\run_controleproducao.bat" >nul 2>&1 || echo   (ja existia - parametros serao regravados)
+nssm set OrcaView-ControleProducao Application "%PROJ%\run_controleproducao.bat"
+nssm set OrcaView-ControleProducao AppParameters ""
+nssm set OrcaView-ControleProducao AppDirectory "%PROJ%"
+nssm set OrcaView-ControleProducao Start SERVICE_AUTO_START
+nssm set OrcaView-ControleProducao AppStdout "%PROJ%\logs\controleproducao_service.log"
+nssm set OrcaView-ControleProducao AppStderr "%PROJ%\logs\controleproducao_service.log"
+nssm set OrcaView-ControleProducao AppRotateFiles 0
+nssm set OrcaView-ControleProducao AppStdoutCreationDisposition 2
+nssm set OrcaView-ControleProducao AppStderrCreationDisposition 2
+
 echo.
 echo Registrados com a pasta: %PROJ%
-echo   - OrcaView-WBC-Painel  -^> logs\wbc_painel_service.log   (nao iniciado aqui)
-echo   - OrcaView-WBC-Worker  -^> logs\wbc_worker_service.log   (python.exe direto; inicio: %WORKER_START%)
+echo   - OrcaView-WBC-Painel        -^> logs\wbc_painel_service.log        (nao iniciado aqui)
+echo   - OrcaView-WBC-Worker        -^> logs\wbc_worker_service.log        (python.exe direto; inicio: %WORKER_START%)
+echo   - OrcaView-ControleProducao  -^> logs\controleproducao_service.log  (nao iniciado aqui)
 echo     ^(worker ja rodando? as mudancas valem no proximo start: nssm restart OrcaView-WBC-Worker^)
 echo     ^(depois da virada o worker DEVE ser SERVICE_AUTO_START: nssm set OrcaView-WBC-Worker Start SERVICE_AUTO_START^)
 echo Proximos passos:
@@ -105,4 +122,7 @@ echo   1. bloco WBC no .env  (TRACKING_DB_URL=sqlite:///./state/wbc_tracking.db,
 echo      PAINEL_HOST=0.0.0.0, PAINEL_PORTA=8079 + SL_*, WBC_SQL_*, HANA_*, WORKER_*)
 echo   2. python -m wbcpython doctor
 echo   3. nssm start OrcaView-WBC-Painel   ^(se parar: Get-Content .\logs\wbc_painel_service.log -Tail 30 -Encoding utf8^)
+echo   4. bloco CP no .env ^(CP_HOST=127.0.0.1 ate o piloto - 0.0.0.0 so na F6 com a regra de firewall da 8080;
+echo      CP_PORTA=8080, WBC_SQL_DRIVER conforme Get-OdbcDriver^)
+echo      e  nssm start OrcaView-ControleProducao   ^(confere: curl http://127.0.0.1:8080/health^)
 endlocal

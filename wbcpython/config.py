@@ -439,6 +439,12 @@ class Settings(BaseSettings):
     sis_painel_url: str = Field(default="", alias="SIS_PAINEL_URL")
     os_api_port: int = Field(default=8077, alias="OS_API_PORT")
 
+    #: Where the "Controle de Produção" link goes: ``CP_URL`` verbatim, or the same host on
+    #: ``CP_PORTA`` (the .11 case). The default port lives in three configs (root,
+    #: here and ``controleproducao``) — ``tests/test_config_paridade_wbc.py`` keeps them equal.
+    cp_url: str = Field(default="", alias="CP_URL")
+    cp_porta: int = Field(default=8080, alias="CP_PORTA")
+
     @property
     def painel_exige_chave(self) -> bool:
         """O painel pede a chave de acesso (há `OS_API_KEY` configurada)."""

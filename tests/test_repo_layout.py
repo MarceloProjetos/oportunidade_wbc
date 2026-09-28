@@ -24,8 +24,10 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def _versionados() -> list[str]:
     if shutil.which('git') is None:
         pytest.skip('git não disponível')
-    proc = subprocess.run(['git', 'ls-files', 'wbcpython', 'tests/wbc'], cwd=RAIZ,
-                          capture_output=True, text=True, encoding='utf-8')
+    proc = subprocess.run(
+        ['git', 'ls-files', 'wbcpython', 'tests/wbc', 'controleproducao', 'tests/controleproducao'],
+        cwd=RAIZ, capture_output=True, text=True, encoding='utf-8',
+    )
     if proc.returncode != 0:
         pytest.skip('fora de um clone git')
     return [linha.strip() for linha in proc.stdout.splitlines() if linha.strip()]
@@ -44,3 +46,7 @@ def test_todo_pacote_versionado_leva_o_seu_init():
 
 def test_o_entrypoint_python_m_wbcpython_esta_versionado():
     assert 'wbcpython/__main__.py' in _versionados()
+
+
+def test_o_entrypoint_python_m_controleproducao_esta_versionado():
+    assert 'controleproducao/__main__.py' in _versionados()

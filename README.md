@@ -583,6 +583,46 @@ das duas telas: de lá um botão leva ao Painel de Sincronização (8077); de c�
 
 ---
 
+## Controle de Produção (controleproducao)
+
+Desde 2026-09-28 o pacote **ControleProducao** do Anderson (reescrita Python do addon C#
+"Controle de Produção — WBC") mora aqui como `controleproducao/`, no mesmo molde do
+`wbcpython/`: um Python, um `.env`, o mesmo cookie de login do painel WBC, trava de escrita
+em produção pelo IP da .11 e deploy pelo `deploy_update.bat`. Ele **não cria pedido de
+venda** (isso é o worker): pega um pedido que já existe e cria por cima dele OrcDetalhe,
+itens, recursos de rateio `GGF_` e as **Ordens de Produção** (módulo 2, *Pedidos WBC*); o
+módulo 3 (*Manutenção de OP*) libera, replaneja e **encerra com movimentação de estoque**.
+
+| Peça | Comando (na raiz) | Serviço NSSM |
+| --- | --- | --- |
+| Tela (FastAPI, porta `CP_PORTA`, 8080) | `python -m controleproducao web` | `OrcaView-ControleProducao` |
+| Pedidos pendentes de OP — só leitura | `python -m controleproducao pedidos-wbc buscar` | — |
+| Criar OPs de um orçamento — **grava** | `python -m controleproducao pedidos-wbc processar-novos <orc>` | — |
+| Cancelar as OPs de um pedido — **grava** | `python -m controleproducao pedidos-wbc cancelar-ops <DocNum>` | — |
+| Manutenção de OP (liberar/replanejar/encerrar) — **grava** | `python -m controleproducao manutencao-op …` | — |
+| Diagnóstico | `python -m controleproducao conexoes testar` · `diag entidade <Nome>` | — |
+
+- **Configuração:** bloco "Controle de Produção" do `.env.example` (`CP_HOST`, `CP_PORTA`,
+  `CP_LOG_FILE`, `WBC_SQL_DRIVER`, `HANA_SCHEMA_LEGADO`, `SL_BUSINESS_PLACE_ID`); as
+  credenciais são as `SL_*`/`HANA_*`/`WBC_SQL_*` do bloco WBC, com os mesmos fallbacks.
+  `HANA_SCHEMA` **não** é lido: o pacote lê ORDR/OWOR na company de `SL_COMPANY_DB`.
+- **Links:** o painel WBC (8079) tem o botão "Controle de Produção"; a tela tem "Painel WBC";
+  a API 8077 redireciona em `GET /controle-producao`. Uma entrada com a `OS_API_KEY` vale
+  para as três telas (cookie compartilhado, `wbcpython/dashboard/acesso.py`).
+- **Monitoração:** `/status?checks=controle_producao` (aliases `cp`, `producao`) sonda
+  `127.0.0.1:CP_PORTA/health`; sem alerta enquanto o serviço nunca subiu na máquina.
+- **Histórico e regras:** `docs/controleproducao/migration_guide.md` (§7 é o diário),
+  `docs/controleproducao/decisoes.md`. Plano da implantação e riscos:
+  `docs/PLANO_CONTROLE_PRODUCAO_11.md`.
+
+> ⚠️ Grava em **produção** pelo Service Layer, só na .11. `processar-novos` carimba o pedido
+> **antes** da primeira OP e não tem rollback (queda no meio = `cancelar-ops` e processar de
+> novo, **sem `--force`**); `encerrar` lança saída e entrada de estoque, irreversíveis. O
+> `deploy_update.bat` **aborta** se houver execução em andamento — nunca pare o serviço no
+> meio de uma tarefa.
+
+---
+
 ## Agendamento (Automático)
 
 ### Opção A — APScheduler (multiplataforma)

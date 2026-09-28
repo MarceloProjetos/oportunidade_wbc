@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "_icones.html" import icone %}
+{% set ativo = 'tarefas' %}
+{% block title %}Execuções{% endblock %}
+{% block content %}
+<header class="ov-topbar">
+  <span class="simbolo">{{ icone('execucoes', 30) }}</span>
+  <div>
+    <h1>Execuções</h1>
+    <p>Histórico em memória do processo — reiniciar a aplicação zera esta lista
+      (as gravações já feitas no SAP, evidentemente, permanecem)</p>
+  </div>
+</header>
+
+<section class="ov-table-card">
+  <div class="ov-scroll">
+    <table class="ov-table">
+      <thead>
+        <tr><th>Quando</th><th>Operação</th><th>Situação</th><th class="num">Duração</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for t in tarefas %}
+        <tr>
+          <td class="data">{{ t.criada_em.strftime('%d/%m %H:%M:%S') }}</td>
+          <td><strong>{{ t.nome }}</strong><br><span class="ov-nota">{{ t.descricao }}</span></td>
+          <td>
+            {% if t.com_falhas %}
+            <span class="ov-pill is-warn">{{ t.situacao }} com falhas</span>
+            {% elif t.situacao == 'erro' %}
+            <span class="ov-pill is-erro">{{ t.situacao }}</span>
+            {% elif t.situacao == 'executando' %}
+            <span class="ov-pill is-aberto">{{ t.situacao }}</span>
+            {% elif t.terminada %}
+            <span class="ov-pill is-ok">{{ t.situacao }}</span>
+            {% else %}
+            <span class="ov-pill is-neutro">{{ t.situacao }}</span>
+            {% endif %}
+          </td>
+          <td class="num">{{ (t.duracao_segundos ~ ' s') if t.duracao_segundos is not none else '' }}</td>
+          <td><a href="/tarefas/{{ t.id }}">abrir</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="vazio">Nenhuma execução registrada neste processo.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

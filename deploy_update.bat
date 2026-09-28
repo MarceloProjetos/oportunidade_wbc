@@ -3,15 +3,18 @@ REM ============================================================================
 REM  deploy_update.bat - Atualiza o ServidorIntegracaoSAP em producao (.11) via git.
 REM
 REM  Roda NO servidor 192.168.7.11, na raiz C:\Python\ServidorIntegracaoSAP.
-REM  Fluxo: para os 5 servicos -> git pull --ff-only -> pip (so se o conteudo dos
-REM  requirements difere do ultimo instalado, marca em state\deps.sha256; no venv se
-REM  houver, senao no Python do sistema) -> sobe os servicos na ordem certa ->
-REM  confere /health da API e a porta do painel WBC.
+REM  Fluxo: confere que o Controle de Producao nao tem execucao em andamento -> para os
+REM  6 servicos -> git pull --ff-only -> pip (so se o conteudo dos requirements difere do
+REM  ultimo instalado, marca em state\deps.sha256; no venv se houver, senao no Python do
+REM  sistema) -> sobe os servicos na ordem certa -> confere /health da API, a porta do
+REM  painel WBC e o /health do Controle de Producao.
 REM
 REM  Servicos (NSSM): OrcaView-MCP, OrcaView-OS-API, OrcaView-Scheduler,
-REM  OrcaView-WBC-Painel e OrcaView-WBC-Worker. O WORKER so volta a subir se
-REM  estava rodando antes do deploy: antes da virada ele fica parado, e o deploy
-REM  nao pode ser a porta dos fundos que liga o integrador novo.
+REM  OrcaView-WBC-Painel, OrcaView-ControleProducao e OrcaView-WBC-Worker. O WORKER so
+REM  volta a subir se estava rodando antes do deploy: antes da virada ele fica parado, e o
+REM  deploy nao pode ser a porta dos fundos que liga o integrador novo.
+REM  O Controle de Producao NAO e parado com tarefa "executando"/"na fila": o deploy
+REM  ABORTA (parar no meio de um processar deixa OPs criadas pela metade no SAP).
 REM
 REM  Precisa de Administrador (mexe nos servicos NSSM).
 REM  NAO toca em venv\, .env, .env.*, logs\ nem state\ (todos no .gitignore).
@@ -62,6 +65,36 @@ if defined WORKER_ATIVO (
   echo [nssm] OrcaView-WBC-Worker parado ou nao instalado: continua parado apos o deploy.
 )
 
+REM --- Controle de Producao com execucao em andamento? Entao NAO e hora de deploy.
+REM     /health/ocupado responde "1" (tarefa executando ou na fila) ou "0". A guarda FALHA
+REM     FECHADA: so segue com um "0" literal. Sem resposta (curl expirou - o loop do uvicorn
+REM     fica preso numa consulta HANA/SQL Server sincrona justamente durante um processar)
+REM     com o servico RUNNING = aborta; servico parado/inexistente = nada a proteger, segue.
+REM     Rota aberta (sem chave). 20 s de espera: um bloqueio normal do loop dura segundos, e
+REM     com o servico parado o curl falha na hora.
+set "CP_PORTA=8080"
+for /f "usebackq tokens=2 delims== " %%p in (`findstr /b /i "CP_PORTA=" .env 2^>nul`) do set "CP_PORTA=%%p"
+set "CP_OCUPADO="
+for /f "usebackq delims=" %%o in (`curl -s -m 20 http://127.0.0.1:%CP_PORTA%/health/ocupado 2^>nul`) do set "CP_OCUPADO=%%o"
+if "%CP_OCUPADO%"=="1" (
+  echo.
+  echo ERRO: o Controle de Producao tem execucao em andamento ^(http://127.0.0.1:%CP_PORTA%/tarefas^).
+  echo       Parar agora deixaria Ordens de Producao pela metade no SAP. Espere terminar e rode de novo.
+  echo       Nada foi alterado.
+  pause & exit /b 1
+)
+if not "%CP_OCUPADO%"=="0" (
+  sc query OrcaView-ControleProducao 2>nul | find "RUNNING" >nul 2>&1 && (
+    echo.
+    echo ERRO: OrcaView-ControleProducao esta RODANDO mas nao respondeu em
+    echo       http://127.0.0.1:%CP_PORTA%/health/ocupado em 20 s. Pode ser uma execucao presa numa
+    echo       consulta longa. Confira /tarefas e CP_PORTA no .env; se for travamento, pare a mao
+    echo       ^(nssm stop OrcaView-ControleProducao^) e rode de novo. Nada foi alterado.
+    pause & exit /b 1
+  )
+  echo [cp] OrcaView-ControleProducao parado ou nao instalado: nada a proteger.
+)
+
 REM --- parar servicos antes de mexer nos arquivos (MCP depende da API: para o MCP 1o;
 REM     o worker por ultimo, porque a parada dele espera o ciclo em andamento) ---
 echo [nssm] parando servicos...
@@ -69,6 +102,7 @@ nssm stop OrcaView-MCP        >nul 2>&1
 nssm stop OrcaView-OS-API     >nul 2>&1
 nssm stop OrcaView-Scheduler  >nul 2>&1
 nssm stop OrcaView-WBC-Painel >nul 2>&1
+nssm stop OrcaView-ControleProducao >nul 2>&1
 if defined WORKER_ATIVO (
   REM Parada por arquivo (09/09/2026): o python.exe direto no servico nao tem console, o
   REM Ctrl+C do NSSM nao chega e o worker era morto no meio do ciclo (trava presa 30 min,
@@ -138,6 +172,7 @@ nssm start OrcaView-OS-API     >nul 2>&1
 nssm start OrcaView-MCP        >nul 2>&1
 nssm start OrcaView-Scheduler  >nul 2>&1
 nssm start OrcaView-WBC-Painel >nul 2>&1
+nssm start OrcaView-ControleProducao >nul 2>&1
 if defined WORKER_ATIVO (
   REM Um "nssm start" durante STOP_PENDING e recusado em silencio (aconteceu em 08/09/2026:
   REM o worker ficou parado depois do deploy). Por isso a espera acima e esta confirmacao.
@@ -159,10 +194,13 @@ curl -s http://127.0.0.1:8077/health
 echo.
 curl -s -o nul -w "[painel WBC] http://127.0.0.1:%PAINEL_PORTA%/entrar -> HTTP %%{http_code}" http://127.0.0.1:%PAINEL_PORTA%/entrar
 echo.
+curl -s -m 5 -o nul -w "[controle producao] http://127.0.0.1:%CP_PORTA%/health -> HTTP %%{http_code}" http://127.0.0.1:%CP_PORTA%/health
+echo.
 nssm status OrcaView-OS-API
 nssm status OrcaView-MCP
 nssm status OrcaView-Scheduler
 nssm status OrcaView-WBC-Painel
+nssm status OrcaView-ControleProducao
 nssm status OrcaView-WBC-Worker
 
 echo.
@@ -190,6 +228,7 @@ nssm start OrcaView-OS-API     >nul 2>&1
 nssm start OrcaView-MCP        >nul 2>&1
 nssm start OrcaView-Scheduler  >nul 2>&1
 nssm start OrcaView-WBC-Painel >nul 2>&1
+nssm start OrcaView-ControleProducao >nul 2>&1
 if defined WORKER_ATIVO (
   call :esperar_parar OrcaView-WBC-Worker 30
   nssm start OrcaView-WBC-Worker >nul 2>&1

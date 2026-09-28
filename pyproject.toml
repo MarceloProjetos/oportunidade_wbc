@@ -29,6 +29,9 @@ ignore = [
 # Fixtures SQL do repositório do WBC: INSERTs com as ~40 colunas reais de INTEGRACAO_ORCIMP
 # numa linha só, de propósito (quebrar a lista de colunas esconde qual falta).
 "tests/wbc/infrastructure/test_wbc_repository.py" = ["E501"]
+# SQL do Controle de Produção (HANA/SQL Server), validado contra produção à mão — 2026-09-28:
+# quebrar a linha esconde o diff com a query original do addon C#.
+"controleproducao/modules/*/queries.py" = ["E501"]
 # Arquivos-IRMÃOS de outro repo (CLAUDE.md, "Convenções"): modernizar só de um lado quebraria
 # o diff com o gêmeo (há teste para situacao_pedidos e sap_montagem_labels). O wake_altservidor_ia
 # é byte-idêntico ao do web e roda em Python 3.8+.

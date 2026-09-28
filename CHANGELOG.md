@@ -6,6 +6,47 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-28] — Controle de Produção entra como pacote do SIS (6º serviço)
+
+⚠️ Vale no próximo deploy: `requirements.txt` ganhou `typer` e `rich` (o `deploy_update.bat`
+roda o `pip` pelo hash) e há um serviço NSSM novo a registrar (`install_wbc_services.bat`).
+Plano, riscos e decisões: `docs/PLANO_CONTROLE_PRODUCAO_11.md`.
+
+- **`controleproducao/`** — o pacote ControleProducao do Anderson (24/09) importado no molde do
+  `wbcpython/`: `python_app/app` → `controleproducao/` (achatado), `tests` →
+  `tests/controleproducao/`, imports e alvos de `patch` renomeados, docs históricas em
+  `docs/controleproducao/`. Wheels, scripts `.ps1`, `log_config.json` e `MANIFESTO` **não**
+  entram (o SIS já tem deploy, serviço e log próprios). Serviço `OrcaView-ControleProducao`
+  (`run_controleproducao.bat` → `python -m controleproducao web`, `CP_PORTA`=8080, processo
+  separado do painel de propósito).
+- **Um `.env`:** `controleproducao/config.py` lê o `.env` da raiz; ganhou os mesmos fallbacks
+  do WBC (`SL_*`→`OP_SL_*`, `WBC_SQL_*`→`SQL_*`, `HANA_*`→`SAP_*`) e `env_ignore_empty`;
+  `hana_schema` passou a ser `SL_COMPANY_DB` (o `HANA_SCHEMA` do `.env` é o schema de leitura
+  do worker e pode diferir — era o bug de 21/09 do pacote). Bloco novo no `.env.example`
+  (`CP_HOST`, `CP_PORTA`, `CP_LOG_FILE`, `WBC_SQL_DRIVER`, `HANA_SCHEMA_LEGADO`,
+  `SL_BUSINESS_PLACE_ID`). Campos "reservados" mortos do pacote apagados (`PAINEL_PORTA=8501`
+  etc. colidiam com os do painel).
+- **Trava pelo IP + `/Logout`:** o `ServiceLayerClient` do pacote recusa POST/PATCH em
+  produção fora da .11 (`wbcpython.safety`, mesma regra do worker) e faz `POST /Logout` ao
+  fechar (antes vazava uma sessão por tarefa/comando). Rotas de escrita respondem 503 e a CLI
+  sai com 2 antes de criar tarefa.
+- **Login compartilhado:** `wbcpython/dashboard/acesso.py` (cookie `wbc_painel`, HMAC da
+  `OS_API_KEY`, `destino_local`) extraído do painel e reusado pelo pacote — uma entrada vale
+  para as duas telas; `/docs` fechado; POST por cookie exige `Origin`/`Referer` do mesmo host;
+  sem `OS_API_KEY` as rotas de escrita do pacote ficam em 503 (fail-closed).
+- **Links de menu:** painel WBC → "Controle de Produção" (`GET /controle-producao`, `CP_URL`
+  ou host:`CP_PORTA`); tela → "Painel WBC"; API 8077 → `GET /controle-producao`;
+  `web/entrada.html` ganhou o botão.
+- **`/status`:** check `controle_producao` (aliases `cp`, `controleproducao`, `producao`) sonda
+  `127.0.0.1:CP_PORTA/health`; três níveis como o `wbc_worker` (o log do pacote é a marca
+  "já subiu"); `CP_PORTA_DEFAULT`/`CP_LOG_FILE_DEFAULT` no `config.py` da raiz com teste de
+  paridade nos três configs.
+- **`deploy_update.bat`:** aborta se `GET /health/ocupado` do pacote devolver `1` (parar no
+  meio de um `processar` deixa OPs pela metade); para/religa o 6º serviço; valida `/health`.
+- **Testes:** os 244 do pacote entram na suíte (2 instáveis corrigidos no teste — corrida entre
+  a tarefa em background e a leitura do estado); `tests/controleproducao/conftest.py` isola o
+  `.env` e o ambiente; `ruff` em 0 com `E501` liberado só para o SQL de `modules/*/queries.py`.
+
 ## [2026-09-28] — Vendas BI conta cada pedido uma vez
 
 ⚠️ Vale no próximo deploy do Agendador. **Muda os números da Vendas Resultados e do app**: 2026

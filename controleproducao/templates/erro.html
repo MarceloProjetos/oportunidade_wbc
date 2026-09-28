@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "_icones.html" import icone %}
+{% block title %}{{ titulo or "Não foi possível continuar" }}{% endblock %}
+{% block content %}
+<header class="ov-topbar">
+  <span class="simbolo" style="color:var(--color-danger)">{{ icone('alerta', 30) }}</span>
+  <div><h1>{{ titulo or "Não foi possível continuar" }}</h1></div>
+</header>
+
+<div class="ov-alerta is-erro">{{ icone('x', 16) }}<span>{{ mensagem }}</span></div>
+
+{% if detalhes %}
+<section class="ov-table-card">
+  <div class="ov-scroll">
+    <table class="ov-table">
+      <thead><tr>{% for c in colunas %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for item in detalhes %}
+        <tr>{% for c in colunas %}<td>{{ item.get(c, '') }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<p><a href="{{ voltar or '/' }}">{{ icone('voltar', 14) }} Voltar</a></p>
+{% endblock %}

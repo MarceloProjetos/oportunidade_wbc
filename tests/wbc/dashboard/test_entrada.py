@@ -195,3 +195,63 @@ class TestCaminhoParaASincronizacao:
     def test_abre_mesmo_com_chave_exigida(self, fechado: TestClient) -> None:
         """Quem não tem a chave ainda consegue ir para a outra tela."""
         assert fechado.get("/sincronizacao", follow_redirects=False).status_code == 302
+
+
+class TestCaminhoParaOControleDeProducao:
+    """The screens on the same host (CP_PORTA): links, not iframes — another process. One
+    top button per screen (Marcelo, 28/09/2026): Pedidos WBC → OPs and Manutenção de OP."""
+
+    def test_os_dois_botoes_estao_na_pagina(self, aberto: TestClient) -> None:
+        texto = aberto.get("/").text
+        assert 'href="/controle-producao/pedidos"' in texto and "Pedidos WBC" in texto
+        assert 'href="/controle-producao/ops"' in texto and "Manutenção de OP" in texto
+
+    def test_sem_configuracao_e_o_mesmo_host_na_porta_do_cp(self, aberto: TestClient) -> None:
+        resposta = aberto.get("/controle-producao", follow_redirects=False)
+        assert resposta.status_code == 302
+        assert resposta.headers["location"] == "http://testserver:8080/"
+
+    @pytest.mark.parametrize("tela, destino", [("pedidos", "pedidos-wbc"), ("ops", "manutencao-op")])
+    def test_cada_botao_cai_na_sua_tela(self, aberto: TestClient, tela: str, destino: str) -> None:
+        resposta = aberto.get(f"/controle-producao/{tela}", follow_redirects=False)
+        assert resposta.status_code == 302
+        assert resposta.headers["location"] == f"http://testserver:8080/{destino}"
+
+    def test_tela_desconhecida_cai_na_raiz_de_la(self, aberto: TestClient) -> None:
+        assert aberto.get("/controle-producao/x", follow_redirects=False).headers["location"] == "http://testserver:8080/"
+
+    def test_url_configurada_com_barra_no_fim_nao_dobra_a_barra(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo: RepositorioTracking
+    ) -> None:
+        cliente = TestClient(
+            criar_app(settings=_config(monkeypatch, tmp_path, CP_URL="http://192.168.7.11:8080/"), tracking=repo)
+        )
+        assert cliente.get("/controle-producao/ops", follow_redirects=False).headers["location"] == (
+            "http://192.168.7.11:8080/manutencao-op"
+        )
+
+    def test_os_botoes_abrem_mesmo_com_chave_exigida(self, fechado: TestClient) -> None:
+        for tela in ("pedidos", "ops"):
+            assert fechado.get(f"/controle-producao/{tela}", follow_redirects=False).status_code == 302
+
+    def test_porta_vem_do_env(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo: RepositorioTracking
+    ) -> None:
+        cliente = TestClient(criar_app(settings=_config(monkeypatch, tmp_path, CP_PORTA="9080"), tracking=repo))
+        assert cliente.get("/controle-producao", follow_redirects=False).headers["location"] == (
+            "http://testserver:9080/"
+        )
+
+    def test_url_configurada_ganha(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo: RepositorioTracking
+    ) -> None:
+        cliente = TestClient(
+            criar_app(settings=_config(monkeypatch, tmp_path, CP_URL="http://192.168.7.11:8080/"), tracking=repo)
+        )
+        assert cliente.get("/controle-producao", follow_redirects=False).headers["location"] == (
+            "http://192.168.7.11:8080/"
+        )
+
+    def test_abre_mesmo_com_chave_exigida(self, fechado: TestClient) -> None:
+        """The redirect is open; the other screen checks the same cookie by itself."""
+        assert fechado.get("/controle-producao", follow_redirects=False).status_code == 302

@@ -57,10 +57,12 @@
         <code>OrcaView-WBC-Painel</code> pode estar parado.</p>
       <div class="btns">
         <a class="go" href="/sincronizar">Painel de Sincronização (OS · Oportunidades)</a>
+        <a class="go ghost" href="/controle-producao">Controle de Produção (Pedidos WBC → OPs)</a>
         <a class="go ghost" href="__PAINEL_WBC__">Tentar o painel WBC de novo</a>
       </div>
       <p class="note">Esta é a raiz da API 8077. O painel WBC é outro processo, na porta
-        <code>PAINEL_PORTA</code> do <code>.env</code>; o Painel de Sincronização vive em <code>/sincronizar</code>.</p>
+        <code>PAINEL_PORTA</code> do <code>.env</code>; o Controle de Produção é outro, na
+        <code>CP_PORTA</code>; o Painel de Sincronização vive em <code>/sincronizar</code>.</p>
     </div>
 
     <noscript>
@@ -68,6 +70,7 @@
         <div class="btns">
           <a class="go" href="__PAINEL_WBC__">Painel da Integração WBC</a>
           <a class="go ghost" href="/sincronizar">Painel de Sincronização</a>
+          <a class="go ghost" href="/controle-producao">Controle de Produção</a>
         </div>
       </div>
     </noscript>

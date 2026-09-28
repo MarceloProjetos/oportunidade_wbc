@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% from "_icones.html" import icone %}
+{% set ativo = 'tarefas' %}
+{% block title %}{{ tarefa.nome }}{% endblock %}
+{% set desfecho = 'erro' if tarefa.situacao == 'erro'
+                  else ('falhas' if tarefa.com_falhas
+                  else ('cancelada' if tarefa.situacao == 'cancelada'
+                  else ('ok' if tarefa.terminada else 'rodando'))) %}
+{% set classe_pilula = {'erro':'is-erro','falhas':'is-warn','cancelada':'is-warn',
+                        'ok':'is-ok','rodando':'is-aberto'} %}
+{% set classe_barra = {'erro':'is-erro','falhas':'is-warn','cancelada':'is-erro',
+                       'ok':'is-ok','rodando':''} %}
+{% block content %}
+<header class="ov-topbar">
+  <span class="simbolo">{{ icone('execucoes', 30) }}</span>
+  <div>
+    <h1>{{ tarefa.nome }}</h1>
+    <p>{{ tarefa.descricao }}</p>
+  </div>
+</header>
+
+<section class="ov-card" data-tarefa="{{ tarefa.id }}">
+  <p style="margin-top:0">
+    <span class="ov-pill {{ classe_pilula[desfecho] }}" id="situacao">{{
+      tarefa.situacao }}{% if tarefa.com_falhas %} com falhas{% endif %}</span>
+    <span class="ov-nota" id="progresso"></span>
+    <span class="ov-nota" id="duracao"></span>
+  </p>
+  <div class="ov-barra {{ classe_barra[desfecho] }}" id="barra-casca"><i id="barra"></i></div>
+  <p id="passo" class="ov-passo">{{ tarefa.passo }}</p>
+
+  <pre id="linhas" class="ov-log">{% for l in tarefa.linhas %}{{ l }}
+{% endfor %}</pre>
+
+  <div id="painel-erro" class="ov-alerta is-erro" hidden></div>
+  <div id="painel-resultado" hidden></div>
+
+  <div id="acoes" class="ov-acoes-lote">
+    <button type="button" class="ov-btn-ghost" id="btn-cancelar">
+      {{ icone('parar') }} Interromper</button>
+    <span class="ov-nota-inline">Interrompe entre passos — <strong>não desfaz</strong>
+      documentos já gravados no SAP.</span>
+  </div>
+</section>
+
+<script>
+(function () {
+  const id = document.querySelector('[data-tarefa]').dataset.tarefa;
+  const elSituacao = document.getElementById('situacao');
+  const elProgresso = document.getElementById('progresso');
+  const elDuracao = document.getElementById('duracao');
+  const elPasso = document.getElementById('passo');
+  const elLinhas = document.getElementById('linhas');
+  const elBarra = document.getElementById('barra');
+  const elBarraCasca = document.getElementById('barra-casca');
+  const elErro = document.getElementById('painel-erro');
+  const elResultado = document.getElementById('painel-resultado');
+  const elAcoes = document.getElementById('acoes');
+
+  // O usuário rolou o log para trás para ler algo: não arrastar a rolagem de volta para
+  // o fim a cada atualização. Só acompanha automaticamente quem já está no fim.
+  let colado = true;
+  elLinhas.addEventListener('scroll', function () {
+    colado = elLinhas.scrollHeight - elLinhas.scrollTop - elLinhas.clientHeight < 24;
+  });
+
+  // Toda chamada da página se identifica (X-Requested-With): sem o cookie, o servidor responde
+  // 401 em JSON em vez de redirecionar para /entrar — um redirect seguido em silêncio pelo
+  // fetch deixaria a tela parada enquanto a tarefa continua gravando no SAP.
+  const CABECALHOS = { 'X-Requested-With': 'fetch' };
+  function sessaoExpirou() {
+    elAcoes.hidden = true;
+    elErro.hidden = false;
+    elErro.textContent = 'Sessão expirada — entre de novo para continuar acompanhando. ' +
+      'A execução continua no servidor.';
+    window.location.assign('/entrar?proximo=' + encodeURIComponent(window.location.pathname));
+  }
+  function avisa(texto) { elErro.hidden = false; elErro.textContent = texto; }
+
+  const btnCancelar = document.getElementById('btn-cancelar');
+  btnCancelar.addEventListener('click', function () {
+    btnCancelar.disabled = true;
+    fetch('/tarefas/' + id + '/cancelar', { method: 'POST', headers: CABECALHOS })
+      .then(function (r) {
+        if (r.status === 401 || r.redirected) { sessaoExpirou(); return null; }
+        if (r.status === 403) {
+          return r.json().then(function (d) { avisa(d.detail || 'Pedido de interrupção recusado (403).'); });
+        }
+        if (!r.ok) { avisa('Não foi possível pedir a interrupção (HTTP ' + r.status + ').'); return null; }
+        return r.json().then(function (d) {
+          avisa(d.cancelada
+            ? 'Interrupção pedida — a execução para no fim do passo atual. O que já foi gravado no SAP fica.'
+            : 'Não havia execução em andamento para interromper.');
+        });
+      })
+      .catch(function () { avisa('Falha de rede ao pedir a interrupção — a execução continua no servidor.'); })
+      .finally(function () { btnCancelar.disabled = false; });
+  });
+
+  // Uma decisão só sobre o desfecho, lida pela pílula E pela barra. Duas leituras
+  // independentes do mesmo estado divergiriam na primeira vez que alguém mexesse numa.
+  function desfecho(d) {
+    if (d.situacao === 'erro') { return 'erro'; }
+    if (d.com_falhas) { return 'falhas'; }
+    if (d.situacao === 'cancelada') { return 'cancelada'; }
+    if (d.terminada) { return 'ok'; }
+    return 'rodando';
+  }
+  const CLASSE_PILULA = { erro: 'is-erro', falhas: 'is-warn', cancelada: 'is-warn',
+                          ok: 'is-ok', rodando: 'is-aberto' };
+  // Enquanto roda a barra fica no acento: '' deixa o padrão do CSS valer.
+  const CLASSE_BARRA = { erro: 'is-erro', falhas: 'is-warn', cancelada: 'is-erro',
+                         ok: 'is-ok', rodando: '' };
+
+  function pinta(d) {
+    // "concluída" com erros no resultado não pode aparecer em verde.
+    const fim = desfecho(d);
+    elSituacao.textContent = d.com_falhas ? d.situacao + ' com falhas' : d.situacao;
+    elSituacao.className = 'ov-pill ' + CLASSE_PILULA[fim];
+    elBarraCasca.className = 'ov-barra ' + CLASSE_BARRA[fim];
+    elProgresso.textContent = d.passos_total ? ' — ' + d.passos_feitos + '/' + d.passos_total : '';
+    elDuracao.textContent = d.duracao_segundos !== null ? ' — ' + d.duracao_segundos + ' s' : '';
+    elPasso.textContent = d.passo || '';
+    elBarra.style.width = (d.percentual === null ? 0 : d.percentual) + '%';
+    elLinhas.textContent = d.linhas.join('\n');
+    if (colado) { elLinhas.scrollTop = elLinhas.scrollHeight; }
+
+    if (d.erro) { elErro.hidden = false; elErro.textContent = d.erro; }
+    if (d.terminada) {
+      elAcoes.hidden = true;
+      if (d.resultado) {
+        elResultado.hidden = false;
+        elResultado.innerHTML = '<h2>Resultado</h2><pre class="ov-log">' +
+          JSON.stringify(d.resultado, null, 2).replace(/</g, '&lt;') + '</pre>';
+      }
+    }
+    return d.terminada;
+  }
+
+  function consulta() {
+    fetch('/tarefas/' + id + '/estado', { headers: CABECALHOS })
+      .then(function (r) {
+        if (r.status === 401 || r.redirected) { sessaoExpirou(); return null; }
+        if (r.status === 404) {
+          avisa('Esta tarefa saiu do histórico ou o servidor foi reiniciado — o acompanhamento parou.');
+          elAcoes.hidden = true;
+          return null;
+        }
+        if (!r.ok || (r.headers.get('content-type') || '').indexOf('application/json') === -1) {
+          avisa('O servidor respondeu algo inesperado (HTTP ' + r.status + '); nova tentativa em 5 s.');
+          setTimeout(consulta, 5000);
+          return null;
+        }
+        return r.json().then(function (d) { if (!pinta(d)) { setTimeout(consulta, 2000); } });
+      })
+      // Falha de rede não pode matar o acompanhamento: a tarefa segue rodando no servidor
+      // e a página precisa voltar a mostrá-la quando a rede voltar.
+      .catch(function () { setTimeout(consulta, 5000); });
+  }
+  consulta();
+})();
+</script>
+{% endblock %}

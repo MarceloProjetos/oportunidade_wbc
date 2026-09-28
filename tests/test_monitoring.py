@@ -27,12 +27,22 @@ def _wbc_ok() -> dict:
             'hoje': {'execucoes': 120, 'falhas': 0}}
 
 
-def _stub_all_ok(monkeypatch, *, stub_wu=True, stub_wbc=True):
+def _cp_ok() -> dict:
+    """Bloco controle_producao de um serviço no ar (/health ok, sem tarefa em andamento)."""
+    return {'available': True, 'installed': True, 'healthy': True, 'porta': 8080,
+            'log': 'logs/controleproducao.log', 'ocupado': False, 'tarefas_ativas': 0,
+            'producao': True}
+
+
+def _stub_all_ok(monkeypatch, *, stub_wu=True, stub_wbc=True, stub_cp=True):
     """Deixa todas as checagens verdes. `stub_wu=False` só para quem testa o próprio
     `_windows_update_signal` (aí ele precisa rodar de verdade); idem `stub_wbc=False`
-    para quem testa `_wbc_worker_signal` contra um SQLite de verdade."""
+    para quem testa `_wbc_worker_signal` contra um SQLite de verdade, e `stub_cp=False`
+    para quem testa `_controle_producao_signal` (senão a sonda bate na porta 8080 real)."""
     if stub_wbc:
         monkeypatch.setattr(monitoring, '_wbc_worker_signal', _wbc_ok)
+    if stub_cp:
+        monkeypatch.setattr(monitoring, '_controle_producao_signal', _cp_ok)
     monkeypatch.setattr(monitoring, '_check_sap', lambda: 'sap-ok')
     monkeypatch.setattr(monitoring, '_check_sql_server', lambda: 'sql-ok')
     monkeypatch.setattr(monitoring, '_check_supabase', lambda: 'sb-ok')
@@ -537,6 +547,75 @@ def test_wbc_worker_entra_no_status_e_respeita_o_filtro(monkeypatch):
     assert 'wbc_worker' not in monitoring.collect_status(only={'sap'})
     so = monitoring.collect_status(only={'wbc_worker'})
     assert set(so['checks']) == set() and so['wbc_worker']['healthy'] is True
+
+
+# ── controle_producao (a tela do Controle de Produção, sondada em 127.0.0.1:CP_PORTA) ──
+
+def _apontar_cp(monkeypatch, log, porta=8080):
+    monkeypatch.setenv('CP_LOG_FILE', str(log))
+    monkeypatch.setenv('CP_PORTA', str(porta))
+    reset_settings()
+
+
+def _nao_sonda(porta):
+    raise AssertionError('sem o log não há o que sondar')
+
+
+def test_controle_producao_sem_log_e_informacao_nao_alerta(monkeypatch, tmp_path):
+    """Máquina onde o Controle de Produção nunca subiu (dev, ou a .11 antes do serviço):
+    nada a vigiar — um alerta aqui viraria 503 no ?strict=1 por um serviço que não existe."""
+    _apontar_cp(monkeypatch, tmp_path / 'nao_existe.log')
+    monkeypatch.setattr(monitoring, '_sondar_controle_producao', _nao_sonda)
+    cp = monitoring._controle_producao_signal()
+    assert cp['installed'] is False and cp['healthy'] is None and 'nunca subiu' in cp['note']
+    assert monitoring._controle_producao_alerts(cp) == []
+
+
+def test_controle_producao_respondendo_e_saudavel(monkeypatch, tmp_path):
+    log = tmp_path / 'cp.log'
+    log.write_text('', encoding='utf-8')
+    _apontar_cp(monkeypatch, log, porta=8181)
+    visto = {}
+
+    def sonda(porta):
+        visto['porta'] = porta
+        return {'ok': True, 'ocupado': True, 'tarefas_ativas': 1, 'producao': True}
+
+    monkeypatch.setattr(monitoring, '_sondar_controle_producao', sonda)
+    cp = monitoring._controle_producao_signal()
+    assert visto['porta'] == 8181
+    assert cp['installed'] and cp['available'] and cp['healthy'] is True and cp['ocupado'] is True
+    assert monitoring._controle_producao_alerts(cp) == []
+
+
+def test_controle_producao_instalado_e_mudo_alerta_e_nomeia_o_servico(monkeypatch, tmp_path):
+    log = tmp_path / 'cp.log'
+    log.write_text('', encoding='utf-8')
+    _apontar_cp(monkeypatch, log)
+    monkeypatch.setattr(monitoring, '_sondar_controle_producao', lambda porta: None)
+    cp = monitoring._controle_producao_signal()
+    assert cp['installed'] is True and cp['healthy'] is False
+    alertas = monitoring._controle_producao_alerts(cp)
+    assert len(alertas) == 1 and 'OrcaView-ControleProducao' in alertas[0] and '8080' in alertas[0]
+
+
+def test_controle_producao_entra_no_status_e_respeita_o_filtro(monkeypatch):
+    _stub_all_ok(monkeypatch)
+    assert 'controle_producao' in monitoring.collect_status()
+    assert 'controle_producao' not in monitoring.collect_status(only={'sap'})
+    so = monitoring.collect_status(only={'controle_producao'})
+    assert set(so['checks']) == set() and so['controle_producao']['healthy'] is True
+
+
+def test_controle_producao_mudo_derruba_o_healthy_do_status(monkeypatch, tmp_path):
+    _stub_all_ok(monkeypatch, stub_cp=False)
+    log = tmp_path / 'cp.log'
+    log.write_text('', encoding='utf-8')
+    _apontar_cp(monkeypatch, log)
+    monkeypatch.setattr(monitoring, '_sondar_controle_producao', lambda porta: None)
+    data = monitoring.collect_status()
+    assert data['healthy'] is False
+    assert any('OrcaView-ControleProducao' in a for a in data['alerts'])
 
 
 @pytest.mark.parametrize('url, esperado', [

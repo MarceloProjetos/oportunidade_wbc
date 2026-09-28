@@ -37,3 +37,14 @@ def test_expediente_do_worker_e_o_mesmo():
 
 def test_porta_do_painel_e_a_mesma():
     assert _default(Settings, "painel_porta") == config.WBC_PAINEL_PORTA_DEFAULT
+
+
+def test_porta_e_log_do_controle_producao_sao_os_mesmos():
+    """Three configs read CP_PORTA/CP_LOG_FILE: the root (check + redirect), the painel
+    (menu link) and the package itself (what it binds). A drifted default would make the
+    /status probe or the link point at another port with no error."""
+    from controleproducao.config import Settings as SettingsCP
+
+    assert _default(SettingsCP, "cp_porta") == config.CP_PORTA_DEFAULT
+    assert _default(Settings, "cp_porta") == config.CP_PORTA_DEFAULT
+    assert _default(SettingsCP, "cp_log_file") == config.CP_LOG_FILE_DEFAULT

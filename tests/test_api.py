@@ -942,9 +942,11 @@ def test_autorizado_sem_chave_enviada_401(client, monkeypatch):
 
 # ============ @requer_chave: guarda por decorator (2026-07-16) ============
 
-# /painel-wbc e' aberto como o '/': so' redireciona para o painel WBC, que pede a MESMA
-# OS_API_KEY por conta propria (tests/wbc/dashboard/test_entrada.py).
-_ROTAS_ABERTAS = {'/', '/sincronizar', '/favicon.ico', '/health', '/status', '/painel-wbc'}
+# /painel-wbc e /controle-producao sao abertos como o '/': so redirecionam para as outras
+# telas, que pedem a MESMA OS_API_KEY por conta propria (tests/wbc/dashboard/test_entrada.py,
+# tests/controleproducao/test_acesso.py).
+_ROTAS_ABERTAS = {'/', '/sincronizar', '/favicon.ico', '/health', '/status', '/painel-wbc',
+                  '/controle-producao'}
 
 
 def test_toda_rota_nova_exige_chave_ou_e_abertura_declarada(client, monkeypatch):
@@ -976,7 +978,7 @@ def test_toda_rota_nova_exige_chave_ou_e_abertura_declarada(client, monkeypatch)
 
 @pytest.mark.parametrize('metodo,url', [
     ('GET', '/'), ('GET', '/sincronizar'), ('GET', '/favicon.ico'), ('GET', '/health'),
-    ('GET', '/status'), ('GET', '/painel-wbc'),
+    ('GET', '/status'), ('GET', '/painel-wbc'), ('GET', '/controle-producao'),
 ])
 def test_rotas_abertas_continuam_abertas(client, monkeypatch, metodo, url):
     """O decorator não pode ter fechado o que é aberto de propósito (monitoramento
@@ -1387,6 +1389,47 @@ def test_painel_wbc_url_configurada_ganha(client, monkeypatch):
     monkeypatch.setenv('WBC_PAINEL_URL', 'http://192.168.7.11:8079/')
     reset_settings()
     assert client.get('/painel-wbc').headers['Location'] == 'http://192.168.7.11:8079/'
+
+
+# --- Controle de Produção: o caminho para a tela e os aliases do check ------------------
+
+def test_controle_producao_redireciona_para_o_mesmo_host_na_porta_do_cp(client, monkeypatch):
+    monkeypatch.delenv('CP_URL', raising=False)
+    monkeypatch.delenv('CP_PORTA', raising=False)
+    reset_settings()
+    r = client.get('/controle-producao')
+    assert r.status_code == 302
+    assert r.headers['Location'] == 'http://localhost:8080/'
+
+
+def test_controle_producao_porta_vem_do_env(client, monkeypatch):
+    monkeypatch.delenv('CP_URL', raising=False)
+    monkeypatch.setenv('CP_PORTA', '9080')
+    reset_settings()
+    assert client.get('/controle-producao').headers['Location'] == 'http://localhost:9080/'
+
+
+def test_controle_producao_url_configurada_ganha(client, monkeypatch):
+    monkeypatch.setenv('CP_URL', 'http://192.168.7.11:8080/')
+    reset_settings()
+    assert client.get('/controle-producao').headers['Location'] == 'http://192.168.7.11:8080/'
+
+
+@pytest.mark.parametrize('alias', ['cp', 'controleproducao', 'controle_producao', 'producao'])
+def test_alias_do_check_controle_producao(client, monkeypatch, alias):
+    """`?checks=cp` (e variantes) chega ao check `controle_producao`; o nome canonico
+    faz parte do contrato com o web (SELECTABLE_CHECKS)."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    pedidos = {}
+
+    def falso(only=None):
+        pedidos['only'] = only
+        return {'ok': True, 'healthy': True, 'alerts': [], 'checks': {}}
+
+    monkeypatch.setattr(apimod, 'collect_status', falso)
+    client.get(f'/status?checks={alias}', headers={'X-API-Key': 'segredo'})
+    assert pedidos['only'] == {'controle_producao'}
 
 
 def test_painel_wbc_nao_exige_chave(client, monkeypatch):

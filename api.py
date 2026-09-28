@@ -29,6 +29,7 @@ Endpoints
 - ``GET  /pedidos/<numero>/situacao``       → status of ONE order
 - ``GET  /rh/colaboradores``                → Kairos roster mirror (company → sector → people)
 - ``GET  /painel-wbc``                      → 302 to the WBC integration painel (FastAPI, PAINEL_PORTA)
+- ``GET  /controle-producao``               → 302 to the Controle de Produção screen (FastAPI, CP_PORTA)
 
 Authentication (optional, **recommended in production**)
 --------------------------------------------------------
@@ -649,6 +650,22 @@ def painel_wbc():
     return redirect(_url_painel_wbc(), code=302)
 
 
+def _url_controle_producao() -> str:
+    """Where the Controle de Produção screen lives: ``CP_URL`` (verbatim) or this host on
+    ``CP_PORTA`` — the same rule as the painel."""
+    s = get_settings()
+    return s.cp_url or f"{request.scheme}://{request.host.rsplit(':', 1)[0]}:{s.cp_porta}/"
+
+
+@app.get('/controle-producao')
+def controle_producao():
+    """302 to the **Controle de Produção** screen (``python -m controleproducao web``, a
+    separate FastAPI process on ``CP_PORTA``, 8080 by default): Pedidos WBC → Ordens de
+    Produção and Manutenção de OP. Open (no key): the screen asks for the same
+    ``OS_API_KEY`` itself — and the painel's cookie already opens it."""
+    return redirect(_url_controle_producao(), code=302)
+
+
 @app.get('/health')
 def health():
     """Light liveness (is the API up?). No key, no external check — fast and always
@@ -668,6 +685,9 @@ _CHECK_ALIASES = {
     # check. The worker gets its own names.
     'worker': 'wbc_worker', 'wbcworker': 'wbc_worker', 'wbc_worker': 'wbc_worker',
     'integracao_wbc': 'wbc_worker', 'integracao': 'wbc_worker',
+    # Controle de Produção (the ``OrcaView-ControleProducao`` screen, probed on CP_PORTA).
+    'cp': 'controle_producao', 'controleproducao': 'controle_producao',
+    'controle_producao': 'controle_producao', 'producao': 'controle_producao',
 }
 
 

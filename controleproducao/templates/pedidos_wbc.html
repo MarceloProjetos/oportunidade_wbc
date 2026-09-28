@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% from "_icones.html" import icone %}
+{% set ativo = 'pedidos' %}
+{% block title %}Integração de Pedidos (WBC){% endblock %}
+{% block content %}
+<header class="ov-topbar">
+  <span class="simbolo">{{ icone('pedidos', 30) }}</span>
+  <div>
+    <h1>Integração de Pedidos (WBC)</h1>
+    <p>Cria itens, recursos de rateio e a cascata de Ordens de Produção</p>
+  </div>
+</header>
+
+{% if em_execucao %}
+<div class="ov-alerta">{{ icone('execucoes', 16) }}
+  <span>Há uma execução em andamento neste módulo:
+    <a href="/tarefas/{{ em_execucao.id }}">{{ em_execucao.nome }}</a>.
+    Uma nova só é aceita depois que ela terminar — duas ao mesmo tempo disputariam os
+    mesmos pedidos e OPs.</span></div>
+{% endif %}
+
+{% if buscou %}
+<section class="ov-kpis">
+  <div class="ov-kpi">
+    <b>{{ total }}</b><span>{{ 'Integrados' if modo == 'integrados' else 'Novos' }}</span>
+  </div>
+  <div class="ov-kpi" style="--ov-cor: var(--color-info)">
+    <b>{{ pagina }}/{{ paginas }}</b><span>Página</span>
+  </div>
+</section>
+{% endif %}
+
+<form method="get" action="/pedidos-wbc" class="ov-filtros">
+  <input type="hidden" name="buscar" value="1">
+  <label class="ov-opcao"><input type="radio" name="modo" value="novos"
+    {% if modo != 'integrados' %}checked{% endif %}> Pedidos novos</label>
+  <label class="ov-opcao"><input type="radio" name="modo" value="integrados"
+    {% if modo == 'integrados' %}checked{% endif %}> Pedidos integrados</label>
+  <button type="submit" class="ov-btn">{{ icone('buscar') }} Buscar</button>
+</form>
+
+<form method="post" action="/pedidos-wbc/{{ 'reprocessar' if modo == 'integrados' else 'processar' }}/conferir">
+  <section class="ov-table-card">
+    <div class="ov-scroll">
+      <table class="ov-table">
+        <thead>
+          <tr>
+            <th></th><th>Pedido</th><th>Oportunidade</th><th>WBC</th>
+            <th>Cliente</th><th class="num">Total</th><th>Criado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in pedidos %}
+          <tr>
+            <td><input type="checkbox" name="opp_ids" value="{{ p.opp_id }}"></td>
+            <td class="num"><strong>{{ p.doc_num }}</strong></td>
+            <td class="num">{{ p.opp_id }}</td>
+            <td><span class="ov-pill is-aberto">{{ p.orc_num_masc }}</span></td>
+            <td>{{ p.cod_cliente }} — {{ p.nome_cliente }}</td>
+            <td class="num">{{ p.total_pedido | moeda }}</td>
+            <td class="data">{{ p.data_lancamento[:10] }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="vazio">
+            {% if buscou %}Nenhum pedido neste modo.{% else %}Use "Buscar" para carregar a lista.{% endif %}
+          </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {% if buscou and total %}
+  <div class="ov-paginacao">
+    <span><b>{{ primeiro }}–{{ ultimo }}</b> de <b>{{ total }}</b> pedido(s)</span>
+    {% if paginas > 1 %}
+    <span class="paginas">
+      {% if pagina > 1 %}
+      <a href="/pedidos-wbc?modo={{ modo }}&buscar=1&pagina={{ pagina - 1 }}">‹ anterior</a>
+      {% endif %}
+      página <b>{{ pagina }}</b> de <b>{{ paginas }}</b>
+      {% if pagina < paginas %}
+      <a href="/pedidos-wbc?modo={{ modo }}&buscar=1&pagina={{ pagina + 1 }}">próxima ›</a>
+      {% endif %}
+    </span>
+    <span class="ov-nota-inline">A seleção vale só para esta página — mudar de página a perde.</span>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="ov-acoes-lote">
+    {% if modo == 'integrados' %}
+    <button type="submit" class="ov-btn ov-btn--perigo">{{ icone('raio') }} Reprocessar selecionados…</button>
+    {% else %}
+    <button type="submit" class="ov-btn ov-btn--perigo">{{ icone('play') }} Processar selecionados…</button>
+    <label class="ov-opcao" style="padding-bottom:0"><input type="checkbox" name="force" value="1">
+      forçar (ignora as checagens de reprocessamento)</label>
+    {% endif %}
+  </div>
+  <p class="ov-nota">Nada é gravado neste passo: a próxima tela mostra exatamente o que será
+    feito e pede confirmação.</p>
+</form>
+
+<h2>Cancelar as OPs de um pedido</h2>
+<form method="post" action="/pedidos-wbc/cancelar-ops/conferir" class="ov-filtros">
+  <div class="ov-field"><label for="c-doc">Nº Pedido</label>
+    <input class="ov-input" id="c-doc" type="text" name="doc_num"></div>
+  <span class="ov-ou">ou</span>
+  <div class="ov-field"><label for="c-orc">Nº Orçamento</label>
+    <input class="ov-input" id="c-orc" type="text" name="orc_num"></div>
+  <button type="submit" class="ov-btn ov-btn--perigo">{{ icone('escudo') }} Conferir…</button>
+</form>
+{% endblock %}
