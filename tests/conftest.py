@@ -12,6 +12,7 @@ import importlib
 import pytest
 
 from config import reset_settings
+from wbcpython import safety
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -50,7 +51,6 @@ _AMBIENTE_FALSO = {
     "SQLSERVER_PASSWORD": "pytest-falso",
     "OP_SL_SERVER": _DESTINO_FALSO,
     "OP_SL_PASSWORD": "pytest-falso",
-    "OP_SL_ENABLED": "false",
 }
 
 
@@ -78,6 +78,10 @@ def _trava(destino: str):
 @pytest.fixture(autouse=True)
 def _ambiente_sem_producao(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
     """Troca os destinos reais do ``.env`` por falsos e trava os drivers — exceto nos testes de integração."""
+    # Always, integration included: TEST-NET-1 is never local, so even on the .11 the suite
+    # sees production writes (WBC worker, OP status) OFF. A test playing the .11 patches
+    # it to "127.0.0.1" (always owned).
+    monkeypatch.setattr(safety, "PRODUCTION_MACHINE_IP", "192.0.2.1")
     if request.node.get_closest_marker("integration") is None:
         for nome, valor in _AMBIENTE_FALSO.items():
             monkeypatch.setenv(nome, valor)

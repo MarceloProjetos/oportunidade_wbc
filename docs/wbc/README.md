@@ -19,12 +19,13 @@ aqui (decisões, aprendizados, riscos, diário). Este arquivo diz como ele funci
 
 ## As duas regras
 
-1. **Escrita em produção.** A trava `WBC_BLOCK_PRODUCTION_WRITES` (padrão `true`) bloqueia
-   qualquer `POST`/`PATCH`/`PUT`/`DELETE` do Service Layer, e qualquer SQL de escrita, cujo
-   destino seja `SBOALTAMIRAPROD` (`wbcpython/safety.py`, `ProductionWriteBlocked`). Na
-   .11 ela está **`false` por decisão** (virada para produção, 02/09/2026 —
-   `DECISOES.md`): o worker escreve em documento de verdade, e avisa isso na primeira
-   linha de todo ciclo. Fora da .11, deixe `true`.
+1. **Escrita em produção.** A trava bloqueia qualquer `POST`/`PATCH`/`PUT`/`DELETE` do
+   Service Layer, e qualquer SQL de escrita, cujo destino seja `SBOALTAMIRAPROD`
+   (`wbcpython/safety.py`, `ProductionWriteBlocked`). Ela desliga **só na .11, pelo IP da
+   máquina** (`PRODUCTION_MACHINE_IP`; sem chave no `.env` desde 28/09/2026 — antes era
+   `WBC_BLOCK_PRODUCTION_WRITES=false`, decisão da virada de 02/09/2026 em `DECISOES.md`):
+   lá o worker escreve em documento de verdade, e avisa isso na primeira linha de todo
+   ciclo. Em qualquer outra máquina ela fica ligada, sem como desligar.
 2. **O SQL Server do WBC (`WBCCAD`) é somente leitura, em ambiente nenhum.** Não há variável
    que desligue isto; há testes que verificam estruturalmente (`tests/wbc/test_safety_readonly.py`).
    Todo estado da integração vai para o **banco de acompanhamento**, nunca para o WBCCAD.
@@ -80,7 +81,7 @@ do WBC; `OP_SL_*` é o Service Layer do status de OP; `SL_*` é o do WBC).
 
 | Grupo | Variáveis | Observação |
 |---|---|---|
-| Ambiente | `WBC_ENVIRONMENT`, `WBC_BLOCK_PRODUCTION_WRITES`, `WBC_PRODUCTION_COMPANY_DB` | as três de produção mudam **juntas** com `SL_COMPANY_DB` e `HANA_SCHEMA` (`RISCOS_PRODUCAO.md` §6) |
+| Ambiente | `WBC_ENVIRONMENT`, `WBC_PRODUCTION_COMPANY_DB` | mudam **juntas** com `SL_COMPANY_DB` e `HANA_SCHEMA` (`RISCOS_PRODUCAO.md` §6); a trava não tem variável — vem do IP da máquina |
 | Service Layer (escrita) | `SL_BASE_URL`, `SL_COMPANY_DB`, `SL_USERNAME`, `SL_PASSWORD`, `SL_VERIFY_SSL`, `SL_CA_BUNDLE`, `SL_TIMEOUT_SECONDS` | login só na primeira chamada de um ciclo **com escrita** (ciclo sem escrita não toca o SL); `Logout` no fim. Usuário/senha vazios caem em `OP_SL_USERNAME`/`OP_SL_PASSWORD`; a company **não** cai |
 | WBC (só leitura) | `WBC_SQL_HOST`, `WBC_SQL_PORT`, `WBC_SQL_DATABASE`, `WBC_SQL_USERNAME`, `WBC_SQL_PASSWORD` | use usuário `db_datareader`; vazios caem em `SQL_*`/`SQLSERVER_*` do SIS |
 | HANA (só leitura) | `HANA_HOST`, `HANA_PORT`, `HANA_USERNAME`, `HANA_PASSWORD`, `HANA_SCHEMA` | `HANA_SCHEMA` = mesma company de `SL_COMPANY_DB`; vazios caem em `SAP_*` do SIS |

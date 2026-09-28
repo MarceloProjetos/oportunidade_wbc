@@ -14,6 +14,7 @@ requests = pytest.importorskip('requests')
 
 import ordens_producao_sl as opsl  # noqa: E402
 from config import get_settings, reset_settings  # noqa: E402
+from wbcpython import safety  # noqa: E402
 
 # ── Dublês ────────────────────────────────────────────────────────────────────────
 
@@ -84,7 +85,7 @@ def _op(doc_entry=126599, doc_num=125060, status='boposReleased', **extra):
 @pytest.fixture(autouse=True)
 def _ambiente(monkeypatch):
     """Feature LIGADA e credenciada; sessão zerada entre testes (é global de módulo)."""
-    monkeypatch.setenv('OP_SL_ENABLED', 'true')
+    monkeypatch.setattr(safety, 'PRODUCTION_MACHINE_IP', '127.0.0.1')  # plays the .11
     monkeypatch.setenv('OP_SL_SERVER', 'sap-teste')
     monkeypatch.setenv('OP_SL_COMPANY_DB', 'SBOTESTE')
     monkeypatch.setenv('OP_SL_USERNAME', 'usuario')
@@ -408,8 +409,8 @@ def test_resultado_traz_o_de_para(sessao):
 
 # ── Guardas de configuração ───────────────────────────────────────────────────────
 
-def test_kill_switch_desligado_recusa_sem_rede(monkeypatch, sessao):
-    monkeypatch.setenv('OP_SL_ENABLED', 'false')
+def test_fora_da_11_recusa_sem_rede(monkeypatch, sessao):
+    monkeypatch.setattr(safety, 'PRODUCTION_MACHINE_IP', '192.0.2.1')
     reset_settings()
     for chamada in (lambda: opsl.consultar_op(125060),
                     lambda: opsl.atualizar_status(125060, 'encerrada')):
@@ -419,10 +420,11 @@ def test_kill_switch_desligado_recusa_sem_rede(monkeypatch, sessao):
     assert sessao.chamadas == []
 
 
-def test_kill_switch_nasce_desligado(monkeypatch):
-    monkeypatch.delenv('OP_SL_ENABLED', raising=False)
+def test_so_liga_na_11_e_ignora_a_chave_antiga(monkeypatch):
+    monkeypatch.setattr(safety, 'PRODUCTION_MACHINE_IP', '192.0.2.1')
+    monkeypatch.setenv('OP_SL_ENABLED', 'true')
     reset_settings()
-    assert get_settings().op_sl_enabled is False, 'o default TEM de ser desligado'
+    assert get_settings().op_sl_enabled is False, 'fora da .11 TEM de ser desligado'
 
 
 def test_credencial_ausente_recusa_sem_rede(monkeypatch, sessao):

@@ -7,9 +7,12 @@ credenciais.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
+from wbcpython import safety
 from wbcpython.config import Settings
 
 
@@ -35,7 +38,6 @@ def _ambiente_limpo(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.chdir(tmp_path)
     for var in (
         "WBC_ENVIRONMENT",
-        "WBC_BLOCK_PRODUCTION_WRITES",
         "WBC_PRODUCTION_COMPANY_DB",
         "SL_COMPANY_DB",
         "SL_USERNAME",
@@ -82,6 +84,28 @@ class TestPadroesSeguros:
     def test_company_db_padrao_nao_e_producao(self) -> None:
         s = _settings()
         assert s.service_layer.company_db.casefold() != s.production_company_db.casefold()
+
+
+class TestTravaPelaMaquina:
+    """The write block follows the machine's IP, never the `.env` (2026-09-28)."""
+
+    def test_na_11_a_trava_desliga(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(safety, "PRODUCTION_MACHINE_IP", "127.0.0.1")
+        assert _settings().block_production_writes is False
+
+    def test_chave_antiga_do_env_e_ignorada(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The .11's `.env` still carries `false`; off the .11 it must not unlock anything.
+        monkeypatch.setenv("WBC_BLOCK_PRODUCTION_WRITES", "false")
+        assert _settings().block_production_writes is True
+
+    def test_ip_da_11_e_fixo(self) -> None:
+        # Read from source: the autouse fixture has already patched the attribute.
+        fonte = Path(safety.__file__).read_text(encoding="utf-8")
+        assert 'PRODUCTION_MACHINE_IP = "192.168.7.11"' in fonte
+
+    def test_owns_ipv4(self) -> None:
+        assert safety.owns_ipv4("127.0.0.1") is True
+        assert safety.owns_ipv4("192.0.2.1") is False
 
 
 class TestDeteccaoDeProducao:

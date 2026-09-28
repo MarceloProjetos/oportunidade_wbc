@@ -4,6 +4,7 @@
 import pytest
 
 from config import EXECUTION_MODES, SAP_PORT_DEFAULT, get_settings, reset_settings
+from wbcpython import safety
 
 
 def test_sap_port_default():
@@ -118,9 +119,10 @@ def test_wu_enabled_bool(valor, esperado, monkeypatch):
 
 # ============ Ordem de Produção: escrita no SAP (2026-08-07) ============
 
-def test_op_sl_nasce_desligado_e_apontando_para_producao(monkeypatch):
-    """O default TEM de ser desligado: a base alvo é a de PRODUÇÃO."""
-    for chave in ('OP_SL_ENABLED', 'OP_SL_COMPANY_DB', 'OP_SL_SERVER', 'OP_SL_PORT'):
+def test_op_sl_desligado_fora_da_11_e_apontando_para_producao(monkeypatch):
+    """Off anywhere but the .11 (conftest), even with the old key set: target is PRODUCTION."""
+    monkeypatch.setenv('OP_SL_ENABLED', 'true')
+    for chave in ('OP_SL_COMPANY_DB', 'OP_SL_SERVER', 'OP_SL_PORT'):
         monkeypatch.delenv(chave, raising=False)
     reset_settings()
     s = get_settings()
@@ -129,8 +131,8 @@ def test_op_sl_nasce_desligado_e_apontando_para_producao(monkeypatch):
     assert s.op_sl_base_url == 'https://sapbusinessonehana-vm:50000/b1s/v1'
 
 
-def test_op_sl_ready_exige_switch_e_credencial(monkeypatch):
-    monkeypatch.setenv('OP_SL_ENABLED', 'true')
+def test_op_sl_ready_exige_a_11_e_credencial(monkeypatch):
+    monkeypatch.setattr(safety, 'PRODUCTION_MACHINE_IP', '127.0.0.1')  # plays the .11
     monkeypatch.setenv('OP_SL_USERNAME', 'u')
     monkeypatch.delenv('OP_SL_PASSWORD', raising=False)
     reset_settings()
@@ -140,7 +142,7 @@ def test_op_sl_ready_exige_switch_e_credencial(monkeypatch):
     reset_settings()
     assert get_settings().op_sl_ready() is True
 
-    monkeypatch.setenv('OP_SL_ENABLED', 'false')
+    monkeypatch.setattr(safety, 'PRODUCTION_MACHINE_IP', '192.0.2.1')
     reset_settings()
     assert get_settings().op_sl_ready() is False
 
@@ -148,7 +150,7 @@ def test_op_sl_ready_exige_switch_e_credencial(monkeypatch):
 def test_credencial_ausente_nao_derruba_o_get_settings(monkeypatch):
     """Diferente do config do repo web, que levanta no import: aqui a feature é
     opcional e um ValueError mataria a API inteira, /health incluído."""
-    monkeypatch.setenv('OP_SL_ENABLED', 'true')
+    monkeypatch.setattr(safety, 'PRODUCTION_MACHINE_IP', '127.0.0.1')  # plays the .11
     monkeypatch.delenv('OP_SL_PASSWORD', raising=False)
     reset_settings()
     assert get_settings().op_sl_password is None   # não levanta

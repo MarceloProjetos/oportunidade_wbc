@@ -494,8 +494,9 @@ escreve no Supabase), e ele aponta para a base de **produção** `SBOALTAMIRAPRO
 **Service Layer** (REST, porta 50000), não pelo HANA. Módulo:
 [ordens_producao_sl.py](ordens_producao_sl.py) · plano: [docs/PLANO_OP_STATUS.md](docs/PLANO_OP_STATUS.md).
 
-**Nasce desligado.** Sem `OP_SL_ENABLED=true` no `.env`, as duas rotas respondem `503` e
-não abrem socket. Rollback em produção = voltar para `false` e reiniciar o serviço.
+**Liga só na .11.** Desde 28/09/2026 não há chave no `.env`: as rotas funcionam na máquina
+que tem o IP da .11 (`wbcpython/safety.py`, `PRODUCTION_MACHINE_IP`); em qualquer outra
+respondem `503` e não abrem socket. `OP_SL_ENABLED` é ignorada.
 
 ### O que dá para fazer
 
@@ -574,8 +575,8 @@ das duas telas: de lá um botão leva ao Painel de Sincronização (8077); de c�
 - **Guia, regras e histórico:** `docs/wbc/README.md` (como rodar), `docs/wbc/DECISOES.md`,
   `docs/wbc/RISCOS_PRODUCAO.md`. Plano da integração: `docs/PLANO_INTEGRACAO_WBCPYTHON.md`.
 
-> ⚠️ O worker **escreve em produção** (`SBOALTAMIRAPROD`), com a trava
-> `WBC_BLOCK_PRODUCTION_WRITES=false` por decisão (02/09/2026). Cotação cancelada e pedido
+> ⚠️ O worker **escreve em produção** (`SBOALTAMIRAPROD`) — só na .11, pelo IP da máquina
+> (sem chave no `.env` desde 28/09/2026; antes era `WBC_BLOCK_PRODUCTION_WRITES=false`). Cotação cancelada e pedido
 > criado não se desfazem. Só pode ligar com o integrador legado (tarefa "Integração WBC" do
 > Task Scheduler) **desligado**: dois integradores pela mesma chave `U_INO_COTWBC` duplicam
 > documento.

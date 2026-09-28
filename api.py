@@ -1739,7 +1739,7 @@ def main() -> None:
     if s.op_sl_ready():
         logger.warning(
             "ESCRITA de status de Ordem de Producao LIGADA — base %s em %s (usuario %s). "
-            "Rollback: OP_SL_ENABLED=false no .env + restart.",
+            "Liga pelo IP da maquina (.11), sem chave no .env.",
             s.op_sl_company_db, s.op_sl_server, s.op_sl_username,
         )
     # The update search costs 3.1s here (measured; 30s cold) and would blow the timeout of

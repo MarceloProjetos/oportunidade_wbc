@@ -9,6 +9,8 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
+from wbcpython.safety import is_production_machine
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -64,10 +66,9 @@ OS_API_HOST_DEFAULT = '0.0.0.0'
 OS_API_PORT_DEFAULT = 8077
 
 # Ordem de Produção — status writes through the SAP B1 Service Layer
-# (``ordens_producao_sl.py``). This is the FIRST write path into SAP in this repo, and it
-# points straight at PRODUCTION (``SBOALTAMIRAPROD``) — every default below is chosen so
-# that nothing happens until someone turns it on deliberately.
-OP_SL_ENABLED_DEFAULT = False          # kill switch: off = the route answers 503, no socket
+# (``ordens_producao_sl.py``). Points straight at PRODUCTION (``SBOALTAMIRAPROD``). On only
+# on the .11 (``wbcpython.safety.PRODUCTION_MACHINE_IP``) since 2026-09-28 — the old
+# ``OP_SL_ENABLED`` key is ignored; elsewhere the route answers 503 without a socket.
 OP_SL_SERVER_DEFAULT = 'sapbusinessonehana-vm'
 OP_SL_PORT_DEFAULT = 50000
 OP_SL_COMPANY_DB_DEFAULT = 'SBOALTAMIRAPROD'
@@ -365,7 +366,7 @@ class Settings:
             status_id=os.getenv('STATUS_ID') or None,
             os_api_host=os.getenv('OS_API_HOST', OS_API_HOST_DEFAULT),
             os_api_port=int(os.getenv('OS_API_PORT', OS_API_PORT_DEFAULT)),
-            op_sl_enabled=_env_bool('OP_SL_ENABLED', OP_SL_ENABLED_DEFAULT),
+            op_sl_enabled=is_production_machine(),
             op_sl_server=os.getenv('OP_SL_SERVER', OP_SL_SERVER_DEFAULT),
             op_sl_port=_env_int('OP_SL_PORT', OP_SL_PORT_DEFAULT),
             op_sl_company_db=os.getenv('OP_SL_COMPANY_DB', OP_SL_COMPANY_DB_DEFAULT),

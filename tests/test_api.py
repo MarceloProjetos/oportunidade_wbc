@@ -8,6 +8,7 @@ from datetime import UTC
 
 import api as apimod  # noqa: E402
 from config import get_settings, reset_settings  # noqa: E402
+from wbcpython import safety  # noqa: E402
 
 
 @pytest.fixture
@@ -1014,7 +1015,7 @@ def op_client(client, monkeypatch):
     """Cliente com OS_API_KEY definida (a escrita de OP é fail-closed sem ela) e o
     módulo de domínio dublado — nenhum teste desta seção fala com o SAP."""
     monkeypatch.setenv('OS_API_KEY', 'segredo')
-    monkeypatch.setenv('OP_SL_ENABLED', 'true')
+    monkeypatch.setattr(safety, 'PRODUCTION_MACHINE_IP', '127.0.0.1')  # plays the .11
     monkeypatch.setenv('OP_SL_USERNAME', 'usuario')
     monkeypatch.setenv('OP_SL_PASSWORD', 'senha')
     reset_settings()
@@ -1185,8 +1186,7 @@ def test_op_status_corpo_invalido_nao_gasta_a_trava(op_client, monkeypatch):
 def test_op_kill_switch_desligado_fecha_as_duas_rotas(client, monkeypatch):
     """Sem dublê: atravessa a rota até o módulo real e para no kill switch."""
     monkeypatch.setenv('OS_API_KEY', 'segredo')
-    monkeypatch.setenv('OP_SL_ENABLED', 'false')
-    reset_settings()
+    reset_settings()  # conftest: this host is not the .11
     auth = {'X-API-Key': 'segredo'}
     assert client.get('/ordens-producao/129850', headers=auth).status_code == 503
     r = client.post('/ordens-producao/129850/status', json={'status': 'encerrada'}, headers=auth)

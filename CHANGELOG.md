@@ -23,6 +23,29 @@ cai R$ 49.899,33 e 3 pedidos; 2024, R$ 105.229,56 e 4.
   (`web_orcaview_V118/docs/PLANO_RESULTADOS_ESTADO.md`), cuja API já conta assim (V118.356).
 - Testes: `test_extract_vendas_bi.py` 55 verdes.
 
+## [2026-09-28] — Escrita em produção liga pelo IP da .11, não pelo `.env`
+
+⚠️ Vale no próximo deploy (worker WBC, painel WBC e API). **Na .11 nada muda de comportamento
+no worker**; as rotas `/ordens-producao` passam a responder lá mesmo que o `.env` não tenha
+`OP_SL_ENABLED=true`.
+
+- **Por quê:** a trava do worker nascia `true` no código e a .11 só escrevia porque o `.env`
+  dizia `WBC_BLOCK_PRODUCTION_WRITES=false`. Uma reescrita do `.env` sem essa linha deixaria o
+  worker ciclando "saudável" com toda escrita barrada (erro por orçamento, sem alerta no
+  `/status`) — o mesmo "lego que desmonta sozinho" que tirou os `*_ENABLED` do web em 09/09.
+- **`wbcpython/safety.py`:** `PRODUCTION_MACHINE_IP = "192.168.7.11"` (constante, sem override
+  por ambiente), `owns_ipv4()` (mesmo teste de bind do `config._owns_ipv4` do web) e
+  `is_production_machine()`.
+- **Worker WBC:** `Settings.block_production_writes` virou propriedade = `not
+  is_production_machine()`. `WBC_BLOCK_PRODUCTION_WRITES` é **ignorada**.
+- **Status de OP:** `op_sl_enabled = is_production_machine()`. `OP_SL_ENABLED` é **ignorada**.
+  Continuam valendo: `OS_API_KEY` obrigatória no POST (fail-closed), allowlist
+  Liberar/Encerrar antes da rede e `ja_estava` sem PATCH.
+- **Testes:** `tests/conftest.py` fixa o IP da .11 em `192.0.2.1` (TEST-NET, nunca local) para
+  toda a suíte — mesmo rodando na .11 a escrita fica desligada; quem faz papel de .11 usa
+  `127.0.0.1`. 1.884 verdes.
+- **Trocar o IP da .11 desliga as duas escritas** — mude a constante junto.
+
 ## [2026-09-28] — Convenção: comentários e docstrings em inglês técnico
 
 - **Reverte a decisão de 24/09/2026** (comentários em PT): comentários e docstrings de código

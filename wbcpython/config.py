@@ -17,7 +17,7 @@ from typing import Any, ClassVar, Literal
 from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from wbcpython.safety import is_production
+from wbcpython.safety import is_production, is_production_machine
 
 # Uma senha por sistema (decisão do Marcelo, 09/09/2026). O `.env` do ServidorIntegracaoSAP
 # já descreve o mesmo HANA (`SAP_*`), o mesmo SQL Server do WBC (`SQL_*`/`SQLSERVER_*`) e o
@@ -150,8 +150,15 @@ class Settings(BaseSettings):
         super().__init__(**dados)
 
     environment: Literal["homolog", "prod"] = "homolog"
-    block_production_writes: bool = True
     production_company_db: str = "SBOALTAMIRAPROD"
+
+    @property
+    def block_production_writes(self) -> bool:
+        """Production writes are unlocked only on ``safety.PRODUCTION_MACHINE_IP``.
+
+        Was ``WBC_BLOCK_PRODUCTION_WRITES`` until 2026-09-28; that key is now ignored.
+        """
+        return not is_production_machine()
 
     @field_validator("production_company_db")
     @classmethod

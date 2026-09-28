@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from wbcpython import safety
 from wbcpython.cli import main
 from wbcpython.config import get_settings
 
@@ -18,7 +19,6 @@ def _config_limpa(monkeypatch: pytest.MonkeyPatch, tmp_path, capsys) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "state").mkdir()
     for var in (
-        "WBC_BLOCK_PRODUCTION_WRITES",
         "WBC_PRODUCTION_COMPANY_DB",
         "SL_COMPANY_DB",
         "SL_USERNAME",
@@ -59,7 +59,7 @@ class TestComandoEnv:
         O que continua obrigatório é dizer, em voz alta, que ali se escreve.
         """
         monkeypatch.setenv("SL_COMPANY_DB", "SBOALTAMIRAPROD")
-        monkeypatch.setenv("WBC_BLOCK_PRODUCTION_WRITES", "false")
+        monkeypatch.setattr(safety, "PRODUCTION_MACHINE_IP", "127.0.0.1")
         get_settings.cache_clear()
         assert main(["env"]) == 0
         saida = capsys.readouterr().out
@@ -305,7 +305,7 @@ class TestComandoCiclo:
         escrever em documento de verdade.
         """
         monkeypatch.setenv("SL_COMPANY_DB", "SBOALTAMIRAPROD")
-        monkeypatch.setenv("WBC_BLOCK_PRODUCTION_WRITES", "false")
+        monkeypatch.setattr(safety, "PRODUCTION_MACHINE_IP", "127.0.0.1")
         get_settings.cache_clear()
         from wbcpython.host.worker import ResultadoExecucao
 
@@ -666,20 +666,21 @@ class TestAvisoDeProducaoDoPendentes:
     que decide rodar o ciclo.
     """
 
-    def _preparar(self, monkeypatch: pytest.MonkeyPatch, *, trava: str) -> None:
+    def _preparar(self, monkeypatch: pytest.MonkeyPatch, *, trava: bool) -> None:
         TestComandoPendentes()._montar_ambiente(
             monkeypatch,
             [{"SequentialNo": 1, "U_ORCNUM_WBC": "00123316", "U_INO_StatusWBC": "0"}],
         )
         monkeypatch.setenv("SL_COMPANY_DB", "SBOALTAMIRAPROD")
         monkeypatch.setenv("HANA_SCHEMA", "SBOALTAMIRAPROD")
-        monkeypatch.setenv("WBC_BLOCK_PRODUCTION_WRITES", trava)
+        if not trava:
+            monkeypatch.setattr(safety, "PRODUCTION_MACHINE_IP", "127.0.0.1")
         get_settings.cache_clear()
 
     def test_com_a_trava_desligada_diz_que_as_escritas_sao_de_verdade(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
-        self._preparar(monkeypatch, trava="false")
+        self._preparar(monkeypatch, trava=False)
         assert main(["pendentes"]) == 0
         saida = capsys.readouterr().out
         assert "DESATIVADA" in saida
@@ -690,7 +691,7 @@ class TestAvisoDeProducaoDoPendentes:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
         """O teste que existe por causa do defeito: nada de "impedirá"."""
-        self._preparar(monkeypatch, trava="false")
+        self._preparar(monkeypatch, trava=False)
         assert main(["pendentes"]) == 0
         saida = capsys.readouterr().out
         assert "impedirá" not in saida
@@ -699,7 +700,7 @@ class TestAvisoDeProducaoDoPendentes:
     def test_com_a_trava_ligada_diz_que_nada_seria_gravado(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
-        self._preparar(monkeypatch, trava="true")
+        self._preparar(monkeypatch, trava=True)
         assert main(["pendentes"]) == 0
         saida = capsys.readouterr().out
         assert "ATIVA" in saida
@@ -709,7 +710,7 @@ class TestAvisoDeProducaoDoPendentes:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
         """Metade dos sustos vem de não saber qual base está no `.env`."""
-        self._preparar(monkeypatch, trava="false")
+        self._preparar(monkeypatch, trava=False)
         assert main(["pendentes"]) == 0
         assert "SBOALTAMIRAPROD" in capsys.readouterr().out
 
@@ -784,7 +785,7 @@ class TestCicloSimulado:
 
         monkeypatch.setattr(mod_worker, "WorkerIntegracao", WorkerFalso)
         monkeypatch.setenv("SL_COMPANY_DB", "SBOALTAMIRAPROD")
-        monkeypatch.setenv("WBC_BLOCK_PRODUCTION_WRITES", "false")
+        monkeypatch.setattr(safety, "PRODUCTION_MACHINE_IP", "127.0.0.1")
         monkeypatch.setenv("LOG_FILE", "")
         get_settings.cache_clear()
 
@@ -1132,7 +1133,7 @@ class TestDoctorEmProducao:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
         monkeypatch.setenv("SL_COMPANY_DB", "SBOALTAMIRAPROD")
-        monkeypatch.setenv("WBC_BLOCK_PRODUCTION_WRITES", "false")
+        monkeypatch.setattr(safety, "PRODUCTION_MACHINE_IP", "127.0.0.1")
         monkeypatch.setenv("SL_USERNAME", "usr")
         monkeypatch.setenv("SL_PASSWORD", "pwd")
         get_settings.cache_clear()
@@ -1144,7 +1145,7 @@ class TestDoctorEmProducao:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
         monkeypatch.setenv("SL_COMPANY_DB", "SBOALTAMIRAPROD")
-        monkeypatch.setenv("WBC_BLOCK_PRODUCTION_WRITES", "false")
+        monkeypatch.setattr(safety, "PRODUCTION_MACHINE_IP", "127.0.0.1")
         monkeypatch.setenv("SL_USERNAME", "usr")
         monkeypatch.setenv("SL_PASSWORD", "pwd")
         get_settings.cache_clear()

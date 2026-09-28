@@ -22,6 +22,12 @@ reimplementar a verificação — e para que sejam testáveis isoladamente.
 from __future__ import annotations
 
 import re
+import socket
+
+# The only host allowed to write to the production company DB (decision 2026-09-28). Machine
+# identity instead of a `.env` switch: a switch can vanish in a `.env` rewrite, and the worker
+# would keep cycling with every write blocked. Not overridable from the environment on purpose.
+PRODUCTION_MACHINE_IP = "192.168.7.11"
 
 # Métodos HTTP considerados de escrita no Service Layer.
 WRITE_METHODS: frozenset[str] = frozenset({"POST", "PATCH", "PUT", "DELETE", "MERGE"})
@@ -71,6 +77,26 @@ class ReadOnlyViolation(SafetyViolation):
     Hoje se aplica ao SQL Server do WBC (Regra 5) e, por precaução, ao acesso
     direto ao HANA, que na arquitetura atual só consome views de leitura.
     """
+
+
+def owns_ipv4(ip: str) -> bool:
+    """True if a local interface holds ``ip``.
+
+    Binding a UDP socket only succeeds on an owned address — reliable on multi-NIC hosts where
+    hostname resolution is incomplete. No packet is sent. Same check as the web's
+    ``config._owns_ipv4``.
+    """
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.bind((ip, 0))
+        return True
+    except OSError:
+        return False
+
+
+def is_production_machine() -> bool:
+    """True only on the .11 — the machine whose writes to production are intended."""
+    return owns_ipv4(PRODUCTION_MACHINE_IP)
 
 
 def is_production(target: str | None, production_company_db: str) -> bool:

@@ -15,8 +15,8 @@ What it does
 
 Guards
 ------
-- **Kill switch** ``OP_SL_ENABLED`` defaults to **false**: with it off, nothing here opens
-  a socket. Rollback in production is one line in the ``.env``.
+- **On only on the .11** (``Settings.op_sl_enabled`` = machine IP, no ``.env`` key since
+  2026-09-28): anywhere else nothing here opens a socket.
 - **State machine checked on our side** (see :func:`atualizar_status`), not by reading the
   SAP's error text: nothing leaves a terminal status, and target == current returns
   ``ja_estava`` WITHOUT sending a PATCH — idempotency by construction.
@@ -231,7 +231,7 @@ def _exigir_habilitado(s: Settings) -> None:
     """Refuse before touching the network when the feature is off or half-configured."""
     if not s.op_sl_enabled:
         raise OPDesativado(
-            'Integracao de Ordem de Producao desligada (OP_SL_ENABLED=false).'
+            'Integracao de Ordem de Producao desligada (so roda na maquina de producao, .11).'
         )
     if not (s.op_sl_username and s.op_sl_password):
         raise OPDesativado(

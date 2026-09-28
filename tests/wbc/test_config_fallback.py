@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from wbcpython import safety
 from wbcpython.config import HanaSettings, ServiceLayerSettings, Settings, WbcSqlSettings
 
 
@@ -97,9 +98,10 @@ class TestPeloArquivoEnv:
             "SAP_HOST=hana\nSAP_USER=ALTAMIRA\nSAP_PASSWORD=ph\nSAP_SCHEMA=SBOALTAMIRAPROD\n"
             "SQL_HOST=192.168.0.1\nSQL_USER=sap_user\nSQL_PASSWORD=ps\n"
             "OP_SL_USERNAME=orcaview\nOP_SL_PASSWORD=po\n"
-            "SL_COMPANY_DB=SBOALTAMIRAPROD\nWBC_ENVIRONMENT=prod\nWBC_BLOCK_PRODUCTION_WRITES=false\n",
+            "SL_COMPANY_DB=SBOALTAMIRAPROD\nWBC_ENVIRONMENT=prod\n",
             encoding="utf-8",
         )
+        monkeypatch.setattr(safety, "PRODUCTION_MACHINE_IP", "127.0.0.1")  # plays the .11
         s = Settings()
         assert s.hana.username == "ALTAMIRA" and s.hana.schema_name == "SBOALTAMIRAPROD"
         assert s.wbc_sql.host == "192.168.0.1" and s.wbc_sql.username == "sap_user"

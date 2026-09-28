@@ -46,7 +46,7 @@ O pacote `wbcpython/` (ex-projeto WBCPython, importado em 2026-09-08) tem guia p
 | `pedidos_bloqueados.py` | Lista **hardcode** de pedidos fora dos agregados (84337). **3 cópias**: aqui, `web_orcaview_V118/backend/services/pedidos_bloqueados.py` e `mobile_orcaview_V4/lib/pedidos/bloqueados.ts` — acrescentar exige os três |
 | `monitoring.py` | `collect_status()` — checks do `/status` (`SELECTABLE_CHECKS`: sap, sql_server, supabase, scheduler, scheduled_task, wbc_worker, windows_update; disco vem sempre). Check novo = `SELECTABLE_CHECKS` + despacho + alerta + saída + `_CHECK_ALIASES` do `api.py` |
 | `windows_update.py` | Reboot pendente (winreg) + updates pendentes/último patch (COM via PowerShell, thread daemon + cache). **Porte** do homônimo do repo SAP_RDP — diffável |
-| `ordens_producao_sl.py` | Escrita em SAP nº 1: status de Ordem de Produção via Service Layer (REST). Nasce desligado (`OP_SL_ENABLED`). Irmão diffável de `web_orcaview_V118/backend/services/compras_sap_service.py` |
+| `ordens_producao_sl.py` | Escrita em SAP nº 1: status de Ordem de Produção via Service Layer (REST). Liga só na .11, pelo IP (`wbcpython.safety.PRODUCTION_MACHINE_IP`). Irmão diffável de `web_orcaview_V118/backend/services/compras_sap_service.py` |
 | `wbcpython/` | Escrita em SAP nº 2 (o worker). `domain/` (máquina de estados do SitCode, sem I/O), `application/processar.py` (o caso de uso), `infrastructure/{service_layer,wbc_sql,hana}/`, `tracking/` (SQLite de acompanhamento), `host/worker.py` (APScheduler + trava), `dashboard/` (painel FastAPI+HTMX), `cli.py`, `safety.py` (travas). Imports absolutos `wbcpython.*` |
 | `sap_connection.py` · `db_utils.py` · `retry.py` | `SAPExtractor` (HANA via hdbcli; `execute_query(sql, params)`) · `read_dbapi_query` · retry compartilhado |
 | `sql_seguro.py` | `sql(t"...")` (t-string, Python 3.14): `{valor}` vira `?` + parâmetro, `{nome:ident}` identificador conferido, `{n:int}` literal inteiro (LIMIT); `nome_simples()` para o `SAP_SCHEMA` |
@@ -131,11 +131,16 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   **locks**: `_sync_lock` (thread) p/ OS, `oportunidades_sync_lock` (arquivo, cross-process,
   409 se ocupado) p/ carga completa.
 - **Duas coisas aqui mudam dado no SAP, e as duas miram PRODUÇÃO** (`SBOALTAMIRAPROD`):
-  `ordens_producao_sl.py` e o **worker do `wbcpython`**. No worker, `WBC_BLOCK_PRODUCTION_WRITES`
-  está **`false` de propósito** na .11 desde 2026-09-02 (`docs/wbc/DECISOES.md`, "Virada para
-  produção"); a trava somente-leitura do SQL Server do WBC (`wbcpython/safety.py`) **não tem
-  chave** e não pode ganhar uma. Em `ordens_producao_sl.py`, três invariantes com teste — não
-  afrouxe sem decisão explícita: (1) `OP_SL_ENABLED` **nasce `false`**; (2)
+  `ordens_producao_sl.py` e o **worker do `wbcpython`**. As duas **ligam pelo IP da máquina**,
+  sem chave no `.env` (decisão de 2026-09-28): `wbcpython/safety.py` → `PRODUCTION_MACHINE_IP =
+  "192.168.7.11"` e `is_production_machine()`. Na .11 o worker escreve em produção e as rotas de
+  OP respondem; em qualquer outra máquina a escrita em produção dá `ProductionWriteBlocked` e as
+  rotas de OP dão 503. `WBC_BLOCK_PRODUCTION_WRITES` e `OP_SL_ENABLED` ficaram **ignoradas** —
+  não as ressuscite. **Trocar o IP da .11 desliga as duas** (mude a constante junto). Testes:
+  o `tests/conftest.py` fixa o IP em `192.0.2.1` (nunca local); quem faz papel de .11 usa
+  `127.0.0.1`. A trava somente-leitura do SQL Server do WBC **não tem chave** e não pode ganhar
+  uma. Em `ordens_producao_sl.py`, três invariantes com teste — não afrouxe sem decisão
+  explícita: (1) fora da .11 **desligado**; (2)
   `POST /ordens-producao/<n>/status` é **fail-closed** (sem `OS_API_KEY` → **503**, ao
   contrário das outras rotas, que escrevem no Supabase, reversível); (3) alvo == status atual
   devolve `ja_estava` **sem PATCH**. A allowlist `OP_STATUS_PERMITIDOS` é conferida **antes da
