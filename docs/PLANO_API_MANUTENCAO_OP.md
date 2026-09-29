@@ -1,6 +1,13 @@
 # Plano — API JSON da Manutenção de OP (Controle de Produção, porta 8080)
 
-> **Status (29/09/2026, noite): F0–F4 no GitHub, pendem deploy na .11.** F4 = contrato
+> **Status (29/09/2026, 13h): F0–F4 NO AR na .11 (deploy do Marcelo, conferido).** Smoke só
+> leitura do notebook 7/7: `/health` da 8080 (`producao`, chave, `historico: supabase`); `/api` sem
+> chave → 401 no formato novo; busca do 84433 (50 OPs Planejadas); chave errada → 401; Liberar
+> sem `solicitante` → 400; conferir do 84433 → plano (token não usado); execução inexistente →
+> 404; `GET :8077/ordens-producao/129850` → 200. Falta a **1ª gravação real** (F5 passo 4: OP
+> escolhida pelo Marcelo).
+>
+> **Antes (29/09, noite): F0–F4 no GitHub, pendem deploy na .11.** F4 = contrato
 > `API_MANUTENCAO_OP.md` na raiz (`8e38276`), com uma correção achada ao escrevê-lo: número de OP
 > inexistente num lote era descartado em silêncio — agora recusa o lote (404). Próximo: F5
 > (deploy + 1º teste real, dele).
@@ -271,7 +278,7 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
   `detalhes`), no Liberar e no conferir por OPs. Conferido em PROD (só leitura): nenhum DocNum de
   OP se repete (157.426 OPs, uma série) — o DocNum ambíguo que a 8077 recusa não existe hoje.
 
-### F5 — Deploy e 1º teste real — `Marcelo`
+### F5 — Deploy e 1º teste real — `deploy + smoke ✅ 29/09 · falta a 1ª gravação real`
 
 > **Objetivo:** a API responde na .11 e a primeira gravação real foi conferida no SAP. É o
 > "tudo ok" que libera a F6.
