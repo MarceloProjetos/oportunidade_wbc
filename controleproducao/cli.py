@@ -35,6 +35,7 @@ from controleproducao.core.guardas import ProductionWriteBlocked, ambiente_descr
 from controleproducao.core.hana_reader import HanaDirectReader
 from controleproducao.core.perf import PERFIL
 from controleproducao.core.service_layer_client import ServiceLayerClient
+from controleproducao.core.sql_ligado import ligar
 from controleproducao.core.sqlserver_client import WbcSqlServerClient
 from controleproducao.modules.manutencao_op import service as manutencao_op_service
 from controleproducao.modules.pedidos_wbc import queries as pedidos_wbc_queries
@@ -1470,12 +1471,12 @@ def diag_patch_parcial(
     try:
         if doc_entry_direto:
             pedidos = leitor.fetch_all(
-                pedidos_wbc_queries.PEDIDO_POR_DOCENTRY.format(doc_entry=int(doc_entry_direto))
+                *ligar(pedidos_wbc_queries.PEDIDO_POR_DOCENTRY, doc_entry=int(doc_entry_direto))
             )
             rotulo = f"DocEntry {doc_entry_direto}"
         else:
             pedidos = leitor.fetch_all(
-                pedidos_wbc_queries.PEDIDO_POR_DOCNUM.format(doc_num=doc_num)
+                *ligar(pedidos_wbc_queries.PEDIDO_POR_DOCNUM, doc_num=doc_num)
             )
             rotulo = f"pedido {doc_num}"
         if not pedidos:

@@ -228,10 +228,12 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   noutro); (5) três escritores no mesmo `ORDR`/`OWOR` — worker, pacote e o addon C# legado no
   cliente SAP; o worker cancela-e-recria pedido **sem olhar OWOR**; (6) `deploy_update.bat`
   **aborta** se `/health/ocupado` = 1 — nunca `nssm stop` com tarefa em andamento;
-  (7) SQL: o módulo 3 (`manutencao_op`) usa parâmetro ligado desde 29/09 (F7, paridade 15/15
-  contra PROD); o módulo 2 (`pedidos_wbc`) **ainda é `str.format`** (herdado) — validar dígitos
-  na borda; o porte dele é etapa própria (uma tentativa parcial foi descartada: `queries.py` com
-  `?` e `service.py` ainda formatando quebraria em produção). `Reprocessar` saiu da tela (D8); (8) o pacote **não** tem expediente: fora do ar = alerta;
+  (7) SQL com parâmetro ligado desde 29/09 (F7): módulo 3 com `?` direto; módulo 2 pelos
+  MESMOS modelos `{nome}` do C#, ligados por `core/sql_ligado.ligar` (`'{x}'` → texto, `{x}` →
+  inteiro validado, lista → `?, ?`, `{schema}` só identificador, `{filtro}` só vazio) —
+  nunca `.format` com valor. Paridade antiga × nova 15/15 + 49/49 contra PROD. O SQL Server do
+  WBC é lido por `pymssql` (não ODBC; `WBC_SQL_DRIVER` sem efeito). `_update_pedido` (recria
+  linhas) está FECHADO com erro claro até o Anderson validar. `Reprocessar` saiu da tela (D8); (8) o pacote **não** tem expediente: fora do ar = alerta;
   (9) `CP_HOST` decide quem alcança a tela: `0.0.0.0` (o alvo da .11 a partir da F6, com regra
   de firewall da 8080 só para a LAN — `.env`, regra e restart são do Marcelo; status no plano)
   = a mesma exposição do painel; **nunca o IP da máquina** (o `deploy_update.bat` e o `/status`

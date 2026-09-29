@@ -610,11 +610,10 @@ módulo 3 (*Manutenção de OP*) libera, replaneja e **encerra com movimentaçã
 - **Configuração:** bloco "Controle de Produção" do `.env.example` (`CP_HOST`, `CP_PORTA`,
   `CP_LOG_FILE`, `WBC_SQL_DRIVER`, `HANA_SCHEMA_LEGADO`, `SL_BUSINESS_PLACE_ID`); as
   credenciais são as `SL_*`/`HANA_*`/`WBC_SQL_*` do bloco WBC, com os mesmos fallbacks.
-  `HANA_SCHEMA` **não** é lido: o pacote lê ORDR/OWOR na company de `SL_COMPANY_DB`. Na .11
-  (28/09): `WBC_SQL_DRIVER=ODBC Driver 17 for SQL Server` — a máquina só tem o 17, o default
-  do pacote é o 18 e **não há fallback** (diferente do pipeline de oportunidades); o erro só
-  aparece no 1º `buscar`. O serviço lê o `.env` na subida: linha nova = `nssm restart
-  OrcaView-ControleProducao`.
+  `HANA_SCHEMA` **não** é lido: o pacote lê ORDR/OWOR na company de `SL_COMPANY_DB`. O SQL
+  Server do WBC é lido por `pymssql` desde 29/09/2026 (o mesmo driver do worker) — sem ODBC;
+  `WBC_SQL_DRIVER` ficou sem efeito. O serviço lê o `.env` na subida: linha nova = `nssm
+  restart OrcaView-ControleProducao`.
 - **Links:** o painel WBC (8079) tem dois botões no topo, "Pedidos WBC → OPs"
   (`/controle-producao/pedidos` → `/pedidos-wbc`) e "Manutenção de OP"
   (`/controle-producao/ops` → `/manutencao-op`), montados com `CP_URL` ou o host da
@@ -993,10 +992,8 @@ via `service_role` no servidor (**nunca** exponha a `service_role` no front-end)
 ### `Data source name not found` / driver ODBC não encontrado
 Pipeline de oportunidades: nenhum driver ODBC do SQL Server instalado — ele tenta
 `18 → 17 → Native Client 11.0 → SQL Server` sozinho, então instale o Driver 18, ver
-[passo 3 da Instalação](#3-odbc-driver-18-para-sql-server). `controleproducao`: **não há
-fallback** — `WBC_SQL_DRIVER` do `.env` (sem a linha, `ODBC Driver 18 for SQL Server`)
-precisa bater com um nome de `Get-OdbcDriver -Platform 64-bit`; na .11 é
-`ODBC Driver 17 for SQL Server`, e o serviço precisa de `nssm restart` depois da linha.
+[passo 3 da Instalação](#3-odbc-driver-18-para-sql-server). O `controleproducao`
+não usa ODBC desde 29/09/2026 (`pymssql`).
 
 ### SQL Server: conexão recusada (10061)
 Host/porta errados ou serviço inacessível. Teste a porta:

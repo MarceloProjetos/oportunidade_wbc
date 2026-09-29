@@ -171,6 +171,22 @@ def _consultas(s: str, orc: str | None, pedido: int | None, desde: date) -> list
             (),
         ),
         (
+            "D3. Porta-paletes com quantidade/peso trocados depois do worker (o SAP divide o peso "
+            "quando alguém muda a quantidade no cliente)",
+            f'''SELECT R."DocNum", L."LineNum", V1."Quantity" "Qtd_worker", V1."Weight1" "Peso_worker",
+                       L."Quantity" "Qtd_agora", L."Weight1" "Peso_agora"
+                  FROM {s}.ORDR R
+                  JOIN {s}.RDR1 L ON L."DocEntry" = R."DocEntry"
+                  JOIN {s}.ADOC C1 ON C1."ObjType" = '17' AND C1."DocEntry" = R."DocEntry" AND C1."LogInstanc" = 1
+                  JOIN {s}.ADO1 V1 ON V1."ObjType" = '17' AND V1."DocEntry" = R."DocEntry"
+                                  AND V1."LogInstanc" = 1 AND V1."LineNum" = L."LineNum"
+                 WHERE R."CANCELED" = 'N' AND R."DocStatus" = 'O' AND C1."UserSign" = 144
+                   AND L."ItemCode" IN ('I000002', 'I000003')
+                   AND (L."Quantity" <> V1."Quantity" OR ABS(L."Weight1" - V1."Weight1") > 0.5)
+                 ORDER BY R."DocNum" DESC, L."LineNum"''',
+            (),
+        ),
+        (
             "D2. @INO_LOG — rateio que falhou (OPs sem a linha GGF_)",
             f'''SELECT DISTINCT "U_OrcNum", "CreateDate", "Creator"
                   FROM {s}."@INO_LOG"

@@ -7,22 +7,85 @@ Diferença deliberada em relação ao legado (ver "Débitos técnicos", item 2, 
 migration_guide.md): aqui usamos **parâmetros bindados** (`?` do pyodbc) em vez de
 concatenar valores vindos de tela diretamente na string SQL, para eliminar o risco de
 SQL injection que existia no C# original — sem mudar o texto/lógica das queries em si.
+
+Driver since 29/09/2026 (F7 of docs/PLANO_CONTROLE_PRODUCAO_11.md): `pymssql`, the one the
+WBC worker already uses on the .11 against the same server — it replaced `pyodbc`, which
+depended on the exact name of an installed ODBC driver (the .11 only has Driver 17 and the
+default was 18: it bit on 28/09). Callers still write `?` and pass a tuple;
+`_para_pyformat` translates to the `%s` that `pymssql` expects.
 """
 from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from controleproducao.config import Settings
 from controleproducao.core.exceptions import WbcDatabaseError
 from controleproducao.core.perf import PERFIL, forma_sql
 
-if TYPE_CHECKING:
-    import pyodbc
-
 logger = logging.getLogger(__name__)
+
+# A dead server must fail in seconds, not hang the task for a minute (pymssql default: 60).
+_LOGIN_TIMEOUT_S = 15
+
+
+def _para_pyformat(sql: str, quantidade_params: int) -> str:
+    """Translate qmark (`?`) placeholders to pymssql's `%s`.
+
+    `pymssql` interpolates with Python `%` formatting, so every literal `%` (a `LIKE '%x%'`)
+    must become `%%`, and only the `?` OUTSIDE string literals, quoted/bracketed identifiers
+    and comments are placeholders. The count must match the parameters: a mismatch is a
+    programming error and is refused here, before the server sees anything.
+    """
+    saida: list[str] = []
+    marcadores = 0
+    i, n = 0, len(sql)
+    while i < n:
+        c = sql[i]
+        if c == "%":
+            saida.append("%%")
+            i += 1
+            continue
+        if c in ("'", '"', "["):
+            fecha = "]" if c == "[" else c
+            j = i + 1
+            while j < n:
+                if sql[j] == fecha:
+                    # '' inside a string literal (and "" / ]] in identifiers) is an escaped quote.
+                    if j + 1 < n and sql[j + 1] == fecha:
+                        j += 2
+                        continue
+                    break
+                j += 1
+            saida.append(sql[i:j + 1].replace("%", "%%"))
+            i = j + 1
+            continue
+        if c == "-" and sql.startswith("--", i):
+            fim = sql.find("\n", i)
+            fim = n if fim == -1 else fim
+            saida.append(sql[i:fim].replace("%", "%%"))
+            i = fim
+            continue
+        if c == "/" and sql.startswith("/*", i):
+            fim = sql.find("*/", i + 2)
+            fim = n if fim == -1 else fim + 2
+            saida.append(sql[i:fim].replace("%", "%%"))
+            i = fim
+            continue
+        if c == "?":
+            saida.append("%s")
+            marcadores += 1
+            i += 1
+            continue
+        saida.append(c)
+        i += 1
+    if marcadores != quantidade_params:
+        raise ValueError(
+            f"SQL com {marcadores} marcador(es) '?' e {quantidade_params} parâmetro(s): {forma_sql(sql)}"
+        )
+    return "".join(saida)
 
 
 class WbcSqlServerClient:
@@ -41,70 +104,69 @@ class WbcSqlServerClient:
     def __init__(self, settings: Settings):
         self._settings = settings
 
-    def _connection_string(self) -> str:
-        s = self._settings
-        trust_cert = "yes" if s.wbc_sql_trust_server_certificate else "no"
-        return (
-            f"DRIVER={{{s.wbc_sql_driver}}};"
-            f"SERVER={s.wbc_sql_host},{s.wbc_sql_port};"
-            f"DATABASE={s.wbc_sql_database};"
-            f"UID={s.wbc_sql_username};"
-            f"PWD={s.wbc_sql_password};"
-            # Necessário com o ODBC Driver 18 contra o servidor WBC (certificado
-            # autoassinado) — ver comentário em controleproducao/config.py, campo
-            # wbc_sql_trust_server_certificate. Driver 17 e o SqlClient .NET do addon
-            # legado não exigiam isso.
-            f"TrustServerCertificate={trust_cert};"
-        )
-
     @contextmanager
-    def _connect(self) -> Iterator[pyodbc.Connection]:
-        # Import tardio (não em nível de módulo): pyodbc exige a lib de sistema
-        # `unixodbc` instalada, que nem sempre está presente no ambiente de
-        # desenvolvimento/CI. Assim o resto da aplicação sobe normalmente mesmo sem
-        # ela, e o erro só aparece quando este cliente é de fato usado.
-        import pyodbc
+    def _connect(self) -> Iterator[Any]:
+        # Late import: the test suite locks `pymssql.connect`, and the rest of the package
+        # must import without the driver installed.
+        import pymssql
 
+        s = self._settings
         try:
-            # ⚠️ Conexão NOVA por chamada — e com o Driver 18 isso inclui handshake TLS.
-            # Medido à parte da query: é o principal suspeito da lentidão relatada em
-            # 16/09/2026 (ver controleproducao/core/perf.py).
-            with PERFIL.medir("WBC (SQL Server) · abrir conexão", self._settings.wbc_sql_host):
-                conn = pyodbc.connect(self._connection_string())
-        except pyodbc.Error as exc:  # pragma: no cover - depende de infra real
+            with PERFIL.medir("WBC (SQL Server) · abrir conexão", s.wbc_sql_host):
+                conn = pymssql.connect(
+                    server=s.wbc_sql_host,
+                    port=str(s.wbc_sql_port),
+                    user=s.wbc_sql_username,
+                    password=s.wbc_sql_password,
+                    database=s.wbc_sql_database,
+                    login_timeout=_LOGIN_TIMEOUT_S,
+                )
+        except pymssql.Error as exc:  # pragma: no cover - depende de infra real
             raise WbcDatabaseError(f"Falha ao conectar no SQL Server WBC: {exc}") from exc
         try:
             yield conn
         finally:
             conn.close()
 
+    @staticmethod
+    def _executa(cursor: Any, sql: str, params: tuple[Any, ...]) -> None:
+        import pymssql
+
+        try:
+            if params:
+                cursor.execute(_para_pyformat(sql, len(params)), tuple(params))
+            else:
+                # No parameters: pymssql does not %-format, so the text goes as is.
+                _para_pyformat(sql, 0)
+                cursor.execute(sql)
+        except pymssql.Error as exc:
+            raise WbcDatabaseError(f"Falha ao consultar o SQL Server WBC: {exc}") from exc
+
     def fetch_all(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
         """Equivalente a rodar `ExecuteQuery`/`ExecuteReader` e iterar todas as linhas."""
         with self._connect() as conn:
             cursor = conn.cursor()
             with PERFIL.medir("WBC (SQL Server) · executar query", forma_sql(sql)):
-                cursor.execute(sql, params)
+                self._executa(cursor, sql, params)
                 linhas = cursor.fetchall()
             columns = [col[0] for col in cursor.description] if cursor.description else []
             return [dict(zip(columns, row)) for row in linhas]
 
     def fetch_all_values(self, sql: str, params: tuple[Any, ...] = ()) -> list[list[Any]]:
-        """Como `fetch_all`, mas devolve cada linha como lista posicional (`pyodbc.Row`
-        convertido para `list`) em vez de `dict`.
+        """Como `fetch_all`, mas devolve cada linha como lista posicional em vez de `dict`.
 
         ⚠️ Adicionado em 15/09/2026 ao testar `pedidos-wbc processar-novos` contra a
         homologação real: várias queries deste módulo (herdadas do C# original, que lia
         por índice via `SqlDataReader.GetValue(i)`) têm **colunas repetidas sem alias**
-        (ex.: `NOVA_TABELA_QUOT`, com 35 `ISNULL(...)` seguidos sem `AS`). O driver ODBC
+        (ex.: `NOVA_TABELA_QUOT`, com 35 `ISNULL(...)` seguidos sem `AS`). O driver
         devolve nomes de coluna vazios/duplicados para essas expressões, e `fetch_all`
         monta um `dict` via `zip(colunas, valores)` — colunas com nome repetido colidem
-        e o `dict` resultante perde valores (`IndexError: list index out of range` ao
-        tentar acessar `valores[2]`, etc.). Use este método (em vez de `fetch_all` +
-        `list(row.values())`) em qualquer query que já dependia de acesso posicional."""
+        e o `dict` resultante perde valores. Use este método em qualquer query que já
+        dependia de acesso posicional."""
         with self._connect() as conn:
             cursor = conn.cursor()
             with PERFIL.medir("WBC (SQL Server) · executar query", forma_sql(sql)):
-                cursor.execute(sql, params)
+                self._executa(cursor, sql, params)
                 return [list(row) for row in cursor.fetchall()]
 
     def execute_non_query(self, sql: str, params: tuple[Any, ...] = ()) -> None:
@@ -116,5 +178,5 @@ class WbcSqlServerClient:
         """
         with self._connect() as conn:
             cursor = conn.cursor()
-            cursor.execute(sql, params)
+            self._executa(cursor, sql, params)
             conn.commit()

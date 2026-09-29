@@ -27,6 +27,7 @@ from datetime import datetime, timedelta
 from controleproducao.core.audit_log import preenche_log
 from controleproducao.core.hana_reader import HanaDirectReader
 from controleproducao.core.service_layer_client import ServiceLayerClient
+from controleproducao.core.sql_ligado import ligar
 from controleproducao.core.sqlserver_client import WbcSqlServerClient
 from controleproducao.modules.pedidos_wbc import listas_fixas
 from controleproducao.modules.pedidos_wbc import queries as q
@@ -152,7 +153,7 @@ async def buscar_pedidos_para_integrar(
     o módulo 1, desde removido) — sem filtro adicional nesta primeira versão, listamos todos
     os pedidos elegíveis (`filtro=""`)."""
     sql = q.BUSCA_PEDIDOS_INTEGRADOS if integrados else q.BUSCA_PEDIDOS_PARA_INTEGRAR
-    rows = hana_reader.fetch_all(sql.format(filtro=""))
+    rows = hana_reader.fetch_all(*ligar(sql, filtro=""))
     pedidos = [
         PedidoParaIntegrar(
             selecionar=row.get("Selecionar", "N"),
@@ -183,13 +184,13 @@ async def buscar_pedidos_para_integrar(
 # ---------------------------------------------------------------------------
 async def _verifica_congelado(hana_reader: HanaDirectReader, doc_entry: str) -> str:
     """`Querys.VerificaCong` — campo `U_INO_Congelado` do pedido (`ORDR`)."""
-    rows = hana_reader.fetch_all(q.VERIFICA_CONG.format(doc_entry=doc_entry))
+    rows = hana_reader.fetch_all(*ligar(q.VERIFICA_CONG, doc_entry=doc_entry))
     return str(rows[0]["U_INO_Congelado"]) if rows else "N"
 
 
 async def _verifica_tab_update(hana_reader: HanaDirectReader, doc_entry: str) -> str:
     """`Querys.VerificaTabUpdate` — campo `U_INO_UpdateDetalhe` do pedido (`ORDR`)."""
-    rows = hana_reader.fetch_all(q.VERIFICA_TAB_UPDATE.format(doc_entry=doc_entry))
+    rows = hana_reader.fetch_all(*ligar(q.VERIFICA_TAB_UPDATE, doc_entry=doc_entry))
     return str(rows[0]["U_INO_UpdateDetalhe"]) if rows else ""
 
 
@@ -203,7 +204,7 @@ async def _verifica_process_wbc(hana_reader: HanaDirectReader, doc_entry: str) -
     aparecia mais para ser selecionado de novo. Como a CLI recebe o `orc_num` direto, sem
     passar pela grade, essa proteção precisa existir em código — ver `processar_pedidos_novos`
     e a flag `--force`."""
-    rows = hana_reader.fetch_all(q.VERIFICA_PROCESS_WBC.format(doc_entry=doc_entry))
+    rows = hana_reader.fetch_all(*ligar(q.VERIFICA_PROCESS_WBC, doc_entry=doc_entry))
     return str(rows[0]["U_INO_ProcessWBC"]) if rows else "N"
 
 
@@ -235,13 +236,13 @@ async def _ops_existentes_para_item(hana_reader: HanaDirectReader, doc_num_ped: 
     passaram — ver `_processa_grupo_producao`."""
     if not doc_num_ped:
         return []
-    rows = hana_reader.fetch_all(q.CHECA_OP_EXISTENTE_PEDIDO.format(doc_num=doc_num_ped, item_code=item_code))
+    rows = hana_reader.fetch_all(*ligar(q.CHECA_OP_EXISTENTE_PEDIDO, doc_num=doc_num_ped, item_code=item_code))
     return sorted(int(_primeiro_valor([r])) for r in rows)
 
 
 async def _get_id_orcamentos_pedido(hana_reader: HanaDirectReader, orc_num: str) -> dict | None:
     """`Querys.GetIdOrcamentosPedido` — (DocEntry, CardCode, DocNum) do pedido vinculado."""
-    rows = hana_reader.fetch_all(q.GET_ID_ORCAMENTOS_PEDIDO.format(orc_num=orc_num))
+    rows = hana_reader.fetch_all(*ligar(q.GET_ID_ORCAMENTOS_PEDIDO, orc_num=orc_num))
     return rows[0] if rows else None
 
 
@@ -260,12 +261,12 @@ async def _oppr_id_do_orcamento(hana_reader: HanaDirectReader, orc_num: str) -> 
     Como CLI e web recebem só o número do orçamento, a chave é reobtida aqui. É uma
     consulta que o legado não fazia — lá o valor já estava na linha da grade.
     """
-    rows = hana_reader.fetch_all(q.OPPR_ID_POR_ORCAMENTO.format(orc_num=orc_num))
+    rows = hana_reader.fetch_all(*ligar(q.OPPR_ID_POR_ORCAMENTO, orc_num=orc_num))
     return str(_primeiro_valor(rows, ""))
 
 
 async def _pega_doc_entry_ped(hana_reader: HanaDirectReader, orc_num: str) -> str:
-    rows = hana_reader.fetch_all(q.PEGA_DOC_ENTRY_PED.format(orc_num=orc_num))
+    rows = hana_reader.fetch_all(*ligar(q.PEGA_DOC_ENTRY_PED, orc_num=orc_num))
     return str(rows[0]["DocEntry"]) if rows else ""
 
 
@@ -544,7 +545,7 @@ async def _pega_linha_manual(wbc: WbcSqlServerClient, id_integracao_orc_prd: int
 async def _get_linha(hana_reader: HanaDirectReader, orc_num: str, orc_itm: str) -> str:
     """`Querys.GetLinha` — número da linha (`LineNum`) do pedido de venda já criado no
     SAP para este `orc_itm`. Consulta HANA (tabelas `RDR1`/`ORDR`), não WBC."""
-    rows = hana_reader.fetch_all(q.GET_LINHA.format(orc_num=orc_num, orc_itm=orc_itm))
+    rows = hana_reader.fetch_all(*ligar(q.GET_LINHA, orc_num=orc_num, orc_itm=orc_itm))
     if not rows:
         return "0"
     return str(_primeiro_valor(rows) or "0")
@@ -624,7 +625,8 @@ async def atualiza_pedido_tabela(
             "pedido a partir do orçamento WBC.",
         )
         return await _update_pedido(
-            sl, wbc, oportunidades, orc_num, card_code, doc_num, doc_entry, tb_valdixson, process
+            sl, wbc, hana_reader, oportunidades, orc_num, card_code, doc_num, doc_entry, tb_valdixson,
+            process,
         )
     logger.info(
         "  Pedido congelado: atualizando os campos de controle%s.",
@@ -731,6 +733,7 @@ def _monta_linha_pedido(item, item_sap: str, manual: Linha, peso=None) -> dict:
 async def _update_pedido(
     sl: ServiceLayerClient,
     wbc: WbcSqlServerClient,
+    hana_reader: HanaDirectReader,
     oportunidades: list[OportunidadeDoc],
     orc_num: str,
     card_code: str,
@@ -749,15 +752,27 @@ async def _update_pedido(
     portado assim aqui; validar contra o ambiente real que isso recria as linhas com o
     mesmo efeito do legado.
     """
-    linhas_manuais = await _busca_linhas_manuais(wbc, doc_entry)
+    # F7 (29/09/2026): closed until Anderson validates it in homologation. This path
+    # rewrites every order line with a full DocumentLines PATCH and was never exercised by
+    # the port; until the F7 fix it also sent SAP tables to the WBC SQL Server, so it would
+    # have failed before writing anyway. Refusing here keeps that "nothing written" outcome,
+    # with a message that says why. Today it is unreachable: open orders are Congelado='Y'.
+    raise ValueError(
+        "Caminho 'UpdatePedido' (recria as linhas do pedido) fechado: nunca foi validado no "
+        "porte. Pedido não congelado com U_INO_UpdateDetalhe='Y' — chame o Anderson "
+        "(plano, F7)."
+    )
+    linhas_manuais = await _busca_linhas_manuais(hana_reader, doc_entry)
     novas_linhas: list[dict] = []
 
     if tb_valdixson != 0:
         for idx, item in enumerate(oportunidades):
-            item_sap_rows = wbc.fetch_all(q.GET_ITENS_SAP.format(grp_code=item.grp_code))
+            item_sap_rows = hana_reader.fetch_all(*ligar(q.GET_ITENS_SAP, grp_code=item.grp_code))
             if not item_sap_rows:
                 continue
-            peso_rows = wbc.fetch_all(q.GET_PESO_PEDIDO.format(doc_entry=tb_valdixson, orc_item=item.orc_item))
+            peso_rows = hana_reader.fetch_all(
+                *ligar(q.GET_PESO_PEDIDO, doc_entry=tb_valdixson, orc_item=item.orc_item)
+            )
             peso = peso_rows[0].get("U_INO_PESO") if peso_rows else None
             manual = linhas_manuais[idx] if idx < len(linhas_manuais) else _LINHA_MANUAL_VAZIA
             novas_linhas.append(
@@ -784,7 +799,7 @@ async def _update_pedido(
         # Rastreado em 23/09/2026.
         oport_orig = await sl.get_by_key("SalesOpportunities", doc_num)
         vendedor = oport_orig.get("SalesPersonCode")
-        orc_cab_rows = wbc.fetch_all(q.GET_ORCCAB.format(orc_num=orc_num))
+        orc_cab_rows = wbc.fetch_all(q.GET_ORCCAB, (orc_num,))
         tipo_montagem = valor_montagem = percentual_comiss = valor_comiss = 0
         dias = 0
         cdpag = ""
@@ -797,7 +812,7 @@ async def _update_pedido(
             valor_comiss = row.get("ORCVALCOM", 0)
 
         for idx, item in enumerate(oportunidades):
-            item_sap_rows = wbc.fetch_all(q.GET_ITENS_SAP.format(grp_code=item.grp_code))
+            item_sap_rows = hana_reader.fetch_all(*ligar(q.GET_ITENS_SAP, grp_code=item.grp_code))
             if not item_sap_rows:
                 continue
             manual = linhas_manuais[idx] if idx < len(linhas_manuais) else _LINHA_MANUAL_VAZIA
@@ -829,10 +844,10 @@ async def _update_pedido(
         raise
 
 
-async def _busca_linhas_manuais(wbc: WbcSqlServerClient, doc_entry: str) -> list[Linha]:
+async def _busca_linhas_manuais(hana_reader: HanaDirectReader, doc_entry: str) -> list[Linha]:
     """`Querys.ManualLinha` — dados manuais (pedido do cliente, item, NF, cor) já
-    preenchidos nas linhas existentes do pedido, na ordem em que aparecem."""
-    rows = wbc.fetch_all(q.MANUAL_LINHA.format(doc_entry=doc_entry))
+    preenchidos nas linhas existentes do pedido, na ordem em que aparecem (RDR1: HANA)."""
+    rows = hana_reader.fetch_all(*ligar(q.MANUAL_LINHA, doc_entry=doc_entry))
     return [
         Linha(
             ped_cliente=str(row.get("U_xPed", "")),
@@ -862,9 +877,7 @@ async def busca_estrutura_produto(wbc: WbcSqlServerClient, orc_nums: list[str]) 
     nível 1, igual ao C#)."""
     if not orc_nums:
         return []
-    lista_sql = ",".join(f"'{n}'" for n in orc_nums)
-    sql = q.PEGA_ESTRUTURA_PRD_WBC.format(orc_nums=lista_sql)
-    rows = wbc.fetch_all(sql)
+    rows = wbc.fetch_all(*ligar(q.PEGA_ESTRUTURA_PRD_WBC, orc_nums=[str(n) for n in orc_nums]))
     estrutura = []
     for row in rows:
         v = list(row.values())
@@ -927,7 +940,7 @@ async def _cria_ou_atualiza_item(
     """Passo por item do loop de `Button0_ClickAfter` (linhas ~324-374) — separado de
     `garante_itens_cadastrados` para poder ser chamado com o `HanaDirectReader` já aberto
     pelo orquestrador (`processar_pedidos_novos`)."""
-    contagem_rows = hana_reader.fetch_all(q.SELECT_CODIGO_ITEM.format(item_code=item.prd_code))
+    contagem_rows = hana_reader.fetch_all(*ligar(q.SELECT_CODIGO_ITEM, item_code=item.prd_code))
     ja_existe = contagem_rows and int(_primeiro_valor(contagem_rows)) != 0
 
     if not ja_existe:
@@ -1002,7 +1015,7 @@ async def _update_item_grupo_332(sl: ServiceLayerClient, item_code: str) -> None
 def _descricao_item(hana_reader: HanaDirectReader, item_code: str) -> str:
     """Nome do item no SAP — usado só para o log. Nunca derruba a execução."""
     try:
-        rows = hana_reader.fetch_all(q.DESCRICAO_ITEM.format(item_code=item_code))
+        rows = hana_reader.fetch_all(*ligar(q.DESCRICAO_ITEM, item_code=item_code))
         return str(_primeiro_valor(rows, ""))
     except Exception:  # noqa: BLE001 - uma descrição ausente não pode parar uma gravação
         return ""
@@ -1106,11 +1119,11 @@ async def cria_recurso_rateio(
     B1 — e o que se devolve na criação é o `Code` retornado (`ret.Code`); no ramo do
     recurso já existente, o `VisResCode` lido do ORSC (`PegaRecursoCode`).
     """
-    contagem_rows = hana_reader.fetch_all(q.COUNT_RECURSO.format(nome_recurso=nome_recurso))
+    contagem_rows = hana_reader.fetch_all(*ligar(q.COUNT_RECURSO, nome_recurso=nome_recurso))
     ja_existe = contagem_rows and str(list(contagem_rows[0].values())[0]) != "0"
 
     if ja_existe:
-        rows = hana_reader.fetch_all(q.PEGA_RECURSO_CODE.format(nome_recurso=nome_recurso))
+        rows = hana_reader.fetch_all(*ligar(q.PEGA_RECURSO_CODE, nome_recurso=nome_recurso))
         return str(_primeiro_valor(rows, ""))
 
     # Normaliza ANTES de qualquer conta: os três podem chegar como `Decimal` do HANA e
@@ -1176,14 +1189,14 @@ async def cria_ordem_producao(
     if entrega_multipla == "Y":
         return 0, 0
 
-    codigo_rows = hana_reader.fetch_all(q.SELECT_CODIGO_ITEM_OP.format(item_code=item_pai))
+    codigo_rows = hana_reader.fetch_all(*ligar(q.SELECT_CODIGO_ITEM_OP, item_code=item_pai))
     if codigo_rows:
         item_pai = str(list(codigo_rows[0].values())[0])
 
     primeiro_nivel_1 = next((i for i in lista_op if i.nivel == 1), lista_op[0] if lista_op else None)
     doc_entry = ""
     if primeiro_nivel_1:
-        doc_entry_rows = hana_reader.fetch_all(q.PEGA_DOC_ENTRY_PED.format(orc_num=primeiro_nivel_1.orc_num))
+        doc_entry_rows = hana_reader.fetch_all(*ligar(q.PEGA_DOC_ENTRY_PED, orc_num=primeiro_nivel_1.orc_num))
         if doc_entry_rows:
             doc_entry = str(doc_entry_rows[0]["DocEntry"])
 
@@ -1199,7 +1212,7 @@ async def cria_ordem_producao(
         if item.prd_code == "TPO00000000000000000" and item.cor_cod in ("S/ COR", "S/ PINT"):
             continue
         linha_ref_header = str(item.linha)
-        codigo_op_rows = hana_reader.fetch_all(q.SELECT_CODIGO_ITEM_OP.format(item_code=item.prd_code))
+        codigo_op_rows = hana_reader.fetch_all(*ligar(q.SELECT_CODIGO_ITEM_OP, item_code=item.prd_code))
         item_code = str(list(codigo_op_rows[0].values())[0]) if codigo_op_rows else item.prd_code
         linhas.append(
             {
@@ -1271,7 +1284,7 @@ async def cria_ordem_producao_semi_acabado(
     """`ProcessDefault.CriaOPSA` — cria a Ordem de Produção de um semiacabado, com uma
     linha por item em `semi_acabados`. A linha de recurso fica comentada no C# original
     (dead code) — **não portada de propósito**, réplica fiel."""
-    doc_entry_rows = hana_reader.fetch_all(q.PEGA_DOC_ENTRY_PED.format(orc_num=oopr))
+    doc_entry_rows = hana_reader.fetch_all(*ligar(q.PEGA_DOC_ENTRY_PED, orc_num=oopr))
     doc_entry = int(doc_entry_rows[0]["DocEntry"]) if doc_entry_rows else None
 
     linhas = []
@@ -1443,9 +1456,8 @@ async def marca_op_nas_linhas(
     if not valores:
         return
 
-    lista_sql = ",".join(f"'{valor}'" for valor in valores)
     linhas_rows = hana_reader.fetch_all(
-        q.LINHAS_PEDIDO_POR_ORCITM.format(doc_entry=doc_entry, orc_itens=lista_sql)
+        *ligar(q.LINHAS_PEDIDO_POR_ORCITM, doc_entry=doc_entry, orc_itens=valores)
     )
     if not linhas_rows:
         logger.warning(
@@ -1682,16 +1694,16 @@ async def _processa_grupo_producao(
     # mesma Oportunidade. No 84425 devolveu o 84424 — a checagem de OP existente olhou o
     # pedido errado, e a quantidade da OP e a base do rateio foram lidas dele.
     doc_num_rows = (
-        hana_reader.fetch_all(q.DOC_NUM_POR_DOC_ENTRY.format(doc_entry=int(doc_entry_ped)))
+        hana_reader.fetch_all(*ligar(q.DOC_NUM_POR_DOC_ENTRY, doc_entry=int(doc_entry_ped)))
         if str(doc_entry_ped).strip() not in ("", "0") else []
     )
     doc_num_ped = str(doc_num_rows[0].get("DocNum", "")) if doc_num_rows else ""
 
-    entrega_multipla_rows = hana_reader.fetch_all(q.ENTREGA_MULTIPLA.format(doc_entry=doc_entry_ped))
+    entrega_multipla_rows = hana_reader.fetch_all(*ligar(q.ENTREGA_MULTIPLA, doc_entry=doc_entry_ped))
     entrega_multipla = str(_primeiro_valor(entrega_multipla_rows, ""))
 
     grp_max = max(item.grp_code for item in grupo)
-    item_sap_rows = hana_reader.fetch_all(q.SELECT_ORC_ITEM_SAP.format(grp_code=grp_max))
+    item_sap_rows = hana_reader.fetch_all(*ligar(q.SELECT_ORC_ITEM_SAP, grp_code=grp_max))
     if not item_sap_rows:
         descricao = max(i.prd_desc for i in grupo)
         motivo = (
@@ -1710,7 +1722,7 @@ async def _processa_grupo_producao(
     valores_recursos = wbc.fetch_all(q.PEGA_VALORES_RECURSOS, (grupo[0].orc_num,))
     custos_wbc = list(valores_recursos[0].values()) if valores_recursos else []
 
-    versao_rows = hana_reader.fetch_all(q.GET_VERSAO_PEDIDO.format(doc_num=doc_num_ped))
+    versao_rows = hana_reader.fetch_all(*ligar(q.GET_VERSAO_PEDIDO, doc_num=doc_num_ped))
     _ = str(_primeiro_valor(versao_rows, ""))  # `versao`: lido no C#, não usado depois
 
     quantidade_linha_base = 0.0
@@ -1721,16 +1733,17 @@ async def _processa_grupo_producao(
     # A quantidade da OP e o valor da linha (base do rateio) vêm da linha DO GRUPO — a que
     # tem `U_INO_ORCITM` igual ao item do orçamento deste grupo (mesma correspondência que
     # `marca_op_nas_linhas` usa para gravar `U_INO_OP`). Ver `BUSCA_MAX_ITEM_LINHA`.
-    orc_itens_do_grupo_sql = ",".join(
-        f"'{v}'" for v in dict.fromkeys(str(i.linha) for i in grupo if str(i.linha) != "")
+    orc_itens_do_grupo = list(
+        dict.fromkeys(str(i.linha) for i in grupo if str(i.linha) != "")
     )
     max_item_linha_rows = (
         hana_reader.fetch_all_values(
-            q.BUSCA_MAX_ITEM_LINHA.format(
-                doc_entry=int(doc_entry_ped), item_code=orc_item_sap, orc_itens=orc_itens_do_grupo_sql
+            *ligar(
+                q.BUSCA_MAX_ITEM_LINHA,
+                doc_entry=int(doc_entry_ped), item_code=orc_item_sap, orc_itens=orc_itens_do_grupo,
             )
         )
-        if orc_itens_do_grupo_sql and str(doc_entry_ped).strip() not in ("", "0")
+        if orc_itens_do_grupo and str(doc_entry_ped).strip() not in ("", "0")
         else []
     )
     if max_item_linha_rows:
@@ -1744,11 +1757,11 @@ async def _processa_grupo_producao(
         logger.warning(
             "    Linha do pedido %s para o item %s (U_INO_ORCITM em %s) não encontrada sem OP "
             "— a OP sairá com quantidade 1.",
-            doc_num_ped, orc_item_sap, orc_itens_do_grupo_sql or "—",
+            doc_num_ped, orc_item_sap, ",".join(orc_itens_do_grupo) or "—",
         )
 
     quantidade_max_pedido = -1.0
-    max_preco_rows = hana_reader.fetch_all(q.MAX_PRECO_PEDIDO.format(doc_num=doc_num_ped))
+    max_preco_rows = hana_reader.fetch_all(*ligar(q.MAX_PRECO_PEDIDO, doc_num=doc_num_ped))
     if max_preco_rows:
         quantidade_max_pedido = _num(list(max_preco_rows[0].values())[0], padrao=-1.0) or -1.0
 
@@ -1910,7 +1923,7 @@ async def reprocessar_pedidos_integrados(
             resultado = await _add_pedido_oportunidade(sl, oppr_id, status_wbc, int(doc_num), int(doc_entry))
 
             if resultado == 0:
-                ops_planejadas = hana_reader.fetch_all(q.BUSCA_OPS.format(origin_num=doc_num))
+                ops_planejadas = hana_reader.fetch_all(*ligar(q.BUSCA_OPS, origin_num=doc_num))
                 logger.info(
                     "  %d OP(s) planejada(s) do pedido %s a cancelar antes de recriar.",
                     len(ops_planejadas), doc_num,
@@ -2066,7 +2079,7 @@ def _le_ops_do_lado(
     elas continuam valendo como "o addon legado criou esta OP")."""
     prefixo = _prefixo_schema(schema)
     pedidos = hana_reader.fetch_all(
-        q.PEDIDO_POR_ORCAMENTO.format(schema=prefixo, orc_num=orc_num)
+        *ligar(q.PEDIDO_POR_ORCAMENTO, schema=prefixo, orc_num=orc_num)
     )
     if not pedidos:
         return {"schema": schema, "pedido": None, "ops": []}
@@ -2077,7 +2090,7 @@ def _le_ops_do_lado(
     ops = [
         _resumo_op(row)
         for row in hana_reader.fetch_all(
-            q.OPS_DO_PEDIDO.format(schema=prefixo, doc_entry=doc_entry, doc_num=doc_num)
+            *ligar(q.OPS_DO_PEDIDO, schema=prefixo, doc_entry=doc_entry, doc_num=doc_num)
         )
     ]
 
@@ -2086,7 +2099,7 @@ def _le_ops_do_lado(
             op["linhas"] = [
                 _resumo_linha_op(row)
                 for row in hana_reader.fetch_all(
-                    q.LINHAS_DA_OP.format(schema=prefixo, doc_entry=op["doc_entry"])
+                    *ligar(q.LINHAS_DA_OP, schema=prefixo, doc_entry=op["doc_entry"])
                 )
             ]
 
@@ -2210,7 +2223,7 @@ async def _diagnostica_ops_faltantes(
         estrutura = await busca_estrutura_produto(wbc, [orc_num])
         for grp_code in {item.grp_code for item in estrutura}:
             rows = hana_reader.fetch_all(
-                q.ITEM_SAP_DO_GRUPO.format(schema=schema_novo, grp_code=grp_code)
+                *ligar(q.ITEM_SAP_DO_GRUPO, schema=schema_novo, grp_code=grp_code)
             )
             if not rows:
                 grupos_sem_mapeamento.add(grp_code)
@@ -2243,7 +2256,7 @@ async def _diagnostica_ops_faltantes(
         if doc_num_novo:
             try:
                 rows = hana_reader.fetch_all(
-                    q.CHECA_OP_EXISTENTE_PEDIDO.format(doc_num=doc_num_novo, item_code=item_code)
+                    *ligar(q.CHECA_OP_EXISTENTE_PEDIDO, doc_num=doc_num_novo, item_code=item_code)
                 )
                 if rows:
                     motivos.append(
@@ -2299,9 +2312,9 @@ async def levanta_ops_para_cancelamento(
     - `ja_canceladas`: as `C`, contadas para o relatório e ignoradas na execução.
     """
     if doc_num:
-        pedidos = hana_reader.fetch_all(q.PEDIDO_POR_DOCNUM.format(doc_num=doc_num))
+        pedidos = hana_reader.fetch_all(*ligar(q.PEDIDO_POR_DOCNUM, doc_num=doc_num))
     elif orc_num:
-        pedidos = hana_reader.fetch_all(q.PEDIDO_POR_ORCAMENTO.format(schema="", orc_num=orc_num))
+        pedidos = hana_reader.fetch_all(*ligar(q.PEDIDO_POR_ORCAMENTO, schema="", orc_num=orc_num))
     else:
         raise ValueError("Informe o pedido (doc_num) ou o orçamento (orc_num).")
 
@@ -2312,7 +2325,7 @@ async def levanta_ops_para_cancelamento(
     ops = [
         _resumo_op(row)
         for row in hana_reader.fetch_all(
-            q.OPS_DO_PEDIDO.format(schema="", doc_entry=pedido["DocEntry"], doc_num=pedido["DocNum"])
+            *ligar(q.OPS_DO_PEDIDO, schema="", doc_entry=pedido["DocEntry"], doc_num=pedido["DocNum"])
         )
     ]
     ops.sort(key=_chave_ordenacao_op)
@@ -2375,7 +2388,7 @@ async def limpa_vinculos_do_pedido(
     dizendo "nunca processado" enquanto existem OPs vivas apontando para ele — pior que o
     estado anterior. Quem garante essa condição é o chamador.
     """
-    linhas = hana_reader.fetch_all(q.LINHAS_COM_OP.format(doc_entry=doc_entry))
+    linhas = hana_reader.fetch_all(*ligar(q.LINHAS_COM_OP, doc_entry=doc_entry))
 
     corpo: dict = {"U_INO_ProcessWBC": "N"}
     if linhas:
@@ -2400,12 +2413,12 @@ def historico_de_linhas(hana_reader: HanaDirectReader, doc_entry: int) -> list[d
     dá para ver em qual. Devolve lista vazia quando o log de histórico não está ativo, o
     que não prova nada em nenhuma direção.
     """
-    return hana_reader.fetch_all(q.HISTORICO_LINHAS_PEDIDO.format(doc_entry=int(doc_entry)))
+    return hana_reader.fetch_all(*ligar(q.HISTORICO_LINHAS_PEDIDO, doc_entry=int(doc_entry)))
 
 
 def foto_das_linhas(hana_reader: HanaDirectReader, doc_entry: int) -> list[dict]:
     """Fotografia das linhas do pedido, para comparar antes/depois de um PATCH."""
-    return hana_reader.fetch_all(q.FOTO_LINHAS_PEDIDO.format(doc_entry=int(doc_entry)))
+    return hana_reader.fetch_all(*ligar(q.FOTO_LINHAS_PEDIDO, doc_entry=int(doc_entry)))
 
 
 def compara_fotos(antes: list[dict], depois: list[dict]) -> dict:

@@ -426,13 +426,13 @@ esperou o uvicorn) e a 8080 ficou fora nesse intervalo — esperar o `/health` a
 - ✅ SQL do módulo 3 (`manutencao_op`) com parâmetro ligado; números validados na borda;
   paridade antiga × nova **15/15** contra PROD (só SELECT).
 - ✅ `Reprocessar` fora da tela (D8): botão removido; as duas rotas recusam com "só pela CLI".
-- ⏳ SQL do módulo 2 (`pedidos_wbc`, ~42 pontos) — a 1ª tentativa parou no meio e foi
-  descartada (`queries.py` com `?` e `service.py` ainda formatando quebraria em produção).
-  Achado no caminho: `_update_pedido` manda consultas do SAP ao SQL Server do WBC — hoje
-  inalcançável (os 102 pedidos abertos com `Integrar='Y'` estão `Congelado='Y'`); se alcançado,
-  falha antes de gravar. Fechar com mensagem clara no porte.
-- ⏳ `WbcSqlServerClient` → `pymssql`: o driver está no `requirements.txt` (o worker usa na .11),
-  mas **não no notebook** — a prova de paridade depende de instalar lá (pedir ao Marcelo).
+- ✅ SQL do módulo 2 (`pedidos_wbc`) com parâmetro ligado (29/09): os MESMOS modelos `{nome}`
+  do C#, ligados por `core/sql_ligado.ligar` — paridade antiga × nova **39/39** contra PROD.
+  `_update_pedido` (recria as linhas; mandava tabelas do SAP ao SQL Server do WBC) passou a ler
+  do HANA e está **fechado com erro claro** até o Anderson validar — inalcançável hoje.
+- ✅ `WbcSqlServerClient` → `pymssql` (29/09; o Marcelo autorizou instalar no notebook): mesmo
+  driver do worker, sem ODBC; paridade `pyodbc` × `pymssql` **10/10** contra o servidor real.
+  `WBC_SQL_DRIVER` ficou sem efeito.
 - ⏳ `basicConfig(force=True)` da CLI: contido no `conftest`; sem efeito em produção.
 - ⏳ Pasta original `IntegracaoPedido_CriacaoOP/`: apagar quando o Marcelo quiser e tirar a
   linha do `.gitignore` (D2).
@@ -442,18 +442,18 @@ esperou o uvicorn) e a 8080 ficou fora nesse intervalo — esperar o `/health` a
 - **Marcelo:** avisar o PCP que pedido processado pela tela não vai para o addon (o 84433 foi
   pelos dois em 28/09; as OPs do addon foram canceladas); combinar com Vendas não trocar a
   quantidade de linha de porta-paletes no SAP (o SAP divide o peso junto — 84433/84438); D2
-  (pasta original); D10 (reboot pendente da .11); avisar quem consome `encerrada` na API 8077,
-  se houver alguém.
+  (pasta original); avisar quem consome `encerrada` na API 8077, se houver alguém. D10 ✅
+  (29/09: a .11 já reiniciou; sem reboot pendente).
 - **PCP / Vendas (no cliente SAP, à mão):** 12 pedidos abertos têm quantidade/peso de
-  porta-paletes diferentes do que o worker gravou (consulta no CHANGELOG de 29/09). Os
+  porta-paletes diferentes do que o worker gravou (`python maintenance/pre_voo_controleproducao.py`,
+  seção D3 — é SQL do SAP/HANA, não roda no Supabase). Os
   suspeitos: **84420** (peso 2,33 kg), **84438** (220 kg; o worker gravou 575), **84433** linha 2
   (224; o worker gravou 225).
 - **Anderson:** validar `docs/controleproducao/GUIA_OPERADOR.md`; D12–D16; os 4 rateios falhos
   (84420/84422/84425/84426). OPs repetidas na mesma linha (7 grupos desde 20/09) são da
   estrutura — o mesmo padrão aparece em pedidos que só o addon processou.
-- **Melhoria futura (código):** SQL do módulo 2 com parâmetro ligado (fechar `_update_pedido`,
-  inalcançável hoje); `WbcSqlServerClient` → `pymssql` (instalar `pymssql` no notebook para a
-  prova de paridade); `basicConfig(force=True)` da CLI.
+- **Melhoria futura (código):** só o `basicConfig(force=True)` da CLI (contido no `conftest`,
+  sem efeito em produção).
 
 ---
 

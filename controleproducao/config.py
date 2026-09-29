@@ -64,12 +64,9 @@ class Settings(BaseSettings):
     wbc_sql_password: str = Field(
         default="", validation_alias=AliasChoices("WBC_SQL_PASSWORD", "SQL_PASSWORD", "SQLSERVER_PASSWORD")
     )
-    # Default = Driver 18 (the notebooks). The .11 has ONLY Driver 17 (checked 2026-09-28)
-    # and, unlike extract_sap_to_supabase.py, there is no 18 -> 17 fallback here: the name
-    # goes straight into the connection string (core/sqlserver_client.py), and a wrong one
-    # only shows on the first SQL Server query, not at start-up. Production sets
-    # WBC_SQL_DRIVER in its .env (see .env.example) and restarts the service: get_settings()
-    # is cached for the life of the process.
+    # NO EFFECT since 29/09/2026 (F7): core/sqlserver_client.py talks to the WBC through
+    # pymssql, like the worker, and needs no ODBC driver. Kept (with the TrustServerCertificate
+    # flag below) only so an existing WBC_SQL_DRIVER line in a .env keeps parsing.
     wbc_sql_driver: str = "ODBC Driver 18 for SQL Server"
     # O ODBC Driver 18 passou a exigir TLS + validação de certificado por padrão
     # (diferente do Driver 17 e do SqlClient .NET usado no addon legado). O servidor

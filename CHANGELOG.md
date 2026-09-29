@@ -6,6 +6,26 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-29] — Controle de Produção: SQL da tela de Pedidos com parâmetro ligado; WBC em pymssql
+
+Vale no próximo deploy (`deploy_update.bat`). Sem dependência nova na .11: `pymssql` já está
+no `requirements.txt` (é o driver do worker). A linha `WBC_SQL_DRIVER` do `.env` fica sem efeito.
+
+- **Módulo 2 (`pedidos_wbc`):** os ~40 SQL continuam com o MESMO texto do addon, mas nenhum
+  valor é mais colado — `core/sql_ligado.ligar` troca cada `{nome}` por `?` + parâmetro
+  (`'{x}'` → texto, `{x}` → inteiro validado, lista → `?, ?`, `{schema}` só identificador,
+  `{filtro}` só vazio). Paridade antiga × nova contra PROD: 39/39 consultas HANA iguais.
+- **`WbcSqlServerClient` em `pymssql`** (era `pyodbc` + nome exato do driver ODBC — o que mordeu
+  em 28/09 com o Driver 17 da .11). Os chamadores seguem com `?`; o cliente traduz para `%s` e
+  escapa `%`. Paridade `pyodbc` × `pymssql` contra o servidor real: 10/10 consultas iguais.
+- **`_update_pedido` fechado:** o caminho que recria as linhas do pedido mandava tabelas do SAP
+  para o SQL Server do WBC (falharia antes de gravar); agora as consultas vão ao HANA e o
+  caminho recusa com mensagem clara até o Anderson validar. Hoje é inalcançável (todo pedido
+  aberto está `Congelado='Y'`).
+- **`maintenance/pre_voo_controleproducao.py`** ganhou a seção D3 (porta-paletes com
+  quantidade/peso trocados depois do worker): as três consultas de auditoria rodam com um
+  comando, sem abrir o HANA Studio.
+
 ## [2026-09-29] — Controle de Produção: F7 parcial (SQL do módulo 3, Reprocessar fora da tela, guia)
 
 Vale no próximo deploy (`deploy_update.bat`; sem dependência nova). F6 está no ar desde 28/09

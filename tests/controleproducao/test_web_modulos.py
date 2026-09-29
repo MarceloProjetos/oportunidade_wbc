@@ -829,7 +829,9 @@ def test_grupos_do_mesmo_item_criam_uma_op_cada():
     grupo = [SimpleNamespace(orc_num="00125540", grp_code=7, prd_desc="PP", prd_code="X",
                              linha=1, quantidade=1, id_integracao_orc=1, linha_orc=1)]
     hana = MagicMock()
-    hana.fetch_all.side_effect = lambda sql: [{"U_INO_ItemSAP": "I000003"}] if "INO_GRP_PRODUTOS" in sql else []
+    hana.fetch_all.side_effect = (
+        lambda sql, params=(): [{"U_INO_ItemSAP": "I000003"}] if "INO_GRP_PRODUTOS" in sql else []
+    )
     hana.fetch_all_values.return_value = []
     wbc = MagicMock()
     wbc.fetch_all.return_value = []
@@ -869,10 +871,11 @@ def test_numero_do_pedido_sai_do_doc_entry_e_nao_da_oportunidade():
         pedidos_consultados.append(doc_num)
         return []
 
-    def _fetch_all(sql):
+    def _fetch_all(sql, params=()):
         if "INO_GRP_PRODUTOS" in sql:
             return [{"U_INO_ItemSAP": "I000003"}]
-        if 'FROM ORDR WHERE "DocEntry" = 20099' in sql:
+        # Since F7 (29/09/2026) the DocEntry travels as a bound parameter.
+        if 'FROM ORDR WHERE "DocEntry" = ?' in sql and params == (20099,):
             return [{"DocNum": 84425}]
         assert "OPR1" not in sql, f"DocNum não pode vir da Oportunidade: {sql}"
         return []
@@ -904,21 +907,21 @@ def test_quantidade_da_op_vem_da_linha_do_grupo():
     A busca do legado pegava a linha sem OP de MAIOR número do item, não a do grupo. Com a
     regra nova (quantidade = nº de módulos), isso dá a quantidade de outra linha."""
     import asyncio
-    import re
 
     from controleproducao.modules.pedidos_wbc import service as svc
 
     # U_INO_ORCITM -> (LineNum, Quantity, LineTotal) das linhas do pedido
     linhas = {"1": (0, 8.0, 800.0), "2": (1, 1.0, 100.0), "7": (6, 255.0, 25500.0)}
 
-    def _values(sql):
+    def _values(sql, params=()):
         assert 'T0."U_INO_ORCITM" IN (' in sql, "a busca precisa se restringir à linha do grupo"
-        pedidas = re.search(r'U_INO_ORCITM" IN \(([^)]*)\)', sql).group(1)
-        achadas = [linhas[v.strip("'")] for v in pedidas.split(",") if v.strip("'") in linhas]
+        # Since F7 the group's ORCITM values are bound parameters (after DocEntry and item).
+        pedidas = [str(v) for v in params[2:]]
+        achadas = [linhas[v] for v in pedidas if v in linhas]
         return [list(l) for l in sorted(achadas, reverse=True)]
 
     hana = MagicMock()
-    hana.fetch_all.side_effect = lambda sql: (
+    hana.fetch_all.side_effect = lambda sql, params=(): (
         [{"U_INO_ItemSAP": "I000003"}] if "INO_GRP_PRODUTOS" in sql
         else [{"DocNum": 84274}] if 'FROM ORDR WHERE "DocEntry"' in sql else []
     )
