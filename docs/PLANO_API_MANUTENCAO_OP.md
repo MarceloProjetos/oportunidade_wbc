@@ -1,6 +1,13 @@
 # Plano — API JSON da Manutenção de OP (Controle de Produção, porta 8080)
 
-> **Status (29/09/2026, 13h): F0–F4 NO AR na .11 (deploy do Marcelo, conferido).** Smoke só
+> **Status (29/09/2026, 13:05): F0–F5 ✅ — 1ª gravação real pela API feita e conferida.** A pedido
+> do Marcelo: **OP 157426** (pedido 84433, `PAR000PADRA000000000`, 120 un.) liberada pela API,
+> execução `86bcdf66137e`, `concluída`/`ok` em 1,5 s, `solicitante` `marcelo.miranda`. Conferido
+> em três lugares: SAP (`OWOR.Status = R`, alterada por `orcaview`, nada baixado), tela Execuções
+> ("por marcelo.miranda · API") e a linha no Supabase (`origem = api`). **A OP 157426 fica Liberada
+> até o teste da F6**, que a devolve para Planejada. Próximo: F5b e F6 (código meu).
+>
+> **Antes (29/09, 13h): F0–F4 NO AR na .11 (deploy do Marcelo, conferido).** Smoke só
 > leitura do notebook 7/7: `/health` da 8080 (`producao`, chave, `historico: supabase`); `/api` sem
 > chave → 401 no formato novo; busca do 84433 (50 OPs Planejadas); chave errada → 401; Liberar
 > sem `solicitante` → 400; conferir do 84433 → plano (token não usado); execução inexistente →
@@ -280,7 +287,7 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
   `detalhes`), no Liberar e no conferir por OPs. Conferido em PROD (só leitura): nenhum DocNum de
   OP se repete (157.426 OPs, uma série) — o DocNum ambíguo que a 8077 recusa não existe hoje.
 
-### F5 — Deploy e 1º teste real — `deploy + smoke ✅ 29/09 · falta a 1ª gravação real`
+### F5 — Deploy e 1º teste real — `✅ fechada 29/09 13:05 · OP 157426 liberada pela API`
 
 > **Objetivo:** a API responde na .11 e a primeira gravação real foi conferida no SAP. É o
 > "tudo ok" que libera a F6.
@@ -296,6 +303,15 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
 4. **1ª gravação real:** um Liberar numa OP Planejada escolhida por você (ou pelo Anderson), sem
    saída lançada. Conferir no SAP e nas Execuções ("por *fulano* · API"). **Anotar o número: é
    essa OP que a F6 devolve para Planejada.**
+
+- ✅ **Como foi (29/09):** deploy do Marcelo; smoke só leitura 7/7 do notebook (acima). 1ª gravação
+  real às 13:05: `POST /liberar {"ops": [157426], "solicitante": "marcelo.miranda"}` → 202 →
+  execução `86bcdf66137e` terminou `ok` em 1,5 s ("OP 157426 (item PAR000PADRA000000000):
+  Planejada -> Liberada"). Conferido no HANA (`Status R`, `UserSign2` = `orcaview`, `IssuedQty` 0),
+  na tela Execuções ("por marcelo.miranda · API") e na tabela `controle_producao_execucoes`
+  (`origem api`, `solicitante marcelo.miranda`).
+- **A OP 157426 fica Liberada até a F6.** Se precisar voltar antes, a CLI na .11 faz:
+  `python -m controleproducao manutencao-op replanejar 157426` (nada foi baixado dela).
 
 ### F5b — Interromper o Encerrar só entre OPs (D5) — `aberta · eu · decidida 29/09`
 
