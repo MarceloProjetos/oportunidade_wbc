@@ -1,6 +1,12 @@
 # Plano — API JSON da Manutenção de OP (Controle de Produção, porta 8080)
 
-> **Status (29/09/2026, 13:05): F0–F5 ✅ — 1ª gravação real pela API feita e conferida.** A pedido
+> **Status (29/09/2026, tarde): F5b e F6 codadas (`464e781`), pendem deploy.** Replanejar pela
+> API (e pela CLI) recusa OP com saída de insumo lançada — critério conferido em PROD: as duas
+> leituras possíveis dão as mesmas 63.183 OPs. "Interromper" no Encerrar para depois da OP em
+> curso. Suíte 2.465 verde, `ruff` 0. A OP 157426 **já voltou para Planejada** (o Marcelo rodou a
+> CLI às 13:07:48); o teste real da F6 libera e replaneja de novo pela API.
+>
+> **Antes (29/09/2026, 13:05): F0–F5 ✅ — 1ª gravação real pela API feita e conferida.** A pedido
 > do Marcelo: **OP 157426** (pedido 84433, `PAR000PADRA000000000`, 120 un.) liberada pela API,
 > execução `86bcdf66137e`, `concluída`/`ok` em 1,5 s, `solicitante` `marcelo.miranda`. Conferido
 > em três lugares: SAP (`OWOR.Status = R`, alterada por `orcaview`, nada baixado), tela Execuções
@@ -313,7 +319,7 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
 - **A OP 157426 fica Liberada até a F6.** Se precisar voltar antes, a CLI na .11 faz:
   `python -m controleproducao manutencao-op replanejar 157426` (nada foi baixado dela).
 
-### F5b — Interromper o Encerrar só entre OPs (D5) — `aberta · eu · decidida 29/09`
+### F5b — Interromper o Encerrar só entre OPs (D5) — `✅ codada 29/09 · 464e781 · pende deploy`
 
 > **Objetivo:** "Interromper" nunca deixa uma OP com a saída de insumo lançada e a entrada de
 > produto não: a OP em curso termina a cadeia (ou o próprio erro), e a parada vem antes da próxima.
@@ -330,8 +336,14 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
 - Testes: pedido de parada no meio de uma OP → ela termina a cadeia, as próximas não começam,
   `interrompidas` lista as que ficaram.
 - Sobe junto com a F6 ou antes, num deploy só dela — escolha sua.
+- ✅ **Como ficou (29/09):** `Tarefa.parada_combinada` (só o Encerrar usa) e `parada_pedida`;
+  `TAREFAS.cancelar` pede a parada em vez de cortar; `finalizar_ops(deve_parar=...)` confere no
+  começo de cada OP; resultado com `interrompidas`; a execução termina `cancelada` com o resultado
+  guardado, ou `concluída` se o pedido chegou com a última OP já em andamento. Tela: "Para depois
+  da OP em curso…" (conferida na prévia, desktop e celular); API e tela devolvem `entre_etapas`.
+  6 testes novos.
 
-### F6 — Replanejar, por último — `aberta · eu + Marcelo`
+### F6 — Replanejar, por último — `✅ codada 29/09 · 464e781 · pende deploy + teste real`
 
 > **Objetivo:** o consumidor devolve uma OP Liberada para Planejada pela API, e a OP que já tem
 > saída de insumo é recusada antes de chegar ao SAP — na API e na CLI.
@@ -354,9 +366,17 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
   recusado). A tela continua sem Replanejar (D4).
 - Contrato, `CLAUDE.md` (D9 passa a "Replanejar: CLI e API, não a tela"), nota na D9 do
   `PLANO_CONTROLE_PRODUCAO_11.md`, commit, deploy.
-- **Teste final:** Replanejar, pela API, a OP liberada na F5 → volta a Planejada, e o teste
-  termina com ela como estava. Se existir OP Liberada com saída lançada, pedir o Replanejar dela
-  → 409 `saida_lancada`, nada grava.
+- **Teste final (depois do deploy, com o seu ok):** a OP 157426 já voltou para Planejada pela
+  CLI (13:07:48), então o teste é o ciclo inteiro pela API — Liberar 157426 → conferir → Replanejar
+  157426 → conferir, e ela termina como estava. E uma recusa: Replanejar uma das 13 OPs Liberadas
+  com saída lançada → `409 saida_lancada`, nada grava.
+- ✅ **Como ficou (29/09):** critério A (`SUM(WOR1.IssuedQty) > 0`) — A e B (linha de `IGE1` num
+  `OIGE` não cancelado) selecionam as **mesmas 63.183 OPs** em PROD. ⚠️ Nenhuma saída de OP foi
+  cancelada em PROD até hoje, então não dá para ver se o `IssuedQty` volta a zero depois de um
+  cancelamento: se não voltar, o Replanejar recusa a mais (o lado seguro). Recusa em três lugares:
+  `acoes.prepara_mudanca_status` (lote inteiro, 409), `service.muda_status` (última guarda,
+  qualquer chamador) e a CLI (tabela + releitura antes de gravar). Busca da API ganhou `baixada`
+  (consulta à parte, por pedido — a grade da tela não muda). 13 testes novos.
 
 ### F7 — O destino da rota da 8077 — `espera a F0 (quem chama), a D3 e a D7`
 
@@ -492,6 +512,8 @@ gravado; `409 ocupado` → acompanhar a execução que veio na resposta, não in
 6. **Replanejar com produto já apontado** (`apontada > 0`, entrada lançada sem saída) —
    *aberta.* **Recomendado: recusar também**, com a mesma família de mensagem: é o mesmo problema
    (estoque movimentado numa OP Planejada). O pedido original fala só da saída de insumo.
+   **Dado de 29/09 (PROD):** nenhuma OP Liberada tem entrada sem saída — o caso não existe hoje, e
+   a F6 saiu sem essa regra.
 7. **Encerrar só pelo status (limpeza de OP de pedido entregue)** — *nova, aberta; negócio:
    Marcelo + Anderson/PCP.* É o que o chamador da 8077 fazia (≥ 552 OPs) e o que a D9 bloqueou
    em 28/09. **Recomendado:** saber quem e por quê antes de qualquer código. Enquanto isso a D9
