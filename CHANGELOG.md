@@ -6,6 +6,34 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-30] — Controle de Produção: uma conexão com o WBC por execução; leituras do pedido uma vez
+
+Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem dependência nova. Mexe no
+fluxo de leitura do Anderson — nenhuma gravação muda de ordem ou de conteúdo.
+
+- **WBC (SQL Server):** o `WbcSqlServerClient` abria uma conexão — um login completo — para
+  **cada** consulta; um pedido faz uma por item da estrutura (`_pega_linha_manual`), uma por
+  código de semiacabado (`checa_semi_acabado`, recursivo) e uma por grupo. Agora reaproveita
+  **uma** por execução, como o leitor do HANA desde 16/09: aberta na 1ª consulta, fechada no fim
+  (`with` na tela e na CLI), `rollback` ao fim de cada consulta (nenhuma transação aberta por
+  minutos; nada é gravado), reconexão **uma** vez só se a conexão cair; erro de SQL com a
+  conexão viva não reconecta.
+  Medido contra o servidor real (só SELECT): 20 consultas numa conexão em 0,23 s (~11 ms cada);
+  com conexão nova por consulta, ~58 ms cada — cerca de 5× por consulta.
+- **Leituras do pedido uma vez por pedido** (`_processa_grupo_producao`, no `contexto` que já
+  era por pedido): DocEntry (era lido **duas vezes por grupo** — o `doc_entry_final` reaproveita
+  o mesmo valor, porque entre as duas só havia leituras), DocNum, entrega múltipla, item SAP do
+  GrpCode, custos do WBC e preço máximo. Saiu o `GET_VERSAO_PEDIDO`, lido e descartado a cada
+  grupo (como no C#). A linha do grupo (quantidade e valor) continua sendo lida por grupo.
+- **Encerrar OPs:** filiais ativas e séries de numeração lidas uma vez por encerramento (eram
+  ~3 leituras por OP).
+- **Pasta `IntegracaoPedido_CriacaoOP/` apagada** do notebook (para a Lixeira; D2) e a linha
+  saiu do `.gitignore`. O que valia dela já está no repo (código em `controleproducao/`,
+  histórico em `docs/controleproducao/`); o original está no zip com o Anderson.
+- Testes novos: uma conexão para 20 consultas, rollback por consulta, reconexão só na queda,
+  `with` fecha; 3 grupos do mesmo pedido → cada leitura do pedido 1 vez (DocEntry: 6 → 1) e a
+  linha do grupo 3 vezes; 4 OPs encerradas → filiais 1 vez e séries 2 (eram 4 e 8).
+
 ## [2026-09-30] — Revisão geral do que foi à .11 em 28–29/09
 
 Revisão em cinco frentes (segurança/configuração, tela do Controle de Produção, SQL, painel

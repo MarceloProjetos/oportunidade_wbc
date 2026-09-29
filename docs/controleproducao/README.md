@@ -157,5 +157,6 @@ Pré-voo do piloto (só leitura, PROD): `python maintenance/pre_voo_controleprod
 `wheels/`, `scripts/00–06.ps1`, `config/log_config.json`, `MANIFESTO.sha256`,
 `requirements-windows.txt`, o `.venv`, o `CLAUDE.md`/`LEIA-ME.md` do pacote e as docs de
 instalação isolada (`CHECKLIST_IMPLANTACAO`, `OPERACAO`, `SOLUCAO_DE_PROBLEMAS`,
-`SEGURANCA`) — o SIS já tem deploy, serviço, log, monitoração e login. A pasta
-`IntegracaoPedido_CriacaoOP/` na raiz é o pacote original, ignorado pelo git, só referência.
+`SEGURANCA`) — o SIS já tem deploy, serviço, log, monitoração e login. A pasta com o pacote
+original (`IntegracaoPedido_CriacaoOP/`) foi apagada em 30/09/2026 (D2): o original está no
+zip com o Anderson.

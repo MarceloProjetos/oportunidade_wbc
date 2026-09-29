@@ -41,10 +41,6 @@ state/deps.sha256
 # ── Handoffs com chaves/credenciais (passados a terceiros — NÃO versionar) ──
 HANDOFF_*.md
 
-# ── Pacote ControleProducao do Anderson (código de terceiro + 38 wheels; repo próprio) ──
-# Plano: docs/PLANO_CONTROLE_PRODUCAO_11.md. Sai daqui quando a pasta for movida (D2).
-IntegracaoPedido_CriacaoOP/
-
 # ── Arquivos temporários do projeto ──
 _*.py
 !scripts/_bootstrap.py   # exceção: bootstrap versionado (não é temporário)

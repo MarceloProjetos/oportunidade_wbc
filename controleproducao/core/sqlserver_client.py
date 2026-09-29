@@ -22,8 +22,6 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Iterator
-from contextlib import contextmanager
 from typing import Any
 
 from controleproducao.config import Settings
@@ -103,22 +101,35 @@ def _para_pyformat(sql: str, quantidade_params: int) -> str:
 class WbcSqlServerClient:
     """Espelha os métodos de `SQLConnection.cs`:
 
-    - `ExecuteQuery`      -> `fetch_all` (the write path was removed on 30/09/2026: the
-      WBC database is read-only for this package)
-    - `ExecuteSelect`     -> `fetch_scalar_list`
-    - `ExecuteSelectMultip` / `ExecuteSelectMultipString` -> `fetch_row`
+    - `ExecuteQuery` / `ExecuteReader` -> `fetch_all` (the write path was removed on
+      30/09/2026: the WBC database is read-only for this package)
+    - leituras posicionais do C# (`GetValue(i)`) -> `fetch_all_values`
     - `ExecuteSelectNew`, `ExecuteSelect2`, `selectORCCAB`, `PegaEstruturaPrd`,
       `PegaOrcamentosWBC` -> ficam nos módulos de negócio (`pedidos_wbc/queries.py`
       e `service.py`), pois cada um monta um objeto de domínio específico
       (`NewOrcPrd`, `ORCPRD`, `ORCCAB`, `EstruturaPrd`, `OportunidadeDoc`)
-      — este cliente só executa e devolve linhas cruas (`list[dict]`).
+      — este cliente só executa e devolve linhas cruas.
+
+    **Reuses one connection per execution** (30/09/2026), like `HanaDirectReader` since
+    16/09: it used to open a connection — a full SQL Server login — for EVERY query, and a
+    single order makes one per structure item (`_pega_linha_manual`), one per semi-finished
+    code (`checa_semi_acabado`, recursive) and one per group. Opened on the first query,
+    kept until `close()` (or the `with` block ends); if it dies in the middle of a long
+    execution (server or firewall idle timeout), the next query reconnects ONCE.
+
+    Every query ends with a `rollback()`: the connection is `autocommit=False`, and a reused
+    connection would otherwise hold one implicit transaction open for the whole execution.
+    Nothing is ever committed — reads only (`exige_leitura`).
     """
 
     def __init__(self, settings: Settings):
         self._settings = settings
+        self._conexao: Any = None
 
-    @contextmanager
-    def _connect(self) -> Iterator[Any]:
+    # ------------------------------------------------------------------
+    # Connection
+    # ------------------------------------------------------------------
+    def _abre_conexao(self) -> Any:
         # Late import: the test suite locks `pymssql.connect`, and the rest of the package
         # must import without the driver installed.
         import pymssql
@@ -126,7 +137,7 @@ class WbcSqlServerClient:
         s = self._settings
         try:
             with PERFIL.medir("WBC (SQL Server) · abrir conexão", s.wbc_sql_host):
-                conn = pymssql.connect(
+                return pymssql.connect(
                     server=s.wbc_sql_host,
                     port=str(s.wbc_sql_port),
                     user=s.wbc_sql_username,
@@ -135,40 +146,104 @@ class WbcSqlServerClient:
                     login_timeout=_LOGIN_TIMEOUT_S,
                     timeout=_QUERY_TIMEOUT_S,
                     # Explicit on purpose: nothing here commits, so even a statement that
-                    # slipped past `exige_leitura` would be rolled back on close.
+                    # slipped past `exige_leitura` would be rolled back.
                     autocommit=False,
                 )
         except pymssql.Error as exc:  # pragma: no cover - depende de infra real
             raise WbcDatabaseError(f"Falha ao conectar no SQL Server WBC: {exc}") from exc
-        try:
-            yield conn
-        finally:
-            conn.close()
 
+    def _conexao_ativa(self) -> Any:
+        if self._conexao is None:
+            self._conexao = self._abre_conexao()
+        return self._conexao
+
+    def _descarta_conexao(self) -> None:
+        if self._conexao is not None:
+            try:
+                self._conexao.close()
+            except Exception:  # noqa: BLE001 - already discarding it
+                pass
+            self._conexao = None
+
+    def _ainda_conectado(self) -> bool:
+        """pymssql's `connected` flag (on the inner `_mssql` connection); unknown = False,
+        which falls back to reconnect-and-retry-once."""
+        try:
+            return bool(self._conexao is not None and self._conexao._conn.connected)
+        except Exception:  # noqa: BLE001 - a broken connection may raise here too
+            return False
+
+    def close(self) -> None:
+        """Closes the reused connection. Whoever creates the client closes it (`with`)."""
+        self._descarta_conexao()
+
+    def __enter__(self) -> WbcSqlServerClient:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
+    # ------------------------------------------------------------------
+    # Queries
+    # ------------------------------------------------------------------
     @staticmethod
     def _executa(cursor: Any, sql: str, params: tuple[Any, ...]) -> None:
+        exige_leitura(sql)
+        if params:
+            cursor.execute(_para_pyformat(sql, len(params)), tuple(params))
+        else:
+            # No parameters: pymssql does no substitution, so the text goes as is.
+            _para_pyformat(sql, 0)
+            cursor.execute(sql)
+
+    def _consulta(self, sql: str, params: tuple[Any, ...], como_dict: bool) -> list:
         import pymssql
 
+        # Programming errors (a write, a bad placeholder count) are refused before any
+        # connection is opened or reused.
         exige_leitura(sql)
+        _para_pyformat(sql, len(params))
+
+        def _uma_vez() -> list:
+            conexao = self._conexao_ativa()
+            cursor = conexao.cursor()
+            try:
+                with PERFIL.medir("WBC (SQL Server) · executar query", forma_sql(sql)):
+                    self._executa(cursor, sql, params)
+                    linhas = cursor.fetchall()
+                if como_dict:
+                    colunas = [col[0] for col in cursor.description] if cursor.description else []
+                    resultado = [dict(zip(colunas, linha)) for linha in linhas]
+                else:
+                    resultado = [list(linha) for linha in linhas]
+            finally:
+                cursor.close()
+            # Ends the implicit transaction autocommit=False opened (see the class docstring).
+            conexao.rollback()
+            return resultado
+
         try:
-            if params:
-                cursor.execute(_para_pyformat(sql, len(params)), tuple(params))
-            else:
-                # No parameters: pymssql does no substitution, so the text goes as is.
-                _para_pyformat(sql, 0)
-                cursor.execute(sql)
+            return _uma_vez()
         except pymssql.Error as exc:
-            raise WbcDatabaseError(f"Falha ao consultar o SQL Server WBC: {exc}") from exc
+            if self._ainda_conectado():
+                # A SQL error on a live connection fails the same way twice: no retry. Reset
+                # the transaction state so the connection stays usable for the next query.
+                try:
+                    self._conexao.rollback()
+                except Exception:  # noqa: BLE001 - a connection that cannot roll back goes
+                    self._descarta_conexao()
+                raise WbcDatabaseError(f"Falha ao consultar o SQL Server WBC: {exc}") from exc
+            logger.warning("Consulta ao SQL Server WBC falhou (%s). Reconectando e tentando de novo...", exc)
+            self._descarta_conexao()
+            try:
+                return _uma_vez()
+            except pymssql.Error as exc2:
+                self._descarta_conexao()
+                raise WbcDatabaseError(f"Falha ao consultar o SQL Server WBC: {exc2}") from exc2
 
     def fetch_all(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
         """Equivalente a rodar `ExecuteQuery`/`ExecuteReader` e iterar todas as linhas."""
-        with self._connect() as conn:
-            cursor = conn.cursor()
-            with PERFIL.medir("WBC (SQL Server) · executar query", forma_sql(sql)):
-                self._executa(cursor, sql, params)
-                linhas = cursor.fetchall()
-            columns = [col[0] for col in cursor.description] if cursor.description else []
-            return [dict(zip(columns, row)) for row in linhas]
+        return self._consulta(sql, params, como_dict=True)
 
     def fetch_all_values(self, sql: str, params: tuple[Any, ...] = ()) -> list[list[Any]]:
         """Como `fetch_all`, mas devolve cada linha como lista posicional em vez de `dict`.
@@ -181,8 +256,4 @@ class WbcSqlServerClient:
         monta um `dict` via `zip(colunas, valores)` — colunas com nome repetido colidem
         e o `dict` resultante perde valores. Use este método em qualquer query que já
         dependia de acesso posicional."""
-        with self._connect() as conn:
-            cursor = conn.cursor()
-            with PERFIL.medir("WBC (SQL Server) · executar query", forma_sql(sql)):
-                self._executa(cursor, sql, params)
-                return [list(row) for row in cursor.fetchall()]
+        return self._consulta(sql, params, como_dict=False)

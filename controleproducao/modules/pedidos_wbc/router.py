@@ -320,14 +320,14 @@ async def _roda_pedidos(tarefa: Tarefa, alvos: list[tuple[str, str]], force: boo
     em todas as linhas (ver `_oppr_id_do_orcamento`). À tela vai o **pedido**.
     """
     settings = get_settings()
-    wbc = WbcSqlServerClient(settings)
     tarefa.avanca(f"Conectando à Service Layer ({settings.sl_company_db})…", 0, len(alvos))
-    with HanaDirectReader(settings) as hana_reader:
+    # Both readers keep ONE connection for the whole execution and close it here.
+    with HanaDirectReader(settings) as hana_reader, WbcSqlServerClient(settings) as wbc:
         return await _roda_pedidos_com(tarefa, alvos, force, settings, hana_reader, wbc)
 
 
 async def _roda_pedidos_com(tarefa, alvos, force, settings, hana_reader, wbc):
-    """Body of `_roda_pedidos`, with the HANA reader opened (and closed) by the caller."""
+    """Body of `_roda_pedidos`, with both readers opened (and closed) by the caller."""
     async with ServiceLayerClient(settings) as sl:
         # Um pedido por vez, e não a lista inteira de uma vez, para o acompanhamento
         # dizer onde parou: o resultado agregado do serviço não diz em qual pedido a

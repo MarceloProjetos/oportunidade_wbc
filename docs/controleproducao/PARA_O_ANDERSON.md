@@ -19,6 +19,17 @@
 > Reprocessar só CLI (D8), leitores só-leitura por construção, histórico das execuções no
 > Supabase e log em arquivo dos comandos da CLI que gravam. O plano e o `CHANGELOG.md` têm o
 > detalhe.
+>
+> **Mexidas no seu fluxo em 30/09 (só leitura, para você revisar pelo diff):**
+> `WbcSqlServerClient` reaproveita **uma** conexão por execução (antes, um login no SQL Server
+> por consulta — por item da estrutura, por código de semiacabado, por grupo), com rollback ao
+> fim de cada consulta e reconexão única se ela cair; em `_processa_grupo_producao`, DocEntry,
+> DocNum, entrega múltipla, item SAP do GrpCode, custos do WBC e preço máximo passam a ser lidos
+> **uma vez por pedido** (no `contexto` que você já usava), `doc_entry_final` reaproveita o
+> `doc_entry_ped` (entre os dois só há leituras) e o `GET_VERSAO_PEDIDO` saiu (era lido e
+> descartado, como no C#); no `finalizar_ops`, filiais ativas e séries uma vez por encerramento.
+> A quantidade e o valor da linha do grupo (`BUSCA_MAX_ITEM_LINHA`) continuam por grupo. A pasta
+> `IntegracaoPedido_CriacaoOP/` foi apagada do notebook do Marcelo (D2) — o original é o seu zip.
 
 ## 1. O que mudou no seu código
 

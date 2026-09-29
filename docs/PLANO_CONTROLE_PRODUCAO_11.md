@@ -26,7 +26,7 @@
 > alcance da 8079 (`192.168.0.0/16`), a tela abre pelo IP, API 8077 só libera OP (D9),
 > Replanejar só CLI; **F7 parcial (29/09)** — guia do operador (rascunho), SQL do módulo 3 com
 > parâmetro ligado (paridade 15/15 em PROD), Reprocessar fora da tela (D8); o porte do SQL do
-> módulo 2 e o `pymssql` saíram no mesmo dia (`4f83a89`); resta a pasta original (D2).** A 1ª versão deste plano
+> módulo 2 e o `pymssql` saíram no mesmo dia (`4f83a89`); a pasta original saiu em 30/09 (D2).** A 1ª versão deste plano
 > (manhã de 28/09) recomendava instalar
 > isolado em `C:\ControleProducao` — está superada; o que dela vale (riscos, fatos,
 > reteste, piloto) foi incorporado aqui.
@@ -35,7 +35,7 @@ Artifact (mesma história, MESMA url): https://claude.ai/artifact/3womT78TmCZHda
 
 Pacote de origem: `IntegracaoPedido_CriacaoOP/ControleProducao/` (montado em 24/09/2026 na
 máquina do Anderson, `anderson.marques@altamira.com.br`, dono da aplicação; manifesto
-124/124 íntegro). Fica no disco como referência, ignorado pelo git.
+124/124 íntegro). Ficou no disco como referência até 30/09/2026, quando foi apagada (D2).
 
 ---
 
@@ -443,16 +443,19 @@ esperou o uvicorn) e a 8080 ficou fora nesse intervalo — esperar o `/health` a
   driver do worker, sem ODBC; paridade `pyodbc` × `pymssql` **10/10** contra o servidor real.
   `WBC_SQL_DRIVER` ficou sem efeito.
 - ⏳ `basicConfig(force=True)` da CLI: contido no `conftest`; sem efeito em produção.
-- ⏳ Pasta original `IntegracaoPedido_CriacaoOP/`: apagar quando o Marcelo quiser e tirar a
-  linha do `.gitignore` (D2).
+- ✅ Pasta original `IntegracaoPedido_CriacaoOP/`: apagada em 30/09 (para a Lixeira) e a linha
+  saiu do `.gitignore` (D2).
+- ✅ 30/09: uma conexão com o WBC por execução (era um login no SQL Server por consulta) e as
+  leituras do pedido feitas uma vez por pedido, não a cada grupo; filiais e séries uma vez por
+  encerramento.
 
 **O que falta (29/09), por dono — nada disso é código deste plano:**
 
 - **Marcelo:** avisar o PCP que pedido processado pela tela não vai para o addon (o 84433 foi
   pelos dois em 28/09; as OPs do addon foram canceladas); combinar com Vendas não trocar a
-  quantidade de linha de porta-paletes no SAP (o SAP divide o peso junto — 84433/84438); D2
-  (pasta original); avisar quem consome `encerrada` na API 8077, se houver alguém. D10 ✅
-  (29/09: a .11 já reiniciou; sem reboot pendente).
+  quantidade de linha de porta-paletes no SAP (o SAP divide o peso junto — 84433/84438);
+  avisar quem consome `encerrada` na API 8077, se houver alguém. D10 ✅ (29/09: a .11 já
+  reiniciou; sem reboot pendente). D2 ✅ (30/09: pasta original apagada).
 - **PCP / Vendas (no cliente SAP, à mão):** 12 pedidos abertos têm quantidade/peso de
   porta-paletes diferentes do que o worker gravou (`python maintenance/pre_voo_controleproducao.py`,
   seção D3 — é SQL do SAP/HANA, não roda no Supabase). Os
@@ -519,9 +522,9 @@ para os seis, `/status` vê os seis.
 1. **Um projeto só** — ✅ decidido 28/09 12h. Pacote do SIS, processo separado na 8080,
    cookie compartilhado, trava pelo IP, deploy único. Consequência: o código do Anderson
    passa a morar no repo do SIS (público, como o `wbcpython`).
-2. **Pasta original `IntegracaoPedido_CriacaoOP/`** — *aberta.* **Recomendado:** apagar depois
-   do commit de F0 (o histórico está em `docs/controleproducao/` e o zip com o Anderson) e
-   tirar a linha do `.gitignore`.
+2. **Pasta original `IntegracaoPedido_CriacaoOP/`** — ✅ apagada em 30/09/2026 (para a Lixeira
+   do notebook) e a linha saiu do `.gitignore`. O histórico está em `docs/controleproducao/` e o
+   original no zip com o Anderson.
 3. **Claude na .11** — ✅ não. Você cola blocos PowerShell (F2/F3) e devolve a saída.
 4. **Acesso** — ✅ decidido 28/09: `CP_HOST=127.0.0.1` no 1º deploy (feito, F3) e `0.0.0.0` +
    regra de firewall da LAN na F6 (✅ no ar 28/09 ~14:45).

@@ -1681,29 +1681,46 @@ async def _processa_grupo_producao(
     `contexto` é compartilhado entre os grupos DO MESMO PEDIDO (criado por
     `processar_pedidos_novos`): guarda quantas OPs cada item já tinha antes desta execução
     e quantos grupos de cada item já passaram, e recolhe os grupos cujo rateio falhou.
-    Chamadas avulsas (testes) podem omiti-lo."""
+    Chamadas avulsas (testes) podem omiti-lo.
+
+    Since 30/09/2026 it also keeps the per-order reads (`leituras`): DocEntry/DocNum of the
+    order, multiple delivery, the SAP item of a group code, the WBC costs and the max price
+    used to be read again for EVERY group, and the DocEntry twice per group. None of them
+    changes during the execution — this run only adds OPs and marks `U_INO_OP` on lines;
+    the order, its lines' prices and @INO_GRP_PRODUTOS stay as they were."""
     if contexto is None:
         contexto = {}
     ops_previas: dict[str, list[int]] = contexto.setdefault("ops_previas", {})
     grupos_vistos: dict[str, int] = contexto.setdefault("grupos_vistos", {})
     sem_rateio: list[dict] = contexto.setdefault("sem_rateio", [])
+    leituras: dict = contexto.setdefault("leituras", {})
     orc_num_max = max(item.orc_num for item in grupo)
-    doc_entry_ped = await _pega_doc_entry_ped(hana_reader, orc_num_max)
+    if ("doc_entry", orc_num_max) not in leituras:
+        leituras[("doc_entry", orc_num_max)] = await _pega_doc_entry_ped(hana_reader, orc_num_max)
+    doc_entry_ped = leituras[("doc_entry", orc_num_max)]
     # O DocNum sai do DocEntry já resolvido, e não de uma segunda busca pela Oportunidade:
     # a busca antiga (`pegaDocNumPed`, igual à do C#) podia devolver um pedido CANCELADO da
     # mesma Oportunidade. No 84425 devolveu o 84424 — a checagem de OP existente olhou o
     # pedido errado, e a quantidade da OP e a base do rateio foram lidas dele.
-    doc_num_rows = (
-        hana_reader.fetch_all(*ligar(q.DOC_NUM_POR_DOC_ENTRY, doc_entry=int(doc_entry_ped)))
-        if str(doc_entry_ped).strip() not in ("", "0") else []
-    )
-    doc_num_ped = str(doc_num_rows[0].get("DocNum", "")) if doc_num_rows else ""
+    if ("doc_num", doc_entry_ped) not in leituras:
+        doc_num_rows = (
+            hana_reader.fetch_all(*ligar(q.DOC_NUM_POR_DOC_ENTRY, doc_entry=int(doc_entry_ped)))
+            if str(doc_entry_ped).strip() not in ("", "0") else []
+        )
+        leituras[("doc_num", doc_entry_ped)] = (
+            str(doc_num_rows[0].get("DocNum", "")) if doc_num_rows else ""
+        )
+    doc_num_ped = leituras[("doc_num", doc_entry_ped)]
 
-    entrega_multipla_rows = hana_reader.fetch_all(*ligar(q.ENTREGA_MULTIPLA, doc_entry=doc_entry_ped))
-    entrega_multipla = str(_primeiro_valor(entrega_multipla_rows, ""))
+    if ("entrega_multipla", doc_entry_ped) not in leituras:
+        entrega_multipla_rows = hana_reader.fetch_all(*ligar(q.ENTREGA_MULTIPLA, doc_entry=doc_entry_ped))
+        leituras[("entrega_multipla", doc_entry_ped)] = str(_primeiro_valor(entrega_multipla_rows, ""))
+    entrega_multipla = leituras[("entrega_multipla", doc_entry_ped)]
 
     grp_max = max(item.grp_code for item in grupo)
-    item_sap_rows = hana_reader.fetch_all(*ligar(q.SELECT_ORC_ITEM_SAP, grp_code=grp_max))
+    if ("item_sap", grp_max) not in leituras:
+        leituras[("item_sap", grp_max)] = hana_reader.fetch_all(*ligar(q.SELECT_ORC_ITEM_SAP, grp_code=grp_max))
+    item_sap_rows = leituras[("item_sap", grp_max)]
     if not item_sap_rows:
         descricao = max(i.prd_desc for i in grupo)
         motivo = (
@@ -1719,11 +1736,13 @@ async def _processa_grupo_producao(
         return motivo
 
     orc_item_sap = str(list(item_sap_rows[0].values())[0])
-    valores_recursos = wbc.fetch_all(q.PEGA_VALORES_RECURSOS, (grupo[0].orc_num,))
+    if ("recursos", grupo[0].orc_num) not in leituras:
+        leituras[("recursos", grupo[0].orc_num)] = wbc.fetch_all(q.PEGA_VALORES_RECURSOS, (grupo[0].orc_num,))
+    valores_recursos = leituras[("recursos", grupo[0].orc_num)]
     custos_wbc = list(valores_recursos[0].values()) if valores_recursos else []
 
-    versao_rows = hana_reader.fetch_all(*ligar(q.GET_VERSAO_PEDIDO, doc_num=doc_num_ped))
-    _ = str(_primeiro_valor(versao_rows, ""))  # `versao`: lido no C#, não usado depois
+    # `GET_VERSAO_PEDIDO` is no longer read (30/09/2026): the C# read the order version here
+    # and never used it (the port kept it as `_ = ...`) — a query per group for nothing.
 
     quantidade_linha_base = 0.0
     valor_linha = 0.0
@@ -1761,11 +1780,15 @@ async def _processa_grupo_producao(
         )
 
     quantidade_max_pedido = -1.0
-    max_preco_rows = hana_reader.fetch_all(*ligar(q.MAX_PRECO_PEDIDO, doc_num=doc_num_ped))
+    if ("max_preco", doc_num_ped) not in leituras:
+        leituras[("max_preco", doc_num_ped)] = hana_reader.fetch_all(*ligar(q.MAX_PRECO_PEDIDO, doc_num=doc_num_ped))
+    max_preco_rows = leituras[("max_preco", doc_num_ped)]
     if max_preco_rows:
         quantidade_max_pedido = _num(list(max_preco_rows[0].values())[0], padrao=-1.0) or -1.0
 
-    doc_entry_final = await _pega_doc_entry_ped(hana_reader, orc_num_max)
+    # The C# resolved the order's DocEntry a second time here; only reads happened since the
+    # first one, and a DocEntry does not change — the same value is reused.
+    doc_entry_final = doc_entry_ped
 
     recurso = ""
     if custos_wbc:

@@ -296,7 +296,8 @@ TIPO_OBJETO_ENTRADA_MERCADORIA = "59"  # OIGN / InventoryGenEntries
 
 
 def _filial_do_movimento(
-    hana_reader: HanaDirectReader, doc_entry: int, filial_configurada: int = 0
+    hana_reader: HanaDirectReader, doc_entry: int, filial_configurada: int = 0,
+    cache: dict | None = None,
 ) -> int:
     """Descobre a filial (`BPLId`) a usar na saída e na entrada de mercadoria da OP.
 
@@ -321,12 +322,18 @@ def _filial_do_movimento(
     não só contra as existentes: a mensagem do SAP fala em filial ativa, e uma empresa pode
     ter filial cadastrada e desabilitada (é o caso aqui — a filial 2 está desabilitada).
     Melhor falhar com um motivo legível antes de postar do que receber a recusa do SAP.
+
+    `cache` (30/09/2026): one dict per `finalizar_ops` call. The active branches are the
+    same for every OP of a closing — they were read again per OP.
     """
-    ativas = {
-        int(linha["BPLId"])
-        for linha in hana_reader.fetch_all(q.FILIAIS_ATIVAS)
-        if linha.get("BPLId") is not None
-    }
+    cache = {} if cache is None else cache
+    if "filiais_ativas" not in cache:
+        cache["filiais_ativas"] = {
+            int(linha["BPLId"])
+            for linha in hana_reader.fetch_all(q.FILIAIS_ATIVAS)
+            if linha.get("BPLId") is not None
+        }
+    ativas = cache["filiais_ativas"]
     if not ativas:
         raise ValueError(
             "Nenhuma filial ativa em OBPL — a Service Layer vai recusar qualquer "
@@ -362,7 +369,7 @@ def _filial_do_movimento(
 
 
 def _serie_do_documento(
-    hana_reader: HanaDirectReader, object_code: str, filial: int
+    hana_reader: HanaDirectReader, object_code: str, filial: int, cache: dict | None = None,
 ) -> int:
     """Descobre a série de numeração (`Series`) do documento, para a filial informada.
 
@@ -382,7 +389,13 @@ def _serie_do_documento(
     nunca uma série bloqueada (`Locked = 'Y'`), e o empate é resolvido pelo menor número
     para a escolha ser determinística — uma série diferente a cada execução espalharia a
     numeração dos documentos sem que ninguém entendesse por quê.
+
+    `cache` (30/09/2026): one dict per `finalizar_ops` call — the series depends only on the
+    document type and the branch, and was read twice per OP.
     """
+    chave = ("serie", str(object_code), int(filial))
+    if cache is not None and chave in cache:
+        return cache[chave]
     linhas = hana_reader.fetch_all(q.SERIE_DO_DOCUMENTO, (str(object_code), int(filial)))
     if not linhas:
         raise ValueError(
@@ -395,6 +408,8 @@ def _serie_do_documento(
         "  Documento tipo %s: série %s (%s), filial %s.",
         object_code, escolhida["Series"], escolhida.get("SeriesName") or "", filial,
     )
+    if cache is not None:
+        cache[chave] = int(escolhida["Series"])
     return int(escolhida["Series"])
 
 
@@ -659,6 +674,8 @@ async def finalizar_ops(
     # de "sem estoque" que esconde a causa real — a falha lá embaixo.
     dependentes = dependentes or {}
     bloqueadas: dict[int, int] = {}  # doc_entry -> doc_entry que falhou
+    # Branches and series are the same for every OP of this closing: read once (30/09/2026).
+    leituras: dict = {}
 
     async def _desfaz_liberacao(op_alvo: dict, doc_entry_alvo: int) -> str:
         """Devolve a OP para Planejada quando a cadeia falhou sem lançar nada.
@@ -717,16 +734,16 @@ async def finalizar_ops(
         liberou = False
         saida_lancada = False
         try:
-            filial = _filial_do_movimento(hana_reader, doc_entry, filial_configurada)
+            filial = _filial_do_movimento(hana_reader, doc_entry, filial_configurada, cache=leituras)
             # As DUAS séries são resolvidas aqui, antes de qualquer escrita. Descobrir que
             # falta a série da ENTRADA depois de a saída já estar lançada deixaria o pior
             # estado possível: baixa de insumo sem a entrada correspondente, que só se
             # desfaz cancelando o documento no SAP à mão.
             serie_saida = _serie_do_documento(
-                hana_reader, TIPO_OBJETO_SAIDA_MERCADORIA, filial
+                hana_reader, TIPO_OBJETO_SAIDA_MERCADORIA, filial, cache=leituras
             )
             serie_entrada = _serie_do_documento(
-                hana_reader, TIPO_OBJETO_ENTRADA_MERCADORIA, filial
+                hana_reader, TIPO_OBJETO_ENTRADA_MERCADORIA, filial, cache=leituras
             )
 
             etapa = "liberar a OP para apontamento"

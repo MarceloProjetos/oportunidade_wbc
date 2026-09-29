@@ -179,8 +179,6 @@ ORDER BY ORDR."DocEntry" DESC
 
 
 
-GET_VERSAO_PEDIDO = 'SELECT IFNULL("U_INO_VERSAOWBC",\'\') FROM ORDR WHERE "DocNum" = \'{doc_num}\''
-
 # ⚠️ 24/09/2026 — restrita às linhas DO GRUPO (`U_INO_ORCITM IN (...)`). A versão do C#
 # (`BuscaMAXItemLinha`) filtrava só por pedido + item e pegava a primeira linha do
 # `ORDER BY LineNum DESC`, ou seja, a linha sem OP de MAIOR número daquele item — não a
@@ -407,6 +405,7 @@ GET_DOC_ENTRY_TABLE_VALDIXON = 'SELECT max("DocEntry") FROM "@INO_ORCAM"'
 # depende delas):
 #   SELECT_ESTRUTURA_EXISTE · PEGA_QUANTIDADE_PEDIDO · NUMERO_PEDIDO · CONTAGEM_LINHA
 #   GET_DOC_TOTAL_PEDIDO · LINHA_PEDIDO
+# and on 30/09/2026 GET_VERSAO_PEDIDO (read per group and discarded, as in the C#).
 # Eram transcrições do `Querys.resx` de trechos do C# que o porte resolveu de outro jeito.
 # Query transcrita e não usada é pior que ausente: quem lê presume que algum caminho a
 # executa e vai procurar onde. O texto original está no `Querys.resx` do addon.

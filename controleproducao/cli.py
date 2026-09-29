@@ -639,10 +639,10 @@ def pedidos_wbc_comparar_ops(
 
     async def _main():
         hana_reader = HanaDirectReader(settings)
-        wbc = WbcSqlServerClient(settings)
-        return await pedidos_wbc_service.comparar_ops(
-            hana_reader, wbc, orc_num, legado, novo or None, desde, com_canceladas,
-        )
+        with WbcSqlServerClient(settings) as wbc:
+            return await pedidos_wbc_service.comparar_ops(
+                hana_reader, wbc, orc_num, legado, novo or None, desde, com_canceladas,
+            )
 
     try:
         resultado = _run(_main())
@@ -853,9 +853,9 @@ def pedidos_wbc_processar_novos(
     async def _main():
         settings = get_settings()
         hana_reader = HanaDirectReader(settings)
-        wbc = WbcSqlServerClient(settings)
-        async with ServiceLayerClient(settings) as sl:
-            return await pedidos_wbc_service.processar_pedidos_novos(sl, wbc, hana_reader, orc_nums, force=force)
+        with WbcSqlServerClient(settings) as wbc:
+            async with ServiceLayerClient(settings) as sl:
+                return await pedidos_wbc_service.processar_pedidos_novos(sl, wbc, hana_reader, orc_nums, force=force)
 
     resultado = _run(_main())
 
@@ -912,9 +912,9 @@ def pedidos_wbc_reprocessar_integrados(
     async def _main():
         settings = get_settings()
         hana_reader = HanaDirectReader(settings)
-        wbc = WbcSqlServerClient(settings)
-        async with ServiceLayerClient(settings) as sl:
-            return await pedidos_wbc_service.reprocessar_pedidos_integrados(sl, wbc, hana_reader, orc_nums)
+        with WbcSqlServerClient(settings) as wbc:
+            async with ServiceLayerClient(settings) as sl:
+                return await pedidos_wbc_service.reprocessar_pedidos_integrados(sl, wbc, hana_reader, orc_nums)
 
     resultado = _run(_main())
 
@@ -1354,8 +1354,8 @@ def conexoes_testar():
 
     def _testar_wbc() -> tuple[bool, str]:
         try:
-            wbc = WbcSqlServerClient(settings)
-            wbc.fetch_all("SELECT 1 AS ok")
+            with WbcSqlServerClient(settings) as wbc:
+                wbc.fetch_all("SELECT 1 AS ok")
             return True, "leitura OK"
         except Exception as exc:  # noqa: BLE001
             return False, str(exc)

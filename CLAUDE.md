@@ -213,8 +213,9 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   `__file__` (raiz do SIS), de qualquer cwd; `logs/controleproducao.log` é relativo ao cwd. As
   credenciais caem nos mesmos fallbacks do WBC (`OP_SL_*`, `SAP_*`, `SQL_*`) e
   `env_ignore_empty=True` faz `SL_USERNAME=` vazio cair no fallback (o `wbcpython` **não** tem
-  isso). O pacote original do Anderson (`IntegracaoPedido_CriacaoOP/`, ignorado pelo git) é só
-  referência: `wheels/`, `scripts/`, `config/` e `MANIFESTO` **não** entram no repo.
+  isso). A pasta do pacote original do Anderson (`IntegracaoPedido_CriacaoOP/`) foi apagada em
+  30/09 (D2; o original está no zip com ele): `wheels/`, `scripts/`, `config/` e `MANIFESTO`
+  **não** entram no repo.
 - **`OS_API_KEY` é compartilhada** pela API 8077, pelo painel WBC e pelo Controle de Produção
   (o MESMO cookie `wbc_painel`, HMAC em `wbcpython/dashboard/acesso.py`; o navegador não separa
   cookie por porta, então uma entrada vale para as duas telas). Trocar a chave derruba os

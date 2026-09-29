@@ -14,7 +14,7 @@ pedido ser marcado com `U_INO_OP = 0`.
 import asyncio
 import sys
 import types
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -237,3 +237,98 @@ def test_chave_do_documento_criado(resposta, esperado):
     from controleproducao.modules.pedidos_wbc.service import _chave_do_documento_criado
 
     assert _chave_do_documento_criado(resposta, "ProductionOrders") == esperado
+
+
+# ---------------------------------------------------------------------------
+# 3. Leituras do pedido uma vez por pedido (30/09/2026)
+# ---------------------------------------------------------------------------
+def test_leituras_do_pedido_saem_uma_vez_e_as_do_grupo_continuam_por_grupo():
+    """Three groups of one order used to re-read the order's DocEntry (twice per group),
+    DocNum, multiple delivery, the SAP item, the WBC costs and the max price — and a
+    discarded "order version". Now once per order; the group's own line (quantity and
+    value, `BUSCA_MAX_ITEM_LINHA`) is still read per group."""
+    from collections import Counter
+    from types import SimpleNamespace
+
+    from controleproducao.core.sql_ligado import ligar
+    from controleproducao.modules.pedidos_wbc import queries as q
+    from controleproducao.modules.pedidos_wbc import service as svc
+
+    nomes = {
+        ligar(q.DOC_NUM_POR_DOC_ENTRY, doc_entry=1)[0]: "doc_num",
+        ligar(q.ENTREGA_MULTIPLA, doc_entry=1)[0]: "entrega_multipla",
+        ligar(q.SELECT_ORC_ITEM_SAP, grp_code=1)[0]: "item_sap",
+        ligar(q.MAX_PRECO_PEDIDO, doc_num="1")[0]: "max_preco",
+    }
+    respostas = {
+        "doc_num": [{"DocNum": 84433}], "entrega_multipla": [{"E": "N"}],
+        "item_sap": [{"U_INO_ItemSAP": "I000003"}], "max_preco": [{"M": 10}],
+    }
+    lidas: Counter = Counter()
+
+    def fetch_all(sql, params=()):
+        nome = nomes.get(sql, "outra")
+        lidas[nome] += 1
+        return respostas.get(nome, [])
+
+    hana = MagicMock()
+    hana.fetch_all.side_effect = fetch_all
+    hana.fetch_all_values.side_effect = lambda sql, params=(): [[0, 5.0, 500.0]]
+    wbc = MagicMock()
+    wbc.fetch_all.return_value = [{"CUSTO": 1.0}]
+    doc_entry = AsyncMock(return_value="20176")
+    marca = AsyncMock()
+
+    def _grupo(orc_itm):
+        return [SimpleNamespace(orc_num="00125460", grp_code=7, prd_desc="PP", prd_code="X",
+                                linha=orc_itm, quantidade=1, id_integracao_orc=1, linha_orc=1)]
+
+    with patch.object(svc, "_pega_doc_entry_ped", doc_entry), \
+         patch.object(svc, "_ops_existentes_para_item", AsyncMock(return_value=[])), \
+         patch.object(svc, "cria_recurso_rateio", AsyncMock(return_value="GGF_X")), \
+         patch.object(svc, "cria_ordem_producao", AsyncMock(return_value=(0, 900))), \
+         patch.object(svc, "checa_semi_acabado", AsyncMock()), \
+         patch.object(svc, "marca_op_nas_linhas", marca), \
+         patch.object(svc, "_atualiza_doc", AsyncMock()), \
+         patch.object(svc, "preenche_log", AsyncMock()):
+        contexto: dict = {}
+        for orc_itm in ("1", "2", "7"):
+            g = _grupo(orc_itm)
+            asyncio.run(svc._processa_grupo_producao(
+                MagicMock(), wbc, hana, "00125460", 7, int(orc_itm), g, g, False, contexto
+            ))
+
+    assert doc_entry.await_count == 1                        # was 6 (twice per group)
+    assert {k: lidas[k] for k in respostas} == {k: 1 for k in respostas}
+    assert lidas["outra"] == 0                               # GET_VERSAO_PEDIDO is gone
+    assert wbc.fetch_all.call_count == 1                     # PEGA_VALORES_RECURSOS
+    assert hana.fetch_all_values.call_count == 3             # the group's own line, per group
+    assert all(c.args[-1] == "20176" for c in marca.await_args_list)   # doc_entry_final
+
+
+def test_filial_e_series_uma_vez_por_encerramento():
+    """Closing N OPs re-read the active branches and both series per OP (~3N reads)."""
+    from controleproducao.modules.manutencao_op import queries as q
+    from controleproducao.modules.manutencao_op import service as svc
+
+    lidas: dict[str, int] = {"filiais": 0, "serie": 0}
+
+    def fetch_all(sql, params=()):
+        if sql == q.FILIAIS_ATIVAS:
+            lidas["filiais"] += 1
+            return [{"BPLId": 1}]
+        if sql == q.SERIE_DO_DOCUMENTO:
+            lidas["serie"] += 1
+            return [{"Series": 20, "SeriesName": "Primário"}]
+        if sql == q.FILIAL_CANDIDATA_DA_OP:
+            return [{"filial_deposito_op": 1}]
+        return []
+
+    hana = MagicMock()
+    hana.fetch_all.side_effect = fetch_all
+    cache: dict = {}
+    for doc_entry in (101, 102, 103, 104):
+        filial = svc._filial_do_movimento(hana, doc_entry, cache=cache)
+        svc._serie_do_documento(hana, svc.TIPO_OBJETO_SAIDA_MERCADORIA, filial, cache=cache)
+        svc._serie_do_documento(hana, svc.TIPO_OBJETO_ENTRADA_MERCADORIA, filial, cache=cache)
+    assert lidas == {"filiais": 1, "serie": 2}               # was 4 and 8
