@@ -9,9 +9,12 @@
 > sem alerta); F4 coberta por decisão do Marcelo (28/09 15h: o código rodou 1 semana no
 > notebook do Anderson — sem reteste da versão integrada); F5 com o pré-voo feito do notebook
 > (candidatas em 28/09: 84435 / orç. 00125460 e, 1 h depois, 84433 — a menor, 84433, é o 1º
-> piloto; a lista muda ao longo do dia; addon C# ativo todo dia útil); F6 com o CÓDIGO
-> PRONTO no repo (D9: API 8077 só libera, Replanejar só CLI; `CP_HOST=0.0.0.0` documentado) —
-> falta o deploy + `.env` + regra de firewall + restart, do Marcelo.** A 1ª versão deste plano
+> piloto; a lista muda ao longo do dia; addon C# ativo todo dia útil); **F6 NO AR (28/09
+> ~14:45)** — `CP_HOST=0.0.0.0`, regra de firewall `OrcaView-ControleProducao-8080` com o
+> alcance da 8079 (`192.168.0.0/16`), a tela abre pelo IP, API 8077 só libera OP (D9),
+> Replanejar só CLI; **F7 parcial (29/09)** — guia do operador (rascunho), SQL do módulo 3 com
+> parâmetro ligado (paridade 15/15 em PROD), Reprocessar fora da tela (D8); pendem o porte do
+> SQL do módulo 2, o `pymssql` e a pasta original (D2).** A 1ª versão deste plano
 > (manhã de 28/09) recomendava instalar
 > isolado em `C:\ControleProducao` — está superada; o que dela vale (riscos, fatos,
 > reteste, piloto) foi incorporado aqui.
@@ -353,7 +356,7 @@ conferidos OP a OP no SAP, sem divergência, e o addon parou de tocar neles.*
   mão, só depois de olhar `/tarefas`.
 - Gate: 0 divergências nos 3 → addon desligado para pedidos novos (D14).
 
-### F6 — Abrir para a rede e módulo 3 — `código pronto · 28/09 tarde — deploy, .env e firewall do Marcelo`
+### F6 — Abrir para a rede e módulo 3 — `✅ no ar 28/09 ~14:45`
 
 *Ao fechar: a tela abre pelo IP de qualquer estação da LAN com o cookie do painel; a API 8077
 só libera OP; encerrar com estoque é só pela Manutenção de OP.*
@@ -384,7 +387,7 @@ só libera OP; encerrar com estoque é só pela Manutenção de OP.*
    8079 e cai em `LocalSubnet` se ela não existir:
 
 ```powershell
-$molde = Get-NetFirewallRule -DisplayName '*8079*' -Direction Inbound -Action Allow -Enabled True -ErrorAction SilentlyContinue | Select-Object -First 1
+$molde = Get-NetFirewallRule -DisplayName '*8079*' -ErrorAction SilentlyContinue | Where-Object { $_.Direction -eq 'Inbound' -and $_.Action -eq 'Allow' -and $_.Enabled -eq 'True' } | Select-Object -First 1
 $alcance = 'LocalSubnet'
 if ($molde) { $alcance = ($molde | Get-NetFirewallAddressFilter).RemoteAddress }
 "molde: $($molde.DisplayName) / alcance: $alcance"
@@ -403,13 +406,29 @@ nssm restart OrcaView-ControleProducao; Start-Sleep 4; Get-NetTCPConnection -Loc
   entregue a outra equipe) passa a receber 400.</span> Nenhum caller no web nem no app
   (grep em 28/09); se houver tela externa, avisar antes do deploy.
 
-### F7 — Operação contínua — `aberta`
+### F7 — Operação contínua — `parcial · 29/09`
 
-- Guia do operador (1 página; Claude rascunha, Anderson valida) + 30 min com quem opera.
-- Portes futuros, com o Anderson: SQL de `manutencao_op/service.py` e `queries.py` para
-  `sql_seguro` (hoje `str.format`); `WbcSqlServerClient` para `pymssql` (tira a dependência
-  do ODBC); esconder `Reprocessar` do menu enquanto D8 valer.
-- Pasta original `IntegracaoPedido_CriacaoOP/`: apagar quando o Marcelo quiser e tirar a
+**Como a F6 entrou (28/09):** deploy de `cd770a8`; `CP_HOST=0.0.0.0` acrescentado ao `.env`;
+regra `OrcaView-ControleProducao-8080` copiada da `OrcaView WBC 8079` (`RemoteAddress
+192.168.0.0/255.255.0.0` — só a LAN); `nssm restart` → `LocalAddress 0.0.0.0`. Do notebook:
+`/health` pelo IP ok, sem cookie → `/entrar`, POST de escrita sem sessão → 401, `/status` 200.
+<span class="warn">O que mordeu:</span> o `nssm restart` da 1ª tentativa levou ~80 s (o STOP
+esperou o uvicorn) e a 8080 ficou fora nesse intervalo — esperar o `/health` antes de testar.
+
+- ✅ Guia do operador: `docs/controleproducao/GUIA_OPERADOR.md` (rascunho; **Anderson valida**)
+  — falta a meia hora com quem opera.
+- ✅ SQL do módulo 3 (`manutencao_op`) com parâmetro ligado; números validados na borda;
+  paridade antiga × nova **15/15** contra PROD (só SELECT).
+- ✅ `Reprocessar` fora da tela (D8): botão removido; as duas rotas recusam com "só pela CLI".
+- ⏳ SQL do módulo 2 (`pedidos_wbc`, ~42 pontos) — a 1ª tentativa parou no meio e foi
+  descartada (`queries.py` com `?` e `service.py` ainda formatando quebraria em produção).
+  Achado no caminho: `_update_pedido` manda consultas do SAP ao SQL Server do WBC — hoje
+  inalcançável (os 102 pedidos abertos com `Integrar='Y'` estão `Congelado='Y'`); se alcançado,
+  falha antes de gravar. Fechar com mensagem clara no porte.
+- ⏳ `WbcSqlServerClient` → `pymssql`: o driver está no `requirements.txt` (o worker usa na .11),
+  mas **não no notebook** — a prova de paridade depende de instalar lá (pedir ao Marcelo).
+- ⏳ `basicConfig(force=True)` da CLI: contido no `conftest`; sem efeito em produção.
+- ⏳ Pasta original `IntegracaoPedido_CriacaoOP/`: apagar quando o Marcelo quiser e tirar a
   linha do `.gitignore` (D2).
 
 ---

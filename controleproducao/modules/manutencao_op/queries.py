@@ -1,5 +1,10 @@
 """Queries do módulo Manutenção de OP, transcritas de `Controllers/Querys.resx`.
 Todas em HANA (SAP B1) — este módulo não acessa o WBC.
+
+Since 28/09/2026 (F7 of docs/PLANO_CONTROLE_PRODUCAO_11.md) every value is a bound parameter
+(`?`, passed to `HanaDirectReader.fetch_all(sql, params)`); the text is otherwise the original.
+The only thing still formatted in is `{marcadores}` of the two `IN` lists, and it only ever
+receives `?, ?, ...` built by `service._marcadores` — never a value.
 """
 
 OPS_MANUTENCAO = """
@@ -12,16 +17,17 @@ FROM "ORDR" T0
   LEFT OUTER JOIN OWOR T1 ON T0."CardCode" = T1."CardCode" AND T0."DocNum" = T1."OriginNum"
   LEFT OUTER JOIN "OITM" T2 ON T1."ItemCode" = T2."ItemCode"
   LEFT JOIN "OCRD" T3 ON T1."CardCode" = T3."CardCode"
-WHERE T0."DocNum" = '{doc_num}' AND T1."Status" != 'C'
+WHERE T0."DocNum" = ? AND T1."Status" != 'C'
 """.strip()
-# filtros adicionais opcionais concatenados pelo código original (agora via parâmetro):
-#   AND (T1."DocNum" BETWEEN {n1} AND {n2})   -- ou = {n1}
-#   AND (T1."Status" BETWEEN '{s1}' AND '{s2}') -- ou = '{s1}'
+# Optional filters appended by `service._monta_filtro`, values as bound parameters
+# (the C# original pasted the text box straight into the SQL):
+#   AND (T1."DocNum" BETWEEN ? AND ?)   -- or = ?
+#   AND (T1."Status" BETWEEN ? AND ?)   -- or = ?
 #   ORDER BY T1."DocNum" DESC
 
-OPDE = 'SELECT T0."DocEntry" FROM OWOR T0 WHERE T0."DocNum" = \'{doc_num}\''
+OPDE = 'SELECT T0."DocEntry" FROM OWOR T0 WHERE T0."DocNum" = ?'
 
-QTDE_FALTANTE_OP = 'SELECT T1."ItemCode", T1."PlannedQty" - T1."IssuedQty" FROM OWOR T0 INNER JOIN WOR1 T1 ON T0."DocEntry" = T1."DocEntry" WHERE T0."DocEntry" = \'{doc_entry}\''
+QTDE_FALTANTE_OP = 'SELECT T1."ItemCode", T1."PlannedQty" - T1."IssuedQty" FROM OWOR T0 INNER JOIN WOR1 T1 ON T0."DocEntry" = T1."DocEntry" WHERE T0."DocEntry" = ?'
 
 
 # --- Adicionadas em 16/09/2026 ao implementar liberar/replanejar -------------------
@@ -34,7 +40,7 @@ OPS_POR_DOCNUM = """
 SELECT T0."DocEntry", T0."DocNum", T0."Status", T0."ItemCode", T0."PlannedQty",
        T0."CmpltQty", T0."OriginNum"
 FROM OWOR T0
-WHERE T0."DocNum" IN ({doc_nums})
+WHERE T0."DocNum" IN ({marcadores})
 ORDER BY T0."DocNum"
 """.strip()
 
@@ -44,7 +50,7 @@ OPS_POR_PEDIDO = """
 SELECT T0."DocEntry", T0."DocNum", T0."Status", T0."ItemCode", T0."PlannedQty",
        T0."CmpltQty", T0."OriginNum"
 FROM OWOR T0
-WHERE T0."OriginNum" = '{doc_num}' AND T0."Status" != 'C'
+WHERE T0."OriginNum" = ? AND T0."Status" != 'C'
 ORDER BY T0."DocNum"
 """.strip()
 
@@ -62,7 +68,7 @@ SELECT T1."LineNum", T1."ItemCode", T1."PlannedQty", T1."IssuedQty",
        T1."PlannedQty" - T1."IssuedQty" "Faltante"
 FROM OWOR T0
   INNER JOIN WOR1 T1 ON T0."DocEntry" = T1."DocEntry"
-WHERE T0."DocEntry" = {doc_entry}
+WHERE T0."DocEntry" = ?
 ORDER BY T1."LineNum"
 """.strip()
 
@@ -91,7 +97,7 @@ SELECT
           WHERE L."DocEntry" = T0."DocEntry"), 0) "filial_componentes",
   IFNULL((SELECT R."BPLId" FROM ORDR R WHERE R."DocEntry" = T0."OriginAbs"), 0) "filial_pedido"
 FROM OWOR T0
-WHERE T0."DocEntry" = {doc_entry}
+WHERE T0."DocEntry" = ?
 """.strip()
 
 
@@ -110,9 +116,9 @@ WHERE T0."DocEntry" = {doc_entry}
 SERIE_DO_DOCUMENTO = """
 SELECT T0."Series", T0."SeriesName", IFNULL(T0."BPLId", 0) "filial"
 FROM NNM1 T0
-WHERE T0."ObjectCode" = '{object_code}'
+WHERE T0."ObjectCode" = ?
   AND IFNULL(T0."Locked",'N') <> 'Y'
-  AND (T0."BPLId" IS NULL OR T0."BPLId" = {filial})
+  AND (T0."BPLId" IS NULL OR T0."BPLId" = ?)
 ORDER BY IFNULL(T0."BPLId", 999999) ASC, T0."Series" ASC
 """.strip()
 
@@ -128,6 +134,6 @@ ORDER BY IFNULL(T0."BPLId", 999999) ASC, T0."Series" ASC
 COMPONENTES_DAS_OPS = """
 SELECT T0."DocEntry", T0."ItemCode"
 FROM WOR1 T0
-WHERE T0."DocEntry" IN ({doc_entries})
+WHERE T0."DocEntry" IN ({marcadores})
 ORDER BY T0."DocEntry", T0."LineNum"
 """.strip()

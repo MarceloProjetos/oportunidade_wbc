@@ -6,6 +6,22 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-29] — Controle de Produção: F7 parcial (SQL do módulo 3, Reprocessar fora da tela, guia)
+
+Vale no próximo deploy (`deploy_update.bat`; sem dependência nova). F6 está no ar desde 28/09
+~14:45 (`CP_HOST=0.0.0.0` + regra de firewall da 8080 com o alcance da 8079).
+
+- **SQL do módulo 3 (`manutencao_op`) com parâmetro ligado:** os 10 textos passam a `?`; o
+  filtro de busca devolve `(fragmento, params)`; DocNum/DocEntry validados na borda
+  (`_inteiro`); listas `IN` só recebem marcadores. Paridade antiga × nova 15/15 contra PROD.
+- **`Reprocessar` fora da tela (D8):** botão removido de "Pedidos integrados"; as rotas
+  `/pedidos-wbc/reprocessar/{conferir,executar}` recusam com "só pela CLI" (400), antes de
+  qualquer leitura ou tarefa.
+- **`docs/controleproducao/GUIA_OPERADOR.md`** — rascunho de 1 página para quem opera (o
+  Anderson valida).
+- Pendem na F7: SQL do módulo 2 (a 1ª tentativa foi descartada pela metade), `pymssql` no
+  cliente do WBC (falta o driver no notebook para a prova) e a pasta original (D2).
+
 ## [2026-09-28] — Controle de Produção: F6 (rede + módulo 3) e o pré-voo do piloto
 
 ⚠️ Vale no próximo deploy. **Muda o contrato da API de OP** (`API_ORDENS_PRODUCAO.md`): `POST

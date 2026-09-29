@@ -30,14 +30,24 @@ def _op(doc_entry=101, doc_num=9001, status="P", planejada=10, apontada=0):
 # ---------------------------------------------------------------------------
 def test_filtro_com_um_limite_vira_igualdade():
     """Regra do original preservada: só o limite inferior => `=`, nunca `between`."""
-    assert svc._monta_filtro("9001", None, None, None) == ' AND (T1."DocNum" = 9001)'
-    assert svc._monta_filtro(None, None, "P", None) == """ AND (T1."Status" = 'P')"""
+    assert svc._monta_filtro("9001", None, None, None) == (' AND (T1."DocNum" = ?)', [9001])
+    assert svc._monta_filtro(None, None, "P", None) == (' AND (T1."Status" = ?)', ["P"])
 
 
 def test_filtro_com_dois_limites_vira_between():
-    filtro = svc._monta_filtro("9001", "9010", "P", "R")
-    assert '(T1."DocNum" BETWEEN 9001 AND 9010)' in filtro
-    assert """(T1."Status" BETWEEN 'P' AND 'R')""" in filtro
+    filtro, params = svc._monta_filtro("9001", "9010", "P", "R")
+    assert '(T1."DocNum" BETWEEN ? AND ?)' in filtro
+    assert '(T1."Status" BETWEEN ? AND ?)' in filtro
+    assert params == [9001, 9010, "P", "R"]
+
+
+def test_op_nao_numerica_e_recusada_na_borda():
+    """F7 (28/09/2026): values are bound parameters; a typo is refused in Portuguese here
+    instead of reaching HANA as a conversion error."""
+    with pytest.raises(ValueError):
+        svc._monta_filtro("90O1", None, None, None)
+    with pytest.raises(ValueError):
+        svc.buscar_ops(MagicMock(), "84245; --")
 
 
 def test_limite_superior_sozinho_e_recusado():
@@ -69,10 +79,13 @@ def test_busca_ordena_por_docnum_desc_e_traduz_status():
         "Cod. Cliente": "C1", "Cliente": "ACME", "Selecionar": "N",
     }]
 
-    resultado = svc.buscar_ops(leitor, "84245")
+    resultado = svc.buscar_ops(leitor, "84245", op_de="9001", status_de="P")
 
-    sql = leitor.fetch_all.call_args.args[0]
+    sql, params = leitor.fetch_all.call_args.args
     assert sql.rstrip().endswith('ORDER BY T1."DocNum" DESC')
+    # F7: the order number and the filters travel as parameters, never inside the text.
+    assert params == (84245, 9001, "P")
+    assert "84245" not in sql and "9001" not in sql
     assert resultado[0]["Status (descrição)"] == "Planejada"
     # A coluna da caixa de seleção da grade não faz sentido na CLI.
     assert "Selecionar" not in resultado[0]
@@ -166,14 +179,15 @@ def _leitor_com_filial(
     # Séries por ObjectCode: 60 = saída, 59 = entrada (valores reais da Altamira).
     padrao_series = series if series is not None else {"60": 20, "59": 19}
 
-    def fetch_all(sql, *_a, **_kw):
+    def fetch_all(sql, params=(), *_a, **_kw):
         if "OBPL" in sql:
             return [{"BPLId": f} for f in filiais_ativas]
         if "filial_deposito_op" in sql:
             return [padrao_candidatos]
         if "NNM1" in sql:
+            # Since F7 the ObjectCode travels as a parameter, not inside the text.
             for object_code, numero in padrao_series.items():
-                if f"'{object_code}'" in sql:
+                if object_code in (str(p) for p in params):
                     return [{"Series": numero, "SeriesName": "Primário", "filial": 0}]
             return []
         # As duas consultas a WOR1 se distinguem pelo alias "Faltante": uma traz o saldo
@@ -316,12 +330,12 @@ def test_faixa_de_status_invertida_e_recusada():
 
 
 def test_faixa_de_status_na_ordem_alfabetica_passa():
-    assert svc._monta_filtro(None, None, "C", "R") == """ AND (T1."Status" BETWEEN 'C' AND 'R')"""
+    assert svc._monta_filtro(None, None, "C", "R") == (' AND (T1."Status" BETWEEN ? AND ?)', ["C", "R"])
 
 
 def test_faixa_de_status_de_um_elemento_passa():
     """De/até iguais é intervalo válido de um item, não inversão."""
-    assert svc._monta_filtro(None, None, "P", "P") == """ AND (T1."Status" BETWEEN 'P' AND 'P')"""
+    assert svc._monta_filtro(None, None, "P", "P") == (' AND (T1."Status" BETWEEN ? AND ?)', ["P", "P"])
 
 
 def test_faixa_de_op_invertida_e_recusada():
@@ -456,9 +470,10 @@ def test_serie_da_filial_vence_a_serie_sem_filial():
 def test_query_de_serie_exclui_bloqueadas_e_outras_filiais():
     from controleproducao.modules.manutencao_op import queries as q
 
-    sql = q.SERIE_DO_DOCUMENTO.format(object_code="60", filial=1)
+    sql = q.SERIE_DO_DOCUMENTO
     assert """IFNULL(T0."Locked",'N') <> 'Y'""" in sql
-    assert '''T0."BPLId" IS NULL OR T0."BPLId" = 1''' in sql
+    assert '''T0."BPLId" IS NULL OR T0."BPLId" = ?''' in sql
+    assert '''T0."ObjectCode" = ?''' in sql
     # Determinismo: sem ORDER BY, séries diferentes a cada execução espalhariam a
     # numeração dos documentos sem explicação.
     assert "ORDER BY" in sql

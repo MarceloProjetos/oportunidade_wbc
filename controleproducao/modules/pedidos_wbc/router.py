@@ -131,15 +131,18 @@ async def conferir_processar(
     )
 
 
+_REPROCESSAR_SO_CLI = (
+    "Reprocessar não está disponível na tela: ele cancela TODA OP planejada do pedido "
+    "(de qualquer origem) e não recria. Use a CLI na .11, com o Anderson — "
+    "`python -m controleproducao pedidos-wbc reprocessar-integrados` (decisão D8)."
+)
+
+
 @router.post("/reprocessar/conferir", response_class=HTMLResponse)
 async def conferir_reprocessar(request: Request, opp_ids: list[str] = Form(default=[])):
-    return await _confere_pedidos(
-        request, opp_ids, integrados=True, force=False,
-        operacao="Reprocessar pedidos integrados",
-        acao="/pedidos-wbc/reprocessar/executar",
-        aviso="Reatualiza o vínculo pedido↔oportunidade e CANCELA as Ordens de Produção "
-              "planejadas do pedido antes de recriá-las.",
-    )
+    # D8 (F7, 28/09/2026): out of the screen. A stale page or a hand-made POST gets the
+    # explicit refusal before any lookup, plan or write.
+    return _erro(request, _REPROCESSAR_SO_CLI, titulo="Reprocessar é só pela CLI")
 
 
 async def _confere_pedidos(
@@ -289,15 +292,8 @@ async def executar_processar(request: Request, token: str = Form(default="")):
 
 @router.post("/reprocessar/executar")
 async def executar_reprocessar(request: Request, token: str = Form(default="")):
-    plano, erro = _consome(request, token)
-    if erro:
-        return erro
-    alvos = _alvos(plano)
-
-    async def executa(tarefa: Tarefa):
-        return await _roda_pedidos(tarefa, alvos, modo="reprocessar", force=False)
-
-    return _dispara(request, plano.operacao, _descricao(alvos), executa)
+    # D8: refused even with a token — no screen path can issue one any more.
+    return _erro(request, _REPROCESSAR_SO_CLI, titulo="Reprocessar é só pela CLI")
 
 
 def _alvos(plano) -> list[tuple[str, str]]:

@@ -629,7 +629,7 @@ módulo 3 (*Manutenção de OP*) libera, replaneja e **encerra com movimentaçã
   Administrador; copia o alcance da regra da 8079 e cai em `LocalSubnet` se ela não existir):
 
   ```powershell
-  $molde = Get-NetFirewallRule -DisplayName '*8079*' -Direction Inbound -Action Allow -Enabled True -ErrorAction SilentlyContinue | Select-Object -First 1
+  $molde = Get-NetFirewallRule -DisplayName '*8079*' -ErrorAction SilentlyContinue | Where-Object { $_.Direction -eq 'Inbound' -and $_.Action -eq 'Allow' -and $_.Enabled -eq 'True' } | Select-Object -First 1
   $alcance = 'LocalSubnet'
   if ($molde) { $alcance = ($molde | Get-NetFirewallAddressFilter).RemoteAddress }
   "molde: $($molde.DisplayName) / alcance: $alcance"

@@ -147,6 +147,8 @@ ROTAS_QUE_NAO_GRAVAM = {
     "/pedidos-wbc/buscar",
     "/pedidos-wbc/processar/conferir",
     "/pedidos-wbc/reprocessar/conferir",
+    # D8 (28/09/2026): Reprocessar is CLI-only; the screen route only refuses.
+    "/pedidos-wbc/reprocessar/executar",
     "/pedidos-wbc/cancelar-ops/conferir",
     "/manutencao-op/buscar",
     "/manutencao-op/encerrar/conferir",
@@ -671,6 +673,17 @@ def test_post_com_op_terminal_barra_o_lote_inteiro(cliente):
     assert "terminal" in resposta.text.lower()
     assert "155746" in resposta.text
     mudar.assert_not_called()
+
+
+def test_reprocessar_pela_tela_e_recusado(cliente):
+    """D8 (28/09/2026): Reprocessar cancels every planned OP of the order and does not
+    recreate them — the screen refuses both steps, before any lookup or task."""
+    with patch("controleproducao.modules.pedidos_wbc.router._roda_pedidos") as roda:
+        for rota in ("/pedidos-wbc/reprocessar/conferir", "/pedidos-wbc/reprocessar/executar"):
+            resposta = cliente.post(rota, data={"opp_ids": ["15056"], "token": "x"})
+            assert resposta.status_code == 400
+            assert "CLI" in resposta.text
+    roda.assert_not_called()
 
 
 def test_replanejar_pela_tela_e_recusado(cliente):

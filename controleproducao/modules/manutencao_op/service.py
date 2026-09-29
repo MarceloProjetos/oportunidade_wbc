@@ -68,32 +68,57 @@ COLUNAS_BUSCA = [
 ]
 
 
+def _marcadores(quantidade: int) -> str:
+    """`?, ?, ...` for an `IN` list — the only text ever formatted into these queries."""
+    return ", ".join("?" * quantidade)
+
+
+def _inteiro(valor: object, rotulo: str) -> int:
+    """A SAP number (DocNum/DocEntry) from the CLI or a form, refused unless it is one.
+
+    The original pasted the text into the SQL; with bound parameters that can no longer be
+    injected, but a typo would still reach HANA as a conversion error. Refusing here gives
+    the message in Portuguese, at the border.
+    """
+    texto = str(valor if valor is not None else "").strip()
+    if not texto.isdigit():
+        raise ValueError(f"{rotulo} inválido: {valor!r} (esperado um número).")
+    return int(texto)
+
+
 def _monta_filtro(
     op_de: str | None, op_ate: str | None, status_de: str | None, status_ate: str | None
-) -> str:
+) -> tuple[str, list]:
     """Reproduz a montagem do `WhereQuery` de `ManutencaoOp.buscar()` (linha ~99).
 
     Regra do original, preservada: informar só o limite inferior vira igualdade (`=`),
     e informar os dois vira `between`. O limite superior sozinho é ignorado — no legado
     porque o `if` externo testa só o inferior; aqui isso vira um erro explícito, já que
     numa CLI o usuário não tem a tela para perceber que o filtro não foi aplicado.
+
+    Returns ``(fragment, params)``: since F7 (28/09/2026) the values are bound parameters.
     """
     if op_ate and not op_de:
         raise ValueError("--op-ate exige --op-de (o legado ignora silenciosamente esse caso).")
     if status_ate and not status_de:
         raise ValueError("--status-ate exige --status-de.")
 
-    partes = []
+    partes: list[str] = []
+    params: list = []
     if op_de:
-        if op_ate and int(op_ate) < int(op_de):
+        de_op = _inteiro(op_de, "--op-de")
+        ate_op = _inteiro(op_ate, "--op-ate") if op_ate else None
+        if ate_op is not None and ate_op < de_op:
             raise ValueError(
                 f"Faixa de OP invertida: --op-de {op_de} é maior que --op-ate {op_ate}. "
                 "O `between` devolveria zero linhas."
             )
-        partes.append(
-            f'(T1."DocNum" BETWEEN {int(op_de)} AND {int(op_ate)})' if op_ate
-            else f'(T1."DocNum" = {int(op_de)})'
-        )
+        if ate_op is not None:
+            partes.append('(T1."DocNum" BETWEEN ? AND ?)')
+            params += [de_op, ate_op]
+        else:
+            partes.append('(T1."DocNum" = ?)')
+            params.append(de_op)
     if status_de:
         de = _valida_status(status_de)
         if status_ate:
@@ -111,10 +136,12 @@ def _monta_filtro(
                     f"Para essa faixa, inverta: --status-de {ate} --status-ate {de}. "
                     "Para todos os status, omita os dois filtros."
                 )
-            partes.append(f"""(T1."Status" BETWEEN '{de}' AND '{ate}')""")
+            partes.append('(T1."Status" BETWEEN ? AND ?)')
+            params += [de, ate]
         else:
-            partes.append(f"""(T1."Status" = '{de}')""")
-    return "".join(f" AND {parte}" for parte in partes)
+            partes.append('(T1."Status" = ?)')
+            params.append(de)
+    return "".join(f" AND {parte}" for parte in partes), params
 
 
 def _valida_status(codigo: str) -> str:
@@ -152,11 +179,11 @@ def buscar_ops(
     if not str(doc_num or "").strip():
         raise ValueError("O número do pedido é obrigatório.")
 
-    sql = q.OPS_MANUTENCAO.format(doc_num=doc_num)
-    sql += _monta_filtro(op_de, op_ate, status_de, status_ate)
-    sql += ' ORDER BY T1."DocNum" DESC'
+    pedido = _inteiro(doc_num, "Número do pedido")
+    filtro, params_filtro = _monta_filtro(op_de, op_ate, status_de, status_ate)
+    sql = q.OPS_MANUTENCAO + filtro + ' ORDER BY T1."DocNum" DESC'
 
-    linhas = hana_reader.fetch_all(sql)
+    linhas = hana_reader.fetch_all(sql, (pedido, *params_filtro))
     # A coluna "Selecionar" existia só para a caixa de seleção da grade — não faz sentido
     # na CLI, onde a seleção é o próprio argumento do comando.
     return [
@@ -177,10 +204,12 @@ def levanta_ops(
     em Liberar/Planejar, e é essa informação que permite decidir. Só leitura.
     """
     if op_docnums:
-        lista = ",".join(f"'{num}'" for num in dict.fromkeys(str(n) for n in op_docnums))
-        rows = hana_reader.fetch_all(q.OPS_POR_DOCNUM.format(doc_nums=lista))
+        numeros = list(dict.fromkeys(_inteiro(n, "Número da OP") for n in op_docnums))
+        rows = hana_reader.fetch_all(
+            q.OPS_POR_DOCNUM.format(marcadores=_marcadores(len(numeros))), tuple(numeros)
+        )
     elif doc_num_pedido:
-        rows = hana_reader.fetch_all(q.OPS_POR_PEDIDO.format(doc_num=doc_num_pedido))
+        rows = hana_reader.fetch_all(q.OPS_POR_PEDIDO, (_inteiro(doc_num_pedido, "Número do pedido"),))
     else:
         raise ValueError("Informe os números das OPs ou o pedido.")
 
@@ -304,7 +333,7 @@ def _filial_do_movimento(
             "lançamento de estoque. Verifique o cadastro de filiais."
         )
 
-    linhas = hana_reader.fetch_all(q.FILIAL_CANDIDATA_DA_OP.format(doc_entry=int(doc_entry)))
+    linhas = hana_reader.fetch_all(q.FILIAL_CANDIDATA_DA_OP, (int(doc_entry),))
     origem = linhas[0] if linhas else {}
 
     candidatos = [
@@ -354,9 +383,7 @@ def _serie_do_documento(
     para a escolha ser determinística — uma série diferente a cada execução espalharia a
     numeração dos documentos sem que ninguém entendesse por quê.
     """
-    linhas = hana_reader.fetch_all(
-        q.SERIE_DO_DOCUMENTO.format(object_code=object_code, filial=int(filial))
-    )
+    linhas = hana_reader.fetch_all(q.SERIE_DO_DOCUMENTO, (str(object_code), int(filial)))
     if not linhas:
         raise ValueError(
             f"Nenhuma série de numeração ativa para o tipo de documento {object_code} "
@@ -439,7 +466,7 @@ async def saida_insumo(
     2. Linhas já totalmente baixadas (`PlannedQty - IssuedQty <= 0`) são puladas. O legado as
        incluía e deixava o SAP recusar ou lançar quantidade zero.
     """
-    linhas_op = hana_reader.fetch_all(q.LINHAS_FALTANTES_OP.format(doc_entry=int(doc_entry)))
+    linhas_op = hana_reader.fetch_all(q.LINHAS_FALTANTES_OP, (int(doc_entry),))
     pendentes = [linha for linha in linhas_op if float(linha["Faltante"] or 0) > 0]
 
     if not pendentes:
@@ -502,9 +529,10 @@ def _componentes_por_op(
     """Itens que cada OP consome, para montar a hierarquia."""
     if not doc_entries:
         return {}
-    lista = ",".join(str(int(d)) for d in dict.fromkeys(doc_entries))
+    unicos = list(dict.fromkeys(int(d) for d in doc_entries))
     por_op: dict[int, set[str]] = {int(d): set() for d in doc_entries}
-    for linha in hana_reader.fetch_all(q.COMPONENTES_DAS_OPS.format(doc_entries=lista)):
+    sql = q.COMPONENTES_DAS_OPS.format(marcadores=_marcadores(len(unicos)))
+    for linha in hana_reader.fetch_all(sql, tuple(unicos)):
         por_op.setdefault(int(linha["DocEntry"]), set()).add(str(linha["ItemCode"] or ""))
     return por_op
 

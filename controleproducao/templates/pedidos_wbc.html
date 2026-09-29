@@ -90,7 +90,8 @@
 
   <div class="ov-acoes-lote">
     {% if modo == 'integrados' %}
-    <button type="submit" class="ov-btn ov-btn--perigo">{{ icone('raio') }} Reprocessar selecionados…</button>
+    {# Reprocessar saiu da tela em 28/09/2026 (D8): cancela toda OP planejada e não recria. #}
+    <p class="ov-nota">Lista só para consulta. Reprocessar é só pela CLI, na .11, com o Anderson.</p>
     {% else %}
     <button type="submit" class="ov-btn ov-btn--perigo">{{ icone('play') }} Processar selecionados…</button>
     <label class="ov-opcao" style="padding-bottom:0"><input type="checkbox" name="force" value="1">
