@@ -6,25 +6,74 @@
  * fontes do sistema e CSS puro — inclusive as barras dos gráficos.
  */
 
+/* OrçaView look (29/09/2026): the same palette, surfaces and accent as the OrçaView
+ * pages (Usuarios.html) and the Controle de Produção screen next door — this painel is
+ * their sister screen. Dark is the DEFAULT, as in OrçaView; light is the explicit
+ * `data-tema="claro"` override chosen with the "Tema" button (kept per browser). The
+ * operating-system preference no longer decides: the house default does.
+ *
+ * Surface ladder: page < card header < card < inner surface (KPIs) < input.
+ * `--acento` fills and borders; `--acento-texto` is the accent as TEXT (lighter coral in
+ * dark, for contrast on the card). Semantic colours keep their tuned hues; their
+ * backgrounds are translucent so they sit on any surface. */
 :root {
-  color-scheme: light dark;
+  color-scheme: dark;
 
-  /* Neutros puxados para o azul-aço: o assunto é metalurgia, e um cinza
-   * exatamente neutro lê como cinza de template. */
-  --fundo: #eef1f4;
+  --fundo: #1a1a1a;
+  --painel: #2d2d2d;
+  --painel-2: #262626;
+  --superficie: #333333;
+  --campo: #3a3a3a;
+  --traco: #404040;
+  --traco-forte: #5c5c5c;
+  --tinta: #f3f4f6;
+  --tinta-fraca: #9ca3af;
+  --tinta-fraquissima: #7b8390;
+
+  --acento: #da7756;
+  --acento-texto: #e8956e;
+  --acento-fraco: rgb(218 119 86 / 14%);
+
+  --ok: #48b77f;
+  --ok-fundo: rgb(72 183 127 / 15%);
+  --atencao: #e0a82e;
+  --atencao-fundo: rgb(224 168 46 / 15%);
+  --critico: #f2726a;
+  --critico-fundo: rgb(242 114 106 / 15%);
+  --neutro: #9ca3af;
+  --neutro-fundo: rgb(156 163 175 / 14%);
+
+  /* Blue for themed log lines ("[porta-paletes] ..."): what the integration DECIDED
+   * about the line — neither warning nor error, so neither coral, amber nor red. */
+  --tema: #6aaaf2;
+  --tema-fundo: rgb(106 170 242 / 15%);
+
+  --sombra: 0 4px 10px rgb(0 0 0 / 30%), 0 1px 3px rgb(0 0 0 / 22%);
+  --raio: 12px;
+  --raio-item: 10px;
+
+  --ui: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Monospace only where it is content: log lines, commands, console output. */
+  --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", "Cascadia Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+:root[data-tema="claro"] {
+  color-scheme: light;
+
+  --fundo: #eef1f5;
   --painel: #ffffff;
-  --painel-2: #f7f9fa;
-  --traco: #d2dae1;
-  --traco-forte: #b6c1cb;
-  --tinta: #16202a;
-  --tinta-fraca: #5c6b79;
-  --tinta-fraquissima: #8695a3;
-
-  /* Cobre: metal quente. Usado com parcimônia — aba ativa, foco, números
-   * focais. Não é a cor de "tudo que é importante". */
-  --acento: #b4531d;
-  --acento-fraco: #f4e4d9;
-
+  --painel-2: #f6f8fb;
+  --superficie: #f8fafc;
+  --campo: #ffffff;
+  --traco: #dce3ec;
+  --traco-forte: #b8c3d1;
+  --tinta: #1f2733;
+  --tinta-fraca: #5a6675;
+  --tinta-fraquissima: #7a8594;
+  --acento: #c45a3a;
+  --acento-texto: #c45a3a;
+  --acento-fraco: rgb(196 90 58 / 10%);
   --ok: #1c7a4c;
   --ok-fundo: #e4f3ea;
   --atencao: #92620a;
@@ -33,74 +82,9 @@
   --critico-fundo: #fbe6e4;
   --neutro: #5c6b79;
   --neutro-fundo: #eaeef1;
-
-  /* Azul-aço para as linhas de log com tema ("[porta-paletes] ..."): é o que
-   * a integração DECIDIU sobre a linha, e não é nem alerta nem erro — precisa
-   * de uma cor que não seja a do cobre, do âmbar nem do vermelho. */
   --tema: #1f5fa8;
   --tema-fundo: #e3edf9;
-
-  --sombra: 0 1px 2px rgb(22 32 42 / 6%), 0 1px 1px rgb(22 32 42 / 4%);
-  --raio: 6px;
-
-  --ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  /* Monoespaçada não é enfeite: a tela inteira é número de orçamento, DocNum,
-   * valor e linha de log — coisas que se comparam na vertical. */
-  --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", "Cascadia Mono", Menlo, Consolas,
-    "Liberation Mono", monospace;
-}
-
-/* Escuro por preferência do sistema. O `:not([data-tema="claro"])` existe
- * para que a escolha explícita do operador ganhe do sistema operacional —
- * sem aninhamento de CSS, que navegador de fábrica não costuma entender. */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-tema="claro"]) {
-    --fundo: #10151a;
-    --painel: #192027;
-    --painel-2: #1e262e;
-    --traco: #2b343d;
-    --traco-forte: #3c4854;
-    --tinta: #dde4eb;
-    --tinta-fraca: #93a1ae;
-    --tinta-fraquissima: #6d7c8a;
-    --acento: #e07a3d;
-    --acento-fraco: #35241a;
-    --ok: #48b77f;
-    --ok-fundo: #14291f;
-    --atencao: #d9a227;
-    --atencao-fundo: #2d2413;
-    --critico: #f2726a;
-    --critico-fundo: #2f1917;
-    --neutro: #93a1ae;
-    --neutro-fundo: #232b33;
-    --tema: #6aaaf2;
-    --tema-fundo: #17304f;
-    --sombra: 0 1px 2px rgb(0 0 0 / 35%);
-  }
-}
-
-:root[data-tema="escuro"] {
-  --fundo: #10151a;
-  --painel: #192027;
-  --painel-2: #1e262e;
-  --traco: #2b343d;
-  --traco-forte: #3c4854;
-  --tinta: #dde4eb;
-  --tinta-fraca: #93a1ae;
-  --tinta-fraquissima: #6d7c8a;
-  --acento: #e07a3d;
-  --acento-fraco: #35241a;
-  --ok: #48b77f;
-  --ok-fundo: #14291f;
-  --atencao: #d9a227;
-  --atencao-fundo: #2d2413;
-  --critico: #f2726a;
-  --critico-fundo: #2f1917;
-  --neutro: #93a1ae;
-  --neutro-fundo: #232b33;
-  --tema: #6aaaf2;
-  --tema-fundo: #17304f;
-  --sombra: 0 1px 2px rgb(0 0 0 / 35%);
+  --sombra: 0 1px 2px rgb(0 0 0 / 5%), 0 6px 20px rgb(0 0 0 / 5%);
 }
 
 * {
@@ -111,7 +95,7 @@ body {
   margin: 0;
   background: var(--fundo);
   color: var(--tinta);
-  font: 400 15.5px/1.5 var(--ui);
+  font: 400 15px/1.5 var(--ui);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -125,7 +109,7 @@ h3 {
 }
 
 a {
-  color: var(--acento);
+  color: var(--acento-texto);
 }
 
 :focus-visible {
@@ -136,36 +120,51 @@ a {
 
 /* ------------------------------------------------------------------ cabeçalho */
 
+/* OrçaView topbar: coral icon, title and subtitle stacked, actions on the right; the tab
+ * row below. Sticky with a translucent page background, so the list scrolls under it. */
 .topo {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: var(--painel);
+  background: color-mix(in srgb, var(--fundo) 92%, transparent);
+  backdrop-filter: blur(6px);
   border-bottom: 1px solid var(--traco);
 }
 
 .topo-linha {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   flex-wrap: wrap;
-  padding: 10px 20px;
+  max-width: 1500px;
+  margin: 0 auto;
+  padding: 16px 24px 12px;
 }
 
 .marca {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  align-items: center;
+  gap: 14px;
   margin-right: auto;
 }
 
+.marca .icone {
+  display: inline-flex;
+  color: var(--acento-texto);
+}
+
 .marca h1 {
-  font-size: 16.5px;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--tinta);
+  line-height: 1.2;
 }
 
 .marca .sub {
-  font-size: 13px;
-  color: var(--tinta-fraquissima);
+  display: block;
+  margin-top: 2px;
+  font-size: 0.8125rem;
+  color: var(--tinta-fraca);
 }
 
 /* O ambiente é o fato mais perigoso da tela: em produção o ciclo cria e
@@ -175,10 +174,10 @@ a {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 10px;
+  padding: 6px 12px;
   border-radius: 999px;
-  font: 600 12px/1 var(--mono);
-  letter-spacing: 0.06em;
+  font: 700 0.75rem/1 var(--ui);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   background: var(--neutro-fundo);
   color: var(--tinta-fraca);
@@ -207,8 +206,10 @@ a {
 
 .abas {
   display: flex;
-  gap: 2px;
-  padding: 0 20px;
+  gap: 4px;
+  max-width: 1500px;
+  margin: 0 auto;
+  padding: 0 24px;
   overflow-x: auto;
 }
 
@@ -217,19 +218,22 @@ a {
   border: 0;
   background: none;
   cursor: pointer;
-  font: 500 14.5px/1 var(--ui);
+  font: 500 0.9375rem/1 var(--ui);
   color: var(--tinta-fraca);
-  padding: 11px 14px;
+  padding: 11px 16px 12px;
   border-bottom: 2px solid transparent;
+  border-radius: var(--raio-item) var(--raio-item) 0 0;
   white-space: nowrap;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
 }
 
 .aba:hover {
   color: var(--tinta);
+  background: var(--acento-fraco);
 }
 
 .aba[aria-current="page"] {
-  color: var(--acento);
+  color: var(--acento-texto);
   border-bottom-color: var(--acento);
   font-weight: 600;
 }
@@ -237,17 +241,18 @@ a {
 /* ------------------------------------------------------------------ estrutura */
 
 main {
-  padding: 18px 20px 48px;
+  padding: 24px 24px 56px;
   max-width: 1500px;
   margin: 0 auto;
 }
 
+/* Card: background + 1px border + radius + soft shadow, no glass (OrçaView kit). */
 .bloco {
   background: var(--painel);
   border: 1px solid var(--traco);
-  border-radius: var(--raio);
+  border-radius: 14px;
   box-shadow: var(--sombra);
-  margin-bottom: 16px;
+  margin-bottom: 20px;
   overflow: hidden;
 }
 
@@ -256,49 +261,60 @@ main {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  padding: 11px 14px;
+  padding: 14px 20px;
   border-bottom: 1px solid var(--traco);
   background: var(--painel-2);
 }
 
+/* Section title = small caps, muted, with the accent's little square (OrçaView kit). */
 .bloco > header h2 {
-  font-size: 14.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.8125rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.08em;
   color: var(--tinta-fraca);
   margin-right: auto;
 }
 
+.bloco > header h2::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--acento);
+}
+
 .corpo {
-  padding: 14px;
+  padding: 18px 20px;
 }
 
 .nota {
   color: var(--tinta-fraquissima);
-  font-size: 13px;
+  font-size: 0.8125rem;
   margin: 8px 0 0;
 }
 
 .vazio {
-  padding: 28px 14px;
+  padding: 32px 20px;
   text-align: center;
   color: var(--tinta-fraca);
 }
 
 /* --------------------------------------------------------------- indicadores */
 
+/* grid + auto-fit, not flex: no empty strip on the right (the classic complaint). */
 .faixa-kpi {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
 }
 
-/* O filete no topo do bloco carrega informação: é o semáforo do indicador.
- * Sem ele a cor teria de ir para o número, e número colorido em painel denso
- * vira decoração. */
-/* O indicador é um botão: clicar abre a lista daqueles orçamentos. Por isso
- * `text-align`, `font` e `width` explícitos — um `<button>` não herda nada
- * disso, e sem eles o número sairia centralizado e com a fonte do sistema. */
+/* The KPI is a button (it opens the list of those quotes), hence the explicit
+ * `text-align`, `font` and `width`. The 4px LEFT rule carries the traffic-light, like the
+ * OrçaView summary cards; the number itself stays neutral. */
 .kpi {
   appearance: none;
   width: 100%;
@@ -306,63 +322,58 @@ main {
   font: inherit;
   color: inherit;
   cursor: pointer;
-  background: var(--painel);
+  background: var(--superficie);
   border: 1px solid var(--traco);
-  border-top: 3px solid var(--traco-forte);
-  border-radius: var(--raio);
-  padding: 12px 13px;
-  transition:
-    border-color 0.12s ease,
-    box-shadow 0.12s ease;
+  border-left: 4px solid var(--traco-forte);
+  border-radius: var(--raio-item);
+  padding: 14px 16px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
 .kpi:hover {
-  border-color: var(--traco-forte);
-  box-shadow: var(--sombra);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 25%);
+  background: color-mix(in srgb, var(--superficie) 90%, var(--acento) 10%);
 }
 
-/* O ativo é o que responde "o que estou vendo na lista?". O anel interno basta,
- * e é de propósito que ele não recolore mais nada: o filete de cima continua
- * sendo o semáforo, e pintar também o rótulo colocava cobre, vermelho e o
- * número no mesmo cartão disputando atenção. */
 .kpi.ativo {
   border-color: var(--acento);
-  box-shadow: inset 0 0 0 1px var(--acento);
+  box-shadow: 0 0 0 1px var(--acento);
 }
 
 .kpi .rotulo {
-  font-size: 12px;
+  font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--tinta-fraquissima);
+  color: var(--tinta-fraca);
   display: block;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .kpi .valor {
-  font: 600 28.5px/1.1 var(--mono);
+  font: 700 1.875rem/1.1 var(--ui);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
+  color: var(--tinta);
 }
 
 .kpi .detalhe {
   display: block;
-  margin-top: 4px;
-  font-size: 12px;
+  margin-top: 6px;
+  font-size: 0.75rem;
   color: var(--tinta-fraquissima);
 }
 
 .kpi.ok {
-  border-top-color: var(--ok);
+  border-left-color: var(--ok);
 }
 .kpi.atencao {
-  border-top-color: var(--atencao);
+  border-left-color: var(--atencao);
 }
 .kpi.critico {
-  border-top-color: var(--critico);
+  border-left-color: var(--critico);
 }
 .kpi.acento {
-  border-top-color: var(--acento);
+  border-left-color: var(--acento);
 }
 .kpi.critico .valor {
   color: var(--critico);
@@ -373,8 +384,8 @@ main {
   align-items: center;
   gap: 7px;
   font-weight: 600;
-  font-size: 14.5px;
-  padding: 5px 11px;
+  font-size: 0.875rem;
+  padding: 6px 12px;
   border-radius: 999px;
 }
 
@@ -407,7 +418,7 @@ main {
 
 .filtros {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
   align-items: flex-end;
 }
@@ -415,14 +426,14 @@ main {
 .campo {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .campo > span {
-  font-size: 12px;
+  font-size: 0.75rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--tinta-fraquissima);
+  letter-spacing: 0.06em;
+  color: var(--tinta-fraca);
 }
 
 input[type="text"],
@@ -430,43 +441,70 @@ input[type="number"],
 input[type="search"],
 input[type="password"],
 select {
-  font: 400 14.5px/1 var(--ui);
+  font: 400 0.9375rem/1.2 var(--ui);
   color: var(--tinta);
-  background: var(--painel);
+  background: var(--campo);
   border: 1px solid var(--traco-forte);
-  border-radius: 5px;
-  padding: 7px 9px;
-  min-width: 150px;
+  border-radius: 9px;
+  padding: 9px 12px;
+  min-width: 160px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="search"]:focus,
+input[type="password"]:focus,
+select:focus {
+  outline: none;
+  border-color: var(--acento);
+  box-shadow: 0 0 0 3px var(--acento-fraco);
+}
+
+input::placeholder {
+  color: var(--tinta-fraquissima);
 }
 
 input[type="search"].largo {
-  min-width: 280px;
+  min-width: 300px;
 }
 
 .caixa {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  font-size: 14.5px;
+  gap: 8px;
+  font-size: 0.875rem;
   color: var(--tinta-fraca);
   cursor: pointer;
-  padding-bottom: 8px;
 }
 
 .caixa input {
   accent-color: var(--acento);
+  width: 16px;
+  height: 16px;
 }
 
+/* Primary action = OrçaView relief button (coral gradient); `.discreta` = ghost button. */
 button.acao,
 a.acao {
   appearance: none;
   cursor: pointer;
-  font: 600 14.5px/1 var(--ui);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 0.875rem/1 var(--ui);
   color: #fff;
-  background: var(--acento);
-  border: 1px solid transparent;
-  border-radius: 5px;
-  padding: 8px 14px;
+  background: linear-gradient(to bottom, #e08060, #c45a3a);
+  border: 1px solid #b04e30;
+  border-radius: var(--raio-item);
+  padding: 10px 16px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 15%), inset 0 1px 0 rgb(255 255 255 / 18%);
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+}
+
+button.acao:hover,
+a.acao:hover {
+  background: linear-gradient(to bottom, #e8956e, #da7756);
 }
 
 button.acao.discreta,
@@ -474,16 +512,38 @@ a.acao.discreta {
   background: var(--painel);
   color: var(--tinta);
   border-color: var(--traco-forte);
+  box-shadow: none;
+  font-weight: 500;
 }
 
-button.acao:hover,
-a.acao:hover {
-  filter: brightness(1.06);
+button.acao.discreta:hover,
+a.acao.discreta:hover {
+  color: var(--acento-texto);
+  border-color: var(--acento);
+  background: var(--acento-fraco);
 }
 
 a.acao {
-  display: inline-block;
   text-decoration: none;
+}
+
+/* Round icon button for the theme, as in OrçaView; shows the theme it switches TO. */
+button.acao.tema {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--acento-texto);
+}
+
+button.acao.tema .ir-escuro,
+:root[data-tema="claro"] button.acao.tema .ir-claro {
+  display: none;
+}
+
+:root[data-tema="claro"] button.acao.tema .ir-escuro {
+  display: inline;
 }
 
 .sair {
@@ -545,7 +605,7 @@ a.acao {
 table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14.5px;
+  font-size: 0.9375rem;
 }
 
 thead th {
@@ -554,40 +614,110 @@ thead th {
   z-index: 1;
   background: var(--painel-2);
   text-align: left;
-  font: 600 12px/1 var(--ui);
+  font: 600 0.75rem/1 var(--ui);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   color: var(--tinta-fraca);
-  padding: 9px 12px;
+  padding: 13px 16px;
   border-bottom: 1px solid var(--traco);
   white-space: nowrap;
 }
 
 tbody td {
-  padding: 7px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--traco) 55%, transparent);
+  padding: 11px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--traco) 70%, transparent);
   white-space: nowrap;
 }
 
-tbody tr:hover td {
-  background: var(--painel-2);
+tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--tinta) 2.5%, transparent);
 }
 
-/* Identificadores e grandezas em monoespaçada, alinhados: é o que permite
- * varrer a coluna de cima a baixo procurando o número diferente. */
+tbody tr:hover td {
+  background: var(--acento-fraco);
+}
+
+/* Identifiers and quantities line up with tabular figures (same font as the page, as in
+ * OrçaView): scanning a column top to bottom for the odd number keeps working. */
 td.mono,
 th.mono {
-  font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }
 
-/* Cabeçalho e célula alinham juntos: um título de coluna à esquerda sobre
- * números à direita faz a coluna parecer desalinhada. */
+td.mono {
+  color: var(--tinta-fraca);
+}
+
+/* Header and cell align together: a left title over right-aligned numbers makes the
+ * column look crooked. */
 th.num,
 td.num {
   text-align: right;
-  font-family: var(--mono);
   font-variant-numeric: tabular-nums;
+}
+
+/* The quote number opens its history: link in accent text, no underline until hover. */
+a.orcamento {
+  color: var(--acento-texto);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+a.orcamento:hover {
+  text-decoration: underline;
+}
+
+/* Status pill: translucent background + text in the same hue (OrçaView kit). */
+.pilula {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font: 600 0.75rem/1.4 var(--ui);
+  color: var(--neutro);
+  background: var(--neutro-fundo);
+}
+
+.pilula::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentcolor;
+}
+
+.pilula.ok {
+  color: var(--ok);
+  background: var(--ok-fundo);
+}
+.pilula.atencao {
+  color: var(--atencao);
+  background: var(--atencao-fundo);
+}
+.pilula.critico {
+  color: var(--critico);
+  background: var(--critico-fundo);
+}
+
+/* The row that loads the next page when it scrolls into view (also clickable). */
+tbody tr.mais td {
+  text-align: center;
+  padding: 16px;
+  color: var(--tinta-fraca);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  background: var(--painel-2);
+}
+
+tbody tr.mais:hover td {
+  color: var(--acento-texto);
+}
+
+tbody tr.mais .pulso {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 6px;
 }
 
 /* --------------------------------------------------------------------- barras */

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Entrar — Integração WBC × SAP</title>
-    <link rel="stylesheet" href="/static/painel.css?v=20260914b" />
+    <link rel="stylesheet" href="/static/painel.css?v=20260929" />
   </head>
   <body>
     {#
@@ -15,8 +15,11 @@
     <div class="topo">
       <div class="topo-linha">
         <div class="marca">
-          <h1>Integração WBC × SAP Business One</h1>
-          <span class="sub">painel de acompanhamento</span>
+          <span class="icone" aria-hidden="true"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h14l-4-4"/><path d="M20 16H6l4 4"/></svg></span>
+          <div>
+            <h1>Integração WBC × SAP Business One</h1>
+            <span class="sub">Painel de acompanhamento</span>
+          </div>
         </div>
         <span class="ambiente {{ 'producao' if producao else '' }}">
           {{ company_db }}{{ '' if producao else ' · homologação' }}

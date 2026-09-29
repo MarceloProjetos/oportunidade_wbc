@@ -20,7 +20,7 @@
         >
       </span>
     {% endif %}
-    <span class="carimbo" id="contagem-oportunidades">{{ linhas | length }} orçamento(s)</span>
+    <span class="carimbo" id="contagem-oportunidades">{{ total | numero }} orçamento(s)</span>
   </header>
 
   <div class="corpo">
@@ -80,7 +80,7 @@
         dentro de “{{ corte.rotulo }}”{% endif %}.
     </div>
   {% else %}
-    <div class="rolagem">
+    <div class="rolagem" id="rolagem-oportunidades">
       <table>
         <thead>
           <tr>
@@ -90,29 +90,7 @@
           </tr>
         </thead>
         <tbody>
-          {% for linha in linhas %}
-            <tr>
-              {% for coluna, valor in linha.items() %}
-                {% if loop.first %}
-                  {# O número do orçamento leva direto ao histórico dele: é a
-                     pergunta seguinte em praticamente toda leitura desta lista. #}
-                  <td class="mono">
-                    <a
-                      href="#"
-                      hx-get="/fragmentos/detalhe?orcnum={{ valor }}"
-                      hx-target="#conteudo"
-                      onclick="marcarAbaPorNome('Detalhe')"
-                      >{{ valor }}</a
-                    >
-                  </td>
-                {% else %}
-                  <td
-                    class="{{ 'num' if coluna in num else ('mono' if coluna in mono else '') }}"
-                  >{{ valor }}</td>
-                {% endif %}
-              {% endfor %}
-            </tr>
-          {% endfor %}
+          {% include "_oportunidades_linhas.html" %}
         </tbody>
       </table>
     </div>

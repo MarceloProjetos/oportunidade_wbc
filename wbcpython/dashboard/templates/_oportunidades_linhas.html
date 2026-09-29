@@ -1,0 +1,51 @@
+{#
+  As linhas da lista — a primeira página (dentro de _oportunidades.html) e as seguintes
+  (pedidas pela linha "carregando mais", que é trocada por estas).
+
+  Paginado desde 29/09/2026: com ~2.000 orçamentos na janela, desenhar todos de uma vez
+  pesava a aba. A linha do fim pede a próxima página quando aparece dentro da caixa da
+  tabela (`intersect once root:#rolagem-oportunidades` — a tabela rola por dentro, e medir
+  contra a janela inteira nunca disparava com a caixa abaixo da dobra); o clique nela faz o
+  mesmo, para quem navega pelo teclado.
+#}
+{% set mono = ["Orçamento", "SitCode", "Rev.", "Cotação", "Pedido", "Aberta em", "Última verificação"] %}
+{% set num = ["Valor do pedido"] %}
+{% for linha in linhas %}
+  <tr>
+    {% for coluna, valor in linha.items() %}
+      {% if loop.first %}
+        {# O número do orçamento leva direto ao histórico dele: é a
+           pergunta seguinte em praticamente toda leitura desta lista. #}
+        <td class="mono">
+          <a
+            href="#"
+            class="orcamento"
+            hx-get="/fragmentos/detalhe?orcnum={{ valor }}"
+            hx-target="#conteudo"
+            onclick="marcarAbaPorNome('Detalhe')"
+            >{{ valor }}</a
+          >
+        </td>
+      {% elif coluna == "Situação" %}
+        <td><span class="pilula {{ classe_situacao.get(valor, 'neutro') }}">{{ valor }}</span></td>
+      {% else %}
+        <td class="{{ 'num' if coluna in num else ('mono' if coluna in mono else '') }}">{{ valor }}</td>
+      {% endif %}
+    {% endfor %}
+  </tr>
+{% endfor %}
+{% if mais %}
+  <tr
+    class="mais"
+    hx-get="{{ mais }}"
+    hx-trigger="intersect once root:#rolagem-oportunidades, click"
+    hx-swap="outerHTML"
+    tabindex="0"
+    title="Carregar os próximos orçamentos"
+  >
+    <td colspan="{{ linhas[0] | length if linhas else 1 }}">
+      <span class="pulso"></span>
+      Mostrando {{ mostrando | numero }} de {{ total | numero }} — carregando mais ao rolar
+    </td>
+  </tr>
+{% endif %}

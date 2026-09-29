@@ -6,6 +6,25 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-29] — Painel WBC com o visual do OrçaView; lista de oportunidades em páginas de 300
+
+Vale no próximo deploy (só o painel, `OrcaView-WBC-Painel`). Sem dependência nova.
+
+- **Visual OrçaView** (o mesmo da Usuarios.html e da tela do Controle de Produção): paleta
+  escura como padrão e clara pelo botão de tema (redondo, ícone sol/lua — não segue mais o
+  sistema operacional), cabeçalho com ícone + título + subtítulo, abas com acento coral,
+  cartões com raio 14 e título de seção em caps com o quadradinho do acento, indicadores em
+  grade com o semáforo na borda esquerda, campos e botões no padrão (primário em relevo
+  coral, secundário vazado), tabela com cabeçalho caps, zebra leve e hover coral, e a
+  Situação em pílula colorida (erro vermelho, pedido/cotação verde, pendente âmbar).
+  `?v=20260929` no CSS.
+- **Lista de oportunidades paginada:** o servidor entrega 300 linhas por vez; a última linha
+  ("Mostrando 300 de 2.086 — carregando mais ao rolar") pede as próximas 300 quando aparece
+  dentro da caixa da tabela (`hx-trigger="intersect once root:#rolagem-oportunidades"`; o
+  clique também carrega). A contagem do cabeçalho segue sendo o total; busca, situação,
+  recorte e janela viajam no pedido da próxima página. Conferido em prévia com 2.086
+  orçamentos falsos: 300 → 600 → … → 2.086, sem linha repetida.
+
 ## [2026-09-29] — Controle de Produção: SQL da tela de Pedidos com parâmetro ligado; WBC em pymssql
 
 Vale no próximo deploy (`deploy_update.bat`). Sem dependência nova na .11: `pymssql` já está

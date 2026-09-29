@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from wbcpython import logs
 from wbcpython.config import Settings, get_settings
@@ -101,6 +101,24 @@ ROTAS_ABERTAS = frozenset(
 #: que o Streamlit usava: alto o bastante para a janela inteira, baixo o
 #: bastante para a página não virar um megabyte de HTML.
 TETO_DE_LINHAS = 5000
+
+#: How many rows of the opportunities list go to the browser at once (29/09/2026). The
+#: query still reads up to TETO_DE_LINHAS — it is SQLite, milliseconds — but rendering
+#: ~2,000 rows x 13 columns made the tab heavy. The last row asks for the next page when it
+#: scrolls into view (`hx-trigger="intersect once"`).
+LINHAS_POR_PAGINA = 300
+
+#: Pill colour of each status in the list, by the label the table shows.
+CLASSE_DA_SITUACAO = {
+    StatusIntegracao.PENDENTE.rotulo: "atencao",
+    StatusIntegracao.SEM_ACAO.rotulo: "neutro",
+    StatusIntegracao.COTACAO_CRIADA.rotulo: "ok",
+    StatusIntegracao.COTACAO_ATUALIZADA.rotulo: "ok",
+    StatusIntegracao.PEDIDO_CRIADO.rotulo: "ok",
+    StatusIntegracao.PEDIDO_ATUALIZADO.rotulo: "ok",
+    StatusIntegracao.ENCERRADA.rotulo: "neutro",
+    StatusIntegracao.ERRO.rotulo: "critico",
+}
 
 SAUDE = {
     "ok": ("ok", "Integração saudável"),
@@ -354,12 +372,17 @@ def criar_app(
         status: str = "",
         tudo: int = 0,
         recorte: str = "",
+        inicio: int = 0,
     ) -> HTMLResponse:
         """A lista, com o recorte que veio do indicador clicado.
 
         `recorte` é a pergunta que o número do topo responde ("quais deram
         erro?"); `status` continua sendo a escolha fina de uma situação. Os dois
         se somam: dentro de "com ação" ainda dá para ver só as encerradas.
+
+        Paged since 29/09/2026: `inicio=0` renders the block with the first
+        LINHAS_POR_PAGINA rows; `inicio>0` returns only the next rows (plus the
+        row that loads the page after), swapped in place of the loading row.
         """
         corte = dados.recorte(recorte)
         registros = dados.aplicar(
@@ -371,16 +394,34 @@ def criar_app(
             ),
             corte,
         )
+        total = len(registros)
+        inicio = max(0, min(inicio, total))
+        fim = min(inicio + LINHAS_POR_PAGINA, total)
+        linhas = [linha_para_tabela(r) for r in registros[inicio:fim]]
+        mais = None
+        if fim < total:
+            mais = "/fragmentos/oportunidades?" + urlencode(
+                {"busca": busca, "status": status, "tudo": tudo, "recorte": corte.id, "inicio": fim}
+            )
+        contexto = dict(
+            linhas=linhas,
+            total=total,
+            mostrando=fim,
+            mais=mais,
+            classe_situacao=CLASSE_DA_SITUACAO,
+        )
+        if inicio > 0:
+            return render(request, "_oportunidades_linhas.html", **contexto)
         return render(
             request,
             "_oportunidades.html",
-            linhas=[linha_para_tabela(r) for r in registros],
             situacoes=[s.rotulo for s in StatusIntegracao],
             corte=corte,
             padrao=dados.RECORTE_PADRAO,
             busca=busca,
             status=status,
             tudo=tudo,
+            **contexto,
         )
 
     @app.get("/fragmentos/ciclo", response_class=HTMLResponse)

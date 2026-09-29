@@ -602,3 +602,58 @@ class TestRecortes:
             "/fragmentos/oportunidades", params={"recorte": "com_erro", "tudo": 1}
         ).text
         assert "ANTIGO" in tudo
+
+
+class TestListaPaginada:
+    """The list goes to the browser 300 rows at a time (29/09/2026).
+
+    With ~2,000 quotes in the window, drawing every row at once made the tab heavy. The
+    last row loads the next page when it shows up inside the table's scroll box.
+    """
+
+    @staticmethod
+    def _semeia(repo: RepositorioTracking, quantidade: int) -> None:
+        for i in range(quantidade):
+            repo.registrar_verificacao(f"{i:08d}", status=StatusIntegracao.SEM_ACAO)
+
+    def test_primeira_pagina_traz_300_e_a_linha_que_carrega_mais(
+        self, cliente: TestClient, repo: RepositorioTracking
+    ) -> None:
+        self._semeia(repo, 305)
+
+        texto = cliente.get("/fragmentos/oportunidades").text
+
+        assert texto.count('class="orcamento"') == 300
+        assert 'class="mais"' in texto
+        assert "inicio=300" in texto
+        assert "305 orçamento(s)" in texto, "the header counts everything, not just the page"
+        assert 'root:#rolagem-oportunidades' in texto
+        assert 'id="rolagem-oportunidades"' in texto
+
+    def test_proxima_pagina_traz_so_as_linhas_que_faltam(
+        self, cliente: TestClient, repo: RepositorioTracking
+    ) -> None:
+        self._semeia(repo, 305)
+
+        texto = cliente.get("/fragmentos/oportunidades", params={"inicio": 300}).text
+
+        assert texto.count('class="orcamento"') == 5
+        assert 'class="filtros"' not in texto, "a later page is rows only"
+        assert 'class="mais"' not in texto, "nothing left to load"
+
+    def test_o_filtro_viaja_na_linha_que_carrega_mais(
+        self, cliente: TestClient, repo: RepositorioTracking
+    ) -> None:
+        self._semeia(repo, 305)
+
+        texto = cliente.get("/fragmentos/oportunidades", params={"busca": "000", "tudo": 1}).text
+
+        assert "busca=000" in texto
+        assert "tudo=1" in texto
+
+    def test_situacao_sai_em_pilula(self, cliente: TestClient, repo: RepositorioTracking) -> None:
+        repo.registrar_verificacao("00000001", status=StatusIntegracao.ERRO)
+
+        texto = cliente.get("/fragmentos/oportunidades").text
+
+        assert '<span class="pilula critico">Erro</span>' in texto
