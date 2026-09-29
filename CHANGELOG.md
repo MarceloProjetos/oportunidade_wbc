@@ -6,6 +6,13 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-29] — Pedidos WBC: escolha "novos / integrados" maior
+
+Só CSS (`style.css?v=5`, para o navegador não ficar com o antigo em cache): no cartão de busca da
+tela Pedidos WBC, as opções "Pedidos novos" e "Pedidos integrados" passam de 13 px para 17 px em
+negrito, e a bolinha para 20 px na cor da marca. As outras opções da tela não mudam. Conferido na
+prévia com o CSS real, tema claro e escuro.
+
 ## [2026-09-29] — Peso do pedido = peso líquido da árvore; pesos nos logs
 
 Entra pelo `deploy_update.bat` (worker WBC e `OrcaView-ControleProducao`); sem dependência nova,

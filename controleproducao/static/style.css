@@ -226,7 +226,15 @@ code {
 .ov-linha-topo .ov-filtros { margin: 0; align-items: center; }
 /* Side by side with the search card, the KPIs take its corners and shadow. */
 .ov-linha-topo .ov-kpi { border-radius: var(--ov-r-card); box-shadow: var(--ov-shadow); }
-.ov-linha-topo .ov-opcao { padding-bottom: 0; }
+/* The mode choice ("Pedidos novos / integrados") is what the operator reads first: larger
+   text and radio than the other options of the screen (asked by the owner, 29/09/2026). */
+.ov-linha-topo .ov-opcao {
+  padding-bottom: 0; gap: var(--space-2); cursor: pointer;
+  font-size: var(--fs-md); font-weight: 600; color: var(--ov-text);
+}
+.ov-linha-topo .ov-opcao input[type="radio"] {
+  width: 20px; height: 20px; margin: 0; accent-color: var(--ov-accent); cursor: pointer;
+}
 @media (max-width: 760px) {
   .ov-linha-topo { grid-template-columns: 1fr; }
 }
