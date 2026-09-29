@@ -1,6 +1,13 @@
 # Plano — API JSON da Manutenção de OP (Controle de Produção, porta 8080)
 
-> **Status (29/09/2026, 13:53): F0–F6 NO AR na .11; F6 testada de verdade.** Pela API, com o
+> **Status (29/09/2026, fim da tarde): D6 decidida e codada (`3c4a315`), pende deploy.** O
+> Marcelo decidiu: o Replanejar recusa também a OP com produto apontado — `409 entrada_lancada`
+> na API, a mesma recusa na CLI. Em PROD hoje isso não muda nada (só leitura): das 9.376 OPs
+> Liberadas, as 13 com saída lançada também têm entrada, e nenhuma tem só a entrada. Suíte 2.472
+> verde, `ruff` 0. Segue igual: F0–F6 no ar, F6 testada; F5b nunca exercitada em PROD; falta a F7
+> (espera saber quem chama a 8077) e as decisões D1, D4 e D7.
+>
+> **Antes (29/09/2026, 13:53): F0–F6 NO AR na .11; F6 testada de verdade.** Pela API, com o
 > Marcelo como `solicitante`: Liberar 157426 (execução `60347ff18f0c`) → Replanejar 157426
 > (`b0c759035779`) → a OP terminou Planejada, como começou; Replanejar 62702 (Liberada, 1.122
 > baixados) → `409 saida_lancada`, nada gravado (62702 intocada no SAP). Conferido no HANA, na tela
@@ -182,7 +189,7 @@ Mensagem de erro igual por construção: as duas mostram o mesmo texto, que vem 
 Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de verdade na .11;
 **Replanejar por último** (F6).
 
-### F0 — Conferências — `✅ log conferido 29/09 · log de acesso codado (4e238d0) · falta saber quem chama`
+### F0 — Conferências — `✅ log conferido 29/09 · log de acesso no ar (4e238d0) · falta saber quem chama`
 
 > **Objetivo:** saber se alguém usa a rota de OP da 8077 e quem é — antes de mexer nela.
 
@@ -194,11 +201,12 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
   2. **log de acesso nas duas rotas de OP da 8077** (código meu, pequeno, só `api.py` — o
      `ordens_producao_sl.py` é arquivo-irmão e não muda): IP de origem, método, OP, status
      pedido, código HTTP devolvido e `tipo` da recusa, **inclusive os 400** que hoje somem. Uma
-     linha INFO por chamada no `logs/api.log`. ✅ Codado em 29/09 (`4e238d0`, 2 testes); pende o
-     deploy dele. Depois, um bloco PowerShell mostra IPs e tentativas:
+     linha INFO por chamada no `logs/api.log`. ✅ No ar desde 29/09 (`4e238d0`, 2 testes); na tarde de
+     29/09, nenhuma tentativa de `encerrada` desde o deploy. Um bloco PowerShell mostra IPs e
+     tentativas:
      `Select-String -Path .\logs\api.log* -Pattern 'Rota de OP:'`.
 
-### F1 — Uma regra, um lugar — `✅ codada 29/09 · a3a217f · pende deploy`
+### F1 — Uma regra, um lugar — `✅ no ar 29/09 · a3a217f`
 
 > **Objetivo:** a tela continua idêntica para o operador, e tudo o que ela decide passa a estar
 > numa função que a API pode chamar.
@@ -219,7 +227,7 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
 - A D5 (parada só entre OPs) foi decidida depois desta fase, em 29/09: está na F5b.
 - Testes: "já no destino", `acoes_possiveis`, cada `Recusa`; suíte inteira + `ruff` 0.
 
-### F2 — Quem pediu — `✅ codada 29/09 · a3a217f · SQL aplicado pelo Marcelo · pende deploy`
+### F2 — Quem pediu — `✅ no ar 29/09 · a3a217f · SQL aplicado pelo Marcelo`
 
 > **Objetivo:** toda gravação — da tela ou da API — aparece nas Execuções e no log com a origem,
 > e as da API com o nome de quem pediu.
@@ -245,7 +253,7 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
 - Log (`logs/controleproducao.log`, WARNING, junto do aviso de escrita que já existe): uma linha
   por gravação e por cancelamento — ação, `solicitante`, IP de origem, OPs, id da execução.
 
-### F3 — A API, sem o Replanejar — `✅ codada 29/09 · a3a217f · pende deploy`
+### F3 — A API, sem o Replanejar — `✅ no ar 29/09 · a3a217f`
 
 > **Objetivo:** o consumidor busca, libera, confere e encerra, acompanha e interrompe — pelo
 > contrato do §3, com a mesma trava, o mesmo histórico e as mesmas mensagens da tela.
@@ -278,7 +286,7 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
 - ⚠️ **O que a busca não devolve:** `doc_entry` (a grade da tela não lê o DocEntry, e acrescentá-lo
   mudaria a tabela da tela). Ele aparece no plano do Encerrar e no resultado das execuções.
 
-### F4 — Contrato e documentação — `✅ feita 29/09 · 8e38276 · pende deploy (a correção do 404)`
+### F4 — Contrato e documentação — `✅ no ar 29/09 · 8e38276 (com a correção do 404)`
 
 > **Objetivo:** o consumidor integra lendo um arquivo só.
 
@@ -365,8 +373,8 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
   qualquer jeito, antes da Service Layer, com mensagem legível.
 - **`service.py`:** `levanta_ops` traz `baixada`; `queries.py` ganha a subconsulta em
   `OPS_POR_DOCNUM`, `OPS_POR_PEDIDO` e `OPS_MANUTENCAO`; `muda_status("p")` recusa OP com
-  `baixada > 0` (vai para `ignoradas` com o motivo; `baixada` ausente = recusa); D6, se
-  aprovada, recusa também `apontada > 0`; `acoes_possiveis` passa a oferecer "replanejar".
+  `baixada > 0` (vai para `ignoradas` com o motivo; `baixada` ausente = recusa); D6
+  (aprovada em 29/09, `3c4a315`) recusa também `apontada > 0`; `acoes_possiveis` passa a oferecer "replanejar".
 - **CLI `manutencao-op replanejar`:** a coluna Ação mostra "saída lançada — cancele no SAP antes"
   e a OP não entra; as OPs são **relidas logo antes de gravar** (o prompt de confirmação pode
   ficar minutos aberto).
@@ -482,6 +490,7 @@ OPs) quando a recusa é por OP:
 | 404 | `nao_encontrada` | nenhuma OP com esses números; execução inexistente ou de outro módulo |
 | 409 | `status_terminal` | Liberar/Replanejar com OP Encerrada ou Cancelada — **o lote inteiro** é recusado |
 | 409 | `saida_lancada` **(F6)** | Replanejar com OP que já tem saída de insumo — **o lote inteiro** é recusado |
+| 409 | `entrada_lancada` **(D6)** | Replanejar com OP que já tem produto apontado — **o lote inteiro** é recusado; a saída é conferida antes |
 | 409 | `ciclo` | Encerrar: OPs com dependência circular |
 | 409 | `nada_a_encerrar` | nenhuma OP em condição (vem com os itens e o motivo de cada um) |
 | 409 | `confirmacao_invalida` | token vencido, já usado ou desconhecido — reconferir |
@@ -490,7 +499,7 @@ OPs) quando a recusa é por OP:
 | 503 | `escrita_desabilitada` | sem `OS_API_KEY` no servidor, ou alvo produção fora da .11 |
 | 503 | `historico_indisponivel` | estado de execução antiga com o Supabase fora |
 
-Mensagens novas (não existem na tela): `saida_lancada` (vale também na CLI), `sem_chave` (a
+Mensagens novas (não existem na tela): `saida_lancada` e `entrada_lancada` (valem também na CLI), `sem_chave` (a
 tela redireciona para `/entrar`) e `sap_indisponivel` (a tela dá 500).
 
 **Recomendações ao consumidor** (vão para o contrato): conferir → mostrar o plano à pessoa →
@@ -524,11 +533,15 @@ gravado; `409 ocupado` → acompanhar a execução que veio na resposta, não in
    "Interromper" da tela pode cortar entre a saída e a entrada da mesma OP (insumo baixado,
    produto não entrado, OP Liberada). Com a parada entre OPs, a OP em curso termina a cadeia.
    Vale para a tela e a API. Vira a **F5b**.
-6. **Replanejar com produto já apontado** (`apontada > 0`, entrada lançada sem saída) —
-   *aberta.* **Recomendado: recusar também**, com a mesma família de mensagem: é o mesmo problema
-   (estoque movimentado numa OP Planejada). O pedido original fala só da saída de insumo.
-   **Dado de 29/09 (PROD):** nenhuma OP Liberada tem entrada sem saída — o caso não existe hoje, e
-   a F6 saiu sem essa regra.
+6. **Replanejar com produto já apontado** (`apontada > 0`, entrada lançada sem saída) — ✅
+   *decidida pelo Marcelo em 29/09: recusar também.* É o mesmo problema (estoque movimentado numa
+   OP Planejada). **Codada em `3c4a315`, pende deploy:** API `409 entrada_lancada` (lote inteiro,
+   `apontado` em `detalhes`; a saída é conferida antes, então OP com as duas segue em
+   `saida_lancada`), CLI ("produto apontado — cancele a entrada no SAP antes", e a releitura antes
+   de gravar também pega a entrada) e `service.muda_status` como última guarda. 7 testes novos.
+   **PROD em 29/09 (só leitura):** 9.376 Liberadas; as 13 com saída também têm entrada; nenhuma só
+   com a entrada. Quantidade rejeitada sem completa (`RjctQty` > 0, `CmpltQty` = 0) nunca
+   aconteceu em PROD, então fica fora da regra.
 7. **Encerrar só pelo status (limpeza de OP de pedido entregue)** — *nova, aberta; negócio:
    Marcelo + Anderson/PCP.* É o que o chamador da 8077 fazia (≥ 552 OPs) e o que a D9 bloqueou
    em 28/09. **Recomendado:** saber quem e por quê antes de qualquer código. Enquanto isso a D9
