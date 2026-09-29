@@ -19,27 +19,29 @@
     mesmos pedidos e OPs.</span></div>
 {% endif %}
 
-{% if buscou %}
-<section class="ov-kpis">
+{# Search and numbers on one line (29/09/2026). Search first: it is what is used first and
+   the only card before the first search, so it keeps its place when the numbers appear. #}
+<div class="ov-linha-topo">
+  <form method="get" action="/pedidos-wbc" class="ov-filtros">
+    <input type="hidden" name="buscar" value="1">
+    <label class="ov-opcao"><input type="radio" name="modo" value="novos"
+      {% if modo != 'integrados' %}checked{% endif %}> Pedidos novos</label>
+    <label class="ov-opcao"><input type="radio" name="modo" value="integrados"
+      {% if modo == 'integrados' %}checked{% endif %}> Pedidos integrados</label>
+    <button type="submit" class="ov-btn">{{ icone('buscar') }} Buscar</button>
+  </form>
+  {% if buscou %}
   <div class="ov-kpi">
     <b>{{ total }}</b><span>{{ 'Integrados' if modo == 'integrados' else 'Novos' }}</span>
   </div>
   <div class="ov-kpi" style="--ov-cor: var(--color-info)">
     <b>{{ pagina }}/{{ paginas }}</b><span>Página</span>
   </div>
-</section>
-{% endif %}
+  {% endif %}
+</div>
 
-<form method="get" action="/pedidos-wbc" class="ov-filtros">
-  <input type="hidden" name="buscar" value="1">
-  <label class="ov-opcao"><input type="radio" name="modo" value="novos"
-    {% if modo != 'integrados' %}checked{% endif %}> Pedidos novos</label>
-  <label class="ov-opcao"><input type="radio" name="modo" value="integrados"
-    {% if modo == 'integrados' %}checked{% endif %}> Pedidos integrados</label>
-  <button type="submit" class="ov-btn">{{ icone('buscar') }} Buscar</button>
-</form>
-
-<form method="post" action="/pedidos-wbc/{{ 'reprocessar' if modo == 'integrados' else 'processar' }}/conferir">
+<form method="post" id="form-pedidos"
+      action="/pedidos-wbc/{{ 'reprocessar' if modo == 'integrados' else 'processar' }}/conferir">
   <section class="ov-table-card">
     <div class="ov-scroll">
       <table class="ov-table">
@@ -93,9 +95,18 @@
     {# Reprocessar saiu da tela em 28/09/2026 (D8): cancela toda OP planejada e não recria. #}
     <p class="ov-nota">Lista só para consulta. Reprocessar é só pela CLI, na .11, com o Anderson.</p>
     {% else %}
-    <button type="submit" class="ov-btn ov-btn--perigo">{{ icone('play') }} Processar selecionados…</button>
-    <label class="ov-opcao" style="padding-bottom:0"><input type="checkbox" name="force" value="1">
-      forçar (ignora as checagens de reprocessamento)</label>
+    {# Starts disabled; the script below enables it with at least one pedido marked. The
+       server still refuses an empty selection ("Nenhum pedido selecionado."). #}
+    <button type="submit" class="ov-btn ov-btn--perigo" id="btn-processar" disabled
+            title="Marque ao menos um pedido">{{ icone('play') }}
+      <span id="rotulo-processar">Processar selecionados…</span></button>
+    <span class="ov-nota-inline" id="dica-processar">
+      {%- if pedidos %}Marque ao menos um pedido.
+      {%- elif buscou %}Nenhum pedido para processar.
+      {%- else %}Busque os pedidos para selecionar.{% endif -%}
+    </span>
+    <label class="ov-opcao" style="padding-bottom:0"><input type="checkbox" name="force" value="1"
+      id="forcar" disabled> forçar (ignora as checagens de reprocessamento)</label>
     {% endif %}
   </div>
   <p class="ov-nota">Nada é gravado neste passo: a próxima tela mostra exatamente o que será
@@ -103,12 +114,49 @@
 </form>
 
 <h2>Cancelar as OPs de um pedido</h2>
-<form method="post" action="/pedidos-wbc/cancelar-ops/conferir" class="ov-filtros">
+{# `data-exige-numero` (script in base.html): Conferir… only with a number typed in one of
+   the fields — until then there is nothing to check. #}
+<form method="post" action="/pedidos-wbc/cancelar-ops/conferir" class="ov-filtros" data-exige-numero>
   <div class="ov-field"><label for="c-doc">Nº Pedido</label>
-    <input class="ov-input" id="c-doc" type="text" name="doc_num"></div>
+    <input class="ov-input" id="c-doc" type="text" name="doc_num" inputmode="numeric"
+           autocomplete="off" data-numero></div>
   <span class="ov-ou">ou</span>
   <div class="ov-field"><label for="c-orc">Nº Orçamento</label>
-    <input class="ov-input" id="c-orc" type="text" name="orc_num"></div>
-  <button type="submit" class="ov-btn ov-btn--perigo">{{ icone('escudo') }} Conferir…</button>
+    <input class="ov-input" id="c-orc" type="text" name="orc_num" inputmode="numeric"
+           autocomplete="off" data-numero></div>
+  <button type="submit" class="ov-btn ov-btn--perigo" disabled
+          title="Informe o nº do pedido ou do orçamento">{{ icone('escudo') }} Conferir…</button>
+  <p class="ov-nota" data-dica>Informe o nº do pedido ou do orçamento (só números).</p>
 </form>
+
+<script>
+(function () {
+  // "Processar selecionados…" only with at least one pedido marked, and the label counts
+  // them: the number is the last check before the confirmation screen. "forçar" follows the
+  // button and is cleared when nothing is marked — it duplicates OPs, so it must never stay
+  // checked unnoticed from an earlier selection.
+  var form = document.getElementById("form-pedidos");
+  var botao = document.getElementById("btn-processar");
+  if (!form || !botao) { return; }
+  var caixas = Array.prototype.slice.call(form.querySelectorAll("input[name=opp_ids]"));
+  var rotulo = document.getElementById("rotulo-processar");
+  var dica = document.getElementById("dica-processar");
+  var forcar = document.getElementById("forcar");
+
+  function pinta() {
+    var n = caixas.filter(function (c) { return c.checked; }).length;
+    botao.disabled = n === 0;
+    botao.title = n ? "" : "Marque ao menos um pedido";
+    rotulo.textContent = n ? "Processar selecionados (" + n + ")…" : "Processar selecionados…";
+    dica.hidden = n > 0;
+    forcar.disabled = n === 0;
+    if (!n) { forcar.checked = false; }
+  }
+
+  caixas.forEach(function (c) { c.addEventListener("change", pinta); });
+  // Back/forward can restore the marks from the page cache: recount, never trust the HTML.
+  window.addEventListener("pageshow", pinta);
+  pinta();
+})();
+</script>
 {% endblock %}

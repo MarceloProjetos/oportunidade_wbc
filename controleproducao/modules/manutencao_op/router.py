@@ -178,6 +178,7 @@ async def conferir_encerrar(
     op_docnums: list[str] = Form(default=[]),
     pedido: str = Form(default=""),
 ):
+    pedido = pedido.strip()
     if bool(op_docnums) == bool(pedido):
         return _erro(request, "Selecione OPs na lista OU informe um pedido — não os dois.")
 
@@ -189,6 +190,10 @@ async def conferir_encerrar(
         if not ops:
             return _erro(request, "Nenhuma OP encontrada para o que foi informado.")
         componentes = service._componentes_por_op(leitor, [int(o["doc_entry"]) for o in ops])
+    except ValueError as exc:
+        # A non-numeric order number ("84a") used to escape as a 500; the message is
+        # already written for the user ("Número do pedido: esperado um número…").
+        return _erro(request, str(exc))
     finally:
         leitor.close()
 

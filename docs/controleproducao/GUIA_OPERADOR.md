@@ -17,8 +17,8 @@
      no mesmo pedido = **OP em dobro** (aconteceu com o 84426 em 23/09);
    - no painel WBC, o orçamento **não** tem ação pendente (atualizar/cancelar pedido);
    - dentro do expediente, **nunca depois das 17:30**.
-3. Marque o pedido → **Processar selecionados…** → a tela mostra o que vai gravar → confirme
-   em até 10 min.
+3. Marque o pedido → **Processar selecionados (N)…** (só habilita com pedido marcado) → a tela
+   mostra o que vai gravar → confirme em até 10 min.
 4. **Não marque "forçar"** (duplica OP). Não existe Reprocessar na tela (só CLI, com o Anderson).
 5. Depois: confira as OPs no SAP; em **Execuções**, o resultado sem "SEM OP" nem "rateio".
 

@@ -141,6 +141,17 @@ code {
   box-shadow: inset 0 0 0 1px var(--ov-a40);
 }
 .ov-nav .direita { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); }
+/* Phones: the one-line bar was ~570px wide and forced every page to render shrunk on a
+   375px screen (found 29/09/2026). It wraps instead; the items never break mid-label. */
+@media (max-width: 760px) {
+  .ov-nav {
+    height: auto; flex-wrap: wrap; row-gap: var(--space-1);
+    padding: var(--space-2) var(--space-4);
+  }
+  .ov-nav .marca { margin-right: auto; }
+  .ov-nav a.item, .ov-nav button.item { white-space: nowrap; }
+  .ov-nav .direita { margin-left: 0; flex-wrap: wrap; }
+}
 
 .theme-toggle-btn {
   display: grid; place-items: center; width: 36px; height: 36px; padding: 0;
@@ -204,6 +215,21 @@ code {
 .ov-kpi span {
   font-size: var(--fs-xs); text-transform: uppercase;
   letter-spacing: .06em; color: var(--ov-text-2);
+}
+
+/* Search card + KPIs on one line (Pedidos WBC, 29/09/2026). The search track is `auto`
+   and comes first: before the first search it is the only card, and it keeps the same
+   place and width when the KPIs appear. One column on phones. */
+.ov-linha-topo {
+  display: grid; grid-template-columns: auto 1fr 1fr; gap: var(--space-3);
+  align-items: stretch; margin-bottom: var(--space-4);
+}
+.ov-linha-topo .ov-filtros { margin: 0; align-items: center; }
+/* Side by side with the search card, the KPIs take its corners and shadow. */
+.ov-linha-topo .ov-kpi { border-radius: var(--ov-r-card); box-shadow: var(--ov-shadow); }
+.ov-linha-topo .ov-opcao { padding-bottom: 0; }
+@media (max-width: 760px) {
+  .ov-linha-topo { grid-template-columns: 1fr; }
 }
 
 /* ── Cartão e título de seção (§5.3) ──────────────────────────────────────── */
@@ -352,6 +378,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--ov-accent); }
   font-size: var(--fs-sm); color: var(--ov-text-2); text-transform: none;
   letter-spacing: normal; padding-bottom: 10px;
 }
+/* A disabled option ("forçar" with nothing marked) must look unavailable, not just ignore clicks. */
+.ov-opcao:has(input:disabled) { opacity: .55; cursor: not-allowed; }
 
 /* ── Avisos ───────────────────────────────────────────────────────────────── */
 .ov-alerta {

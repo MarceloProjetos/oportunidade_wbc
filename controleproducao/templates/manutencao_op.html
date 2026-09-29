@@ -132,11 +132,20 @@
       <span id="icone-selecionar">{{ icone('marcar-tudo') }}</span>
       <span id="texto-selecionar">Selecionar todas</span></button>
     <span class="ov-separador" aria-hidden="true"></span>
-    <button type="submit" class="ov-btn-ghost" formaction="/manutencao-op/status" name="acao" value="l">
+    {# Both start disabled; the script below enables them with at least one OP marked
+       (Liberar writes on the first click). The server still refuses an empty selection. #}
+    <button type="submit" class="ov-btn-ghost" formaction="/manutencao-op/status" name="acao" value="l"
+            data-exige-selecao disabled title="Marque ao menos uma OP">
       {{ icone('check') }} Liberar selecionadas</button>
     {# Replanejar saiu da tela em 28/09/2026 (D9): fica na CLI, como caminho de recuperação. #}
-    <button type="submit" class="ov-btn ov-btn--perigo" formaction="/manutencao-op/encerrar/conferir">
+    <button type="submit" class="ov-btn ov-btn--perigo" formaction="/manutencao-op/encerrar/conferir"
+            data-exige-selecao disabled title="Marque ao menos uma OP">
       {{ icone('raio') }} Encerrar selecionadas…</button>
+    <span class="ov-nota-inline" id="dica-ops">
+      {%- if selecionaveis %}Marque ao menos uma OP.
+      {%- elif buscou and ops %}Nenhuma OP deste pedido pode ser liberada ou encerrada.
+      {%- else %}Busque um pedido para selecionar as OPs.{% endif -%}
+    </span>
   </div>
   <p class="ov-nota">Liberar muda apenas o status (Planejada → Liberada).
     <strong>Encerrar</strong> gera saída de insumos e entrada do produto — a próxima tela
@@ -145,10 +154,14 @@
 </form>
 
 <h2>Encerrar todas as OPs de um pedido</h2>
-<form method="post" action="/manutencao-op/encerrar/conferir" class="ov-filtros">
+{# `data-exige-numero` (script in base.html): Conferir… only with an order number typed. #}
+<form method="post" action="/manutencao-op/encerrar/conferir" class="ov-filtros" data-exige-numero>
   <div class="ov-field"><label for="e-pedido">Nº Pedido</label>
-    <input class="ov-input" id="e-pedido" type="text" name="pedido"></div>
-  <button type="submit" class="ov-btn ov-btn--perigo">{{ icone('escudo') }} Conferir…</button>
+    <input class="ov-input" id="e-pedido" type="text" name="pedido" inputmode="numeric"
+           autocomplete="off" data-numero></div>
+  <button type="submit" class="ov-btn ov-btn--perigo" disabled
+          title="Informe o nº do pedido">{{ icone('escudo') }} Conferir…</button>
+  <p class="ov-nota" data-dica>Informe o nº do pedido (só números).</p>
   <p class="ov-nota">Age recursivamente sobre a hierarquia: a OP filha é encerrada antes da
     mãe, porque a saída de insumo da mãe consome o item que a filha produz.</p>
 </form>
@@ -166,6 +179,8 @@
   var icone = document.getElementById("icone-selecionar");
   var marcarTudo = {{ icone('marcar-tudo')|tojson }};
   var desmarcarTudo = {{ icone('desmarcar-tudo')|tojson }};
+  var acoes = Array.prototype.slice.call(form.querySelectorAll("button[data-exige-selecao]"));
+  var dica = document.getElementById("dica-ops");
 
   function marcadas() { return caixas.filter(function (c) { return c.checked; }).length; }
 
@@ -176,6 +191,13 @@
                               : (n ? "Selecionar todas (" + n + " marcada" + (n > 1 ? "s" : "") + ")"
                                    : "Selecionar todas");
     icone.innerHTML = todas ? desmarcarTudo : marcarTudo;
+    // Liberar / Encerrar only with a selection. The count already sits on the toggle right
+    // beside them, so the buttons keep their labels.
+    acoes.forEach(function (b) {
+      b.disabled = n === 0;
+      b.title = n ? "" : "Marque ao menos uma OP";
+    });
+    dica.hidden = n > 0;
   }
 
   botao.addEventListener("click", function () {
@@ -186,6 +208,8 @@
   // Marcar uma a uma também atualiza o rótulo: o contador precisa ser confiável para
   // servir de conferência, e um número que só muda pelo botão não é.
   caixas.forEach(function (c) { c.addEventListener("change", pinta); });
+  // Back/forward can restore the marks from the page cache: recount, never trust the HTML.
+  window.addEventListener("pageshow", pinta);
   pinta();
 })();
 </script>

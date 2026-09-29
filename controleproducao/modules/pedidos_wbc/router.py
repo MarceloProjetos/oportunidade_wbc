@@ -202,6 +202,8 @@ async def conferir_cancelar_ops(
     doc_num: str = Form(default=""),
     orc_num: str = Form(default=""),
 ):
+    # Stripped: a pasted " 84439" is text-compared in the SQL and would read as "not found".
+    doc_num, orc_num = doc_num.strip(), orc_num.strip()
     if not (doc_num or orc_num):
         return _erro(request, "Informe o nº do pedido ou o nº do orçamento.")
 

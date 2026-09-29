@@ -954,3 +954,112 @@ def test_quantidade_da_op_vem_da_linha_do_grupo():
             ))
 
     assert quantidades == [8.0, 1.0, 255.0]
+
+
+# ---------------------------------------------------------------------------
+# Top line and buttons that need something to act on (29/09/2026)
+# ---------------------------------------------------------------------------
+_RAIZ_SIS = __import__("pathlib").Path(__file__).resolve().parents[2]
+
+
+def _linha_topo(html: str) -> str:
+    inicio = html.index('<div class="ov-linha-topo">')
+    return html[inicio:html.index('<form method="post" id="form-pedidos"', inicio)]
+
+
+def test_busca_e_numeros_na_mesma_linha_com_a_busca_primeiro(cliente):
+    with _Ligado(_patches(pedidos=_pedidos(3))):
+        antes = cliente.get("/pedidos-wbc").text
+        depois = cliente.get("/pedidos-wbc?buscar=1").text
+
+    linha = _linha_topo(depois)
+    assert linha.index('class="ov-filtros"') < linha.index('class="ov-kpi"')
+    assert linha.count('class="ov-kpi"') == 2 and "Novos" in linha and "Página" in linha
+    # Before the first search the search card is alone: no empty number cards.
+    assert 'class="ov-kpi"' not in _linha_topo(antes)
+
+
+def test_processar_nasce_desabilitado_e_so_liga_com_pedido_marcado(cliente):
+    with _Ligado(_patches(pedidos=_pedidos(3))):
+        html = cliente.get("/pedidos-wbc?buscar=1").text
+
+    assert re.search(r'<button type="submit" class="ov-btn ov-btn--perigo" id="btn-processar" disabled', html)
+    assert re.search(r'name="force" value="1"\s+id="forcar" disabled', html)
+    assert "Marque ao menos um pedido." in html
+    # The script counts the marked boxes, drives the button and clears "forçar" with none.
+    for trecho in ("input[name=opp_ids]", "botao.disabled = n === 0",
+                   '"Processar selecionados (" + n + ")…"', "forcar.checked = false",
+                   'addEventListener("pageshow", pinta)'):
+        assert trecho in html, trecho
+
+
+def test_dica_do_processar_acompanha_a_situacao(cliente):
+    with _Ligado(_patches(pedidos=[])):
+        antes = _texto(cliente.get("/pedidos-wbc").text)
+        vazio = _texto(cliente.get("/pedidos-wbc?buscar=1").text)
+    assert "Busque os pedidos para selecionar." in antes
+    assert "Nenhum pedido para processar." in vazio
+
+
+def test_liberar_e_encerrar_so_com_op_marcada(cliente):
+    with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
+         patch("controleproducao.core.web.get_settings", return_value=_settings()), \
+         patch("controleproducao.modules.manutencao_op.router.HanaDirectReader", MagicMock()), \
+         patch("controleproducao.modules.manutencao_op.service.buscar_ops", return_value=_ops_com_terminais()):
+        html = cliente.post("/manutencao-op/buscar", data={"doc_num": "84376"}).text
+        inicial = cliente.get("/manutencao-op").text
+
+    acoes = re.findall(r"<button[^>]*data-exige-selecao[^>]*>", html)
+    assert len(acoes) == 2 and all("disabled" in b for b in acoes)
+    assert "Marque ao menos uma OP." in html
+    assert "b.disabled = n === 0" in html
+    assert "Busque um pedido para selecionar as OPs." in _texto(inicial)
+
+
+def test_conferir_so_com_numero_digitado(cliente):
+    with _Ligado(_patches()):
+        pedidos = cliente.get("/pedidos-wbc").text
+    ops = cliente.get("/manutencao-op").text
+
+    for html, campos in ((pedidos, 2), (ops, 1)):
+        form = re.search(r"<form[^>]*data-exige-numero>.*?</form>", html, re.S).group(0)
+        assert form.count("data-numero") == campos
+        assert re.search(r'<button type="submit" class="ov-btn ov-btn--perigo" disabled', form)
+        assert "(só números)" in form
+    # The shared rule in base.html: digits only, after trimming.
+    assert r"/^\d+$/.test(c.value.trim())" in ops
+
+
+def test_encerrar_pedido_com_letras_e_erro_de_tela_e_nao_500(cliente):
+    """"84a" used to escape `levanta_ops` as a ValueError → HTTP 500."""
+    with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
+         patch("controleproducao.core.web.get_settings", return_value=_settings()), \
+         patch("controleproducao.modules.manutencao_op.router.HanaDirectReader", MagicMock()):
+        resposta = cliente.post("/manutencao-op/encerrar/conferir", data={"pedido": "84a"})
+    assert resposta.status_code == 400
+    assert "esperado um número" in _texto(resposta.text)
+
+
+def test_cancelar_ops_limpa_os_espacos_do_numero(cliente):
+    levanta = AsyncMock(return_value={"pedido": None, "ops": [], "bloqueantes": [],
+                                      "a_cancelar": [], "ja_canceladas": []})
+    with _Ligado(_patches()), \
+         patch("controleproducao.modules.pedidos_wbc.service.levanta_ops_para_cancelamento", levanta):
+        so_espacos = cliente.post("/pedidos-wbc/cancelar-ops/conferir", data={"doc_num": "   "})
+        colado = cliente.post("/pedidos-wbc/cancelar-ops/conferir", data={"doc_num": " 84439 "})
+
+    assert "Informe o nº do pedido ou o nº do orçamento." in _texto(so_espacos.text)
+    assert levanta.await_count == 1
+    assert levanta.await_args.kwargs["doc_num"] == "84439"
+    assert "Pedido não encontrado." in _texto(colado.text)
+
+
+def test_css_da_linha_do_topo_e_da_barra_no_celular():
+    css = (_RAIZ_SIS / "controleproducao/static/style.css").read_text(encoding="utf-8")
+    assert "grid-template-columns: auto 1fr 1fr" in css
+    assert re.search(r"@media \(max-width: 760px\) \{\s*\.ov-linha-topo \{ grid-template-columns: 1fr; \}", css)
+    # The one-line nav forced every page to ~570px on a 375px phone; it wraps now.
+    assert re.search(r"@media \(max-width: 760px\) \{\s*\.ov-nav \{\s*height: auto; flex-wrap: wrap;", css)
+    assert ".ov-opcao:has(input:disabled)" in css
+    base = (_RAIZ_SIS / "controleproducao/templates/base.html").read_text(encoding="utf-8")
+    assert "style.css?v=3" in base

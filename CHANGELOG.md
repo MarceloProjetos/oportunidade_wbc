@@ -6,6 +6,31 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-29] — Controle de Produção: busca na linha dos números; botões só com o que conferir
+
+Vale no próximo deploy (`OrcaView-ControleProducao`). Sem dependência nova; `style.css?v=3`.
+
+- **Pedidos WBC:** o card de busca (Pedidos novos / integrados / Buscar) foi para a mesma linha
+  dos números Novos e Página, à esquerda — antes da primeira busca ele fica sozinho, no mesmo
+  lugar e largura; no celular, um card embaixo do outro. Os números ganharam o canto e a
+  sombra do card de busca.
+- **Botões que só agem com seleção:** "Processar selecionados…" começa desabilitado, habilita
+  com pelo menos um pedido marcado e conta ("Processar selecionados (2)…"); "forçar" acompanha
+  o botão e é desmarcado quando nada está marcado. Na Manutenção de OP, "Liberar selecionadas" e
+  "Encerrar selecionadas…" seguem a mesma regra (a contagem já fica no "Selecionar todas").
+- **"Conferir…" só com número digitado** (pedido do Marcelo durante a revisão): Cancelar as OPs
+  de um pedido e Encerrar todas as OPs de um pedido ficam desabilitados até haver um número
+  (só dígitos) no campo. Dica visível em todos os casos, ajustada à situação ("Busque os
+  pedidos…", "Nenhum pedido para processar.", "Marque ao menos um pedido.").
+- O servidor continua recusando envio vazio. Achados no caminho, corrigidos: "Encerrar todas
+  as OPs de um pedido" com letras no nº ("84a") dava **erro 500** — agora é a página de erro
+  com a mensagem; espaços em volta do nº do pedido/orçamento no Cancelar faziam o pedido
+  "não ser encontrado" — agora são limpos; no celular, a barra do topo (numa linha só, ~570 px)
+  encolhia TODAS as telas numa tela de 375 px — agora ela quebra em linhas.
+- Conferido em prévia local com dados falsos (desktop 1280 e 1024, celular 375, claro e
+  escuro): alturas iguais na linha, busca parada antes/depois do Buscar, contagem e
+  habilitação dos botões, página com 375 px sem rolagem lateral. 8 testes novos.
+
 ## [2026-09-29] — Controle de Produção: as 30 últimas execuções guardadas no Supabase
 
 Vale no próximo deploy (`OrcaView-ControleProducao`), **depois** de aplicar
