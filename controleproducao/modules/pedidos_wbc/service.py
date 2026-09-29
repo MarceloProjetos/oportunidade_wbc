@@ -716,9 +716,9 @@ def _loga_pesos(hana_reader: HanaDirectReader, orc_num: str, doc_entry, estrutur
     """
     try:
         wbc: dict[int, float] = {}
-        for linha in estrutura:
-            if int(linha.orc_prd_arv_nivel or 0) == 1:
-                wbc[int(linha.orc_item)] = wbc.get(int(linha.orc_item), 0.0) + float(linha.orc_pes or 0)
+        for no in estrutura:            # `EstruturaPrd`, from `busca_estrutura_produto`
+            if int(no.nivel or 0) == 1:
+                wbc[int(no.orc_itm)] = wbc.get(int(no.orc_itm), 0.0) + float(no.peso or 0)
         linhas = hana_reader.fetch_all(*ligar(q.PESOS_DAS_LINHAS_DO_PEDIDO, doc_entry=doc_entry))
     except Exception as exc:  # noqa: BLE001 - a log line must not break the processing
         logger.warning("Pedido %s: não foi possível comparar os pesos: %s", orc_num, exc)

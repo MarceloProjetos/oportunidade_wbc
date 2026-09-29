@@ -6,14 +6,20 @@ step now prints the SAP ``Weight1`` next to the WBC tree's level 1, read-only.
 from __future__ import annotations
 
 import logging
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from controleproducao.modules.pedidos_wbc import service
+from controleproducao.modules.pedidos_wbc.schemas import EstruturaPrd
 
 
-def _arvore(orc_item: int, nivel: int, peso: float) -> SimpleNamespace:
-    return SimpleNamespace(orc_item=orc_item, orc_prd_arv_nivel=nivel, orc_pes=peso)
+def _arvore(orc_itm: int, nivel: int, peso: float) -> EstruturaPrd:
+    """The real node `busca_estrutura_produto` returns — a stand-in with guessed attribute
+    names let the first version pass here and fail on the .11 (29/09/2026)."""
+    return EstruturaPrd(
+        orc_num="00125817", grp_code=2, sub_group_cod=0, orc_itm=orc_itm, prd_code="X",
+        nivel=nivel, cor_cod="", prd_desc="", quantidade=1, total=0, peso=peso,
+        id_integracao_orc=0, linha_orc="", prd_arv="",
+    )
 
 
 def _leitor(*linhas: dict) -> MagicMock:
