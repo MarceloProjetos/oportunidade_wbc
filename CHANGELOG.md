@@ -6,6 +6,38 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-29] — Replanejar pela API, com recusa por saída lançada (F6); Interromper entre OPs (F5b)
+
+Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem dependência nova, sem SQL.
+
+- **F6 — Replanejar (Liberada → Planejada)** na API JSON: `POST /api/manutencao-op/replanejar`,
+  mesmo corpo e mesmas regras de lote do Liberar. **Recusa a OP que já tem saída de insumo
+  lançada** (`409 saida_lancada`, lote inteiro, com o quanto foi baixado em `detalhes`); se não
+  for possível saber, também recusa. A regra mora no serviço (`service.saida_lancada`) e vale
+  para a CLI `manutencao-op replanejar`, que agora mostra "saída de insumo lançada — cancele a
+  saída no SAP antes" na tabela e **relê as OPs logo antes de gravar** (o prompt pode ter ficado
+  minutos aberto). A tela continua sem Replanejar (D4).
+- **Critério conferido em PROD (só leitura):** `SUM(WOR1.IssuedQty) > 0` e "linha de `IGE1` com
+  base na OP num `OIGE` não cancelado" selecionam as **mesmas 63.183 OPs**. Nenhuma saída de OP
+  jamais foi cancelada em PROD, então não dá para ver se o `IssuedQty` volta a zero depois de um
+  cancelamento — se não voltar, o Replanejar recusa a mais (o lado seguro). Hoje 13 OPs Liberadas
+  têm saída lançada; nenhuma Liberada tem entrada sem saída (o caso da D6, ainda aberta).
+- A busca da API ganhou `baixada` por OP (consulta à parte, por pedido — a grade da tela não
+  muda) e `"replanejar"` em `acoes_possiveis` quando a OP está Liberada e nada foi baixado.
+- **F5b / D5 — Interromper o Encerrar só entre OPs.** `finalizar_ops` pergunta se deve parar
+  **no começo de cada OP**; a OP em curso termina a cadeia (saída → entrada → encerra) e as
+  próximas vão para `resultado.interrompidas`. A `Tarefa` ganhou `parada_combinada` (só o
+  Encerrar usa) e `parada_pedida`: o "Interromper" passa a pedir a parada em vez de cortar a
+  corrotina — antes podia sobrar uma OP com o insumo baixado e o produto sem entrada. A execução
+  termina `cancelada`, com o resultado guardado; se o pedido chegar com a última OP já em
+  andamento, termina `concluída`. Liberar e Replanejar continuam sendo cortados entre OPs (cada
+  uma é um PATCH só). A tela diz "Para depois da OP em curso…" ao lado do botão; o cancelamento
+  devolve `entre_etapas`. Uma chamada ao SAP travada faz a parada esperar o timeout do Service
+  Layer (60 s).
+- Contrato (`API_MANUTENCAO_OP.md`: seção 4b, `baixada`, `interrompidas`, `parada_pedida`,
+  `entre_etapas`, `saida_lancada`), CLAUDE.md, README, guia do operador e D9 do plano do Controle
+  de Produção atualizados. 19 testes novos (API, serviço, CLI, registro de execuções).
+
 ## [2026-09-29] — Contrato da API da Manutenção de OP (F4) e número de OP inexistente
 
 Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem dependência nova.

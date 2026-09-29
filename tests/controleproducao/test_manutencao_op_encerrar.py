@@ -264,6 +264,43 @@ def test_erro_numa_op_nao_impede_as_demais():
     assert [op["doc_num"] for op in resultado["ignoradas"]] == [9002]
 
 
+def test_interromper_so_entre_ops_a_op_em_curso_termina_a_cadeia():
+    """D5 (29/09/2026): "Interromper" pressed while the first OP is between its material
+    issue and its product receipt. Cutting there would leave stock taken out and no product
+    put in; the OP must finish its chain, and the next ones must not start."""
+    parada = {"pedida": False}
+    sl = AsyncMock()
+    sl.get_by_key.return_value = {"ProductionOrderLines": [{"LineNumber": 0}]}
+    chamadas = []
+
+    async def create_entity(entidade, _corpo):
+        chamadas.append(entidade)
+        if entidade == "InventoryGenExits":
+            parada["pedida"] = True        # the click lands right after the issue
+        return {"DocEntry": 777}
+
+    async def update_entity(_entidade, chave, campos, **_kw):
+        chamadas.append(f"{chave}:{campos.get('ProductionOrderStatus')}")
+
+    sl.create_entity = AsyncMock(side_effect=create_entity)
+    sl.update_entity = AsyncMock(side_effect=update_entity)
+    ops = [_op(101, 9001), _op(102, 9002), _op(103, 9003)]
+
+    resultado = asyncio.run(svc.finalizar_ops(
+        sl, _leitor_com_filial(), ops, deve_parar=lambda: parada["pedida"]
+    ))
+
+    assert chamadas == ["101:boposReleased", "InventoryGenExits", "InventoryGenEntries", "101:boposClosed"]
+    assert [o["doc_num"] for o in resultado["finalizadas"]] == [9001]
+    assert [o["doc_num"] for o in resultado["interrompidas"]] == [9002, 9003]
+    assert "interrompida" in resultado["interrompidas"][0]["motivo"]
+
+
+def test_sem_pedido_de_parada_nada_fica_de_fora():
+    resultado, _chamadas = _finaliza([_op(101, 9001), _op(102, 9002)])
+    assert resultado["interrompidas"] == []
+
+
 # ---------------------------------------------------------------------------
 # CLI — as guardas do comando irreversível
 # ---------------------------------------------------------------------------

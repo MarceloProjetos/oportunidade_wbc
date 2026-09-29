@@ -36,22 +36,40 @@ WHERE T0."DocNum" = ? AND T1."Status" != 'C'
 # todas as de um pedido. Daí estas duas.
 
 # OPs por número (DocNum), para quando o usuário informa as OPs explicitamente.
-OPS_POR_DOCNUM = """
+# How much of the OP's components has already been issued (29/09/2026, F6 of
+# docs/PLANO_API_MANUTENCAO_OP.md): more than zero = a goods issue (OIGE) was posted, and the
+# OP must not go back to Planejada until that issue is cancelled in the SAP. Checked in PROD on
+# 29/09: this sum and "a non-cancelled IGE1 line based on the OP" select the same 63,183 OPs.
+# No goods issue of an OP had ever been cancelled, so whether the sum drops back after a
+# cancellation is unverified — if it does not, Replanejar refuses too much (the safe side).
+_BAIXADA = (
+    '(SELECT IFNULL(SUM(L."IssuedQty"), 0) FROM WOR1 L WHERE L."DocEntry" = T0."DocEntry") "Baixada"'
+)
+
+OPS_POR_DOCNUM = f"""
 SELECT T0."DocEntry", T0."DocNum", T0."Status", T0."ItemCode", T0."PlannedQty",
-       T0."CmpltQty", T0."OriginNum"
+       T0."CmpltQty", T0."OriginNum", {_BAIXADA}
 FROM OWOR T0
-WHERE T0."DocNum" IN ({marcadores})
+WHERE T0."DocNum" IN ({{marcadores}})
 ORDER BY T0."DocNum"
 """.strip()
 
 # OPs de um pedido. Repete o filtro `Status != 'C'` de `OPS_MANUTENCAO` (grade do legado):
 # uma OP cancelada não é candidata a manutenção — o SAP não a libera nem replaneja.
-OPS_POR_PEDIDO = """
+OPS_POR_PEDIDO = f"""
 SELECT T0."DocEntry", T0."DocNum", T0."Status", T0."ItemCode", T0."PlannedQty",
-       T0."CmpltQty", T0."OriginNum"
+       T0."CmpltQty", T0."OriginNum", {_BAIXADA}
 FROM OWOR T0
 WHERE T0."OriginNum" = ? AND T0."Status" != 'C'
 ORDER BY T0."DocNum"
+""".strip()
+
+# The issued quantity of every OP of one sales order, by DocNum — for the API's search, which
+# reads the screen's grid (`OPS_MANUTENCAO`) and must not add a column to it.
+BAIXADA_DAS_OPS_DO_PEDIDO = f"""
+SELECT T0."DocNum", {_BAIXADA}
+FROM OWOR T0
+WHERE T0."OriginNum" = ?
 """.strip()
 
 

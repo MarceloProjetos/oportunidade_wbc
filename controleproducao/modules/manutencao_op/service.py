@@ -24,6 +24,7 @@ sem relação com a lógica de negócio real.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import datetime
 
 from controleproducao.core.hana_reader import HanaDirectReader
@@ -222,9 +223,31 @@ def levanta_ops(
             "planejada": float(row["PlannedQty"] or 0),
             "apontada": float(row["CmpltQty"] or 0),
             "pedido": row.get("OriginNum"),
+            # Issued quantity (29/09/2026): None when the row did not carry it, which the
+            # Replanejar guard reads as "unknown" and refuses.
+            "baixada": float(row["Baixada"] or 0) if "Baixada" in row else None,
         }
         for row in rows
     ]
+
+
+def baixada_das_ops_do_pedido(hana_reader: HanaDirectReader, doc_num_pedido: str) -> dict[int, float]:
+    """``{OP DocNum: issued quantity}`` for every OP of one sales order. Read only."""
+    linhas = hana_reader.fetch_all(
+        q.BAIXADA_DAS_OPS_DO_PEDIDO, (_inteiro(doc_num_pedido, "Número do pedido"),)
+    )
+    return {int(linha["DocNum"]): float(linha["Baixada"] or 0) for linha in linhas}
+
+
+def saida_lancada(op: dict) -> bool:
+    """True when the OP's material issue was posted — or when that is unknown (fail-closed).
+
+    The Replanejar rule (29/09/2026, F6 of docs/PLANO_API_MANUTENCAO_OP.md): an OP whose
+    components were already issued cannot go back to Planejada, or the stock movement would
+    sit on a planned OP. The issue must be cancelled in the SAP first.
+    """
+    baixada = op.get("baixada")
+    return baixada is None or float(baixada) > 0
 
 
 def classifica_encerramento(status: str, planejada: float, apontada: float) -> tuple[str, bool]:
@@ -253,15 +276,21 @@ def classifica_encerramento(status: str, planejada: float, apontada: float) -> t
     return "LIBERAR + saída + entrada + encerrar", True
 
 
-def acoes_possiveis(status: str, planejada: float, apontada: float) -> list[str]:
+def acoes_possiveis(
+    status: str, planejada: float, apontada: float, baixada: float | None = None
+) -> list[str]:
     """Actions the Manutenção de OP accepts for one OP right now, in the API's words.
 
     Same rules the actions apply: Liberar takes a Planejada (a Liberada is ignored, a
-    terminal one refused); Encerrar takes what ``classifica_encerramento`` processes.
+    terminal one refused); Replanejar takes a Liberada with nothing issued (``baixada``
+    unknown → not offered); Encerrar takes what ``classifica_encerramento`` processes.
     """
+    status = str(status or "").upper()
     acoes = []
-    if str(status or "").upper() == "P":
+    if status == "P":
         acoes.append("liberar")
+    if status == "R" and not saida_lancada({"baixada": baixada}):
+        acoes.append("replanejar")
     if classifica_encerramento(status, planejada, apontada)[1]:
         acoes.append("encerrar")
     return acoes
@@ -314,6 +343,20 @@ async def muda_status(sl: ServiceLayerClient, ops: list[dict], status: str) -> d
         # rewrite every OP of the batch.
         if op.get("status") == transicao["owor"]:
             motivo = f"OP {op['doc_num']} já estava {transicao['nome']} — nada a fazer."
+            ignoradas.append({**op, "motivo": motivo})
+            logger.info("  %s", motivo)
+            continue
+        # Back to Planejada only with nothing issued (29/09/2026). The callers refuse the
+        # whole batch before this point; this is the last guard, for anyone calling the
+        # service directly — and it refuses when the issued quantity is unknown.
+        if status == "p" and saida_lancada(op):
+            motivo = (
+                f"OP {op['doc_num']} já tem saída de insumo lançada — cancele a saída no SAP "
+                "antes de replanejar."
+                if op.get("baixada") is not None else
+                f"OP {op['doc_num']}: não foi possível saber se há saída de insumo lançada — "
+                "não replanejada."
+            )
             ignoradas.append({**op, "motivo": motivo})
             logger.info("  %s", motivo)
             continue
@@ -693,6 +736,7 @@ def dependentes_transitivos(
 async def finalizar_ops(
     sl: ServiceLayerClient, hana_reader: HanaDirectReader, ops: list[dict],
     filial_configurada: int = 0, dependentes: dict[int, set[int]] | None = None,
+    deve_parar: Callable[[], bool] | None = None,
 ) -> dict:
     """`ManutencaoOp.Button4_ClickAfter` (linha ~399) — encerramento com movimentação.
 
@@ -712,11 +756,18 @@ async def finalizar_ops(
       aqui o `DocEntry` já vem do levantamento, então essa ida ao banco desaparece.
     - Erros iam apenas para a status bar e o `INO_LOG`; aqui o resultado diz o que foi e o
       que não foi feito, no mesmo formato de `muda_status`.
+
+    ``deve_parar`` (29/09/2026, D5 of docs/PLANO_API_MANUTENCAO_OP.md) is asked at the START
+    of each OP, never in the middle: an interruption lets the OP in progress finish its chain
+    (issue → receipt → close, or its own error) and leaves the rest untouched, in
+    ``interrompidas``. Cancelling the coroutine instead could stop between the material issue
+    and the product receipt of the same OP — stock taken out, product never put in.
     """
     finalizadas: list[dict] = []
     com_erro: list[dict] = []
     ignoradas: list[dict] = []
     puladas: list[dict] = []
+    interrompidas: list[dict] = []
 
     # OPs a pular porque uma OP da qual dependem falhou. Tentá-las produziria uma cascata
     # de "sem estoque" que esconde a causa real — a falha lá embaixo.
@@ -754,6 +805,13 @@ async def finalizar_ops(
             return f"falhou ({exc})"
 
     for op in ops:
+        if deve_parar is not None and deve_parar():
+            if not interrompidas:
+                logger.warning("  Interrupção pedida: nenhuma OP nova será iniciada.")
+            interrompidas.append({
+                **op, "motivo": "não iniciada — a execução foi interrompida antes desta OP",
+            })
+            continue
         doc_entry_atual = int(op["doc_entry"])
         if doc_entry_atual in bloqueadas:
             culpada = bloqueadas[doc_entry_atual]
@@ -839,4 +897,5 @@ async def finalizar_ops(
         "com_erro": com_erro,
         "ignoradas": ignoradas,
         "puladas": puladas,
+        "interrompidas": interrompidas,
     }

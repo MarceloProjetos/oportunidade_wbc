@@ -641,15 +641,18 @@ módulo 3 (*Manutenção de OP*) libera, replaneja e **encerra com movimentaçã
   "igual à da 8079", mas não "só a LAN"; trocar as duas para `LocalSubnet` é decisão do
   Marcelo. Nunca `CP_HOST=<IP da máquina>`: o `deploy_update.bat` e o `/status` sondam
   `127.0.0.1:CP_PORTA`.
-- **Módulo 3 (D9):** `Liberar` e `Encerrar` pela tela; `Replanejar` só pela CLI
-  (`python -m controleproducao manutencao-op replanejar`). A API 8077 deixou de encerrar OP
-  (seção "Ordens de Produção" acima): encerrar com estoque é só aqui.
+- **Módulo 3 (D9):** `Liberar` e `Encerrar` pela tela; `Replanejar` fora da tela — pela CLI
+  (`python -m controleproducao manutencao-op replanejar`) e pela API JSON, as duas recusando OP
+  com saída de insumo lançada (a saída se cancela no SAP antes). O "Interromper" do Encerrar para
+  depois da OP em curso, nunca no meio dela. A API 8077 deixou de encerrar OP (seção "Ordens de
+  Produção" acima): encerrar com estoque é só aqui.
 - **API JSON do módulo 3 (29/09/2026):** `/api/manutencao-op` na mesma porta (8080) e no mesmo
-  processo da tela — buscar, liberar, conferir/executar o encerramento, acompanhar e interromper.
+  processo da tela — buscar, liberar, replanejar, conferir/executar o encerramento, acompanhar e
+  interromper.
   Só `X-API-Key` no cabeçalho (a mesma `OS_API_KEY`), `solicitante` obrigatório em toda
   gravação, erros `{ok, tipo, motivo}`, mesma fila de uma execução por vez e mesmo histórico de
   Execuções ("por *fulano* · API"). Contrato para quem consome: [API_MANUTENCAO_OP.md](API_MANUTENCAO_OP.md);
-  plano: `docs/PLANO_API_MANUTENCAO_OP.md`. Replanejar pela API vem depois do 1º uso real.
+  plano: `docs/PLANO_API_MANUTENCAO_OP.md`.
 - **Módulo 2:** `Reprocessar` em "Pedidos integrados" (saiu da tela em 28/09 — D8 — e voltou
   em 30/09, decisão do Marcelo): cancela **todas** as OPs planejadas do pedido, de qualquer
   origem, e **não recria** — o pedido volta para "Pedidos novos" e precisa ser processado de

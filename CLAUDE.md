@@ -230,8 +230,11 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   (2) `reprocessar-integrados` cancela **toda** OP planejada do pedido (de qualquer origem) e
   **não recria** — o pedido volta para "Pedidos novos" (`ProcessWBC='N'`, `U_INO_OP` zerado) e
   precisa ser processado de novo; está na tela desde 30/09 (D8 revertida pelo Marcelo), com
-  esse aviso na lista e na conferência; (3) `Liberar` grava no 1º POST; `Replanejar` é **só pela CLI** desde 28/09
-  (D9 — a tela recusa `acao=p`); `encerrar` faz OIGE+OIGN (irreversível) e é o **único**
+  esse aviso na lista e na conferência; (3) `Liberar` grava no 1º POST; `Replanejar` **não está na tela** (D9 — a tela recusa
+  `acao=p`): é pela CLI e, desde 29/09, pela API JSON (`/api/manutencao-op/replanejar`), e as duas
+  **recusam OP com saída de insumo lançada** (`service.saida_lancada`, `IssuedQty` > 0; valor
+  desconhecido também recusa); o "Interromper" do Encerrar para **entre OPs** (`parada_combinada`
+  na `Tarefa`, D5) — nunca corta uma OP entre a saída e a entrada; `encerrar` faz OIGE+OIGN (irreversível) e é o **único**
   caminho de encerrar OP (a API 8077 só libera por default, D9); (4) `HANA_SCHEMA` **não é
   lido** pelo pacote — `hana_schema` = `SL_COMPANY_DB` (bug de 21/09: ler num schema, gravar
   noutro); (5) três escritores no mesmo `ORDR`/`OWOR` — worker, pacote e o addon C# legado no

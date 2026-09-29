@@ -8,6 +8,7 @@ O `replanejar` tem um uso prático além da paridade com o legado: é o caminho 
 um pedido cujo `pedidos-wbc cancelar-ops` foi barrado por OP liberada.
 """
 import asyncio
+import re
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -17,10 +18,11 @@ from controleproducao.cli import app
 from controleproducao.modules.manutencao_op import service as svc
 
 
-def _op(doc_entry, doc_num, item, status, planejada=2, apontada=0):
+def _op(doc_entry, doc_num, item, status, planejada=2, apontada=0, baixada=0):
+    # "Baixada" = issued quantity; the OP queries carry it since 29/09/2026 (Replanejar rule).
     return {
         "DocEntry": doc_entry, "DocNum": doc_num, "Status": status, "ItemCode": item,
-        "PlannedQty": planejada, "CmpltQty": apontada, "OriginNum": 84245,
+        "PlannedQty": planejada, "CmpltQty": apontada, "OriginNum": 84245, "Baixada": baixada,
     }
 
 
@@ -81,6 +83,57 @@ def test_replanejar_devolve_liberada_para_planejada():
 
     assert [chave for _e, chave, _f in escritas] == [102]
     assert escritas[0][2] == {"ProductionOrderStatus": "boposPlanned"}
+
+
+def test_replanejar_recusa_op_com_saida_de_insumo_lancada():
+    """29/09/2026 (F6): an OP whose components were issued cannot go back to Planejada —
+    the stock movement would sit on a planned OP. The issue must be cancelled first."""
+    resultado, escritas = _executa(
+        [_op(101, 9001, "A", "R", baixada=3.5), _op(102, 9002, "B", "R")],
+        ["replanejar", "9001", "9002", "--sim"],
+    )
+    assert [chave for _e, chave, _f in escritas] == [102]
+    # The test terminal is 80 columns wide and Rich wraps the cell: read it as one text.
+    lido = " ".join(re.sub(r"[│─┌┐└┘├┤┬┴┼]", " ", resultado.output).split())
+    assert "saída de insumo lançada — cancele a saída no SAP antes" in lido
+
+
+def test_replanejar_rele_as_ops_antes_de_gravar():
+    """The confirmation may stay open for minutes: an issue posted meanwhile still stops it."""
+    leituras = iter([
+        [_op(101, 9001, "A", "R")],                 # the table: nothing issued yet
+        [_op(101, 9001, "A", "R", baixada=2)],      # right before writing: issued meanwhile
+    ])
+    with patch("controleproducao.cli.get_settings") as cfg, \
+         patch("controleproducao.cli.HanaDirectReader") as leitor, \
+         patch("controleproducao.cli.ServiceLayerClient") as cliente_sl:
+        cfg.return_value.is_production = False
+        leitor.return_value.fetch_all = MagicMock(side_effect=lambda *_a, **_k: next(leituras))
+        atualiza = AsyncMock()
+        cliente_sl.return_value.__aenter__.return_value.update_entity = atualiza
+        resultado = CliRunner().invoke(app, ["manutencao-op", "replanejar", "9001", "--sim"])
+
+    atualiza.assert_not_called()
+    assert "Não alterada" in resultado.output and "saída de insumo lançada" in resultado.output
+
+
+def test_servico_recusa_replanejar_sem_saber_se_houve_saida():
+    """Fail-closed: an OP dict without the issued quantity is not sent back to Planejada."""
+    sl = AsyncMock()
+    resultado = asyncio.run(svc.muda_status(
+        sl, [{"doc_entry": 1, "doc_num": 9001, "item_code": "X", "status": "R"}], "p"
+    ))
+    sl.update_entity.assert_not_called()
+    assert "não foi possível saber" in resultado["ignoradas"][0]["motivo"]
+
+
+@pytest.mark.parametrize("baixada,acoes", [
+    (0, ["replanejar", "encerrar"]),
+    (4, ["encerrar"]),
+    (None, ["encerrar"]),                            # unknown issued quantity: not offered
+])
+def test_replanejar_so_aparece_sem_saida_lancada(baixada, acoes):
+    assert svc.acoes_possiveis("R", 10, 0, baixada) == acoes
 
 
 # ---------------------------------------------------------------------------

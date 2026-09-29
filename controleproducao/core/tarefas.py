@@ -107,6 +107,12 @@ class Tarefa:
     # executions keep None. It is what the caller declared, not a verified identity.
     solicitante: str | None = None
     origem: str = ORIGEM_TELA
+    # Stop between steps instead of cutting the coroutine (29/09/2026, D5 of
+    # docs/PLANO_API_MANUTENCAO_OP.md): set by whoever creates a task whose steps must not be
+    # split — the closing of OPs, where one "step" is issue → receipt → close. `cancelar` then
+    # only raises `parada_pedida`, and the task body checks it before each step.
+    parada_combinada: bool = False
+    parada_pedida: bool = False
 
     @property
     def terminada(self) -> bool:
@@ -171,6 +177,7 @@ class Tarefa:
             "erro": self.erro,
             "solicitante": self.solicitante,
             "origem": self.origem,
+            "parada_pedida": self.parada_pedida,
         }
 
 
@@ -252,6 +259,7 @@ class RegistroDeTarefas:
         *,
         solicitante: str | None = None,
         origem: str = ORIGEM_TELA,
+        parada_combinada: bool = False,
     ) -> Tarefa:
         """Registra e dispara a tarefa. Levanta `RuntimeError` se o módulo já tem uma."""
         if origem not in ORIGENS:
@@ -261,6 +269,7 @@ class RegistroDeTarefas:
         tarefa = Tarefa(
             id=uuid.uuid4().hex[:12], nome=nome, descricao=descricao, criada_em=datetime.now(),
             modulo=modulo, solicitante=solicitante, origem=origem,
+            parada_combinada=parada_combinada,
         )
         self._guardar(tarefa)
         self._em_execucao[modulo] = tarefa.id
@@ -274,7 +283,9 @@ class RegistroDeTarefas:
         tarefa.iniciada_em = datetime.now()
         try:
             tarefa.resultado = await corrotina(tarefa)
-            tarefa.situacao = "concluída"
+            # A combined stop ends the body normally, with what it did in `resultado`; it is
+            # still an interruption. The body clears `parada_pedida` when nothing was left out.
+            tarefa.situacao = "cancelada" if tarefa.parada_pedida else "concluída"
         except asyncio.CancelledError:
             tarefa.situacao = "cancelada"
             tarefa.anota("Execução cancelada.")
@@ -366,10 +377,20 @@ class RegistroDeTarefas:
 
         ⚠️ Cancelar **não desfaz** o que já foi gravado no SAP. Interrompe entre passos;
         documentos já criados continuam lá. Quem chama precisa deixar isso claro na tela.
+
+        A task created with ``parada_combinada`` is not cut: it is asked to stop, and stops
+        before its next step (the closing of OPs: after the OP in progress). Asking twice is
+        harmless.
         """
         job = self._jobs.get(tarefa_id)
         if not job or job.done():
             return False
+        tarefa = self._tarefas.get(tarefa_id)
+        if tarefa is not None and tarefa.parada_combinada:
+            if not tarefa.parada_pedida:
+                tarefa.parada_pedida = True
+                tarefa.anota("Interrupção pedida: a etapa em curso termina e a próxima não começa.")
+            return True
         job.cancel()
         return True
 

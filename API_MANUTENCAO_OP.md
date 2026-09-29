@@ -1,20 +1,21 @@
-# API — Manutenção de OP (buscar, liberar e encerrar Ordens de Produção)
+# API — Manutenção de OP (buscar, liberar, replanejar e encerrar Ordens de Produção)
 
 Documento para quem vai **consumir** a API. Ela faz, por JSON, o que a tela **Manutenção de
 OP** do Controle de Produção faz (servidor `192.168.7.11`, porta **8080**):
 
 - **buscar** as Ordens de Produção de um pedido de venda;
 - **liberar** OPs (Planejada → Liberada);
+- **replanejar** OPs (Liberada → Planejada) — recusando a que já tem saída de insumo lançada;
 - **encerrar** OPs — escolhidas ou todas de um pedido — **com movimentação de estoque**
   (saída dos insumos + entrada do produto), em duas etapas: conferir e executar;
 - **acompanhar** e **interromper** a execução.
 
-A API não tem regra própria: ela chama as **mesmas funções da tela**, com as mesmas recusas e as
-**mesmas mensagens**. O que ela grava vai **direto ao SAP de produção** (`SBOALTAMIRAPROD`) pelo
+A API não tem regra própria: ela chama as **mesmas funções da tela** (Replanejar, que não está na
+tela, usa as mesmas da linha de comando), com as mesmas recusas e as **mesmas mensagens**. O que ela grava vai **direto ao SAP de produção** (`SBOALTAMIRAPROD`) pelo
 Service Layer.
 
-> **Ainda não disponível:** voltar uma OP para Planejada (Replanejar). Entra numa próxima etapa,
-> depois do primeiro uso real desta API.
+> **Desde 29/09/2026:** `POST /replanejar` (seção 4b) e o "Interromper" do Encerrar parando só
+> entre uma OP e outra (seção 6).
 
 ---
 
@@ -26,6 +27,7 @@ Base: `http://192.168.7.11:8080/api/manutencao-op`
 | --- | --- | --- |
 | `GET /pedidos/{pedido}/ops` | OPs de um pedido, com filtros opcionais | não |
 | `POST /liberar` | Libera as OPs informadas | **sim**, assim que a execução começa |
+| `POST /replanejar` | Devolve as OPs informadas para Planejada | **sim**, assim que a execução começa |
 | `POST /encerrar/conferir` | Monta o plano do encerramento e devolve um token | não |
 | `POST /encerrar/executar` | Executa o plano conferido | **sim — irreversível** |
 | `GET /execucoes/{id}` | Estado de uma execução | não |
@@ -44,7 +46,7 @@ Base: `http://192.168.7.11:8080/api/manutencao-op`
    | **DocNum** | O número da tela do SAP. É o que as pessoas falam. | OP `129850` |
    | **DocEntry** | A chave interna da tabela. | `131431` |
 
-2. **Liberar e Encerrar rodam em segundo plano.** O `POST` responde **202** na hora, com o `id`
+2. **Liberar, Replanejar e Encerrar rodam em segundo plano.** O `POST` responde **202** na hora, com o `id`
    da execução; o resultado vem depois, em `GET /execucoes/{id}`. Encerrar dezenas de OPs leva
    **minutos** (cerca de quatro chamadas ao SAP por OP).
 3. **Uma execução por vez** no módulo Manutenção de OP — **somando a tela e a API**. Se já houver
@@ -132,6 +134,7 @@ Resposta:
       "planejada": 12,
       "apontada": 0,
       "restante": 12,
+      "baixada": 0,
       "data_pedido": "2026-05-28",
       "data_inicio": "2026-05-29",
       "data_vencimento": "2026-06-07",
@@ -152,9 +155,13 @@ botões em vez de reimplementar a regra:
 | --- | --- |
 | Planejada, apontada < planejada | `["liberar", "encerrar"]` |
 | Planejada, apontada ≥ planejada | `["liberar"]` |
-| Liberada, apontada < planejada | `["encerrar"]` |
-| Liberada, apontada ≥ planejada | `[]` |
+| Liberada, nada baixado, apontada < planejada | `["replanejar", "encerrar"]` |
+| Liberada, nada baixado, apontada ≥ planejada | `["replanejar"]` |
+| Liberada, com saída de insumo lançada (`baixada` > 0) | `["encerrar"]` se apontada < planejada, senão `[]` |
 | Encerrada | `[]` |
+
+`baixada` é quanto dos insumos da OP já saiu do estoque (soma do que foi baixado). Mais que zero
+quer dizer que houve **saída de insumo lançada** — e aí a OP não volta para Planejada (seção 4b).
 
 ---
 
@@ -206,6 +213,7 @@ Resposta — **202**, a execução começou:
     "erro": null,
     "solicitante": "joao.silva",
     "origem": "api",
+    "parada_pedida": false,
     "estado": "/api/manutencao-op/execucoes/2b5bcade16ec"
   }
 }
@@ -222,7 +230,30 @@ Acompanhe pelo `estado` (seção 6). No fim, `resultado` traz:
 | `com_erro` | OPs que o SAP recusou, com `motivo` — as outras seguem normalmente |
 
 Cada OP vem como `{"doc_num", "doc_entry", "status", "item_code", "planejada", "apontada",
-"pedido"}` — `status` é o que ela tinha **antes** da execução.
+"pedido", "baixada"}` — `status` é o que ela tinha **antes** da execução.
+
+---
+
+## 4b. `POST /replanejar` — Liberada → Planejada
+
+```bash
+curl -X POST "http://192.168.7.11:8080/api/manutencao-op/replanejar" \
+     -H "X-API-Key: SUA_CHAVE" -H "Content-Type: application/json" \
+     -d '{"ops": [157426], "solicitante": "joao.silva"}'
+```
+
+Mesmo corpo, mesma resposta (**202**) e mesmas regras de lote do Liberar (seção 4) — mais uma:
+
+- **OP com saída de insumo lançada não volta para Planejada.** Se **alguma** OP Liberada da lista
+  já teve insumo baixado, **o lote inteiro** é recusado com `409 saida_lancada` (as OPs e o
+  quanto foi baixado em `detalhes`) e nada é gravado. A saída precisa ser **cancelada no SAP**
+  antes; senão ficaria estoque movimentado numa OP Planejada. Se não foi possível saber quanto
+  foi baixado, a OP também é recusada (`"baixado": "desconhecido"`).
+- OP que **já está Planejada** vai para `ignoradas` ("já estava Planejada"), sem gravar.
+
+Use `acoes_possiveis` da busca: `"replanejar"` só aparece quando a OP está Liberada e nada foi
+baixado. Replanejar **não existe na tela** Manutenção de OP — só aqui e na linha de comando, com a
+mesma regra.
 
 ---
 
@@ -320,6 +351,7 @@ No fim, `resultado` traz:
 | `com_erro` | OPs que falharam, com `etapa` (onde parou), `motivo` e `liberacao` |
 | `puladas` | OPs que **dependiam** de uma que falhou — não foram tentadas, para não faltar o insumo que ela produziria |
 | `ignoradas` | OPs sem nada a fazer, com `motivo` |
+| `interrompidas` | OPs que **não começaram** porque a execução foi interrompida (seção 6) |
 
 `liberacao` numa OP com erro:
 
@@ -350,10 +382,11 @@ curl "http://192.168.7.11:8080/api/manutencao-op/execucoes/2b5bcade16ec" -H "X-A
 | `com_falhas` | Terminou, mas o `resultado` tem OPs em `com_erro` |
 | `passo`, `passos_feitos`, `passos_total`, `percentual` | Progresso |
 | `linhas` | O log da execução, uma linha por passo (até 500) |
-| `resultado` | O que foi feito (seções 4 e 5.2); `null` enquanto roda |
+| `resultado` | O que foi feito (seções 4, 4b e 5.2); `null` enquanto roda |
 | `erro` | A mensagem, quando `situacao` = `erro` |
 | `criada_em`, `duracao_segundos` | Horários (hora local do servidor) |
 | `solicitante`, `origem` | Quem pediu, e `api` ou `tela` |
+| `parada_pedida` | `true` depois de um pedido de interrupção, enquanto a OP em curso termina |
 | `estado` | O caminho desta mesma consulta |
 
 ⚠️ **`situacao: "concluída"` não quer dizer que deu tudo certo.** Quer dizer que a execução não
@@ -371,11 +404,21 @@ curl -X POST "http://192.168.7.11:8080/api/manutencao-op/execucoes/2b5bcade16ec/
      -d '{"solicitante": "joao.silva"}'
 ```
 
-Resposta: `{"ok": true, "cancelada": true}` — ou `false`, se ela já tinha terminado.
+Resposta: `{"ok": true, "cancelada": true, "entre_etapas": true}` — `cancelada` é `false` se
+ela já tinha terminado.
 
-⚠️ **Interromper não desfaz nada.** A execução para no próximo passo; o que já foi gravado no
-SAP continua lá. No Encerrar, a parada pode cair entre a saída e a entrada **da mesma OP** —
-confira as `linhas` e o SAP depois de interromper.
+Como a execução para depende do que ela faz:
+
+- **Encerrar** (`entre_etapas: true`): **a OP em curso termina a cadeia** (saída → entrada →
+  encerra, ou o próprio erro) e as próximas **não começam** — elas vão para
+  `resultado.interrompidas`, e a execução termina com `situacao: "cancelada"`. Nunca fica uma OP
+  com o insumo baixado e o produto sem entrada por causa do "Interromper". Uma chamada ao SAP que
+  trave faz a parada esperar o tempo limite do servidor (até 60 s). Se o pedido chegar com a
+  última OP já em andamento, nada fica de fora e a execução termina `concluída`.
+- **Liberar e Replanejar** (`entre_etapas: false`): para entre uma OP e outra — cada OP é uma
+  gravação só.
+
+⚠️ **Interromper não desfaz nada.** O que já foi gravado no SAP continua lá.
 
 ---
 
@@ -402,7 +445,8 @@ Todo erro vem no mesmo formato, com uma frase pronta para mostrar ao usuário (a
 | `401` | `sem_chave` | `X-API-Key` faltando ou errada | Conferir a chave |
 | `404` | `nao_encontrada` | Alguma OP informada não existe (lote inteiro recusado, números em `detalhes`); encerrar um pedido sem OP (a busca devolve lista vazia); execução inexistente ou de outro módulo; rota errada | Conferir o número |
 | `405` | `metodo_invalido` | `GET` onde é `POST` (ou o contrário) | Corrigir a chamada |
-| `409` | `status_terminal` | Liberar com OP Encerrada ou Cancelada — lote inteiro recusado (`detalhes`) | Buscar de novo e mandar sem ela |
+| `409` | `status_terminal` | Liberar ou Replanejar com OP Encerrada ou Cancelada — lote inteiro recusado (`detalhes`) | Buscar de novo e mandar sem ela |
+| `409` | `saida_lancada` | Replanejar com OP que já teve insumo baixado — lote inteiro recusado (`detalhes` com o `baixado`) | Cancelar a saída no SAP antes, ou mandar sem ela |
 | `409` | `ciclo` | Encerrar: OPs que dependem umas das outras em círculo (`detalhes`) | Encerrar uma a uma, ou corrigir a estrutura no SAP |
 | `409` | `nada_a_encerrar` | Nenhuma OP em condição de encerrar (`itens`) | Nada a fazer |
 | `409` | `confirmacao_invalida` | Token vencido, já usado ou desconhecido | Conferir de novo |
@@ -541,12 +585,14 @@ No PowerShell 5.1, uma resposta 4xx/5xx vira exceção; o JSON do erro está em
    acontecer, em que ordem, e quais OPs serão liberadas antes. Ninguém deveria confirmar sem ver.
 3. **Leia `desfecho`, não só `situacao`.** "concluída" com OPs em `com_erro` é `falhas`.
 4. **Consulte o estado a cada 2 segundos** e pare em `terminada: true`. Não é preciso mais rápido.
-5. **Repetir Liberar é seguro** (OP já Liberada é ignorada sem gravar). **Repetir Encerrar não
-   é possível** (token de uso único) — e é de propósito.
+5. **Repetir Liberar ou Replanejar é seguro** (OP já no destino é ignorada sem gravar).
+   **Repetir Encerrar não é possível** (token de uso único) — e é de propósito.
 6. **`409 ocupado`: acompanhe a execução que veio na resposta** em vez de tentar de novo em laço.
 7. **`solicitante` é a pessoa**, não o sistema. É ele que aparece no histórico quando alguém
    perguntar "quem encerrou esta OP?".
 8. **Não use Encerrar para limpar status.** Ele movimenta estoque (seção 1, item 4).
+9. **Replanejar só com `"replanejar"` em `acoes_possiveis`.** OP com saída lançada é recusada: a
+   saída se cancela no SAP, não aqui.
 
 ---
 
@@ -559,6 +605,7 @@ libera **uma** OP. Diferenças:
 | --- | --- | --- |
 | Consultar uma OP pelo número | ✅ | via busca do pedido |
 | Liberar | ✅ uma por chamada, na hora | ✅ em lote, em segundo plano |
+| Replanejar (voltar para Planejada) | ⛔ | ✅ em lote, recusando OP com saída lançada |
 | Encerrar | ⛔ 400 desde 28/09/2026 | ✅ **com** saída e entrada de estoque |
 | Entra na trava de uma execução por vez e no histórico de Execuções | não | sim |
 | Registra quem pediu | não | sim (`solicitante`) |

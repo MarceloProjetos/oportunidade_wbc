@@ -328,3 +328,53 @@ def test_quem_pediu_vai_para_o_json_do_acompanhamento():
 
     tarefa = asyncio.run(cenario())
     assert (tarefa.para_json()["solicitante"], tarefa.para_json()["origem"]) == ("joao", "api")
+
+
+def test_parada_combinada_nao_corta_a_execucao_e_termina_cancelada():
+    """D5 (29/09/2026): a task created with `parada_combinada` is asked to stop, not cut —
+    its body decides where (the closing of OPs: before the next OP) and keeps its result."""
+    async def cenario():
+        registro = RegistroDeTarefas()
+        passos = []
+
+        async def trabalho(tarefa):
+            for passo in range(1, 500):
+                if tarefa.parada_pedida:
+                    break
+                passos.append(passo)
+                await asyncio.sleep(0.001)
+            return {"feitos": list(passos), "com_erro": []}
+
+        tarefa = registro.criar("manutencao_op", "Encerrar OPs", "3 OP(s)", trabalho,
+                                parada_combinada=True)
+        await asyncio.sleep(0.005)
+        pediu = await registro.cancelar(tarefa.id)
+        de_novo = await registro.cancelar(tarefa.id)          # asking twice is harmless
+        while not tarefa.terminada:
+            await asyncio.sleep(0.001)
+        return tarefa, pediu, de_novo
+
+    tarefa, pediu, de_novo = asyncio.run(cenario())
+    assert pediu and de_novo
+    assert tarefa.situacao == "cancelada" and tarefa.desfecho == "cancelada"
+    assert tarefa.resultado["feitos"]                          # the result survived the stop
+    assert sum("Interrupção pedida" in linha for linha in tarefa.linhas) == 1
+    assert tarefa.para_json()["parada_pedida"] is True
+
+
+def test_sem_parada_combinada_o_cancelar_corta_como_antes():
+    async def cenario():
+        registro = RegistroDeTarefas()
+
+        async def trabalho(_tarefa):
+            await asyncio.sleep(10)
+
+        tarefa = registro.criar("manutencao_op", "Liberar OPs", "9001", trabalho)
+        await asyncio.sleep(0)
+        await registro.cancelar(tarefa.id)
+        while not tarefa.terminada:
+            await asyncio.sleep(0.001)
+        return tarefa
+
+    tarefa = asyncio.run(cenario())
+    assert tarefa.situacao == "cancelada" and tarefa.resultado is None

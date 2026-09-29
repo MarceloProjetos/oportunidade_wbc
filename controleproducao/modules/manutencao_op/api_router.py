@@ -16,8 +16,9 @@ that belong to the API alone:
 - ``X-API-Key`` only (``core/acesso.py``); no cookie, no ``?key=``.
 - ``solicitante`` is required on every write and on cancel: it goes to the log and to the
   history. It is what the caller declares, not a verified identity (the key is shared).
-- Replanejar is not here yet: it is the last phase of the plan (F6), after the rest has
-  been deployed and tested for real.
+- Replanejar (F6, 29/09/2026) is here and not on the screen (D4): it refuses the OP whose
+  material issue was already posted, like the CLI.
+- Encerrar stops between OPs when interrupted (D5): the OP in progress finishes its chain.
 """
 from __future__ import annotations
 
@@ -179,11 +180,17 @@ def _data(valor: Any) -> str | None:
     return str(valor)[:10]
 
 
-def _op_da_busca(linha: dict) -> dict:
-    """One row of `service.buscar_ops` (the screen's grid) in the API's words."""
+def _op_da_busca(linha: dict, baixadas: dict[int, float]) -> dict:
+    """One row of `service.buscar_ops` (the screen's grid) in the API's words.
+
+    ``baixadas`` (issued quantity by OP) comes from a second, pedido-wide query: the grid's
+    query feeds the screen's table, and a new column there would show up on the screen.
+    """
     status = str(linha.get("Status") or "")
     planejada = float(linha.get("Qtde. Planejada") or 0)
     apontada = float(linha.get("Qtde. Apontada") or 0)
+    numero = linha.get("Número OP")
+    baixada = baixadas.get(int(numero)) if numero is not None else None
     return {
         "op": _numero(linha.get("Número OP")),
         "status": status,
@@ -193,12 +200,13 @@ def _op_da_busca(linha: dict) -> dict:
         "planejada": _numero(planejada),
         "apontada": _numero(apontada),
         "restante": _numero(linha.get("Qtde. Restante")),
+        "baixada": _numero(baixada),
         "data_pedido": _data(linha.get("Data Pedido")),
         "data_inicio": _data(linha.get("Data inicio")),
         "data_vencimento": _data(linha.get("Data Vencimento")),
         "cliente_codigo": linha.get("Cod. Cliente"),
         "cliente": linha.get("Cliente"),
-        "acoes_possiveis": service.acoes_possiveis(status, planejada, apontada),
+        "acoes_possiveis": service.acoes_possiveis(status, planejada, apontada, baixada),
     }
 
 
@@ -233,10 +241,14 @@ def _plano(plano: Plano) -> dict:
     }
 
 
-def _dispara(request: Request, nome: str, descricao: str, corrotina, solicitante: str) -> JSONResponse:
+def _dispara(
+    request: Request, nome: str, descricao: str, corrotina, solicitante: str,
+    *, parada_combinada: bool = False,
+) -> JSONResponse:
     try:
         tarefa = acoes.dispara(
-            nome, descricao, corrotina, solicitante=solicitante, origem=ORIGEM_API, ip=_ip(request)
+            nome, descricao, corrotina, solicitante=solicitante, origem=ORIGEM_API, ip=_ip(request),
+            parada_combinada=parada_combinada,
         )
     except acoes.Recusa as recusa:
         return _de_recusa(recusa)
@@ -264,6 +276,7 @@ def buscar_ops(
         linhas = service.buscar_ops(
             leitor, pedido, op_de or None, op_ate or None, status_de or None, status_ate or None
         )
+        baixadas = service.baixada_das_ops_do_pedido(leitor, pedido) if linhas else {}
     except ValueError as exc:
         return _falha("invalido", str(exc), 400)
     except Exception as exc:  # noqa: BLE001 - a read that failed is a 502, never a 500
@@ -271,7 +284,7 @@ def buscar_ops(
     finally:
         leitor.close()
 
-    ops = [_op_da_busca(linha) for linha in linhas]
+    ops = [_op_da_busca(linha, baixadas) for linha in linhas]
     return {"ok": True, "pedido": int(pedido.strip()), "total": len(ops), "ops": ops}
 
 
@@ -301,6 +314,39 @@ async def liberar(request: Request, corpo: Any = Body(default=None)):
     return _dispara(
         request, nome, ", ".join(str(o["doc_num"]) for o in ops),
         acoes.corrotina_mudanca_status(nome, ops, "l"), solicitante,
+    )
+
+
+@router.post("/replanejar")
+async def replanejar(request: Request, corpo: Any = Body(default=None)):
+    """Liberada → Planejada, written as soon as the execution starts (F6, 29/09/2026).
+
+    Refuses the WHOLE batch when an OP already has material issued: the issue must be
+    cancelled in the SAP first. Not on the screen (D4); same rule as the CLI.
+    """
+    try:
+        dados = _objeto(corpo)
+        solicitante = _solicitante(dados)
+        numeros = _lista_de_ops(dados)
+    except acoes.Recusa as recusa:
+        return _de_recusa(recusa)
+
+    avisa_escrita("manutencao-op replanejar (API)")
+
+    leitor = _leitor()
+    try:
+        ops = await asyncio.to_thread(acoes.prepara_mudanca_status, leitor, numeros, "p")
+    except acoes.Recusa as recusa:
+        return _de_recusa(recusa)
+    except Exception as exc:  # noqa: BLE001 - see buscar_ops
+        return _sap_fora("leitura das OPs a replanejar", exc)
+    finally:
+        leitor.close()
+
+    nome = acoes.NOME_REPLANEJAR
+    return _dispara(
+        request, nome, ", ".join(str(o["doc_num"]) for o in ops),
+        acoes.corrotina_mudanca_status(nome, ops, "p"), solicitante,
     )
 
 
@@ -347,7 +393,7 @@ async def executar_encerrar(request: Request, corpo: Any = Body(default=None)):
         return _de_recusa(recusa)
     return _dispara(
         request, plano.operacao, acoes.descricao_do_plano(plano),
-        acoes.corrotina_encerramento(plano), solicitante,
+        acoes.corrotina_encerramento(plano), solicitante, parada_combinada=True,
     )
 
 
@@ -373,7 +419,11 @@ async def estado(tarefa_id: str):
 
 @router.post("/execucoes/{tarefa_id}/cancelar")
 async def cancelar(request: Request, tarefa_id: str, corpo: Any = Body(default=None)):
-    """Stops a running execution between steps. Does NOT undo what was already written."""
+    """Stops a running execution. Does NOT undo what was already written.
+
+    A closing (Encerrar) stops after the OP in progress (D5): ``entre_etapas`` says so, and
+    the execution ends ``cancelada`` with the OPs not started in ``resultado.interrompidas``.
+    """
     try:
         solicitante = _solicitante(_objeto(corpo))
     except acoes.Recusa as recusa:
@@ -383,9 +433,11 @@ async def cancelar(request: Request, tarefa_id: str, corpo: Any = Body(default=N
     if recusa is not None:
         return recusa
     cancelou = await TAREFAS.cancelar(tarefa.id)
+    entre_etapas = bool(tarefa.parada_combinada)
     logger.warning(
         "Execução %s: interrupção pedida pela API · solicitante %s · ip %s · %s",
         tarefa.id, solicitante, _ip(request) or "—",
-        "interrompida" if cancelou else "já tinha terminado",
+        ("para depois da OP em curso" if entre_etapas else "interrompida") if cancelou
+        else "já tinha terminado",
     )
-    return {"ok": True, "cancelada": cancelou}
+    return {"ok": True, "cancelada": cancelou, "entre_etapas": entre_etapas}

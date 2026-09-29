@@ -148,7 +148,7 @@ class TestOrigem:
     # 200 + {"cancelada": false}: the gate passed and the route itself answered (no such task).
     def test_post_por_cookie_do_mesmo_host_passa(self, logado: TestClient) -> None:
         resposta = logado.post("/tarefas/x/cancelar", headers={"Origin": "http://testserver"})
-        assert resposta.status_code == 200 and resposta.json() == {"cancelada": False}
+        assert resposta.status_code == 200 and resposta.json() == {"cancelada": False, "entre_etapas": False}
 
     def test_post_por_cookie_de_outra_porta_do_mesmo_host_e_403(self, logado: TestClient) -> None:
         """30/09/2026: host-only matching let the 8077/8078/8079 pages of this machine through."""

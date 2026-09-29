@@ -102,10 +102,15 @@ async def cancelar(request: Request, tarefa_id: str):
     A tela avisa isso antes de o usuário clicar.
     """
     cancelou = await TAREFAS.cancelar(tarefa_id)
+    tarefa = TAREFAS.obter(tarefa_id)
+    # `entre_etapas`: the task stops before its next step instead of being cut (the closing
+    # of OPs, D5 of 29/09/2026) — the page tells the operator the OP in progress will finish.
+    entre_etapas = bool(tarefa is not None and tarefa.parada_combinada)
     if cancelou:
         # Audit line next to the one written when the execution started (29/09/2026).
         logger.warning(
-            "Execução %s: interrupção pedida pela tela · ip %s",
+            "Execução %s: interrupção pedida pela tela · ip %s%s",
             tarefa_id, request.client.host if request.client else "—",
+            " · para depois da etapa em curso" if entre_etapas else "",
         )
-    return JSONResponse({"cancelada": cancelou})
+    return JSONResponse({"cancelada": cancelou, "entre_etapas": entre_etapas})

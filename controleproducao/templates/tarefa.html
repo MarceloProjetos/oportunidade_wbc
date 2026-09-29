@@ -34,8 +34,13 @@
   <div id="acoes" class="ov-acoes-lote"{% if tarefa.terminada %} hidden{% endif %}>
     <button type="button" class="ov-btn-ghost" id="btn-cancelar">
       {{ icone('parar') }} Interromper</button>
+    {% if tarefa.parada_combinada %}
+    <span class="ov-nota-inline">Para depois da OP em curso — ela termina saída, entrada e
+      encerramento; as próximas não começam. <strong>Não desfaz</strong> o que já foi gravado no SAP.</span>
+    {% else %}
     <span class="ov-nota-inline">Interrompe entre passos — <strong>não desfaz</strong>
       documentos já gravados no SAP.</span>
+    {% endif %}
   </div>
 </section>
 
@@ -84,9 +89,11 @@
         }
         if (!r.ok) { avisa('Não foi possível pedir a interrupção (HTTP ' + r.status + ').'); return null; }
         return r.json().then(function (d) {
-          avisa(d.cancelada
-            ? 'Interrupção pedida — a execução para no fim do passo atual. O que já foi gravado no SAP fica.'
-            : 'Não havia execução em andamento para interromper.');
+          avisa(!d.cancelada
+            ? 'Não havia execução em andamento para interromper.'
+            : d.entre_etapas
+              ? 'Interrupção pedida — a OP em curso termina a cadeia e as próximas não começam. O que já foi gravado no SAP fica.'
+              : 'Interrupção pedida — a execução para no fim do passo atual. O que já foi gravado no SAP fica.');
         });
       })
       .catch(function () { avisa('Falha de rede ao pedir a interrupção — a execução continua no servidor.'); })

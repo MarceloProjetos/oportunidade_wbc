@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 MODULO = "manutencao_op"
 
 NOME_LIBERAR = "Liberar OPs"
+NOME_REPLANEJAR = "Replanejar OPs"
 NOME_ENCERRAR = "Encerrar OPs"
 
 # HTTP status of each refusal in the JSON API. The screen answers 400 for all of them (as it
@@ -38,6 +39,7 @@ HTTP_DA_RECUSA = {
     "invalido": 400,
     "nao_encontrada": 404,
     "status_terminal": 409,
+    "saida_lancada": 409,
     "ciclo": 409,
     "nada_a_encerrar": 409,
     "confirmacao_invalida": 409,
@@ -111,10 +113,14 @@ def _exige_todas(numeros: list[str], ops: list[dict]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Liberar (and, in F6, Replanejar) — status only, written on the first request
+# Liberar and Replanejar — status only, written on the first request
 # ---------------------------------------------------------------------------
-def prepara_mudanca_status(leitor: HanaDirectReader, numeros: list[str]) -> list[dict]:
+def prepara_mudanca_status(leitor: HanaDirectReader, numeros: list[str], acao: str = "l") -> list[dict]:
     """The OPs a status change will touch, read again from the SAP.
+
+    ``acao`` is the legacy code: "l" Liberar, "p" Replanejar. Replanejar also refuses the
+    whole batch when a Liberada OP already has material issued (F6, 29/09/2026): the issue
+    must be cancelled in the SAP first, or the stock movement would sit on a planned OP.
 
     Blocking (HANA): async callers run it in a thread. Refuses the WHOLE batch when an OP is
     terminal instead of changing the others in silence: the screen disables those boxes, so
@@ -146,6 +152,20 @@ def prepara_mudanca_status(leitor: HanaDirectReader, numeros: list[str]) -> list
                       for o in terminais],
             colunas=["OP", "Item", "Status"],
         )
+
+    if acao == "p":
+        com_saida = [op for op in ops if op["status"] == "R" and service.saida_lancada(op)]
+        if com_saida:
+            raise Recusa(
+                "saida_lancada",
+                f"{len(com_saida)} OP(s) já têm saída de insumo lançada e não podem voltar para "
+                "Planejada — a saída precisa ser cancelada no SAP antes. Nenhuma OP foi alterada.",
+                titulo="OP com saída de insumo lançada",
+                detalhes=[{"OP": o["doc_num"], "Item": o["item_code"],
+                           "Baixado": o["baixada"] if o.get("baixada") is not None else "desconhecido"}
+                          for o in com_saida],
+                colunas=["OP", "Item", "Baixado"],
+            )
     return ops
 
 
@@ -299,10 +319,19 @@ def corrotina_encerramento(plano: Plano) -> Callable[[Tarefa], Awaitable[dict]]:
             with acompanha_log(tarefa, service.__name__):
                 async with ServiceLayerClient(settings) as sl:
                     resultado = await service.finalizar_ops(
-                        sl, leitor, ops, settings.sl_business_place_id, dependentes=dependentes
+                        sl, leitor, ops, settings.sl_business_place_id, dependentes=dependentes,
+                        # D5: "Interromper" is checked before each OP, never inside one.
+                        deve_parar=lambda: tarefa.parada_pedida,
                     )
         finally:
             leitor.close()
+
+        interrompidas = resultado.get("interrompidas", [])
+        if tarefa.parada_pedida and not interrompidas:
+            # Asked while the last OP was already running: nothing was left out, so this
+            # is a completed run, not an interrupted one.
+            tarefa.parada_pedida = False
+            tarefa.anota("Interrupção pedida com a última OP já em andamento — nenhuma ficou de fora.")
 
         for op in resultado["finalizadas"]:
             tarefa.anota(
@@ -312,6 +341,8 @@ def corrotina_encerramento(plano: Plano) -> Callable[[Tarefa], Awaitable[dict]]:
             )
         for op in resultado.get("puladas", []):
             tarefa.anota(f"OP {op['doc_num']}: PULADA — dependia de uma OP que falhou.")
+        for op in interrompidas:
+            tarefa.anota(f"OP {op['doc_num']}: NÃO INICIADA — a execução foi interrompida antes dela.")
         for erro in resultado["com_erro"]:
             tarefa.anota(f"OP {erro['doc_num']}: ERRO em '{erro['etapa']}' — {erro['motivo']}")
             if erro.get("liberacao") == "mantida (saída já lançada)":
@@ -323,8 +354,10 @@ def corrotina_encerramento(plano: Plano) -> Callable[[Tarefa], Awaitable[dict]]:
         tarefa.avanca(
             f"{len(resultado['finalizadas'])} encerrada(s), "
             f"{len(resultado['com_erro'])} com erro, "
-            f"{len(resultado.get('puladas', []))} pulada(s).",
-            len(ops),
+            f"{len(resultado.get('puladas', []))} pulada(s)"
+            + (f", {len(interrompidas)} não iniciada(s) (interrompida)" if interrompidas else "")
+            + ".",
+            len(ops) - len(interrompidas),
         )
         return resultado
 
@@ -346,6 +379,7 @@ def dispara(
     solicitante: str | None = None,
     origem: str = ORIGEM_TELA,
     ip: str | None = None,
+    parada_combinada: bool = False,
 ) -> Tarefa:
     """Create the background execution of this module, or refuse because it is busy.
 
@@ -353,7 +387,10 @@ def dispara(
     (screen or API) — the audit trail next to the write notice of ``avisa_escrita``.
     """
     try:
-        tarefa = TAREFAS.criar(MODULO, nome, descricao, corrotina, solicitante=solicitante, origem=origem)
+        tarefa = TAREFAS.criar(
+            MODULO, nome, descricao, corrotina,
+            solicitante=solicitante, origem=origem, parada_combinada=parada_combinada,
+        )
     except RuntimeError as exc:
         raise _ocupado(exc) from exc
     logger.warning(

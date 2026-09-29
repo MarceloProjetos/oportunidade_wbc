@@ -38,7 +38,12 @@ do processamento e as OPs planejadas precisam sair.
 - **Encerrar selecionadas…** — lança **saída dos insumos + entrada do produto** e encerra.
   **Irreversível** (estorno = cancelar a entrada e a saída no SAP, à mão). A tela mostra a ordem
   calculada (filha antes da mãe) e pede confirmação.
-- **Replanejar** (voltar para Planejada) **não existe na tela** — só pela CLI, com o Anderson.
+- **Replanejar** (voltar para Planejada) **não existe na tela** — só pela CLI (com o Anderson) e
+  pela API. As duas **recusam a OP que já tem saída de insumo lançada**: a saída precisa ser
+  cancelada no SAP antes.
+- **Interromper um Encerrar** para **depois da OP em curso**: ela termina saída, entrada e
+  encerramento, e as próximas não começam (aparecem como "NÃO INICIADA" no log). Nunca sobra uma
+  OP com o insumo baixado e o produto sem entrada por causa do botão.
 - A API 8077 não encerra mais OP: encerrar é **só aqui** — ou pela API JSON desta tela
   (`/api/manutencao-op`), que outro sistema pode chamar. A regra é a mesma, e ela entra na
   mesma fila: se a tela disser "Já existe execução em andamento", pode ser uma execução da API.

@@ -70,9 +70,9 @@ class _SLFalso:
 
 
 def _op(doc_entry: int, doc_num: int, status: str, planejada: float = 10.0, apontada: float = 0.0,
-        item: str = "PAR000PADRA000000000") -> dict:
+        item: str = "PAR000PADRA000000000", baixada: float | None = 0.0) -> dict:
     return {"doc_entry": doc_entry, "doc_num": doc_num, "status": status, "item_code": item,
-            "planejada": planejada, "apontada": apontada, "pedido": 84245}
+            "planejada": planejada, "apontada": apontada, "pedido": 84245, "baixada": baixada}
 
 
 @pytest.fixture(autouse=True)
@@ -228,23 +228,29 @@ def test_busca_devolve_as_ops_com_as_acoes_possiveis(c, ambiente):
         _linha(155747, "P", Decimal("20"), Decimal("0")),
         _linha(155744, "R", Decimal("20"), Decimal("5.5")),
         _linha(155746, "L", Decimal("20"), Decimal("20")),
+        _linha(155743, "R", Decimal("20"), Decimal("0")),
     ]
-    with patch(f"{SVC}.buscar_ops", return_value=linhas) as buscar:
+    baixadas = {155747: 0.0, 155744: 12.5, 155746: 30.0, 155743: 0.0}
+    with patch(f"{SVC}.buscar_ops", return_value=linhas) as buscar, \
+         patch(f"{SVC}.baixada_das_ops_do_pedido", return_value=baixadas):
         resposta = c.get(f"{API}/pedidos/84245/ops?status_de=L&status_ate=R", headers=CABECALHO)
 
     assert resposta.status_code == 200
     corpo = resposta.json()
-    assert (corpo["ok"], corpo["pedido"], corpo["total"]) == (True, 84245, 3)
+    assert (corpo["ok"], corpo["pedido"], corpo["total"]) == (True, 84245, 4)
     primeira = corpo["ops"][0]
     assert primeira == {
         "op": 155747, "status": "P", "status_desc": "Planejada", "item": "PAR000",
-        "produto": "CONJ PARAFUSO", "planejada": 20, "apontada": 0, "restante": 20,
+        "produto": "CONJ PARAFUSO", "planejada": 20, "apontada": 0, "restante": 20, "baixada": 0,
         "data_pedido": "2026-09-22", "data_inicio": "2026-09-23", "data_vencimento": None,
         "cliente_codigo": "C0001", "cliente": "CLIENTE TESTE",
         "acoes_possiveis": ["liberar", "encerrar"],
     }
-    assert corpo["ops"][1]["apontada"] == 5.5 and corpo["ops"][1]["acoes_possiveis"] == ["encerrar"]
+    # Liberada with material issued: no Replanejar; Liberada with nothing issued: Replanejar.
+    assert corpo["ops"][1]["apontada"] == 5.5 and corpo["ops"][1]["baixada"] == 12.5
+    assert corpo["ops"][1]["acoes_possiveis"] == ["encerrar"]
     assert corpo["ops"][2]["acoes_possiveis"] == []
+    assert corpo["ops"][3]["acoes_possiveis"] == ["replanejar", "encerrar"]
     # The filters reach the screen's own search function untouched.
     assert buscar.call_args.args[1:] == ("84245", None, None, "L", "R")
 
@@ -592,7 +598,8 @@ def test_cancelar_exige_solicitante_e_registra_quem_pediu(c, ambiente, execucao_
         trava.solta()
 
     assert sem_quem.status_code == 400
-    assert parou.status_code == 200 and parou.json() == {"ok": True, "cancelada": True}
+    assert parou.status_code == 200
+    assert parou.json() == {"ok": True, "cancelada": True, "entre_etapas": False}   # Liberar: cut
     assert estado["situacao"] == "cancelada"
     assert f"Execução {tarefa_id}: interrupção pedida pela API · solicitante maria" in caplog.text
 
@@ -610,3 +617,140 @@ def test_tela_e_api_dividem_a_trava_do_modulo(c, ambiente, execucao_falsa):
     assert pela_tela.status_code == 400
     assert "já tem uma execução em andamento" in _texto(pela_tela.text)
     assert f'href="/tarefas/{pela_api.json()["execucao"]["id"]}"' in pela_tela.text
+
+
+# ---------------------------------------------------------------------------
+# 6. Replanejar (F6, 29/09/2026) — refused when material was already issued
+# ---------------------------------------------------------------------------
+def test_replanejar_devolve_para_planejada_em_segundo_plano(c, ambiente, execucao_falsa):
+    ops = [_op(1, 157426, "R")]
+    resultado = {"alteradas": ops, "com_erro": [], "ignoradas": []}
+    with patch(f"{SVC}.levanta_ops", return_value=ops), \
+         patch(f"{SVC}.muda_status", AsyncMock(return_value=resultado)) as mudar:
+        resposta = c.post(f"{API}/replanejar", json={"ops": [157426], "solicitante": "marcelo.miranda"},
+                          headers=CABECALHO)
+        assert resposta.status_code == 202, resposta.text
+        estado = _espera(c, resposta.json()["execucao"]["id"])
+
+    assert estado["nome"] == "Replanejar OPs" and estado["desfecho"] == "ok"
+    assert (estado["origem"], estado["solicitante"]) == ("api", "marcelo.miranda")
+    assert mudar.await_args.args[1:] == (ops, "p")
+
+
+def test_replanejar_com_saida_lancada_recusa_o_lote_inteiro(c, ambiente):
+    ops = [_op(1, 9001, "R", baixada=3.0), _op(2, 9002, "R")]
+    with patch(f"{SVC}.levanta_ops", return_value=ops), \
+         patch(f"{SVC}.muda_status", AsyncMock()) as mudar:
+        resposta = c.post(f"{API}/replanejar", json={"ops": [9001, 9002], "solicitante": "joao"},
+                          headers=CABECALHO)
+
+    assert resposta.status_code == 409
+    corpo = resposta.json()
+    assert corpo["tipo"] == "saida_lancada"
+    assert "cancelada no SAP antes" in corpo["motivo"] and "Nenhuma OP foi alterada" in corpo["motivo"]
+    assert corpo["detalhes"] == [{"op": 9001, "item": "PAR000PADRA000000000", "baixado": 3.0}]
+    mudar.assert_not_called()
+
+
+def test_replanejar_sem_saber_a_baixada_recusa(c, ambiente):
+    """Fail-closed: an OP whose issued quantity could not be read is not replanned."""
+    with patch(f"{SVC}.levanta_ops", return_value=[_op(1, 9001, "R", baixada=None)]), \
+         patch(f"{SVC}.muda_status", AsyncMock()) as mudar:
+        resposta = c.post(f"{API}/replanejar", json={"ops": [9001], "solicitante": "joao"}, headers=CABECALHO)
+    assert resposta.status_code == 409
+    assert resposta.json()["detalhes"][0]["baixado"] == "desconhecido"
+    mudar.assert_not_called()
+
+
+def test_replanejar_segue_as_regras_de_lote_do_liberar(c, ambiente):
+    with patch(f"{SVC}.levanta_ops", return_value=[_op(1, 9001, "R"), _op(2, 9002, "L")]), \
+         patch(f"{SVC}.muda_status", AsyncMock()) as mudar:
+        terminal = c.post(f"{API}/replanejar", json={"ops": [9001, 9002], "solicitante": "joao"},
+                          headers=CABECALHO)
+        sem_quem = c.post(f"{API}/replanejar", json={"ops": [9001]}, headers=CABECALHO)
+    assert terminal.status_code == 409 and terminal.json()["tipo"] == "status_terminal"
+    assert sem_quem.status_code == 400
+    mudar.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# 7. Interromper o Encerrar só entre OPs (F5b / D5, 29/09/2026)
+# ---------------------------------------------------------------------------
+class _EncerramentoLento:
+    """A `finalizar_ops` that finishes one OP and waits — the moment someone presses
+    "Interromper". It honours `deve_parar` exactly where the real one does: before each OP."""
+
+    def __init__(self) -> None:
+        self.solta = threading.Event()        # safety net: never hang the suite
+        self.segurar_na_ultima = False
+
+    async def __call__(self, sl, leitor, ops, filial, dependentes=None, deve_parar=None):
+        feitas = []
+        for posicao, op in enumerate(ops):
+            if deve_parar():
+                break
+            ultima = posicao == len(ops) - 1
+            if ultima and not self.segurar_na_ultima:
+                feitas.append(op)
+                break
+            for _ in range(2000):                  # the OP "in progress" until the click
+                if deve_parar() or self.solta.is_set():
+                    break
+                await asyncio.sleep(0.005)
+            feitas.append(op)
+        resto = [o for o in ops if o not in feitas]
+        return {"finalizadas": feitas, "com_erro": [], "ignoradas": [], "puladas": [],
+                "interrompidas": [{**o, "motivo": "não iniciada"} for o in resto]}
+
+
+def _encerra_e_interrompe(c, lento, ops, corpo_conferir, *, pela_tela=False):
+    with patch(f"{SVC}.levanta_ops", return_value=[dict(o) for o in ops]), \
+         patch(f"{SVC}._componentes_por_op", return_value={}), \
+         patch(f"{SVC}.finalizar_ops", lento):
+        token = c.post(f"{API}/encerrar/conferir", json=corpo_conferir, headers=CABECALHO).json()["plano"]["token"]
+        tarefa_id = c.post(f"{API}/encerrar/executar", json={"token": token, "solicitante": "ana"},
+                           headers=CABECALHO).json()["execucao"]["id"]
+        try:
+            time.sleep(0.05)
+            pagina = _texto(c.get(f"/tarefas/{tarefa_id}").text)
+            if pela_tela:
+                parou = c.post(f"/tarefas/{tarefa_id}/cancelar").json()
+            else:
+                parou = c.post(f"{API}/execucoes/{tarefa_id}/cancelar", json={"solicitante": "ana"},
+                               headers=CABECALHO).json()
+            estado = _espera(c, tarefa_id)
+        finally:
+            lento.solta.set()
+    return parou, estado, pagina
+
+
+def test_interromper_o_encerrar_termina_a_op_em_curso_e_nao_comeca_a_proxima(c, ambiente, execucao_falsa):
+    parou, estado, _pagina = _encerra_e_interrompe(
+        c, _EncerramentoLento(), [_op(11, 9001, "P"), _op(12, 9002, "R", apontada=4)], {"pedido": 84245}
+    )
+
+    assert parou == {"ok": True, "cancelada": True, "entre_etapas": True}
+    assert estado["situacao"] == "cancelada" and estado["desfecho"] == "cancelada"
+    assert [o["doc_num"] for o in estado["resultado"]["finalizadas"]] == [9001]
+    assert [o["doc_num"] for o in estado["resultado"]["interrompidas"]] == [9002]
+    log = "\n".join(estado["linhas"])
+    assert "OP 9002: NÃO INICIADA" in log and "1 não iniciada(s) (interrompida)" in log
+
+
+def test_interromper_na_ultima_op_nao_deixa_nada_de_fora_e_conclui(c, ambiente, execucao_falsa):
+    lento = _EncerramentoLento()
+    lento.segurar_na_ultima = True
+    _parou, estado, _pagina = _encerra_e_interrompe(c, lento, [_op(11, 9001, "P")], {"ops": [9001]})
+
+    assert estado["situacao"] == "concluída" and estado["desfecho"] == "ok"
+    assert estado["resultado"]["interrompidas"] == []
+    assert "nenhuma ficou de fora" in "\n".join(estado["linhas"])
+
+
+def test_tela_avisa_que_o_encerrar_para_depois_da_op_em_curso(c, ambiente, execucao_falsa):
+    parou, _estado, pagina = _encerra_e_interrompe(
+        c, _EncerramentoLento(), [_op(11, 9001, "P"), _op(12, 9002, "P")], {"pedido": 84245},
+        pela_tela=True,
+    )
+    assert "Para depois da OP em curso" in pagina
+    assert parou == {"cancelada": True, "entre_etapas": True}

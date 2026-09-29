@@ -189,7 +189,7 @@ async def executar_encerrar(request: Request, token: str = Form(default="")):
         return _recusa(request, recusa)
     return _dispara(
         request, plano.operacao, acoes.descricao_do_plano(plano),
-        acoes.corrotina_encerramento(plano),
+        acoes.corrotina_encerramento(plano), parada_combinada=True,
     )
 
 
@@ -207,9 +207,12 @@ def _recusa(request: Request, recusa: acoes.Recusa):
     return _erro(request, recusa.mensagem, **extra)
 
 
-def _dispara(request: Request, nome: str, descricao: str, corrotina):
+def _dispara(request: Request, nome: str, descricao: str, corrotina, *, parada_combinada: bool = False):
     try:
-        tarefa = acoes.dispara(nome, descricao, corrotina, ip=request.client.host if request.client else None)
+        tarefa = acoes.dispara(
+            nome, descricao, corrotina, ip=request.client.host if request.client else None,
+            parada_combinada=parada_combinada,
+        )
     except acoes.Recusa as recusa:
         return _recusa(request, recusa)
     return RedirectResponse(f"/tarefas/{tarefa.id}", status_code=303)
