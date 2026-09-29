@@ -284,6 +284,32 @@ def test_leitura_com_supabase_fora_levanta_para_quem_chamou():
         hist.listar()
 
 
+def test_guarda_e_devolve_quem_pediu_e_a_origem():
+    """29/09/2026 (PLANO_API_MANUTENCAO_OP F2): the JSON API's executions carry who asked."""
+    hist, banco = _historico()
+    tarefa = _terminada(nome="Liberar OPs")
+    tarefa.solicitante, tarefa.origem = "joao.silva", "api"
+    hist.guardar(tarefa)
+
+    assert (banco.linhas[0]["solicitante"], banco.linhas[0]["origem"]) == ("joao.silva", "api")
+    resumo = hist.listar()[0]
+    assert (resumo.solicitante, resumo.origem) == ("joao.silva", "api")
+    inteira = hist.obter(tarefa.id)
+    assert (inteira.solicitante, inteira.origem) == ("joao.silva", "api")
+    assert inteira.para_json()["solicitante"] == "joao.silva"
+
+
+def test_linha_gravada_antes_das_colunas_volta_como_da_tela():
+    """Rows written before the ALTER have no requester; the column default says "tela"."""
+    hist, banco = _historico()
+    antiga = registro_de(_terminada())
+    del antiga["solicitante"], antiga["origem"]
+    banco.linhas.append({"id": 1, **antiga})
+
+    assert (hist.listar()[0].origem, hist.listar()[0].solicitante) == ("tela", None)
+    assert hist.obter(antiga["tarefa_id"]).origem == "tela"
+
+
 # ---------------------------------------------------------------------------
 # Which machine keeps a history
 # ---------------------------------------------------------------------------

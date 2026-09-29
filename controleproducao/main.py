@@ -16,8 +16,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
-from fastapi.exception_handlers import http_exception_handler
-from fastapi.responses import HTMLResponse
+from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -25,6 +26,7 @@ from controleproducao.core import acesso, historico
 from controleproducao.core.tarefas import TAREFAS
 from controleproducao.core.tarefas_router import router as tarefas_router
 from controleproducao.core.templates import templates
+from controleproducao.modules.manutencao_op.api_router import router as manutencao_op_api_router
 from controleproducao.modules.manutencao_op.router import router as manutencao_op_router
 from controleproducao.modules.pedidos_wbc.router import router as pedidos_wbc_router
 from controleproducao.modules.romaneio.router import router as romaneio_router
@@ -54,6 +56,38 @@ app = FastAPI(
 # qualquer diretório de trabalho.
 app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent / "static"), name="static")
 
+# `tipo` of an HTTP error under /api/ — the contract's names (API_MANUTENCAO_OP.md). The 503
+# comes from `core.web.avisa_escrita`: no OS_API_KEY, or a production write off the .11.
+_TIPO_DO_ERRO_NA_API = {401: "sem_chave", 404: "nao_encontrada", 405: "metodo_invalido",
+                        503: "escrita_desabilitada"}
+
+
+def _erro_da_api(exc: StarletteHTTPException) -> JSONResponse:
+    """``{"ok": false, "tipo", "motivo"}`` — the one error shape of the JSON API (29/09/2026)."""
+    if exc.status_code == 404 and exc.detail == "Not Found":
+        motivo = "Rota não encontrada nesta API."
+    elif exc.status_code == 405:
+        motivo = "Método não aceito nesta rota."
+    else:
+        motivo = exc.detail if isinstance(exc.detail, str) else "Não foi possível continuar."
+    return JSONResponse(
+        {"ok": False, "tipo": _TIPO_DO_ERRO_NA_API.get(exc.status_code, "erro"), "motivo": motivo},
+        status_code=exc.status_code, headers=getattr(exc, "headers", None),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def _corpo_invalido(request: Request, exc: RequestValidationError):
+    """Under /api/: a body that is not JSON is a 400 in Portuguese, not FastAPI's English 422."""
+    if not request.url.path.startswith(acesso.PREFIXO_API):
+        return await request_validation_exception_handler(request, exc)
+    return JSONResponse(
+        {"ok": False, "tipo": "invalido",
+         "motivo": "Corpo inválido: envie um objeto JSON (Content-Type: application/json)."},
+        status_code=400,
+    )
+
+
 @app.exception_handler(StarletteHTTPException)
 async def _erro_http(request: Request, exc: StarletteHTTPException):
     """A browser navigation (form POST, typed URL) gets the screen's error page; everything
@@ -62,6 +96,8 @@ async def _erro_http(request: Request, exc: StarletteHTTPException):
     Before 30/09/2026 a refused write (off the .11, or no OS_API_KEY → 503) showed the raw
     `{"detail": ...}` in the browser, right after the operator pressed "Confirmar".
     """
+    if request.url.path.startswith(acesso.PREFIXO_API):
+        return _erro_da_api(exc)
     navegacao = "text/html" in request.headers.get("accept", "") and not request.headers.get("x-requested-with")
     if not navegacao:
         return await http_exception_handler(request, exc)
@@ -79,6 +115,7 @@ async def _erro_http(request: Request, exc: StarletteHTTPException):
 
 app.include_router(pedidos_wbc_router)
 app.include_router(manutencao_op_router)
+app.include_router(manutencao_op_api_router)
 app.include_router(romaneio_router)
 app.include_router(tarefas_router)
 

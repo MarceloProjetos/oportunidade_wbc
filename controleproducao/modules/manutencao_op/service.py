@@ -227,6 +227,46 @@ def levanta_ops(
     ]
 
 
+def classifica_encerramento(status: str, planejada: float, apontada: float) -> tuple[str, bool]:
+    """What closing does to one OP: ``(label shown in the plan, whether it is processed)``.
+
+    The one reading of "can this OP be closed", shared by the plan of the screen, the plan of
+    the API and ``acoes_possiveis`` (29/09/2026) — it lived inline in the screen's route.
+    """
+    status = str(status or "").upper()
+    if status == "L":
+        return "já encerrada — ignorada", False
+    if status == "C":
+        # OP cancelada não pode ser liberada, e liberar é o primeiro passo — a cadeia
+        # falharia no início com uma mensagem obscura do SAP. A grade do legado nunca
+        # mostrava canceladas; aqui ela aparece com o motivo, porque o usuário pediu esse
+        # número e merece saber por que não entra, em vez de vê-la sumir.
+        return "cancelada — não pode ser encerrada", False
+    if float(apontada or 0) >= float(planejada or 0):
+        # `if (qtdAD < qtdPD)` do original: nada a apontar, nada a movimentar.
+        return "ignorada (apontada = planejada)", False
+    if status == "R":
+        return "saída + entrada + encerrar", True
+    # Planejada: uma OP só pode ser apontada estando Liberada (regra de 22/09), então o
+    # encerramento libera antes — e o plano diz isso, porque é o estado que sobra se a
+    # cadeia falhar depois desse passo.
+    return "LIBERAR + saída + entrada + encerrar", True
+
+
+def acoes_possiveis(status: str, planejada: float, apontada: float) -> list[str]:
+    """Actions the Manutenção de OP accepts for one OP right now, in the API's words.
+
+    Same rules the actions apply: Liberar takes a Planejada (a Liberada is ignored, a
+    terminal one refused); Encerrar takes what ``classifica_encerramento`` processes.
+    """
+    acoes = []
+    if str(status or "").upper() == "P":
+        acoes.append("liberar")
+    if classifica_encerramento(status, planejada, apontada)[1]:
+        acoes.append("encerrar")
+    return acoes
+
+
 async def muda_status(sl: ServiceLayerClient, ops: list[dict], status: str) -> dict:
     """`ManutencaoOp.mudaStatus` + `updateOP` — muda o status das OPs informadas.
 
@@ -266,6 +306,14 @@ async def muda_status(sl: ServiceLayerClient, ops: list[dict], status: str) -> d
                 f"OP {op['doc_num']} está {STATUS_OP.get(op['status'], op['status'])} — "
                 "status terminal, não admite mudança."
             )
+            ignoradas.append({**op, "motivo": motivo})
+            logger.info("  %s", motivo)
+            continue
+        # Already there: no PATCH (29/09/2026). The CLI and the 8077 route already skipped
+        # it; the screen spent a write that changed nothing — and a retried API call would
+        # rewrite every OP of the batch.
+        if op.get("status") == transicao["owor"]:
+            motivo = f"OP {op['doc_num']} já estava {transicao['nome']} — nada a fazer."
             ignoradas.append({**op, "motivo": motivo})
             logger.info("  %s", motivo)
             continue

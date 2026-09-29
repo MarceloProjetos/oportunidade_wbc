@@ -31,7 +31,8 @@
       {% for t in tarefas %}
         <tr>
           <td class="data">{{ t.criada_em.strftime('%d/%m %H:%M:%S') }}</td>
-          <td><strong>{{ t.nome }}</strong><br><span class="ov-nota">{{ t.descricao }}</span></td>
+          <td><strong>{{ t.nome }}</strong><br><span class="ov-nota">{{ t.descricao }}</span>{%
+            if t.origem == 'api' %}<br><span class="ov-nota">por {{ t.solicitante or '—' }} · API</span>{% endif %}</td>
           <td>
             <span class="ov-pill {{ CLASSE_DA_PILULA[t.desfecho] }}">{{ t.situacao }}{%
               if t.desfecho == 'falhas' %} com falhas{% endif %}</span>

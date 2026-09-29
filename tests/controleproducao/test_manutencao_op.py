@@ -156,10 +156,10 @@ def test_erro_numa_op_nao_impede_as_demais():
     sl.update_entity = AsyncMock(side_effect=update_entity)
     ops = [
         {"doc_entry": 101, "doc_num": 9001, "item_code": "A", "status": "P"},
-        # Status "R", não "L": desde 22/09 a OP terminal é recusada ANTES da Service
-        # Layer (`STATUS_TERMINAIS`), e este teste é sobre a falha VINDA DO SAP não
-        # interromper o lote — não sobre a recusa local.
-        {"doc_entry": 102, "doc_num": 9002, "item_code": "B", "status": "R"},
+        # Planejada like the others: a terminal OP (22/09) and one already Liberada
+        # (29/09) are refused BEFORE the Service Layer, and this test is about a failure
+        # COMING FROM THE SAP not stopping the batch — not about the local refusals.
+        {"doc_entry": 102, "doc_num": 9002, "item_code": "B", "status": "P"},
         {"doc_entry": 103, "doc_num": 9003, "item_code": "C", "status": "P"},
     ]
 
@@ -168,6 +168,59 @@ def test_erro_numa_op_nao_impede_as_demais():
     assert [op["doc_entry"] for op in resultado["alteradas"]] == [101, 103]
     assert len(resultado["com_erro"]) == 1
     assert resultado["com_erro"][0]["doc_entry"] == 102
+
+
+def test_op_ja_no_destino_nao_gasta_patch():
+    """29/09/2026: the screen PATCHed a Liberada to Liberada — a write that changed nothing,
+    repeated for the whole batch on every retry of the JSON API. The CLI and the 8077 route
+    already skipped it; now the service does, for everyone."""
+    sl = AsyncMock()
+    sl.update_entity = AsyncMock()
+    ops = [
+        {"doc_entry": 101, "doc_num": 9001, "item_code": "A", "status": "R"},
+        {"doc_entry": 102, "doc_num": 9002, "item_code": "B", "status": "P"},
+    ]
+
+    resultado = asyncio.run(svc.muda_status(sl, ops, "l"))
+
+    assert [c.args[1] for c in sl.update_entity.await_args_list] == [102]
+    assert [op["doc_entry"] for op in resultado["alteradas"]] == [102]
+    assert resultado["com_erro"] == []
+    assert resultado["ignoradas"][0]["motivo"] == "OP 9001 já estava Liberada — nada a fazer."
+
+
+def test_fechar_uma_op_liberada_continua_mandando_o_patch():
+    """`finalizar_ops` closes with `muda_status(..., "f")` an OP whose status it set to "R":
+    the "already there" skip compares with the TARGET ("L"), so the close still happens."""
+    sl = AsyncMock()
+    resultado = asyncio.run(svc.muda_status(
+        sl, [{"doc_entry": 7, "doc_num": 9007, "item_code": "X", "status": "R"}], "f"
+    ))
+    assert [c.args[1] for c in sl.update_entity.await_args_list] == [7]
+    assert resultado["ignoradas"] == []
+
+
+@pytest.mark.parametrize("status,planejada,apontada,acao,processa", [
+    ("P", 10, 0, "LIBERAR + saída + entrada + encerrar", True),
+    ("R", 10, 3, "saída + entrada + encerrar", True),
+    ("R", 10, 10, "ignorada (apontada = planejada)", False),
+    ("L", 10, 0, "já encerrada — ignorada", False),
+    ("C", 10, 0, "cancelada — não pode ser encerrada", False),
+    ("p", 10, 0, "LIBERAR + saída + entrada + encerrar", True),   # lower case from a caller
+])
+def test_classifica_encerramento(status, planejada, apontada, acao, processa):
+    assert svc.classifica_encerramento(status, planejada, apontada) == (acao, processa)
+
+
+@pytest.mark.parametrize("status,planejada,apontada,esperado", [
+    ("P", 10, 0, ["liberar", "encerrar"]),
+    ("R", 10, 0, ["encerrar"]),        # Liberar on a Liberada would be ignored: not offered
+    ("R", 10, 10, []),
+    ("L", 10, 0, []),
+    ("C", 10, 0, []),
+])
+def test_acoes_possiveis_seguem_as_mesmas_regras(status, planejada, apontada, esperado):
+    assert svc.acoes_possiveis(status, planejada, apontada) == esperado
 
 
 def test_levantamento_exige_ops_ou_pedido():

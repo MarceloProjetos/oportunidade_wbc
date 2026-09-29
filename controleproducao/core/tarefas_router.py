@@ -33,17 +33,22 @@ _HISTORICO_FORA = (
     "O histórico guardado no Supabase não respondeu agora — tente de novo em instantes. "
     "As execuções em andamento continuam visíveis na lista."
 )
+NAO_ENCONTRADA = _NAO_ENCONTRADA.format(n=MAX_NA_TELA)
 
 
-async def _procura(tarefa_id: str) -> tuple[Tarefa | None, int, str]:
-    """(task, HTTP status, message). "Not found" (404) and "could not look" (503) differ."""
+async def procura(tarefa_id: str) -> tuple[Tarefa | None, int, str]:
+    """(task, HTTP status, message). "Not found" (404) and "could not look" (503) differ.
+
+    Public since 29/09/2026: the JSON API of the Manutenção de OP answers its execution
+    status with the same lookup and the same messages as this screen.
+    """
     try:
         tarefa = await TAREFAS.obter_ou_guardada(tarefa_id)
     except Exception as exc:  # noqa: BLE001 - the history being down is an answer, not a crash
         logger.warning("Execução %s: histórico guardado indisponível: %s", tarefa_id, exc)
         return None, 503, _HISTORICO_FORA
     if tarefa is None:
-        return None, 404, _NAO_ENCONTRADA.format(n=MAX_NA_TELA)
+        return None, 404, NAO_ENCONTRADA
     return tarefa, 200, ""
 
 
@@ -64,7 +69,7 @@ async def listar(request: Request):
 
 @router.get("/{tarefa_id}", response_class=HTMLResponse)
 async def acompanhar(request: Request, tarefa_id: str):
-    tarefa, status, mensagem = await _procura(tarefa_id)
+    tarefa, status, mensagem = await procura(tarefa_id)
     if tarefa is None:
         # The error page, not FastAPI's raw JSON: this route is opened in the browser.
         return templates.TemplateResponse(
@@ -83,18 +88,24 @@ async def acompanhar(request: Request, tarefa_id: str):
 @router.get("/{tarefa_id}/estado")
 async def estado(tarefa_id: str):
     """Estado da tarefa em JSON — é o que a página consulta enquanto ela roda."""
-    tarefa, status, mensagem = await _procura(tarefa_id)
+    tarefa, status, mensagem = await procura(tarefa_id)
     if tarefa is None:
         return JSONResponse({"detail": mensagem}, status_code=status)
     return JSONResponse(tarefa.para_json())
 
 
 @router.post("/{tarefa_id}/cancelar")
-async def cancelar(tarefa_id: str):
+async def cancelar(request: Request, tarefa_id: str):
     """Interrompe a tarefa entre passos.
 
     ⚠️ Não desfaz o que já foi gravado no SAP — documentos criados até aqui continuam lá.
     A tela avisa isso antes de o usuário clicar.
     """
     cancelou = await TAREFAS.cancelar(tarefa_id)
+    if cancelou:
+        # Audit line next to the one written when the execution started (29/09/2026).
+        logger.warning(
+            "Execução %s: interrupção pedida pela tela · ip %s",
+            tarefa_id, request.client.host if request.client else "—",
+        )
     return JSONResponse({"cancelada": cancelou})

@@ -6,6 +6,40 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-29] — API JSON da Manutenção de OP (F0–F3 de `docs/PLANO_API_MANUTENCAO_OP.md`)
+
+Entra pelo `deploy_update.bat` (`OrcaView-OS-API` e `OrcaView-ControleProducao`); sem dependência
+nova. SQL das duas colunas do histórico **já aplicado** pelo Marcelo em 29/09 (antes do deploy,
+como o plano pede). Replanejar pela API **não** entra agora: é a F6, depois do teste real.
+
+- **F0 — quem chama a rota de OP da 8077.** A F0 achou um chamador real e desconhecido que
+  encerrou ≥ 552 OPs só pelo status (sem saída nem entrada) em 23, 25 e 28/09. A API não tinha log
+  de acesso e as recusas antes da rede (o 400 da D9, 401, 429) não deixavam rastro. Agora cada
+  chamada às duas rotas `/ordens-producao/*` grava uma linha INFO no `logs/api.log`: método,
+  caminho, código devolvido, IP de origem, agente, status pedido, `status_atual` e `tipo` da
+  recusa. A rota em si não muda.
+- **F1 — uma regra, um lugar.** O que a tela decidia dentro das rotas saiu para
+  `modules/manutencao_op/acoes.py` (seleção, recusa de status terminal, plano do Encerrar,
+  disparo); tela e API chamam as mesmas funções e mostram o mesmo texto. Mudanças que a tela
+  também sente: OP **já no destino** não gasta PATCH (vai para `ignoradas`, como a CLI e a 8077
+  já faziam); com o módulo ocupado o Encerrar **não queima o token** (a trava é conferida antes);
+  número de OP com letra no Liberar é erro de tela, não 500. `service.classifica_encerramento` e
+  `service.acoes_possiveis` são a única leitura de "o que esta OP aceita".
+- **F2 — quem pediu.** `Tarefa` ganhou `solicitante` e `origem` (`tela` | `api`), gravados no
+  histórico (`controle_producao_execucoes`, 2 colunas novas); a tela Execuções mostra "por
+  *fulano* · API". Toda execução iniciada e toda interrupção deixam uma linha WARNING no
+  `logs/controleproducao.log` com origem, solicitante e IP.
+- **F3 — a API**, em `/api/manutencao-op` no processo da 8080 (mesma trava de um por módulo,
+  mesmas Execuções): `GET /pedidos/{pedido}/ops`, `POST /liberar`, `POST /encerrar/conferir`,
+  `POST /encerrar/executar`, `GET /execucoes/{id}`, `POST /execucoes/{id}/cancelar`. Só
+  `X-API-Key` no cabeçalho (o cookie da tela e `?key=` não abrem); `solicitante` obrigatório em
+  gravação e cancelamento; erros sempre `{ok:false, tipo, motivo}`; sem `OS_API_KEY` configurada,
+  leitura aberta e gravação 503 (como a tela). Contrato para o consumidor (`API_MANUTENCAO_OP.md`)
+  é a F4.
+- Testes: 39 novos da API (inclui paridade de mensagem com a tela e o token que sobrevive ao
+  módulo ocupado), 2 da tela, 4 do histórico/tarefas, 13 casos do serviço, 2 da rota de OP da
+  8077.
+
 ## [2026-09-30] — Controle de Produção: Reprocessar volta à tela (D8 revertida)
 
 Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem dependência nova.

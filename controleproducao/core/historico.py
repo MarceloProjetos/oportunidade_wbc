@@ -20,6 +20,9 @@ Rules, each one a decision:
   cannot duplicate a row.
 - Service role key only: the table has RLS on and no policy (like the other SIS log tables),
   so the anon key would read nothing.
+- ``solicitante`` / ``origem`` (29/09/2026, PLANO_API_MANUTENCAO_OP F2): who asked and through
+  what (``tela`` | ``api``). Written on every row; rows stored before the columns existed
+  come back as ``tela`` with no requester (the column default).
 """
 from __future__ import annotations
 
@@ -34,7 +37,7 @@ from datetime import datetime
 from typing import Any
 
 from controleproducao.config import Settings, get_settings
-from controleproducao.core.tarefas import MAX_LINHAS_LOG, MAX_NA_TELA, Tarefa, desfecho_de
+from controleproducao.core.tarefas import MAX_LINHAS_LOG, MAX_NA_TELA, ORIGEM_TELA, Tarefa, desfecho_de
 from wbcpython import safety
 
 logger = logging.getLogger(__name__)
@@ -55,7 +58,8 @@ PAUSAS_ENTRE_TENTATIVAS_S = (2.0, 5.0)
 
 # Columns of the list: everything but the log lines and the result, which can be large.
 _COLUNAS_DA_LISTA = (
-    "tarefa_id,modulo,nome,descricao,situacao,com_falhas,criada_em,duracao_segundos"
+    "tarefa_id,modulo,nome,descricao,situacao,com_falhas,criada_em,duracao_segundos,"
+    "solicitante,origem"
 )
 
 # Task ids come from `uuid4().hex[:12]`; anything else never reaches PostgREST.
@@ -74,6 +78,8 @@ class ExecucaoGuardada:
     com_falhas: bool
     criada_em: datetime
     duracao_segundos: float | None
+    solicitante: str | None = None
+    origem: str = ORIGEM_TELA
     terminada: bool = True
     guardada: bool = True
 
@@ -214,6 +220,8 @@ def registro_de(tarefa: Tarefa) -> dict[str, Any]:
         "linhas": list(tarefa.linhas),
         "resultado": _json_seguro(tarefa.resultado),
         "erro": tarefa.erro,
+        "solicitante": tarefa.solicitante,
+        "origem": tarefa.origem,
     }
 
 
@@ -253,6 +261,8 @@ def _resumo(linha: dict[str, Any]) -> ExecucaoGuardada:
         duracao_segundos=(
             float(linha["duracao_segundos"]) if linha.get("duracao_segundos") is not None else None
         ),
+        solicitante=linha.get("solicitante"),
+        origem=linha.get("origem") or ORIGEM_TELA,
     )
 
 
@@ -273,4 +283,6 @@ def _tarefa(linha: dict[str, Any]) -> Tarefa:
         resultado=linha.get("resultado"),
         erro=linha.get("erro"),
         guardada=True,
+        solicitante=linha.get("solicitante"),
+        origem=linha.get("origem") or ORIGEM_TELA,
     )

@@ -299,3 +299,32 @@ def test_um_so_desfecho_para_lista_detalhe_e_barra(situacao, resultado, esperado
 
     lista = open(_RAIZ / "controleproducao/templates/tarefas.html", encoding="utf-8").read()
     assert "CLASSE_DA_PILULA[t.desfecho]" in lista
+
+
+def test_origem_fora_da_lista_e_recusada_antes_de_criar():
+    """The history table CHECKs ``origem in ('tela', 'api')``: a typo here would lose the row."""
+    registro = RegistroDeTarefas()
+
+    async def trabalho(_tarefa):
+        return None
+
+    with pytest.raises(ValueError, match="origem"):
+        registro.criar("manutencao_op", "Liberar OPs", "9001", trabalho, origem="API")
+    assert registro.listar() == []
+
+
+def test_quem_pediu_vai_para_o_json_do_acompanhamento():
+    async def cenario():
+        registro = RegistroDeTarefas()
+
+        async def trabalho(_tarefa):
+            return None
+
+        tarefa = registro.criar("manutencao_op", "Liberar OPs", "9001", trabalho,
+                                solicitante="joao", origem="api")
+        while not tarefa.terminada:
+            await asyncio.sleep(0)
+        return tarefa
+
+    tarefa = asyncio.run(cenario())
+    assert (tarefa.para_json()["solicitante"], tarefa.para_json()["origem"]) == ("joao", "api")

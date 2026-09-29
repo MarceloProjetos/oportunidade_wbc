@@ -152,6 +152,10 @@ ROTAS_QUE_NAO_GRAVAM = {
     # Interrompe uma execução entre passos; não cria documento nenhum (e não desfaz os
     # que já foram criados — a tela avisa isso).
     "/tarefas/{tarefa_id}/cancelar",
+    # JSON API (29/09/2026): the same two cases — the closing plan only reads, and cancel
+    # only interrupts.
+    "/api/manutencao-op/encerrar/conferir",
+    "/api/manutencao-op/execucoes/{tarefa_id}/cancelar",
 }
 
 
@@ -166,11 +170,12 @@ def test_toda_rota_post_que_grava_passa_pela_trava():
     import inspect
 
     from controleproducao.core import tarefas_router as r_tar
+    from controleproducao.modules.manutencao_op import api_router as r_api
     from controleproducao.modules.manutencao_op import router as r_mop
     from controleproducao.modules.pedidos_wbc import router as r_wbc
 
     faltando = []
-    for modulo in (r_wbc, r_mop, r_tar):
+    for modulo in (r_wbc, r_mop, r_tar, r_api):
         for rota in modulo.router.routes:
             if "POST" not in rota.methods:
                 continue
@@ -1133,3 +1138,36 @@ def test_dispara_com_modulo_ocupado_leva_a_execucao_em_andamento(cliente):
     resposta, rodando = _asyncio.run(cenario())
     assert resposta.status_code == 400
     assert f'href="/tarefas/{rodando.id}"' in resposta.body.decode()
+
+
+# ---------------------------------------------------------------------------
+# Shared with the JSON API (29/09/2026, PLANO_API_MANUTENCAO_OP F1)
+# ---------------------------------------------------------------------------
+def test_tela_com_modulo_ocupado_nao_gasta_o_token_do_encerrar(cliente):
+    """The token used to be spent before the busy check: the operator got "já existe execução
+    em andamento" AND had to check the plan again. Now the plan survives the refusal."""
+    ops = [{"doc_entry": 1, "doc_num": 101, "status": "P", "item_code": "A",
+            "planejada": 1.0, "apontada": 0.0, "pedido": 84245}]
+    with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
+         patch("controleproducao.core.web.get_settings", return_value=_settings()), \
+         patch("controleproducao.modules.manutencao_op.router.HanaDirectReader", MagicMock()), \
+         patch("controleproducao.modules.manutencao_op.service.levanta_ops", return_value=ops), \
+         patch("controleproducao.modules.manutencao_op.service._componentes_por_op", return_value={}):
+        token = _token(cliente.post("/manutencao-op/encerrar/conferir", data={"pedido": "84245"}).text)
+        with patch("controleproducao.core.tarefas.RegistroDeTarefas.confere_livre",
+                   side_effect=RuntimeError("O módulo 'manutencao_op' já tem uma execução em andamento")):
+            recusada = cliente.post("/manutencao-op/encerrar/executar", data={"token": token})
+
+    assert recusada.status_code == 400
+    assert "já tem uma execução em andamento" in _texto(recusada.text)
+    assert PLANOS.obter(token) is not None
+
+
+def test_numero_de_op_com_letra_no_liberar_e_erro_de_tela_e_nao_500(cliente):
+    """`levanta_ops` refuses "12a" with a ValueError; the screen let it escape as a 500."""
+    with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
+         patch("controleproducao.core.web.get_settings", return_value=_settings()), \
+         patch("controleproducao.modules.manutencao_op.router.HanaDirectReader", MagicMock()):
+        resposta = cliente.post("/manutencao-op/status", data={"op_docnums": ["12a"], "acao": "l"})
+    assert resposta.status_code == 400
+    assert "Número da OP inválido" in _texto(resposta.text)

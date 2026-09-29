@@ -7,7 +7,7 @@
   <span class="simbolo">{{ icone('execucoes', 30) }}</span>
   <div>
     <h1>{{ tarefa.nome }}</h1>
-    <p>{{ tarefa.descricao }}</p>
+    <p>{{ tarefa.descricao }}{% if tarefa.origem == 'api' %} · por {{ tarefa.solicitante or '—' }} · API{% endif %}</p>
   </div>
 </header>
 

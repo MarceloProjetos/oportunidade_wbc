@@ -61,6 +61,11 @@ CLASSE_DA_PILULA = {"erro": "is-erro", "falhas": "is-warn", "cancelada": "is-war
 CLASSE_DA_BARRA = {"erro": "is-erro", "falhas": "is-warn", "cancelada": "is-erro",
                    "ok": "is-ok", "rodando": "", "fila": ""}
 
+# Where an execution was asked from — the same values the history table's CHECK accepts.
+ORIGEM_TELA = "tela"
+ORIGEM_API = "api"
+ORIGENS = (ORIGEM_TELA, ORIGEM_API)
+
 
 def desfecho_de(situacao: str, com_falhas: bool) -> str:
     """The one reading of a task's outcome: erro | falhas | cancelada | ok | rodando | fila."""
@@ -97,6 +102,11 @@ class Tarefa:
     erro: str | None = None
     # True when rebuilt from the Supabase history (read-only; nothing runs behind it).
     guardada: bool = False
+    # Who asked and through what (29/09/2026, PLANO_API_MANUTENCAO_OP F2). The JSON API
+    # requires `solicitante`; the screen has no per-person identity (one shared key), so its
+    # executions keep None. It is what the caller declared, not a verified identity.
+    solicitante: str | None = None
+    origem: str = ORIGEM_TELA
 
     @property
     def terminada(self) -> bool:
@@ -159,6 +169,8 @@ class Tarefa:
             "linhas": list(self.linhas),
             "resultado": self.resultado,
             "erro": self.erro,
+            "solicitante": self.solicitante,
+            "origem": self.origem,
         }
 
 
@@ -216,14 +228,12 @@ class RegistroDeTarefas:
             return None
         return tarefa
 
-    def criar(
-        self,
-        modulo: str,
-        nome: str,
-        descricao: str,
-        corrotina: Callable[[Tarefa], Awaitable[Any]],
-    ) -> Tarefa:
-        """Registra e dispara a tarefa. Levanta `RuntimeError` se o módulo já tem uma."""
+    def confere_livre(self, modulo: str) -> None:
+        """Raise `RuntimeError` (the message the screens show) if the module is busy.
+
+        Split out of `criar` (29/09/2026) so a caller can check BEFORE spending something
+        that cannot be given back — the single-use token of a checked plan.
+        """
         ocupada = self.em_execucao(modulo)
         if ocupada:
             raise RuntimeError(
@@ -233,9 +243,24 @@ class RegistroDeTarefas:
                 "pedidos e OPs."
             )
 
+    def criar(
+        self,
+        modulo: str,
+        nome: str,
+        descricao: str,
+        corrotina: Callable[[Tarefa], Awaitable[Any]],
+        *,
+        solicitante: str | None = None,
+        origem: str = ORIGEM_TELA,
+    ) -> Tarefa:
+        """Registra e dispara a tarefa. Levanta `RuntimeError` se o módulo já tem uma."""
+        if origem not in ORIGENS:
+            raise ValueError(f"origem inválida: {origem!r} (esperado {', '.join(ORIGENS)})")
+        self.confere_livre(modulo)
+
         tarefa = Tarefa(
             id=uuid.uuid4().hex[:12], nome=nome, descricao=descricao, criada_em=datetime.now(),
-            modulo=modulo,
+            modulo=modulo, solicitante=solicitante, origem=origem,
         )
         self._guardar(tarefa)
         self._em_execucao[modulo] = tarefa.id

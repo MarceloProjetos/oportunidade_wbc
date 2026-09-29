@@ -39,6 +39,8 @@ create table if not exists public.controle_producao_execucoes (
   linhas            jsonb       not null default '[]'::jsonb,  -- o log da execução (até 500 linhas)
   resultado         jsonb,
   erro              text,
+  solicitante       text,                          -- quem pediu (API: obrigatório; tela: nulo)
+  origem            text        not null default 'tela' check (origem in ('tela', 'api')),
   gravada_em        timestamptz not null default now()
 );
 
@@ -49,6 +51,13 @@ comment on table public.controle_producao_execucoes is
 alter table public.controle_producao_execucoes enable row level security;
 alter table public.controle_producao_execucoes force  row level security;
 -- (sem policy: só o service_role acessa)
+
+-- Tabela criada antes de 29/09/2026: as duas colunas de quem pediu (API da Manutenção de OP,
+-- docs/PLANO_API_MANUTENCAO_OP.md F2). Aplicado pelo Marcelo em 29/09/2026; idempotente.
+alter table public.controle_producao_execucoes
+  add column if not exists solicitante text,
+  add column if not exists origem text not null default 'tela'
+    check (origem in ('tela', 'api'));
 
 -- Recarrega o cache do PostgREST — sem isso a 1ª gravação pode falhar com PGRST205/PGRST204.
 notify pgrst, 'reload schema';

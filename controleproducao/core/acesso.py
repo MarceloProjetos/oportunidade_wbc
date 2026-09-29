@@ -15,6 +15,11 @@ CSRF: a POST authenticated by the cookie must carry an ``Origin`` (or ``Referer`
 is this server's own host. ``samesite=lax`` alone still sends the cookie on top-level
 navigations, and ``Liberar`` writes on the first POST. Requests authenticated
 by the key header (scripts, ``curl``) are exempt: they never carry the cookie.
+
+The JSON API under ``/api/`` (29/09/2026, docs/PLANO_API_MANUTENCAO_OP.md) takes the key in
+``X-API-Key`` ONLY: no cookie (so no CSRF surface on its writes) and no ``?key=`` (a key in a
+URL ends up in logs). Missing or wrong → 401 in the API's error shape. With no key configured
+it is open for reading like the screen, and its writes answer 503 (``avisa_escrita``).
 """
 
 from __future__ import annotations
@@ -32,6 +37,8 @@ from wbcpython.dashboard import acesso as painel
 
 ROTAS_ABERTAS = frozenset({"/entrar", "/sair", "/favicon.ico", "/health", "/health/ocupado", "/painel-wbc"})
 
+PREFIXO_API = "/api/"
+
 
 def _chave_e_token() -> tuple[str, str]:
     """Read per request, not at app creation: tests swap the key with ``cache_clear``."""
@@ -44,6 +51,11 @@ def _e_chamada_de_script(request: Request) -> bool:
     if request.headers.get("x-requested-with"):
         return True
     return request.headers.get("accept", "").lower().startswith("application/json")
+
+
+def _chave_no_cabecalho(request: Request, chave: str) -> bool:
+    enviada = request.headers.get("x-api-key") or ""
+    return bool(enviada) and painel.igual(enviada, chave)
 
 
 def _mesma_origem(request: Request) -> bool:
@@ -83,6 +95,13 @@ def instalar(app: FastAPI) -> None:
         if caminho in ROTAS_ABERTAS or caminho.startswith("/static/"):
             return await call_next(request)
         chave, token = _chave_e_token()
+        if caminho.startswith(PREFIXO_API):
+            if chave and not _chave_no_cabecalho(request, chave):
+                return JSONResponse(
+                    {"ok": False, "tipo": "sem_chave", "motivo": "X-API-Key ausente ou incorreta."},
+                    status_code=401,
+                )
+            return await call_next(request)
         if not painel.autenticado(request, chave, token):
             if _e_chamada_de_script(request):
                 # A fetch (task polling, "Interromper") must SEE the refusal: a 303 would be
