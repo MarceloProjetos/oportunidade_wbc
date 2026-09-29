@@ -1,6 +1,14 @@
 # Plano — API JSON da Manutenção de OP (Controle de Produção, porta 8080)
 
-> **Status (29/09/2026, fim da tarde): D6 decidida e codada (`3c4a315`), pende deploy.** O
+> **Status (29/09/2026, 14:46): D6 no ar na .11 (deploy ~14:45), nunca exercitada em PROD.**
+> Conferência só de leitura: `/health` ok; a busca do pedido 84080 (784 OPs Liberadas, nada
+> baixado nem apontado) devolveu `acoes_possiveis` igual à regra calculada no HANA, OP a OP, com
+> `replanejar` em todas; Replanejar sem `solicitante` → 400 e com OP inexistente → 404, nada
+> gravado. A recusa `entrada_lancada` não tem como aparecer hoje: nenhuma OP Liberada tem entrada
+> sem saída, e as 13 que têm as duas nem têm pedido de origem. Falta: F7 (quem chama a 8077) e as
+> decisões D1, D4 e D7.
+>
+> **Antes (29/09/2026, fim da tarde): D6 decidida e codada (`3c4a315`), pende deploy.** O
 > Marcelo decidiu: o Replanejar recusa também a OP com produto apontado — `409 entrada_lancada`
 > na API, a mesma recusa na CLI. Em PROD hoje isso não muda nada (só leitura): das 9.376 OPs
 > Liberadas, as 13 com saída lançada também têm entrada, e nenhuma tem só a entrada. Suíte 2.472
@@ -535,7 +543,7 @@ gravado; `409 ocupado` → acompanhar a execução que veio na resposta, não in
    Vale para a tela e a API. Vira a **F5b**.
 6. **Replanejar com produto já apontado** (`apontada > 0`, entrada lançada sem saída) — ✅
    *decidida pelo Marcelo em 29/09: recusar também.* É o mesmo problema (estoque movimentado numa
-   OP Planejada). **Codada em `3c4a315`, pende deploy:** API `409 entrada_lancada` (lote inteiro,
+   OP Planejada). **No ar desde 29/09 ~14:45 (`3c4a315`), nunca exercitada em PROD:** API `409 entrada_lancada` (lote inteiro,
    `apontado` em `detalhes`; a saída é conferida antes, então OP com as duas segue em
    `saida_lancada`), CLI ("produto apontado — cancele a entrada no SAP antes", e a releitura antes
    de gravar também pega a entrada) e `service.muda_status` como última guarda. 7 testes novos.
