@@ -22,7 +22,7 @@ from typing import Any
 from wbcpython.application.documentos_lidos import DocumentosJaLidos
 from wbcpython.domain import cotacao as regras_cotacao
 from wbcpython.domain import pedido as regras_pedido
-from wbcpython.domain.linhas import FATOR_DE_EMBARQUE, ResultadoLinhas
+from wbcpython.domain.linhas import ResultadoLinhas, peso_da_linha
 from wbcpython.domain.mapeamento import montar_payload_orcdetalhe
 from wbcpython.domain.sitcode import ACOES_DE_PEDIDO as _ACOES_DE_PEDIDO
 from wbcpython.domain.sitcode import Acao, Decisao, EstadoIntegracao, decidir
@@ -152,6 +152,11 @@ class ResultadoProcessamento:
         return not self.erro
 
 
+def _kg(peso: Decimal) -> str:
+    """`226.43` → `226,43`, como a pessoa lê na tela do SAP."""
+    return f"{peso:.2f}".replace(".", ",")
+
+
 class ProcessadorDeOrcamento:
     """Orquestra o processamento de um orçamento, do WBC ao SAP."""
 
@@ -167,7 +172,6 @@ class ProcessadorDeOrcamento:
         parceiros: RepositorioParceirosServiceLayer | None = None,
         filial: int = FILIAL_PADRAO,
         gravar_snapshot: bool = True,
-        fator_de_embarque: Decimal = FATOR_DE_EMBARQUE,
         somente_leitura: bool = False,
         corte_de_pedido: date | None = None,
     ) -> None:
@@ -180,9 +184,6 @@ class ProcessadorDeOrcamento:
         self._parceiros = parceiros
         self._filial = filial
         self._gravar_snapshot = gravar_snapshot
-        #: Folga de embalagem sobre o peso líquido da árvore — ver
-        #: `domain.linhas.peso_de_embarque`. Vem da configuração no worker.
-        self._fator_de_embarque = fator_de_embarque
         #: Primeiro dia da janela PADRÃO. Oportunidade anterior a ele não ganha
         #: pedido — ver `EstadoIntegracao.fora_da_janela_padrao`. `None` desliga
         #: a regra, que é o que um teste ou um caso pontual espera.
@@ -821,9 +822,7 @@ class ProcessadorDeOrcamento:
         pesos = self._pesos_do_orcamento(orcamento)
         linhas = self._montar_linhas(
             orcamento,
-            lambda orc, de_para: regras_pedido.linhas(
-                orc, de_para, pesos=pesos, fator_de_embarque=self._fator_de_embarque
-            ),
+            lambda orc, de_para: regras_pedido.linhas(orc, de_para, pesos=pesos),
         )
         if linhas:
             payload["DocumentLines"] = linhas
@@ -838,6 +837,15 @@ class ProcessadorDeOrcamento:
         melhor que alguém saiba disso pelo log do que descubra pela expedição.
         """
         pesos = self._wbc.pesos_por_item(orcamento.orcnum)
+        # The weight is the one field that went wrong without a trace (quote 00125817,
+        # 29/09/2026): every line says what it will carry.
+        for item in orcamento.itens:
+            peso = peso_da_linha(pesos.get(item.orcitm))
+            if peso is not None:
+                logger.info(
+                    "%s: peso do item %s = %s kg (nível 1 da árvore do WBC) → Weight1 da linha.",
+                    orcamento.orcnum, item.orcitm, _kg(peso),
+                )
         sem_peso = [item.orcitm for item in orcamento.itens if item.orcitm not in pesos]
         if sem_peso:
             logger.warning(

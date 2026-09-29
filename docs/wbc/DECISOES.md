@@ -815,6 +815,12 @@ O legado filtra `U_INO_NIVEL = 1` pelo mesmo motivo. A diferença é a fonte: el
 soma sobre o snapshot que acabou de gravar no SAP (`@INO_ORC_LINHA`), nós somamos
 direto no WBC — mesmo número, sem depender de o snapshot existir.
 
+> ⚠️ **Revogado em 29/09/2026 (decisão do Marcelo):** o `Weight1` passa a ser o **peso líquido
+> do nível 1 da árvore, com 2 casas — sem a folga de 10% e sem truncar**
+> (`domain.linhas.peso_da_linha`). O caso que decidiu: orçamento `00125817`, árvore de 226,43
+> kg, pedido 84444 criado com 249. `FATOR_PESO_EMBARQUE` deixou de existir. O item 2 abaixo
+> fica como registro da medição que tinha levado ao fator.
+
 **2. O peso do pedido é de EMBARQUE, não o líquido.** Esta foi a descoberta que
 mudou a regra, e só apareceu porque o comando foi rodado contra um pedido real.
 O pedido 84112 (orçamento `00124853`) tem `Weight1 = 836`, e a árvore soma
@@ -860,8 +866,10 @@ base; no recorte que importa — os que viram pedido — são **314 de 316 linha
 Nas outras o campo simplesmente não é enviado e o SAP mantém o peso do cadastro
 (1 kg). Enviar zero trocaria um número errado por outro, e nenhum relatório de
 expedição conseguiria distinguir "não sei" de "não pesa nada". As linhas sem
-peso viram aviso no log. Pela mesma razão, um item cujo peso trunca para zero
-(menos de ~0,91 kg líquido) também não recebe o campo.
+peso viram aviso no log. Pela mesma razão, um item cujo peso arredonda para zero
+(menos de 0,005 kg) também não recebe o campo. Desde 29/09/2026 o log do worker diz o peso
+de cada linha, e o "Processar pedidos novos" do Controle de Produção põe o `Weight1` do SAP
+ao lado do nível 1 da árvore (aviso quando diferem).
 
 **A cotação não leva peso** — também do legado, onde a linha equivalente está
 comentada (`:377`). A decisão fica legível na assinatura: `pedido.linhas` tem o

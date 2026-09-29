@@ -248,6 +248,14 @@ DESCRICAO_ITEM = 'SELECT IFNULL("ItemName", \'\') FROM OITM WHERE "ItemCode" = \
 # Mesma coisa, para VÁRIOS itens de orçamento de uma vez. Adicionada em 16/09/2026 junto com
 # a otimização que agrupa as gravações de `U_INO_OP` numa única chamada à Service Layer:
 # antes eram N consultas + N PATCHes (um por item do grupo), agora é 1 consulta + 1 PATCH.
+# Read-only (29/09/2026): the weight of each order line, to put it next to the WBC tree's
+# in the execution log — the weight was the one thing going wrong without a trace.
+PESOS_DAS_LINHAS_DO_PEDIDO = """
+SELECT T0."LineNum", T0."ItemCode", T0."Quantity", T0."Weight1", T0."U_INO_ORCITM" FROM RDR1 T0
+WHERE T0."DocEntry" = {doc_entry}
+ORDER BY T0."LineNum"
+""".strip()
+
 LINHAS_PEDIDO_POR_ORCITM = """
 SELECT T0."LineNum", T0."U_INO_ORCITM" FROM RDR1 T0
 WHERE T0."DocEntry" = {doc_entry} AND T0."U_INO_ORCITM" IN ({orc_itens})

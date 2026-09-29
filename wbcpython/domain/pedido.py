@@ -43,7 +43,6 @@ from typing import Any
 
 from wbcpython.domain.linhas import (
     DEPOSITO_PADRAO,
-    FATOR_DE_EMBARQUE,
     ResultadoLinhas,
     composicao,
     resolver_linhas,
@@ -117,12 +116,11 @@ def linhas(
     *,
     deposito: str = DEPOSITO_PADRAO,
     pesos: Mapping[int, Decimal] | None = None,
-    fator_de_embarque: Decimal = FATOR_DE_EMBARQUE,
 ) -> ResultadoLinhas:
     """`DocumentLines` do pedido.
 
     `pesos` (`ORCITM` → peso líquido do nível 1 da árvore) vira `Weight1` na
-    linha, com a folga de embalagem aplicada. É o que distingue esta função da
+    linha (o peso líquido — ver `domain.linhas.peso_da_linha`). É o que distingue esta função da
     equivalente em `domain.cotacao`, que não tem o parâmetro: o legado grava o
     peso no pedido e deixa a linha da cotação comentada (`ServiceProcess.cs:640`
     contra `:377`).
@@ -135,7 +133,6 @@ def linhas(
         udfs_da_linha=_udfs_da_linha,
         deposito=deposito,
         pesos=pesos,
-        fator_de_embarque=fator_de_embarque,
     )
 
 

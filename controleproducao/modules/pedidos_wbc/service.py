@@ -701,6 +701,44 @@ async def _update_tab_pedido_cong(
         raise
 
 
+def _kg(valor: float) -> str:
+    """`226.43` → `226,43`, como a pessoa lê na tela do SAP."""
+    return f"{valor:.2f}".replace(".", ",")
+
+
+def _loga_pesos(hana_reader: HanaDirectReader, orc_num: str, doc_entry, estrutura) -> None:
+    """One log line per order line: the SAP ``Weight1`` next to the WBC tree's level 1.
+
+    Read-only, and never stops the processing: this step does not write the weight (the
+    worker does, when it creates the order). It exists because the weight went wrong on
+    quote 00125817 (29/09/2026) with nothing about it in this log. A difference above 1 g
+    comes out as a WARNING.
+    """
+    try:
+        wbc: dict[int, float] = {}
+        for linha in estrutura:
+            if int(linha.orc_prd_arv_nivel or 0) == 1:
+                wbc[int(linha.orc_item)] = wbc.get(int(linha.orc_item), 0.0) + float(linha.orc_pes or 0)
+        linhas = hana_reader.fetch_all(*ligar(q.PESOS_DAS_LINHAS_DO_PEDIDO, doc_entry=doc_entry))
+    except Exception as exc:  # noqa: BLE001 - a log line must not break the processing
+        logger.warning("Pedido %s: não foi possível comparar os pesos: %s", orc_num, exc)
+        return
+    for linha in linhas:
+        orc_itm = str(linha.get("U_INO_ORCITM") or "").strip()
+        sap = float(linha.get("Weight1") or 0)
+        arvore = wbc.get(int(orc_itm)) if orc_itm.isdigit() else None
+        texto = (
+            f"Pedido {orc_num}: peso da linha {linha.get('LineNum')} (item {linha.get('ItemCode')}, "
+            f"OrcItm {orc_itm or '—'}, qtd {float(linha.get('Quantity') or 0):g}): "
+            f"SAP {_kg(sap)} kg · WBC nível 1 da árvore "
+            + (f"{_kg(arvore)} kg" if arvore is not None else "sem peso")
+        )
+        if arvore is not None and abs(round(arvore, 2) - sap) > 0.001:
+            logger.warning("%s — DIFERENTE.", texto)
+        else:
+            logger.info("%s.", texto)
+
+
 _LINHA_MANUAL_VAZIA = Linha(ped_cliente="", item_cliente="0", nf="", cor="")
 
 
@@ -1585,6 +1623,7 @@ async def processar_pedidos_novos(
                 com_erro.append({"orc_num": orc_num, "motivo": "sem dados no WBC (estrutura vazia)"})
                 continue
 
+            _loga_pesos(hana_reader, orc_num, doc_entry, estrutura)
             logger.info(
                 "Pedido %s: estrutura com %d item(ns); garantindo que estejam cadastrados "
                 "(uma consulta por item)...", orc_num, len(estrutura),

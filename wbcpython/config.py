@@ -9,7 +9,6 @@ escrever em produção seja verificável olhando a config, não auditando o cód
 from __future__ import annotations
 
 from datetime import date, time
-from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, ClassVar, Literal
@@ -363,20 +362,6 @@ class Settings(BaseSettings):
 
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
-    #: Folga sobre o peso líquido da árvore, para chegar ao peso de **embarque**
-    #: gravado no `Weight1` da linha do pedido.
-    #:
-    #: Não é invenção: medido em 1.060 linhas de pedido de 2026 da produção, o
-    #: `Weight1` é sistematicamente ~10% acima do peso da árvore (razão mediana
-    #: 1,099; 622 delas entre 1,09 e 1,11) e inteiro em 1.056 dos 1.061 casos.
-    #: Varrendo fatores de 1,000 a 1,300 de milésimo em milésimo, o que mais
-    #: acerta é exatamente **1,100**.
-    #:
-    #: Fica configurável porque é regra de negócio (embalagem), não constante
-    #: física — e porque a reprodução não é exata: ver `DECISOES.md`.
-    fator_de_peso_de_embarque: Decimal = Field(
-        default=Decimal("1.10"), ge=1, le=3, alias="FATOR_PESO_EMBARQUE"
-    )
 
     #: Arquivo para onde o log também é escrito, além da tela.
     #:

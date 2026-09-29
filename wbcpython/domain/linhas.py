@@ -63,7 +63,7 @@ import re
 import unicodedata
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from decimal import ROUND_FLOOR, Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Protocol
 
 #: Tema das linhas de log desta regra. O painel colore a linha que começa com
@@ -102,12 +102,6 @@ DEPOSITO_PADRAO = "08"
 
 #: Marcador que o legado usa para cortar o texto ao montar `U_INO_Composicao`.
 MARCADOR_COMPOSICAO = "Valor"
-
-#: Folga sobre o peso líquido da árvore, para chegar ao peso de **embarque**.
-#: Ver `Settings.fator_de_peso_de_embarque` — quem manda é a configuração; este
-#: valor existe para que o domínio possa ser exercitado sozinho.
-FATOR_DE_EMBARQUE = Decimal("1.10")
-
 
 class ItemComGrupo(Protocol):
     """O mínimo que uma linha de orçamento precisa oferecer."""
@@ -267,7 +261,6 @@ def resolver_linhas(
     udfs_da_linha: Callable[[Any, Any], dict[str, Any]],
     deposito: str = DEPOSITO_PADRAO,
     pesos: Mapping[int, Decimal] | None = None,
-    fator_de_embarque: Decimal = FATOR_DE_EMBARQUE,
 ) -> ResultadoLinhas:
     """Monta `DocumentLines` a partir dos itens do orçamento.
 
@@ -281,10 +274,7 @@ def resolver_linhas(
     pedido o passa. Item ausente do dicionário **não recebe o campo**: o SAP
     mantém o peso do cadastro, que é o comportamento de hoje. Enviar zero
     trocaria um número errado por outro, e um relatório de expedição não teria
-    como distinguir "não sei" de "não pesa nada".
-
-    `fator_de_embarque` é a folga de embalagem aplicada sobre o líquido — ver
-    `peso_de_embarque`.
+    como distinguir "não sei" de "não pesa nada". A conta está em `peso_da_linha`.
     """
     linhas: list[dict[str, Any]] = []
     avisos: list[str] = []
@@ -348,7 +338,7 @@ def resolver_linhas(
             "U_INO_D_Adicionais": item.texto.rstrip(),
         }
 
-        peso = _peso_da_linha(item, pesos, fator_de_embarque)
+        peso = _peso_da_linha(item, pesos)
         if peso is not None:
             # `Weight1` é o peso **da linha inteira**, e o SAP o grava como vem —
             # não multiplica pela quantidade. Medido no pedido 84407 (22/09/2026):
@@ -415,46 +405,31 @@ def _reais(valor: Decimal, *, casas: int = 2) -> str:
     return f"{valor:,.{casas}f}".replace(",", "\0").replace(".", ",").replace("\0", ".")
 
 
-def _peso_da_linha(
-    item: Any, pesos: Mapping[int, Decimal] | None, fator: Decimal
-) -> Decimal | None:
-    """Peso de embarque da linha do item, ou `None` quando não se sabe."""
+def _peso_da_linha(item: Any, pesos: Mapping[int, Decimal] | None) -> Decimal | None:
+    """Peso da linha do item, ou `None` quando não se sabe."""
     if not pesos:
         return None
-    return peso_de_embarque(pesos.get(item.orcitm), fator)
+    return peso_da_linha(pesos.get(item.orcitm))
 
 
-def peso_de_embarque(liquido: Decimal | None, fator: Decimal) -> Decimal | None:
-    """Peso de **embarque** da linha inteira, ou `None` quando não se sabe.
+def peso_da_linha(liquido: Decimal | None) -> Decimal | None:
+    """`Weight1` of the whole line: the net weight of tree level 1, or `None` when unknown.
 
-    Usada na criação do pedido e pelo `wbcpython pesos` — as duas contas não
-    podem divergir. Duas transformações sobre o líquido da árvore, e cada uma
-    tem prova:
+    Rule decided by Marcelo on 29/09/2026: the net weight as the WBC gives it, rounded to
+    2 decimals (the tree's own precision; the SUM comes back as a float, 226.42999…) —
+    no packaging factor and no truncation. Until then the line took net × 1.10, truncated
+    (a factor measured on hand-typed weights), and quote 00125817 went out with 249 kg
+    for a tree of 226.43 kg.
 
-    1. **Aplica a folga de embalagem** (`fator`, 1,10 por padrão). Medido em
-       1.060 linhas de pedido de 2026 da produção: a razão entre o `Weight1`
-       gravado e o líquido da árvore tem mediana **1,099**, com 622 delas entre
-       1,09 e 1,11. Varrendo fatores de milésimo em milésimo, o que mais acerta
-       é exatamente 1,100.
-    2. **Trunca para inteiro.** 1.056 dos 1.061 pesos da produção são inteiros
-       redondos — o que a fórmula pura quase nunca produziria. Entre truncar e
-       arredondar, truncar acerta mais (36,8% contra 25,1%).
+    Used by order creation and by `wbcpython pesos`; the two cannot diverge.
 
-    **Não divide pela quantidade.** `Weight1` é o total da linha e o SAP não o
-    multiplica — ver o comentário em `linhas`.
+    **Not divided by the quantity**: `Weight1` is the line total and the SAP does not
+    multiply it — see the comment in `resolver_linhas`.
 
-    **A reprodução não é exata, e não tem como ser**: 63% dos casos não seguem
-    fórmula nenhuma a partir do retrato ligado ao pedido. O campo é preenchido à
-    mão em produção, com uma folga *típica* de 10% — não por uma regra. O que
-    esta função garante é a ordem de grandeza certa e um critério único, em vez
-    de 1 kg (o padrão do cadastro, em 127 linhas) ou 0 (em 64).
-
-    `None` e zero são coisas diferentes aqui: `None` faz o campo não ser
-    enviado. Peso ausente, zero ou negativo na árvore vira `None` — e o
-    truncamento que resulta em zero também, porque gravar 0 kg substituiria o
-    peso do cadastro por um número pior.
+    `None` and zero differ: `None` means the field is not sent and the SAP keeps the item
+    master's weight. Missing, zero or negative weight in the tree becomes `None`.
     """
     if liquido is None or liquido <= 0:
         return None
-    truncado = (liquido * fator).to_integral_value(rounding=ROUND_FLOOR)
-    return truncado if truncado > 0 else None
+    arredondado = Decimal(liquido).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return arredondado if arredondado > 0 else None

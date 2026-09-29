@@ -1357,8 +1357,8 @@ class TestPesoNoPedidoCriado:
     """
 
     def test_pedido_criado_leva_o_peso_da_linha(self, tracking) -> None:
-        """O orçamento de teste tem quantidade 2, e o peso não é dividido:
-        `floor(760,65 × 1,10) = floor(836,715) = 836`."""
+        """O orçamento de teste tem quantidade 2, e o peso não é dividido: vai o
+        líquido da árvore, 760,65 kg."""
         docs = DocumentosFalso(tem_cotacao=True)
         _processador(
             tracking,
@@ -1372,7 +1372,23 @@ class TestPesoNoPedidoCriado:
         assert criados, "o pedido deveria ter sido criado"
         linha = criados[0][2]["DocumentLines"][0]
         assert linha["Quantity"] == 2.0
-        assert linha["Weight1"] == 836.0
+        assert linha["Weight1"] == 760.65
+
+    def test_o_peso_de_cada_linha_vai_para_o_log(self, tracking, caplog) -> None:
+        """O peso errou sem deixar rastro no 00125817 (29/09/2026): cada linha diz o
+        peso que vai levar."""
+        import logging
+
+        caplog.set_level(logging.INFO, logger="wbcpython")
+        _processador(
+            tracking,
+            WbcFalso(_orcamento(sitcode=60), pesos={1: Decimal("226.42999999999998")}),
+            DocumentosFalso(tem_cotacao=True),
+            OportunidadesFalso(),
+            OrcDetalheFalso(),
+        ).processar(_oportunidade(U_INO_StatusWBC="60"))
+
+        assert "peso do item 1 = 226,43 kg (nível 1 da árvore do WBC)" in caplog.text
 
     def test_a_cotacao_do_mesmo_ciclo_nao_leva(self, tracking) -> None:
         """SitCode 60 sem pedido atualiza a cotação e cria o pedido no mesmo

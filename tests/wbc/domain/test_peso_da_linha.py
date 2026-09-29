@@ -1,12 +1,10 @@
 """O peso da linha do pedido (`Weight1`).
 
-Quatro regras que erram em silêncio se forem esquecidas: somar **só o nível 1**
-da árvore (a soma acontece na consulta), gravar o peso **da linha inteira** (o
-SAP não multiplica pela quantidade), aplicar a **folga de embalagem** de 10% e
-truncar, e **não enviar o campo** quando não se sabe o peso.
-
-As três primeiras vêm de medição na produção, não de suposição — ver
-`domain.linhas.peso_de_embarque` e `DECISOES.md`.
+Regras que erram em silêncio se forem esquecidas: somar **só o nível 1** da árvore
+(a soma acontece na consulta), gravar o peso **da linha inteira** (o SAP não
+multiplica pela quantidade), gravar o **peso líquido** com 2 casas — sem folga e
+sem truncar (decisão do Marcelo em 29/09/2026) — e **não enviar o campo** quando
+não se sabe o peso. Ver `domain.linhas.peso_da_linha`.
 """
 
 from __future__ import annotations
@@ -39,18 +37,16 @@ def _item(orcitm: int, *, quantidade: Decimal | None = None) -> ItemOrcamentoWbc
 
 
 class TestPesoNoPedido:
-    def test_reproduz_o_pedido_real(self) -> None:
-        """O caso que fechou a conta.
+    def test_reproduz_o_orcamento_00125817(self) -> None:
+        """O caso que mudou a regra (29/09/2026): a árvore soma 226,43 kg no nível 1 e o
+        pedido 84444 saiu com 249 (226,43 × 1,10, truncado). O certo é o líquido.
 
-        Orçamento `00124853`, item 1: a árvore soma **760,65 kg** no nível 1, e
-        o pedido 84112 da produção tem `Weight1 = 836`. Com a folga de 10% e o
-        truncamento: `floor(760,65 × 1,10) = floor(836,715) = 836`. Bate na
-        unidade com o que a produção gravou.
-        """
+        A soma vem do SQL Server como float (226.42999999999998): arredondar para 2 casas
+        é o que devolve o número que a pessoa vê no WBC."""
         resultado = regras_pedido.linhas(
-            _orcamento(_item(1)), DE_PARA, pesos={1: Decimal("760.65")}
+            _orcamento(_item(1)), DE_PARA, pesos={1: Decimal("226.42999999999998")}
         )
-        assert resultado.linhas[0]["Weight1"] == 836.0
+        assert resultado.linhas[0]["Weight1"] == 226.43
 
     def test_cada_item_recebe_o_seu(self) -> None:
         """O casamento é por `ORCITM`, não por posição na lista."""
@@ -59,21 +55,19 @@ class TestPesoNoPedido:
             DE_PARA,
             pesos={1: Decimal("760.65"), 5: Decimal("45.13")},
         )
-        # floor(45,13 × 1,1) = 49 ; floor(760,65 × 1,1) = 836
-        assert [linha["Weight1"] for linha in resultado.linhas] == [49.0, 836.0]
+        assert [linha["Weight1"] for linha in resultado.linhas] == [45.13, 760.65]
 
     def test_peso_e_da_linha_inteira(self) -> None:
         """`Weight1` é o total da linha — o SAP grava como vem, não multiplica.
 
         Regressão do pedido 84407 (22/09/2026): 167 módulos e 20.830,79 kg na
         árvore saíram como 137 kg, porque a linha levava o peso dividido pela
-        quantidade. O certo é `floor(20.830,79 × 1,1) = 22.913`.
-        """
+        quantidade."""
         resultado = regras_pedido.linhas(
             _orcamento(_item(1, quantidade=Decimal(167))), DE_PARA, pesos={1: Decimal("20830.79")}
         )
         assert resultado.linhas[0]["Quantity"] == 167.0
-        assert resultado.linhas[0]["Weight1"] == 22913.0
+        assert resultado.linhas[0]["Weight1"] == 20830.79
 
     def test_quantidade_nula_nao_muda_o_peso(self) -> None:
         """`ORCPRDQTD` é nula em 100% das linhas do WBC: o peso não depende
@@ -81,26 +75,16 @@ class TestPesoNoPedido:
         resultado = regras_pedido.linhas(
             _orcamento(_item(1, quantidade=None)), DE_PARA, pesos={1: Decimal("760.65")}
         )
-        assert resultado.linhas[0]["Weight1"] == 836.0
+        assert resultado.linhas[0]["Weight1"] == 760.65
 
-    def test_o_fator_e_configuravel(self) -> None:
-        """É regra de negócio (embalagem), não constante física."""
-        resultado = regras_pedido.linhas(
-            _orcamento(_item(1)),
-            DE_PARA,
-            pesos={1: Decimal(100)},
-            fator_de_embarque=Decimal("1.25"),
-        )
-        assert resultado.linhas[0]["Weight1"] == 125.0
+    def test_sem_folga_e_sem_truncar(self) -> None:
+        """Até 29/09/2026 a linha levava líquido × 1,10 truncado: 89,99 virava 98."""
+        resultado = regras_pedido.linhas(_orcamento(_item(1)), DE_PARA, pesos={1: Decimal("89.99")})
+        assert resultado.linhas[0]["Weight1"] == 89.99
 
-    def test_trunca_e_nao_arredonda(self) -> None:
-        """1.056 dos 1.061 pesos da produção são inteiros redondos, e truncar
-        acerta mais que arredondar (36,8% contra 25,1%)."""
-        resultado = regras_pedido.linhas(_orcamento(_item(1)), DE_PARA, pesos={1: Decimal(90)})
-        # 90 × 1,1 = 99,0000...  — mas 89,99 × 1,1 = 98,989 vira 98, não 99.
-        assert resultado.linhas[0]["Weight1"] == 99.0
-        truncado = regras_pedido.linhas(_orcamento(_item(1)), DE_PARA, pesos={1: Decimal("89.99")})
-        assert truncado.linhas[0]["Weight1"] == 98.0
+    def test_arredonda_para_duas_casas(self) -> None:
+        resultado = regras_pedido.linhas(_orcamento(_item(1)), DE_PARA, pesos={1: Decimal("110.8765")})
+        assert resultado.linhas[0]["Weight1"] == 110.88
 
 
 class TestQuandoNaoHaPeso:
@@ -116,10 +100,13 @@ class TestQuandoNaoHaPeso:
         resultado = regras_pedido.linhas(_orcamento(_item(1)), DE_PARA, pesos={1: Decimal(0)})
         assert "Weight1" not in resultado.linhas[0]
 
-    def test_peso_que_trunca_para_zero_nao_e_enviado(self) -> None:
-        """Um item de 0,5 kg viraria `Weight1 = 0` depois do truncamento —
-        pior que o 1 kg do cadastro, porque some do somatório da expedição."""
+    def test_peso_pequeno_e_enviado(self) -> None:
+        """Sem o truncamento, meio quilo é meio quilo (antes virava zero e não ia)."""
         resultado = regras_pedido.linhas(_orcamento(_item(1)), DE_PARA, pesos={1: Decimal("0.5")})
+        assert resultado.linhas[0]["Weight1"] == 0.5
+
+    def test_peso_que_arredonda_para_zero_nao_e_enviado(self) -> None:
+        resultado = regras_pedido.linhas(_orcamento(_item(1)), DE_PARA, pesos={1: Decimal("0.004")})
         assert "Weight1" not in resultado.linhas[0]
 
     def test_sem_pesos_o_pedido_sai_como_antes(self) -> None:

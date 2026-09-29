@@ -6,6 +6,23 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-29] — Peso do pedido = peso líquido da árvore; pesos nos logs
+
+Entra pelo `deploy_update.bat` (worker WBC e `OrcaView-ControleProducao`); sem dependência nova,
+sem SQL. `FATOR_PESO_EMBARQUE` deixa de existir (se ainda estiver num `.env`, é ignorado).
+
+- **Regra nova do `Weight1` (decisão do Marcelo em 29/09):** peso líquido do nível 1 da árvore
+  do WBC, com 2 casas — **sem a folga de 10% e sem truncar** (`domain.linhas.peso_da_linha`,
+  a mesma função na criação do pedido e no `wbcpython pesos`). Antes: líquido × 1,10,
+  truncado. Caso real: orçamento `00125817` (DUOMO), árvore 226,43 kg; o pedido 84444 nasceu
+  com 249 kg. O 124,5 kg visto no SAP não veio do integrador: o `vendas01` mudou a quantidade
+  de 2 para 1 às 14:36 e o SAP reescalou o peso da linha (249 ÷ 2).
+- **Pesos nos logs.** O worker registra o peso de cada linha do pedido que cria ("peso do item
+  1 = 226,43 kg (nível 1 da árvore do WBC)"). O "Processar pedidos novos" do Controle de
+  Produção põe, por linha, o `Weight1` do SAP ao lado do nível 1 da árvore — `WARNING` com
+  "DIFERENTE" quando não batem. Só leitura; uma falha na leitura não para o processamento.
+- 5 testes novos; os do peso reescritos para a regra nova.
+
 ## [2026-09-29] — API da Manutenção de OP aberta a qualquer um com a chave (D1); guia reescrito
 
 Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem dependência nova, sem SQL.

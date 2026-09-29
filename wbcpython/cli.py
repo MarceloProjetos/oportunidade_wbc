@@ -917,8 +917,8 @@ def _cmd_pesos(
     relatar(settings.describe_environment())
     relatar("")
     relatar(
-        f"Peso de embarque = peso líquido do nível 1 da árvore × "
-        f"{settings.fator_de_peso_de_embarque} (FATOR_PESO_EMBARQUE), truncado."
+        "Peso da linha = peso líquido do nível 1 da árvore do WBC, com 2 casas "
+        "(sem folga e sem truncar — regra de 29/09/2026)."
     )
     if simular:
         relatar("")
@@ -966,7 +966,7 @@ def _cmd_pesos(
                 return 0
 
             mudancas, iguais, sem_peso = _pesos_das_linhas(
-                doc, pesos, settings.fator_de_peso_de_embarque, relatar, alertar
+                doc, pesos, relatar, alertar
             )
 
             if not mudancas:
@@ -994,7 +994,6 @@ def _cmd_pesos(
 def _pesos_das_linhas(
     doc: dict[str, Any],
     pesos: dict[int, Decimal],
-    fator: Decimal,
     relatar: Any,
     alertar: Any,
 ) -> tuple[dict[int, float], int, int]:
@@ -1006,11 +1005,11 @@ def _pesos_das_linhas(
     linha a mais ou a menos no documento não pode deslocar o peso de todas as
     outras, que é o que aconteceria comparando por posição.
 
-    A conta é a da criação (`domain.linhas.peso_de_embarque`, a mesma função),
+    A conta é a da criação (`domain.linhas.peso_da_linha`, a mesma função),
     e não pode divergir dela: se divergisse, rodar este comando logo depois de
     criar o pedido acusaria mudança em toda linha.
     """
-    from wbcpython.domain.linhas import peso_de_embarque
+    from wbcpython.domain.linhas import peso_da_linha
 
     mudancas: dict[int, float] = {}
     iguais = sem_peso = 0
@@ -1029,15 +1028,15 @@ def _pesos_das_linhas(
             )
             continue
 
-        # Mesma conta da criação: peso da linha inteira, com a folga de
-        # embalagem, truncado — sem dividir pela quantidade.
+        # Mesma conta da criação: peso líquido da linha inteira, sem dividir pela
+        # quantidade.
         quantidade = Decimal(str(linha.get("Quantity") or 1))
-        embarque = peso_de_embarque(peso, fator)
-        novo = float(embarque) if embarque is not None else 0.0
+        calculado = peso_da_linha(peso)
+        novo = float(calculado) if calculado is not None else 0.0
         if novo <= 0:
             sem_peso += 1
             alertar(
-                f"{AVISO}Linha {line_num} (ORCITM {orcitm}): peso trunca para zero — "
+                f"{AVISO}Linha {line_num} (ORCITM {orcitm}): peso zero na árvore — "
                 f"mantido {atual:g}."
             )
             continue

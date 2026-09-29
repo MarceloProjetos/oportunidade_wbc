@@ -366,7 +366,6 @@ class WorkerIntegracao:
                     tracking=self._tracking,
                     grupo_produtos=RepositorioGrupoProdutosServiceLayer(cliente),
                     parceiros=RepositorioParceirosServiceLayer(cliente),
-                    fator_de_embarque=self._settings.fator_de_peso_de_embarque,
                     somente_leitura=somente_leitura,
                     # Sempre a janela PADRÃO, mesmo num ciclo estendido: é ela
                     # que separa "acertar cotação de negócio antigo" de "criar

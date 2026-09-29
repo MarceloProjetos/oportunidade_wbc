@@ -1012,9 +1012,9 @@ class TestComandoPesos:
         )
 
         assert main(["pesos", "--pedido", "84315"]) == 0
-        # floor(760,65 × 1,1) = 836 — o mesmo valor do pedido 84112 da produção.
-        assert registro["pesos_gravados"] == [(19489, {0: 836.0, 1: 49.0})]
-        assert "1 -> 836 kg" in capsys.readouterr().out
+        # O peso líquido da árvore, com 2 casas (regra de 29/09/2026).
+        assert registro["pesos_gravados"] == [(19489, {0: 760.65, 1: 45.13})]
+        assert "1 -> 760.65 kg" in capsys.readouterr().out
 
     def test_casa_por_orcitm_e_nao_por_ordem(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
@@ -1027,7 +1027,7 @@ class TestComandoPesos:
         )
 
         assert main(["pesos", "--pedido", "84315"]) == 0
-        assert registro["pesos_gravados"] == [(19489, {0: 49.0, 1: 836.0})]
+        assert registro["pesos_gravados"] == [(19489, {0: 45.13, 1: 760.65})]
 
     def test_peso_nao_e_dividido_pela_quantidade(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
@@ -1040,9 +1040,8 @@ class TestComandoPesos:
         )
 
         assert main(["pesos", "--pedido", "84315"]) == 0
-        # floor(20.830,79 × 1,1) = floor(22.913,869) = 22.913
-        assert registro["pesos_gravados"] == [(19489, {0: 22913.0})]
-        assert "137 -> 22913 kg" in capsys.readouterr().out
+        assert registro["pesos_gravados"] == [(19489, {0: 20830.79})]
+        assert "137 -> 20830.8 kg" in capsys.readouterr().out
 
     def test_simular_nao_escreve(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
@@ -1065,7 +1064,7 @@ class TestComandoPesos:
         """Escrita à toa é ida à rede e ruído no histórico do documento."""
         registro = self._montar_ambiente(
             monkeypatch,
-            doc=self._pedido(self._linha(0, 1, peso=836.0)),
+            doc=self._pedido(self._linha(0, 1, peso=760.65)),
             pesos={1: "760.65"},
         )
 
@@ -1083,22 +1082,22 @@ class TestComandoPesos:
         )
 
         assert main(["pesos", "--pedido", "84315"]) == 0
-        assert registro["pesos_gravados"] == [(19489, {0: 836.0})]
+        assert registro["pesos_gravados"] == [(19489, {0: 760.65})]
         assert "sem peso na árvore" in capsys.readouterr().out
 
-    def test_peso_que_trunca_para_zero_e_mantido(
+    def test_peso_que_arredonda_para_zero_e_mantido(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
         """Gravar 0 kg some do somatório da expedição — pior que o 1 do cadastro."""
         registro = self._montar_ambiente(
             monkeypatch,
             doc=self._pedido(self._linha(0, 1, peso=1.0)),
-            pesos={1: "0.5"},
+            pesos={1: "0.004"},
         )
 
         assert main(["pesos", "--pedido", "84315"]) == 0
         assert registro["pesos_gravados"] == []
-        assert "trunca para zero" in capsys.readouterr().out
+        assert "peso zero na árvore" in capsys.readouterr().out
 
     def test_pedido_inexistente_vira_erro(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture

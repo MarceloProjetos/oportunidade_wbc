@@ -208,7 +208,7 @@ class TestQuantidadeNoTexto:
         item = _item(texto="PORTA-PALETES 8 Módulos")
         r = _linhas(_orcamento(item), pesos={1: Decimal("800")})
         assert r.linhas[0]["Quantity"] == 8
-        assert r.linhas[0]["Weight1"] == 880.0
+        assert r.linhas[0]["Weight1"] == 800.0
 
 
 class TestCamposDaLinhaNoSap:
