@@ -6,6 +6,28 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-29] — API da Manutenção de OP aberta a qualquer um com a chave (D1); guia reescrito
+
+Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem dependência nova, sem SQL.
+
+- **D1, decidida pelo Marcelo em 29/09:** a API não tem consumidor definido — qualquer pessoa ou
+  sistema com a chave, de dentro da rede. Duas barreiras de transporte caíram, só em `/api/*`
+  (`core/acesso._BordaDaApi`, o middleware mais externo):
+  - **CORS para qualquer origem, sem credenciais.** Uma página web de outro servidor não
+    conseguia chamar a API (o preflight nem chegava: o portão da chave o recusava com 401). A
+    API nunca lê o cookie, então abrir a origem não expõe nada a quem não tem a chave. As telas
+    continuam sem CORS e com a regra de mesma origem.
+  - **`charset=utf-8` no JSON.** Sem ele, o `Invoke-RestMethod` do Windows PowerShell 5.1 lia a
+    resposta como Latin-1 — "concluída" virava "concluÃ­da" (conferido contra a .11 em 29/09).
+- **`API_MANUTENCAO_OP.md` reescrito como guia:** primeiros passos (três chamadas que não
+  gravam), conceitos (DocNum × DocEntry, a vida da OP, saída e entrada, execução em segundo
+  plano), receitas passo a passo de cada operação com requisição e resposta, erros com exemplo,
+  referência rápida, perguntas frequentes e "como testar sem estragar nada". Exemplos completos
+  em Python, PowerShell e JavaScript que pedem confirmação antes de gravar — validados
+  (compilam/analisam) e com as funções de leitura rodadas contra a .11. As respostas de exemplo
+  saíram da própria API, com o SAP simulado e dados fictícios.
+- 3 testes novos (CORS na API, sem CORS nas telas, `charset`).
+
 ## [2026-09-29] — Replanejar recusa também OP com produto apontado (D6)
 
 Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem dependência nova, sem SQL.

@@ -649,9 +649,11 @@ módulo 3 (*Manutenção de OP*) libera, replaneja e **encerra com movimentaçã
 - **API JSON do módulo 3 (29/09/2026):** `/api/manutencao-op` na mesma porta (8080) e no mesmo
   processo da tela — buscar, liberar, replanejar, conferir/executar o encerramento, acompanhar e
   interromper.
-  Só `X-API-Key` no cabeçalho (a mesma `OS_API_KEY`), `solicitante` obrigatório em toda
+  Aberta a qualquer um com a chave (D1): só `X-API-Key` no cabeçalho (a mesma `OS_API_KEY`),
+  CORS aberto em `/api/*` (sem cookie) e JSON com `charset=utf-8`; `solicitante` obrigatório em toda
   gravação, erros `{ok, tipo, motivo}`, mesma fila de uma execução por vez e mesmo histórico de
-  Execuções ("por *fulano* · API"). Contrato para quem consome: [API_MANUTENCAO_OP.md](API_MANUTENCAO_OP.md);
+  Execuções ("por *fulano* · API"). Guia para quem consome, com receitas e exemplos em Python,
+  PowerShell e JavaScript: [API_MANUTENCAO_OP.md](API_MANUTENCAO_OP.md);
   plano: `docs/PLANO_API_MANUTENCAO_OP.md`.
 - **Módulo 2:** `Reprocessar` em "Pedidos integrados" (saiu da tela em 28/09 — D8 — e voltou
   em 30/09, decisão do Marcelo): cancela **todas** as OPs planejadas do pedido, de qualquer

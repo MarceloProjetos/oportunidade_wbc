@@ -20,6 +20,11 @@ The JSON API under ``/api/`` (29/09/2026, docs/PLANO_API_MANUTENCAO_OP.md) takes
 ``X-API-Key`` ONLY: no cookie (so no CSRF surface on its writes) and no ``?key=`` (a key in a
 URL ends up in logs). Missing or wrong → 401 in the API's error shape. With no key configured
 it is open for reading like the screen, and its writes answer 503 (``avisa_escrita``).
+
+Anyone holding the key may consume it (D1, 29/09/2026) — a browser page on another origin
+included: ``/api/`` answers CORS for any origin (``_BordaDaApi``), without credentials. That
+opens nothing to a caller without the key, since the API never reads the cookie. The screens
+get no CORS headers and keep the same-origin rule above.
 """
 
 from __future__ import annotations
@@ -29,6 +34,8 @@ from urllib.parse import quote, urlsplit
 
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from starlette.middleware.cors import CORSMiddleware
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from controleproducao.config import get_settings
 from controleproducao.core.tarefas import TAREFAS
@@ -38,6 +45,39 @@ from wbcpython.dashboard import acesso as painel
 ROTAS_ABERTAS = frozenset({"/entrar", "/sair", "/favicon.ico", "/health", "/health/ocupado", "/painel-wbc"})
 
 PREFIXO_API = "/api/"
+
+
+class _BordaDaApi:
+    """What any client of ``/api/`` needs from the transport (D1, 29/09/2026).
+
+    - CORS for any origin, no credentials. Installed outermost: the browser's preflight never
+      carries ``X-API-Key`` and must be answered before the key gate, and a 401 must carry
+      the headers too, or the page cannot read why it was refused.
+    - ``charset=utf-8`` on the JSON: without it Windows PowerShell 5.1 ``Invoke-RestMethod``
+      decodes the body as Latin-1 ("concluída" → "concluÃ­da", seen against the .11).
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+        self.cors = CORSMiddleware(
+            app, allow_origins=["*"], allow_methods=["GET", "POST"], allow_headers=["*"], max_age=600
+        )
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or not scope["path"].startswith(PREFIXO_API):
+            await self.app(scope, receive, send)
+            return
+
+        async def envia(mensagem: Message) -> None:
+            if mensagem["type"] == "http.response.start":
+                mensagem["headers"] = [
+                    (nome, b"application/json; charset=utf-8")
+                    if nome.lower() == b"content-type" and valor == b"application/json" else (nome, valor)
+                    for nome, valor in mensagem.get("headers", [])
+                ]
+            await send(mensagem)
+
+        await self.cors(scope, receive, envia)
 
 
 def _chave_e_token() -> tuple[str, str]:
@@ -119,6 +159,9 @@ def instalar(app: FastAPI) -> None:
                 status_code=403,
             )
         return await call_next(request)
+
+    # Added after the gate, so it wraps it (Starlette: the last middleware added runs first).
+    app.add_middleware(_BordaDaApi)
 
     @app.get("/entrar", response_class=HTMLResponse)
     def entrar(request: Request, proximo: str = "/") -> Any:

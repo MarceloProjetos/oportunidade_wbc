@@ -194,6 +194,57 @@ def test_producao_fora_da_11_nao_grava(c):
     levanta.assert_not_called()
 
 
+def test_pagina_de_outra_origem_pode_chamar_a_api(c, ambiente):
+    """D1 (29/09/2026): anyone holding the key consumes the API, a browser page on another
+    origin included. The preflight carries no key and is answered before the gate; the 401
+    carries the headers too, or the page could not read why it was refused."""
+    origem = {"Origin": "http://192.168.0.90:8000"}
+    preflight = c.options(f"{API}/liberar", headers={
+        **origem, "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "x-api-key, content-type",
+    })
+    with patch(f"{SVC}.buscar_ops", return_value=[]), \
+         patch(f"{SVC}.baixada_das_ops_do_pedido", return_value={}):
+        leitura = c.get(f"{API}/pedidos/84245/ops", headers={**origem, **CABECALHO})
+    sem_chave = c.get(f"{API}/pedidos/84245/ops", headers=origem)
+
+    assert preflight.status_code == 200
+    assert "POST" in preflight.headers["access-control-allow-methods"]
+    assert "x-api-key" in preflight.headers["access-control-allow-headers"].lower()
+    assert leitura.status_code == 200
+    assert sem_chave.status_code == 401
+    assert preflight.headers["access-control-allow-origin"] == "*"
+    for resposta in (preflight, leitura, sem_chave):
+        # This client carries the screen's cookie, and Starlette then echoes the origin instead
+        # of "*" — still without credentials, so the browser keeps cookies out of it.
+        assert resposta.headers["access-control-allow-origin"] in ("*", origem["Origin"])
+        assert "access-control-allow-credentials" not in resposta.headers
+
+
+def test_json_da_api_declara_utf8(c, ambiente):
+    """Without the charset, Windows PowerShell 5.1 read "concluída" as "concluÃ­da" (29/09/2026,
+    against the .11). Success and refusal alike."""
+    with patch(f"{SVC}.buscar_ops", return_value=[]):
+        leitura = c.get(f"{API}/pedidos/84245/ops", headers=CABECALHO)
+    recusa = c.get(f"{API}/pedidos/12a/ops", headers=CABECALHO)
+    sem_chave = c.get(f"{API}/pedidos/84245/ops")
+    for resposta in (leitura, recusa, sem_chave):
+        assert resposta.headers["content-type"] == "application/json; charset=utf-8"
+    assert "Número do pedido" in recusa.content.decode("utf-8")
+
+
+def test_as_telas_nao_ganham_cors(c):
+    """Only /api/ opens to other origins: the screens keep their same-origin rule."""
+    origem = {"Origin": "http://192.168.0.90:8000"}
+    respostas = [
+        c.get("/", headers=origem),
+        c.get("/health", headers=origem),
+        c.options("/manutencao-op/status", headers={**origem, "Access-Control-Request-Method": "POST"}),
+    ]
+    for resposta in respostas:
+        assert "access-control-allow-origin" not in resposta.headers
+
+
 def test_erros_da_propria_api_saem_no_mesmo_formato(c, ambiente):
     rota = c.get(f"{API}/nao-existe", headers=CABECALHO)
     metodo = c.get(f"{API}/liberar", headers=CABECALHO)
