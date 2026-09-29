@@ -5,9 +5,10 @@
 > cabeçalhos `x-api-key, content-type`; `GET` com origem de fora → `200` e o `401` sem chave
 > também trazem o cabeçalho; a API responde `application/json; charset=utf-8`; as telas seguem
 > sem CORS. No Windows PowerShell 5.1, o exemplo do guia, como está, lê "concluída" certo e trata
-> o erro. ⚠️ Não deu para provar num navegador daqui: o navegador embutido barra o `fetch` da
-> página para outro endereço antes de sair (`ERR_BLOCKED_BY_CLIENT`). Falta: F7 (quem chama a
-> 8077) e as decisões D4 e D7.
+> o erro. No Chrome do Marcelo, uma página de outra origem (o painel, porta 8079) chamou a API
+> com `X-API-Key` errada: o navegador fez a chamada e a página leu o `401 sem_chave` em JSON — o
+> CORS funciona num navegador de verdade. (O navegador embutido do app não serve para esse teste:
+> ele barra o `fetch` antes de sair.) Falta: F7 (quem chama a 8077) e as decisões D4 e D7.
 >
 > **Antes (29/09/2026, fim da tarde): D1 decidida — qualquer um com a chave; `8edcae3` pende
 > deploy.** O Marcelo decidiu que a API não tem consumidor definido: basta a chave, de dentro da
