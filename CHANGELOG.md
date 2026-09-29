@@ -19,8 +19,25 @@ Vale no próximo deploy (`deploy_update.bat`; sem dependência nova). F6 está n
   qualquer leitura ou tarefa.
 - **`docs/controleproducao/GUIA_OPERADOR.md`** — rascunho de 1 página para quem opera (o
   Anderson valida).
-- Pendem na F7: SQL do módulo 2 (a 1ª tentativa foi descartada pela metade), `pymssql` no
-  cliente do WBC (falta o driver no notebook para a prova) e a pasta original (D2).
+- **Plano encerrado para operação** (no ar na .11 em 29/09). Melhoria futura: SQL do módulo 2
+  com parâmetro ligado e `pymssql` no cliente do WBC.
+- **"Errou os pesos" do 84433 não foi a ferramenta:** `vendas01` trocou as quantidades para 1
+  no cliente SAP (28/09 13:54) e o SAP dividiu o `Weight1` junto; `projeto06` corrigiu à mão.
+  Para achar os outros casos (só leitura, HANA):
+
+  ```sql
+  SELECT R."DocNum", L."LineNum", V1."Quantity" "Qtd_worker", V1."Weight1" "Peso_worker",
+         L."Quantity" "Qtd_agora", L."Weight1" "Peso_agora"
+    FROM "SBOALTAMIRAPROD".ORDR R
+    JOIN "SBOALTAMIRAPROD".RDR1 L ON L."DocEntry" = R."DocEntry"
+    JOIN "SBOALTAMIRAPROD".ADOC C1 ON C1."ObjType" = '17' AND C1."DocEntry" = R."DocEntry" AND C1."LogInstanc" = 1
+    JOIN "SBOALTAMIRAPROD".ADO1 V1 ON V1."ObjType" = '17' AND V1."DocEntry" = R."DocEntry"
+                                  AND V1."LogInstanc" = 1 AND V1."LineNum" = L."LineNum"
+   WHERE R."CANCELED" = 'N' AND R."DocStatus" = 'O' AND C1."UserSign" = 144
+     AND L."ItemCode" IN ('I000002', 'I000003')
+     AND (L."Quantity" <> V1."Quantity" OR ABS(L."Weight1" - V1."Weight1") > 0.5)
+   ORDER BY R."DocNum" DESC, L."LineNum";
+  ```
 
 ## [2026-09-28] — Controle de Produção: F6 (rede + módulo 3) e o pré-voo do piloto
 

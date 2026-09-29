@@ -1,5 +1,11 @@
 # Plano — Controle de Produção (WBC → OPs) como pacote do SIS, na .11
 
+> **ENCERRADO PARA OPERAÇÃO em 29/09/2026** (`8728980` na .11; F0–F7). A tela roda em
+> produção desde 28/09 (1º pedido real: 84433, 15:36). O que resta não é código deste plano —
+> está em "O que falta" (§F7), por dono. Os portes de código (SQL do módulo 2, `pymssql`)
+> viraram melhoria futura, com o Anderson.
+
+
 > **Status (28/09/2026, 2ª versão): DESENHO MUDOU — um projeto só.** Decisão do Marcelo
 > às 12h: o pacote ControleProducao do Anderson vira `controleproducao/` dentro do
 > ServidorIntegracaoSAP, como o `wbcpython/` virou em 08/09 — um Python, um `.env`, um login,
@@ -406,7 +412,7 @@ nssm restart OrcaView-ControleProducao; Start-Sleep 4; Get-NetTCPConnection -Loc
   entregue a outra equipe) passa a receber 400.</span> Nenhum caller no web nem no app
   (grep em 28/09); se houver tela externa, avisar antes do deploy.
 
-### F7 — Operação contínua — `parcial · 29/09`
+### F7 — Operação contínua — `✅ encerrada 29/09 (8728980) · o que falta é operação`
 
 **Como a F6 entrou (28/09):** deploy de `cd770a8`; `CP_HOST=0.0.0.0` acrescentado ao `.env`;
 regra `OrcaView-ControleProducao-8080` copiada da `OrcaView WBC 8079` (`RemoteAddress
@@ -430,6 +436,24 @@ esperou o uvicorn) e a 8080 ficou fora nesse intervalo — esperar o `/health` a
 - ⏳ `basicConfig(force=True)` da CLI: contido no `conftest`; sem efeito em produção.
 - ⏳ Pasta original `IntegracaoPedido_CriacaoOP/`: apagar quando o Marcelo quiser e tirar a
   linha do `.gitignore` (D2).
+
+**O que falta (29/09), por dono — nada disso é código deste plano:**
+
+- **Marcelo:** avisar o PCP que pedido processado pela tela não vai para o addon (o 84433 foi
+  pelos dois em 28/09; as OPs do addon foram canceladas); combinar com Vendas não trocar a
+  quantidade de linha de porta-paletes no SAP (o SAP divide o peso junto — 84433/84438); D2
+  (pasta original); D10 (reboot pendente da .11); avisar quem consome `encerrada` na API 8077,
+  se houver alguém.
+- **PCP / Vendas (no cliente SAP, à mão):** 12 pedidos abertos têm quantidade/peso de
+  porta-paletes diferentes do que o worker gravou (consulta no CHANGELOG de 29/09). Os
+  suspeitos: **84420** (peso 2,33 kg), **84438** (220 kg; o worker gravou 575), **84433** linha 2
+  (224; o worker gravou 225).
+- **Anderson:** validar `docs/controleproducao/GUIA_OPERADOR.md`; D12–D16; os 4 rateios falhos
+  (84420/84422/84425/84426). OPs repetidas na mesma linha (7 grupos desde 20/09) são da
+  estrutura — o mesmo padrão aparece em pedidos que só o addon processou.
+- **Melhoria futura (código):** SQL do módulo 2 com parâmetro ligado (fechar `_update_pedido`,
+  inalcançável hoje); `WbcSqlServerClient` → `pymssql` (instalar `pymssql` no notebook para a
+  prova de paridade); `basicConfig(force=True)` da CLI.
 
 ---
 
