@@ -1,13 +1,19 @@
 # Plano — API JSON da Manutenção de OP (Controle de Produção, porta 8080)
 
-> **Status (29/09/2026, tarde): plano revisto, nada codado.** A F0 mudou o quadro: a rota
+> **Status (29/09/2026, fim do dia): F0–F3 codadas e no GitHub, pendem deploy na .11.**
+> `4e238d0` (F0: log de quem chama a rota de OP da 8077) e `a3a217f` (F1–F3: `acoes.py`, quem
+> pediu no histórico, API JSON com 6 rotas); SQL das 2 colunas do histórico **aplicado pelo
+> Marcelo em 29/09**. Suíte 2.445 verde, `ruff` 0; lista e detalhe das Execuções conferidos na
+> prévia com o CSS real. Próximo: F4 (contrato) e F5 (deploy + 1º teste real, dele).
+>
+> **Antes (29/09 à tarde):** a F0 mudou o quadro: a rota
 > `POST /ordens-producao/{n}/status` da API 8077 **é usada**. Pelo menos **552 OPs** foram
 > encerradas por ela **só pelo status**, sem nenhuma saída de insumo nem entrada de produto (23, 25
 > e 28/09; a última às 13:30 de 28/09, cerca de 1 h 15 antes do deploy da D9). Quem chama é
 > desconhecido: a 8077 não registra IP. Decisões do Marcelo em 29/09: D1 (quem consome) fica aberta
 > por enquanto; D2 e D3 abertas; **Replanejar vira a última fase**, depois de o resto estar no ar e
 > testado. Com o achado, a recomendação da D3 mudou: não aposentar a rota antes de saber quem a usa.
-> Aguarda aprovação para começar a F1.
+> Aprovado até a F3 no mesmo dia.
 
 Artifact (mesma história, MESMA url): https://claude.ai/artifact/1Mt4xBk4bvuqv7oUuLuThf
 
@@ -17,7 +23,7 @@ Artifact (mesma história, MESMA url): https://claude.ai/artifact/1Mt4xBk4bvuqv7
 
 | | |
 | --- | --- |
-| **6 rotas JSON + Replanejar** | em `/api/manutencao-op`, no processo da tela (8080); Replanejar é a última fase |
+| **6 rotas JSON + Replanejar** | em `/api/manutencao-op`, no processo da tela (8080) — ✅ codadas (`a3a217f`); Replanejar é a F6 |
 | **≥ 552 OPs** | encerradas pela rota da 8077 sem saída nem entrada (23, 25 e 28/09) |
 | **0 regra duplicada** | tela e API chamam as mesmas funções (`acoes.py` → `service.py`) |
 | **2 colunas** | `solicitante` e `origem` no histórico de Execuções (ALTER, sem tabela nova) |
@@ -34,8 +40,10 @@ Artifact (mesma história, MESMA url): https://claude.ai/artifact/1Mt4xBk4bvuqv7
   recusa `encerrada` com 400. **Tem um usuário real, que não conhecemos** (achado abaixo).
 - **Não existe:** nenhuma rota JSON de escrita na 8080. O que a tela decide está dentro de
   `modules/manutencao_op/router.py`, misturado com o HTML.
-- **Pende para começar:** aprovação do plano. D1 continua aberta e não trava as fases de código
-  (o contrato sai genérico). A F7 (rota da 8077) depende de identificar o chamador.
+- **No repo, falta subir (29/09):** F0–F3 (`4e238d0`, `a3a217f`). Depois do deploy, a 8077 passa
+  a registrar IP e recusas no `logs/api.log` — é o que identifica o chamador (F0).
+- D1 continua aberta e não trava as fases de código (o contrato sai genérico). A F7 (rota da 8077)
+  depende de identificar o chamador.
 - Commits ainda não deployados na .11 (`e4a1252` → `3692fe6`, se continuarem pendentes) sobem
   junto com o 1º deploy da API (F5).
 
@@ -139,7 +147,7 @@ Mensagem de erro igual por construção: as duas mostram o mesmo texto, que vem 
 Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de verdade na .11;
 **Replanejar por último** (F6).
 
-### F0 — Conferências — `✅ log conferido 29/09 · falta saber quem chama`
+### F0 — Conferências — `✅ log conferido 29/09 · log de acesso codado (4e238d0) · falta saber quem chama`
 
 > **Objetivo:** saber se alguém usa a rota de OP da 8077 e quem é — antes de mexer nela.
 
@@ -151,10 +159,11 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
   2. **log de acesso nas duas rotas de OP da 8077** (código meu, pequeno, só `api.py` — o
      `ordens_producao_sl.py` é arquivo-irmão e não muda): IP de origem, método, OP, status
      pedido, código HTTP devolvido e `tipo` da recusa, **inclusive os 400** que hoje somem. Uma
-     linha INFO por chamada no `logs/api.log`. Deploy dele. Depois, um bloco PowerShell mostra
-     IPs e tentativas.
+     linha INFO por chamada no `logs/api.log`. ✅ Codado em 29/09 (`4e238d0`, 2 testes); pende o
+     deploy dele. Depois, um bloco PowerShell mostra IPs e tentativas:
+     `Select-String -Path .\logs\api.log* -Pattern 'Rota de OP:'`.
 
-### F1 — Uma regra, um lugar — `aberta · eu`
+### F1 — Uma regra, um lugar — `✅ codada 29/09 · a3a217f · pende deploy`
 
 > **Objetivo:** a tela continua idêntica para o operador, e tudo o que ela decide passa a estar
 > numa função que a API pode chamar.
@@ -175,7 +184,7 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
 - Se a D5 for aprovada: `finalizar_ops` para **só entre OPs** — a OP em curso termina a cadeia.
 - Testes: "já no destino", `acoes_possiveis`, cada `Recusa`; suíte inteira + `ruff` 0.
 
-### F2 — Quem pediu — `aberta · eu (código) + Marcelo (SQL)`
+### F2 — Quem pediu — `✅ codada 29/09 · a3a217f · SQL aplicado pelo Marcelo · pende deploy`
 
 > **Objetivo:** toda gravação — da tela ou da API — aparece nas Execuções e no log com a origem,
 > e as da API com o nome de quem pediu.
@@ -201,7 +210,7 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
 - Log (`logs/controleproducao.log`, WARNING, junto do aviso de escrita que já existe): uma linha
   por gravação e por cancelamento — ação, `solicitante`, IP de origem, OPs, id da execução.
 
-### F3 — A API, sem o Replanejar — `aberta · eu`
+### F3 — A API, sem o Replanejar — `✅ codada 29/09 · a3a217f · pende deploy`
 
 > **Objetivo:** o consumidor busca, libera, confere e encerra, acompanha e interrompe — pelo
 > contrato do §3, com a mesma trava, o mesmo histórico e as mesmas mensagens da tela.
@@ -223,6 +232,16 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
   terminada; cancelar; `ocupado` com a execução em andamento. O teste de cobertura de
   `test_web_modulos.py` (toda rota POST que grava passa por `avisa_escrita`) passa a varrer
   `/api/*` também.
+
+- **Como ficou (29/09):** `acoes.py` (fluxos + `Recusa`), `api_router.py` (6 rotas), `acesso.py`
+  (`/api/*` só por `X-API-Key`), `main.py` (erro `{ok, tipo, motivo}` e corpo inválido → 400 em
+  português), `tarefas.py`/`historico.py` (`solicitante`, `origem`), `tarefas.html`/`tarefa.html`
+  ("por *fulano* · API"). Testes: 39 da API (paridade de mensagem com a tela, token que sobrevive
+  ao módulo ocupado e à escrita recusada, tela e API dividindo a trava), 2 da tela, 4 do
+  histórico/tarefas, 13 casos do serviço. Nenhum teste da tela mudou de mensagem; um teste do
+  serviço mudou de dado (usava uma OP já Liberada para simular falha do SAP no Liberar).
+- ⚠️ **O que a busca não devolve:** `doc_entry` (a grade da tela não lê o DocEntry, e acrescentá-lo
+  mudaria a tabela da tela). Ele aparece no plano do Encerrar e no resultado das execuções.
 
 ### F4 — Contrato e documentação — `aberta · eu`
 
@@ -321,9 +340,9 @@ os números. Encerrar aceita as duas formas, como a tela.
 **Uma OP da busca:**
 
 ```json
-{"op": 125060, "doc_entry": 126599, "status": "P", "status_desc": "Planejada",
- "item": "PPLPRTGALVA175000000#0#0#1050", "produto": "…", "planejada": 12.0, "apontada": 0.0,
- "restante": 12.0, "data_pedido": "2026-09-25", "data_inicio": "2026-09-26",
+{"op": 125060, "status": "P", "status_desc": "Planejada",
+ "item": "PPLPRTGALVA175000000#0#0#1050", "produto": "…", "planejada": 12, "apontada": 0,
+ "restante": 12, "data_pedido": "2026-09-25", "data_inicio": "2026-09-26",
  "data_vencimento": "2026-10-10", "cliente_codigo": "C0…", "cliente": "…",
  "acoes_possiveis": ["liberar", "encerrar"]}
 ```
