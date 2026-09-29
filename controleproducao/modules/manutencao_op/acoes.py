@@ -87,6 +87,29 @@ def _ocupado(exc: RuntimeError) -> Recusa:
     )
 
 
+def _exige_todas(numeros: list[str], ops: list[dict]) -> None:
+    """Every OP number asked must exist, or nothing is done (29/09/2026).
+
+    `levanta_ops` returns what it finds and drops the rest in silence. The screen never
+    noticed — its numbers come from its own search — but the API takes any number, and a
+    typo in a batch would have released the others and reported success. Same rule as a
+    terminal OP: refuse the whole batch and say which numbers are missing. Call it after
+    `levanta_ops`, which already refused anything that is not digits.
+    """
+    pedidos = list(dict.fromkeys(int(str(n).strip()) for n in numeros))
+    achados = {int(op["doc_num"]) for op in ops}
+    faltando = [n for n in pedidos if n not in achados]
+    if faltando:
+        raise Recusa(
+            "nao_encontrada",
+            f"{len(faltando)} OP(s) informada(s) não existem no SAP: "
+            f"{', '.join(str(n) for n in faltando)}. Nada foi feito — confira os números (DocNum).",
+            titulo="OP não encontrada",
+            detalhes=[{"OP": n} for n in faltando],
+            colunas=["OP"],
+        )
+
+
 # ---------------------------------------------------------------------------
 # Liberar (and, in F6, Replanejar) — status only, written on the first request
 # ---------------------------------------------------------------------------
@@ -108,6 +131,7 @@ def prepara_mudanca_status(leitor: HanaDirectReader, numeros: list[str]) -> list
         raise Recusa("invalido", str(exc)) from exc
     if not ops:
         raise Recusa("nao_encontrada", "Nenhuma das OPs informadas foi encontrada.")
+    _exige_todas(numeros, ops)
 
     terminais = [op for op in ops if op["status"] in service.STATUS_TERMINAIS]
     if terminais:
@@ -168,6 +192,8 @@ def monta_plano_encerramento(
         ops = service.levanta_ops(leitor, op_docnums=op_docnums or None, doc_num_pedido=pedido or None)
         if not ops:
             raise Recusa("nao_encontrada", "Nenhuma OP encontrada para o que foi informado.")
+        if op_docnums:
+            _exige_todas(op_docnums, ops)
         componentes = service._componentes_por_op(leitor, [int(o["doc_entry"]) for o in ops])
     except ValueError as exc:
         # A non-numeric order number ("84a") used to escape as a 500; the message is

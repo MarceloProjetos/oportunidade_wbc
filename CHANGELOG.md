@@ -6,6 +6,26 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-29] — Contrato da API da Manutenção de OP (F4) e número de OP inexistente
+
+Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem dependência nova.
+
+- **`API_MANUTENCAO_OP.md` (raiz):** o contrato para quem consome, no molde do
+  `API_ORDENS_PRODUCAO.md` — as 6 rotas com `curl`, os quatro fatos que mudam a integração
+  (DocNum, segundo plano, uma execução por vez, Encerrar lança estoque), `acoes_possiveis`, a
+  `acao` por OP no plano, os campos do estado, `desfecho` × `situacao`, a tabela de erros por
+  `tipo`, exemplos em Python e PowerShell 5.1, oito recomendações e a comparação com a 8077. Os
+  exemplos de resposta foram gerados pelo código (SAP dublado), não escritos à mão.
+- **Correção achada ao escrever o contrato:** `levanta_ops` devolve só o que acha, e um número
+  de OP inexistente sumia em silêncio no Liberar (as outras eram liberadas e a execução dizia
+  "concluída"). A tela nunca sentiu — os números dela vêm da própria busca —, mas a API aceita
+  qualquer número. Agora o lote inteiro é recusado (`404 nao_encontrada`, números em `detalhes`),
+  no Liberar e no conferir do Encerrar por OPs. Conferido em PROD (só leitura): nenhum DocNum de
+  OP se repete (157.426 OPs, uma série), então o DocNum ambíguo que a 8077 recusa não acontece
+  aqui hoje.
+- `API_ORDENS_PRODUCAO.md` aponta para o contrato novo; README, guia do operador ("por *fulano*
+  · API" nas Execuções; a fila é a mesma da API) e CLAUDE.md atualizados. 1 teste novo.
+
 ## [2026-09-29] — API JSON da Manutenção de OP (F0–F3 de `docs/PLANO_API_MANUTENCAO_OP.md`)
 
 Entra pelo `deploy_update.bat` (`OrcaView-OS-API` e `OrcaView-ControleProducao`); sem dependência

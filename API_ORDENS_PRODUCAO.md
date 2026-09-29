@@ -18,6 +18,11 @@ já reflete o que ficou gravado.
 > nunca traz `"encerrada"`. Consultar e liberar continuam iguais. Se a sua tela tinha o
 > botão "Encerrar" ligado nesta API, ele precisa sair ou apontar para a Manutenção de OP.
 
+> **Novo em 29/09/2026 — a Manutenção de OP também tem API JSON:** `API_MANUTENCAO_OP.md`
+> (`192.168.7.11:8080/api/manutencao-op`). Busca as OPs de um pedido, libera em lote e
+> **encerra com a saída de insumos e a entrada do produto**, na mesma fila e no mesmo histórico
+> da tela, registrando quem pediu. Para integração nova, use aquela.
+
 > Os endpoints de **Ordens de Serviço** (`/ordens-servico/...`) são outra coisa e estão
 > documentados em `API_OS_INTEGRACAO.md`.
 

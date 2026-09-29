@@ -329,6 +329,25 @@ def test_nenhuma_op_encontrada_e_404(c, ambiente):
                                "motivo": "Nenhuma das OPs informadas foi encontrada."}
 
 
+def test_numero_inexistente_no_lote_recusa_tudo_em_vez_de_sumir(c, ambiente):
+    """`levanta_ops` returns what it finds: 9999 (a typo) would vanish and 9001 would be
+    released with a "concluída". The screen never met this — its numbers come from its own
+    search; the API takes any number. Whole batch refused, the missing ones named."""
+    with patch(f"{SVC}.levanta_ops", return_value=[_op(1, 9001, "P")]), \
+         patch(f"{SVC}.muda_status", AsyncMock()) as mudar:
+        liberar = c.post(f"{API}/liberar", json={"ops": [9001, "9999", 9001], "solicitante": "joao"},
+                         headers=CABECALHO)
+        conferir = c.post(f"{API}/encerrar/conferir", json={"ops": [9001, 9999]}, headers=CABECALHO)
+
+    for resposta in (liberar, conferir):
+        assert resposta.status_code == 404
+        assert resposta.json()["tipo"] == "nao_encontrada"
+        assert resposta.json()["detalhes"] == [{"op": 9999}]
+        assert "9999" in resposta.json()["motivo"] and "Nada foi feito" in resposta.json()["motivo"]
+    mudar.assert_not_called()
+    assert not PLANOS._planos
+
+
 def test_liberar_roda_em_segundo_plano_e_aparece_nas_execucoes(c, ambiente, execucao_falsa, caplog):
     ops = [_op(1, 9001, "P"), _op(2, 9002, "P")]
     resultado = {"alteradas": ops, "com_erro": [], "ignoradas": []}

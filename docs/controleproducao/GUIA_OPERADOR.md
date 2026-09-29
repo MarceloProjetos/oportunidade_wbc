@@ -39,12 +39,16 @@ do processamento e as OPs planejadas precisam sair.
   **Irreversível** (estorno = cancelar a entrada e a saída no SAP, à mão). A tela mostra a ordem
   calculada (filha antes da mãe) e pede confirmação.
 - **Replanejar** (voltar para Planejada) **não existe na tela** — só pela CLI, com o Anderson.
-- A API 8077 não encerra mais OP: encerrar é **só aqui**.
+- A API 8077 não encerra mais OP: encerrar é **só aqui** — ou pela API JSON desta tela
+  (`/api/manutencao-op`), que outro sistema pode chamar. A regra é a mesma, e ela entra na
+  mesma fila: se a tela disser "Já existe execução em andamento", pode ser uma execução da API.
 
 ## Execuções
 
 - Lista as **30 últimas** execuções da tela (mais as que estão rodando) com o log e o resultado
   de cada uma. Ficam guardadas no Supabase: reiniciar o serviço **não** apaga a lista.
+- Execução pedida por outro sistema (a API) aparece com **"por *fulano* · API"** embaixo da
+  descrição — *fulano* é quem pediu lá. Sem essa linha, foi pela tela.
 - A 31ª apaga a mais antiga. O que roda pela CLI (Replanejar, ou qualquer comando digitado) **não** entra aqui —
   fica em `C:\Python\ServidorIntegracaoSAP\logs\controleproducao_cli.log`, com o comando
   digitado.

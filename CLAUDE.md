@@ -70,7 +70,7 @@ do Anderson, importado em 2026-09-28) tem o histórico em `docs/controleproducao
 | `web/sincronizar.html` · `web/entrada.html` | Painel de Sincronização (`GET /sincronizar`) · `GET /` (sonda o painel WBC e redireciona) |
 | `tests/` | pytest; `test_<modulo>.py` espelha o módulo. `tests/wbc/` = suíte do pacote `wbcpython` (mesma árvore dele); `tests/controleproducao/` = suíte do pacote `controleproducao` (244 testes do Anderson + os da integração) |
 | `docs/` | `PLANO_*.md` (abertos e encerrados recentes — o status está no topo de cada um; os antigos em `arquivo/`); `wbc/` (README, DECISOES, APRENDIZADOS, RISCOS_PRODUCAO, RETOMADA); `controleproducao/` (README = guia; GUIA_OPERADOR = quem opera a tela; PARA_O_ANDERSON; migration_guide, decisoes, GUIA_ESTILO — históricos do pacote); `INCIDENTES.md`; `changelog/` (meses anteriores) |
-| `API_*.md` (raiz) | Contratos HTTP entregues a outras equipes (OS, OP, RH, situação de pedidos). **Ficam na raiz**: repo público, links externos |
+| `API_*.md` (raiz) | Contratos HTTP entregues a outras equipes (OS, OP, RH, situação de pedidos, Manutenção de OP — `API_MANUTENCAO_OP.md`, a API JSON da 8080). **Ficam na raiz**: repo público, links externos. Mudou rota, campo ou mensagem = mude o contrato no mesmo commit |
 | `sql/` | DDL de referência (NÃO roda automaticamente); `sql/hana/` = view que o worker lê; `sql/migracoes/` = alterações já aplicadas |
 | `maintenance/` | Conferidor de Vendas BI e scripts de disco/log do servidor |
 
