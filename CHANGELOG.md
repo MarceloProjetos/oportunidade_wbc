@@ -6,6 +6,26 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-29] — Replanejar recusa também OP com produto apontado (D6)
+
+Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem dependência nova, sem SQL.
+
+- **D6, decidida pelo Marcelo em 29/09:** o Replanejar (API e CLI) recusa também a OP Liberada
+  com produto já apontado (`apontada` = `OWOR.CmpltQty` > 0) — o mesmo problema da saída:
+  estoque movimentado numa OP que voltaria a Planejada. API: `409 entrada_lancada`, lote inteiro,
+  com o `apontado` em `detalhes`; a saída é conferida antes, então uma OP com as duas vem em
+  `saida_lancada` (contrato dela inalterado). CLI: "produto apontado — cancele a entrada no SAP
+  antes" na tabela, e a releitura antes de gravar também pega uma entrada lançada no meio-tempo.
+  `service.muda_status` recusa como última guarda (`service.entrada_lancada`; valor desconhecido
+  também recusa). A busca deixa de oferecer `replanejar` para essas OPs.
+- **PROD hoje (só leitura, 29/09):** 9.376 OPs Liberadas; as 13 com saída lançada também têm
+  produto apontado (já eram recusadas); nenhuma tem só a entrada — a regra não muda nada hoje.
+  Quantidade rejeitada sem completa (`RjctQty` > 0 com `CmpltQty` = 0) nunca aconteceu em PROD,
+  então fica fora da regra.
+- Contrato (`API_MANUTENCAO_OP.md`: seção 4b, tabela de `acoes_possiveis`, `entrada_lancada`),
+  CLAUDE.md, README, guia do operador e nota da D9 atualizados. 7 testes novos (API, serviço,
+  CLI).
+
 ## [2026-09-29] — Replanejar pela API, com recusa por saída lançada (F6); Interromper entre OPs (F5b)
 
 Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem dependência nova, sem SQL.

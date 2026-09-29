@@ -662,6 +662,35 @@ def test_replanejar_sem_saber_a_baixada_recusa(c, ambiente):
     mudar.assert_not_called()
 
 
+def test_replanejar_com_produto_apontado_recusa_o_lote_inteiro(c, ambiente):
+    """D6 (29/09/2026): a receipt from production blocks it like an issue does."""
+    ops = [_op(1, 9001, "R", apontada=2.0), _op(2, 9002, "R")]
+    with patch(f"{SVC}.levanta_ops", return_value=ops), \
+         patch(f"{SVC}.muda_status", AsyncMock()) as mudar:
+        resposta = c.post(f"{API}/replanejar", json={"ops": [9001, 9002], "solicitante": "joao"},
+                          headers=CABECALHO)
+
+    assert resposta.status_code == 409
+    corpo = resposta.json()
+    assert corpo["tipo"] == "entrada_lancada"
+    assert corpo["motivo"] == (
+        "1 OP(s) já têm produto apontado (entrada lançada) e não podem voltar para Planejada — "
+        "a entrada precisa ser cancelada no SAP antes. Nenhuma OP foi alterada."
+    )
+    assert corpo["detalhes"] == [{"op": 9001, "item": "PAR000PADRA000000000", "apontado": 2.0}]
+    mudar.assert_not_called()
+
+
+def test_replanejar_confere_a_saida_antes_da_entrada(c, ambiente):
+    """An OP with both is reported for its issue; the refusal lists only what it names."""
+    ops = [_op(1, 9001, "R", apontada=2.0, baixada=5.0), _op(2, 9002, "R", apontada=1.0)]
+    with patch(f"{SVC}.levanta_ops", return_value=ops), patch(f"{SVC}.muda_status", AsyncMock()):
+        resposta = c.post(f"{API}/replanejar", json={"ops": [9001, 9002], "solicitante": "joao"},
+                          headers=CABECALHO)
+    assert resposta.json()["tipo"] == "saida_lancada"
+    assert [d["op"] for d in resposta.json()["detalhes"]] == [9001]
+
+
 def test_replanejar_segue_as_regras_de_lote_do_liberar(c, ambiente):
     with patch(f"{SVC}.levanta_ops", return_value=[_op(1, 9001, "R"), _op(2, 9002, "L")]), \
          patch(f"{SVC}.muda_status", AsyncMock()) as mudar:

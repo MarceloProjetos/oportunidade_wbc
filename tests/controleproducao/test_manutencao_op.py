@@ -98,6 +98,26 @@ def test_replanejar_recusa_op_com_saida_de_insumo_lancada():
     assert "saída de insumo lançada — cancele a saída no SAP antes" in lido
 
 
+def test_replanejar_recusa_op_com_produto_apontado():
+    """D6 (29/09/2026): product received on the OP is the same problem as material issued."""
+    resultado, escritas = _executa(
+        [_op(101, 9001, "A", "R", apontada=1), _op(102, 9002, "B", "R")],
+        ["replanejar", "9001", "9002", "--sim"],
+    )
+    assert [chave for _e, chave, _f in escritas] == [102]
+    lido = " ".join(re.sub(r"[│─┌┐└┘├┤┬┴┼]", " ", resultado.output).split())
+    assert "produto apontado — cancele a entrada no SAP antes" in lido
+
+
+def test_replanejar_nada_a_fazer_quando_todas_tem_estoque_lancado():
+    resultado, escritas = _executa(
+        [_op(101, 9001, "A", "R", baixada=2), _op(102, 9002, "B", "R", apontada=1)],
+        ["replanejar", "9001", "9002", "--sim"],
+    )
+    assert escritas == [] and resultado.exit_code == 0
+    assert "saída de insumo ou produto apontado lançados" in " ".join(resultado.output.split())
+
+
 def test_replanejar_rele_as_ops_antes_de_gravar():
     """The confirmation may stay open for minutes: an issue posted meanwhile still stops it."""
     leituras = iter([
@@ -134,6 +154,26 @@ def test_servico_recusa_replanejar_sem_saber_se_houve_saida():
 ])
 def test_replanejar_so_aparece_sem_saida_lancada(baixada, acoes):
     assert svc.acoes_possiveis("R", 10, 0, baixada) == acoes
+
+
+def test_replanejar_nao_aparece_com_produto_apontado():
+    assert svc.acoes_possiveis("R", 10, 3, 0) == ["encerrar"]
+    assert svc.acoes_possiveis("R", 10, 10, 0) == []
+
+
+@pytest.mark.parametrize("apontada,trecho", [
+    (2, "já tem produto apontado (entrada lançada) — cancele a entrada no SAP"),
+    (None, "não foi possível saber se há produto apontado"),
+])
+def test_servico_recusa_replanejar_com_produto_apontado(apontada, trecho):
+    """The last guard, for anyone calling the service directly (D6, 29/09/2026)."""
+    sl = AsyncMock()
+    resultado = asyncio.run(svc.muda_status(
+        sl, [{"doc_entry": 1, "doc_num": 9001, "item_code": "X", "status": "R",
+              "baixada": 0.0, "apontada": apontada}], "p"
+    ))
+    sl.update_entity.assert_not_called()
+    assert trecho in resultado["ignoradas"][0]["motivo"]
 
 
 # ---------------------------------------------------------------------------

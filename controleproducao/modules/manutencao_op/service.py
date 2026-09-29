@@ -250,6 +250,18 @@ def saida_lancada(op: dict) -> bool:
     return baixada is None or float(baixada) > 0
 
 
+def entrada_lancada(op: dict) -> bool:
+    """True when product was already received on the OP (``apontada`` > 0) — or unknown.
+
+    D6 of docs/PLANO_API_MANUTENCAO_OP.md (Marcelo, 29/09/2026): the same problem as the
+    material issue — a receipt from production would sit on a planned OP. The receipt must be
+    cancelled in the SAP first. Checked after ``saida_lancada``, so an OP with both is
+    reported for its issue.
+    """
+    apontada = op.get("apontada")
+    return apontada is None or float(apontada) > 0
+
+
 def classifica_encerramento(status: str, planejada: float, apontada: float) -> tuple[str, bool]:
     """What closing does to one OP: ``(label shown in the plan, whether it is processed)``.
 
@@ -282,14 +294,16 @@ def acoes_possiveis(
     """Actions the Manutenção de OP accepts for one OP right now, in the API's words.
 
     Same rules the actions apply: Liberar takes a Planejada (a Liberada is ignored, a
-    terminal one refused); Replanejar takes a Liberada with nothing issued (``baixada``
-    unknown → not offered); Encerrar takes what ``classifica_encerramento`` processes.
+    terminal one refused); Replanejar takes a Liberada with nothing issued and nothing
+    received (``baixada`` unknown → not offered); Encerrar takes what
+    ``classifica_encerramento`` processes.
     """
     status = str(status or "").upper()
     acoes = []
     if status == "P":
         acoes.append("liberar")
-    if status == "R" and not saida_lancada({"baixada": baixada}):
+    if (status == "R" and not saida_lancada({"baixada": baixada})
+            and not entrada_lancada({"apontada": apontada})):
         acoes.append("replanejar")
     if classifica_encerramento(status, planejada, apontada)[1]:
         acoes.append("encerrar")
@@ -355,6 +369,18 @@ async def muda_status(sl: ServiceLayerClient, ops: list[dict], status: str) -> d
                 "antes de replanejar."
                 if op.get("baixada") is not None else
                 f"OP {op['doc_num']}: não foi possível saber se há saída de insumo lançada — "
+                "não replanejada."
+            )
+            ignoradas.append({**op, "motivo": motivo})
+            logger.info("  %s", motivo)
+            continue
+        # Nor with product already received (D6, 29/09/2026) — same guard, same reason.
+        if status == "p" and entrada_lancada(op):
+            motivo = (
+                f"OP {op['doc_num']} já tem produto apontado (entrada lançada) — cancele a "
+                "entrada no SAP antes de replanejar."
+                if op.get("apontada") is not None else
+                f"OP {op['doc_num']}: não foi possível saber se há produto apontado — "
                 "não replanejada."
             )
             ignoradas.append({**op, "motivo": motivo})

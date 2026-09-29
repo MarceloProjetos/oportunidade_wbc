@@ -40,6 +40,7 @@ HTTP_DA_RECUSA = {
     "nao_encontrada": 404,
     "status_terminal": 409,
     "saida_lancada": 409,
+    "entrada_lancada": 409,
     "ciclo": 409,
     "nada_a_encerrar": 409,
     "confirmacao_invalida": 409,
@@ -119,8 +120,9 @@ def prepara_mudanca_status(leitor: HanaDirectReader, numeros: list[str], acao: s
     """The OPs a status change will touch, read again from the SAP.
 
     ``acao`` is the legacy code: "l" Liberar, "p" Replanejar. Replanejar also refuses the
-    whole batch when a Liberada OP already has material issued (F6, 29/09/2026): the issue
-    must be cancelled in the SAP first, or the stock movement would sit on a planned OP.
+    whole batch when a Liberada OP already has material issued (F6, 29/09/2026) or product
+    received (D6, same day): the movement must be cancelled in the SAP first, or it would sit
+    on a planned OP. The issue is checked first, so an OP with both is reported for it.
 
     Blocking (HANA): async callers run it in a thread. Refuses the WHOLE batch when an OP is
     terminal instead of changing the others in silence: the screen disables those boxes, so
@@ -165,6 +167,19 @@ def prepara_mudanca_status(leitor: HanaDirectReader, numeros: list[str], acao: s
                            "Baixado": o["baixada"] if o.get("baixada") is not None else "desconhecido"}
                           for o in com_saida],
                 colunas=["OP", "Item", "Baixado"],
+            )
+        com_entrada = [op for op in ops if op["status"] == "R" and service.entrada_lancada(op)]
+        if com_entrada:
+            raise Recusa(
+                "entrada_lancada",
+                f"{len(com_entrada)} OP(s) já têm produto apontado (entrada lançada) e não podem "
+                "voltar para Planejada — a entrada precisa ser cancelada no SAP antes. Nenhuma OP "
+                "foi alterada.",
+                titulo="OP com produto apontado",
+                detalhes=[{"OP": o["doc_num"], "Item": o["item_code"],
+                           "Apontado": o["apontada"] if o.get("apontada") is not None else "desconhecido"}
+                          for o in com_entrada],
+                colunas=["OP", "Item", "Apontado"],
             )
     return ops
 

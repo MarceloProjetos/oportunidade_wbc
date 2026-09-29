@@ -5,7 +5,8 @@ OP** do Controle de Produção faz (servidor `192.168.7.11`, porta **8080**):
 
 - **buscar** as Ordens de Produção de um pedido de venda;
 - **liberar** OPs (Planejada → Liberada);
-- **replanejar** OPs (Liberada → Planejada) — recusando a que já tem saída de insumo lançada;
+- **replanejar** OPs (Liberada → Planejada) — recusando a que já tem saída de insumo lançada ou
+  produto apontado;
 - **encerrar** OPs — escolhidas ou todas de um pedido — **com movimentação de estoque**
   (saída dos insumos + entrada do produto), em duas etapas: conferir e executar;
 - **acompanhar** e **interromper** a execução.
@@ -15,7 +16,8 @@ tela, usa as mesmas da linha de comando), com as mesmas recusas e as **mesmas me
 Service Layer.
 
 > **Desde 29/09/2026:** `POST /replanejar` (seção 4b) e o "Interromper" do Encerrar parando só
-> entre uma OP e outra (seção 6).
+> entre uma OP e outra (seção 6). No fim do dia, o Replanejar passou a recusar também a OP com
+> produto apontado (`409 entrada_lancada`, seção 4b).
 
 ---
 
@@ -155,13 +157,13 @@ botões em vez de reimplementar a regra:
 | --- | --- |
 | Planejada, apontada < planejada | `["liberar", "encerrar"]` |
 | Planejada, apontada ≥ planejada | `["liberar"]` |
-| Liberada, nada baixado, apontada < planejada | `["replanejar", "encerrar"]` |
-| Liberada, nada baixado, apontada ≥ planejada | `["replanejar"]` |
-| Liberada, com saída de insumo lançada (`baixada` > 0) | `["encerrar"]` se apontada < planejada, senão `[]` |
+| Liberada, nada baixado e nada apontado | `["replanejar", "encerrar"]` |
+| Liberada, com saída de insumo lançada (`baixada` > 0) ou produto apontado (`apontada` > 0) | `["encerrar"]` se apontada < planejada, senão `[]` |
 | Encerrada | `[]` |
 
 `baixada` é quanto dos insumos da OP já saiu do estoque (soma do que foi baixado). Mais que zero
-quer dizer que houve **saída de insumo lançada** — e aí a OP não volta para Planejada (seção 4b).
+quer dizer que houve **saída de insumo lançada**; `apontada` mais que zero, que houve **entrada de
+produto**. Nos dois casos a OP não volta para Planejada (seção 4b).
 
 ---
 
@@ -249,10 +251,14 @@ Mesmo corpo, mesma resposta (**202**) e mesmas regras de lote do Liberar (seçã
   quanto foi baixado em `detalhes`) e nada é gravado. A saída precisa ser **cancelada no SAP**
   antes; senão ficaria estoque movimentado numa OP Planejada. Se não foi possível saber quanto
   foi baixado, a OP também é recusada (`"baixado": "desconhecido"`).
+- **OP com produto apontado também não volta.** Se alguma OP Liberada da lista já teve entrada de
+  produto (`apontada` > 0), o lote inteiro é recusado com `409 entrada_lancada` (as OPs e o quanto
+  foi apontado em `detalhes`, como `apontado`) e nada é gravado. A entrada precisa ser **cancelada
+  no SAP** antes. A saída é conferida primeiro: uma OP com as duas vem em `saida_lancada`.
 - OP que **já está Planejada** vai para `ignoradas` ("já estava Planejada"), sem gravar.
 
-Use `acoes_possiveis` da busca: `"replanejar"` só aparece quando a OP está Liberada e nada foi
-baixado. Replanejar **não existe na tela** Manutenção de OP — só aqui e na linha de comando, com a
+Use `acoes_possiveis` da busca: `"replanejar"` só aparece quando a OP está Liberada, sem nada
+baixado e sem nada apontado. Replanejar **não existe na tela** Manutenção de OP — só aqui e na linha de comando, com a
 mesma regra.
 
 ---
@@ -447,6 +453,7 @@ Todo erro vem no mesmo formato, com uma frase pronta para mostrar ao usuário (a
 | `405` | `metodo_invalido` | `GET` onde é `POST` (ou o contrário) | Corrigir a chamada |
 | `409` | `status_terminal` | Liberar ou Replanejar com OP Encerrada ou Cancelada — lote inteiro recusado (`detalhes`) | Buscar de novo e mandar sem ela |
 | `409` | `saida_lancada` | Replanejar com OP que já teve insumo baixado — lote inteiro recusado (`detalhes` com o `baixado`) | Cancelar a saída no SAP antes, ou mandar sem ela |
+| `409` | `entrada_lancada` | Replanejar com OP que já teve produto apontado — lote inteiro recusado (`detalhes` com o `apontado`) | Cancelar a entrada no SAP antes, ou mandar sem ela |
 | `409` | `ciclo` | Encerrar: OPs que dependem umas das outras em círculo (`detalhes`) | Encerrar uma a uma, ou corrigir a estrutura no SAP |
 | `409` | `nada_a_encerrar` | Nenhuma OP em condição de encerrar (`itens`) | Nada a fazer |
 | `409` | `confirmacao_invalida` | Token vencido, já usado ou desconhecido | Conferir de novo |

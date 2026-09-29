@@ -1029,10 +1029,17 @@ def _muda_status_de_ops(
         finally:
             hana_reader.close()
 
-    def _barrada_pela_saida(op: dict) -> bool:
-        # Replanejar with material already issued would leave stock moved on a planned OP
-        # (29/09/2026, F6 of docs/PLANO_API_MANUTENCAO_OP.md) — same rule as the JSON API.
-        return status == "p" and op["status"] == "R" and manutencao_op_service.saida_lancada(op)
+    def _barrada(op: dict) -> str | None:
+        # Replanejar with stock already moved on the OP — material issued (F6) or product
+        # received (D6), 29/09/2026, docs/PLANO_API_MANUTENCAO_OP.md — would leave that
+        # movement on a planned OP. Same rule, same order, as the JSON API.
+        if status != "p" or op["status"] != "R":
+            return None
+        if manutencao_op_service.saida_lancada(op):
+            return "saída de insumo lançada — cancele a saída no SAP antes"
+        if manutencao_op_service.entrada_lancada(op):
+            return "produto apontado — cancele a entrada no SAP antes"
+        return None
 
     ops = _levantar()
 
@@ -1056,8 +1063,8 @@ def _muda_status_de_ops(
             # Cancelada é estado final: o SAP não a libera nem a replaneja. Aparece na
             # tabela (o usuário digitou o número) mas não entra na alteração.
             acao = "[red]cancelada — não pode mudar de status[/red]"
-        elif _barrada_pela_saida(op):
-            acao = "[red]saída de insumo lançada — cancele a saída no SAP antes[/red]"
+        elif barrada := _barrada(op):
+            acao = f"[red]{barrada}[/red]"
         else:
             acao = f"-> {destino['nome']}"
         tabela.add_row(
@@ -1068,12 +1075,12 @@ def _muda_status_de_ops(
 
     a_alterar = [
         op for op in ops
-        if op["status"] != destino["owor"] and op["status"] != "C" and not _barrada_pela_saida(op)
+        if op["status"] != destino["owor"] and op["status"] != "C" and not _barrada(op)
     ]
     if not a_alterar:
-        if any(_barrada_pela_saida(op) for op in ops):
+        if any(_barrada(op) for op in ops):
             console.print("[yellow]Nada a fazer: as OPs que não estão Planejadas já têm saída de "
-                          "insumo lançada.[/yellow]")
+                          "insumo ou produto apontado lançados.[/yellow]")
         else:
             console.print(f"[yellow]Nada a fazer: todas já estão {destino['nome'].lower()}s.[/yellow]")
         raise typer.Exit(code=0)
@@ -1084,8 +1091,8 @@ def _muda_status_de_ops(
     _ativa_perfil_e_progresso_silencioso()
 
     # Replanejar reads the OPs again right before writing: the confirmation prompt may have
-    # stayed open for minutes, and a material issue posted meanwhile must still stop it (the
-    # service refuses an OP whose issued quantity is above zero).
+    # stayed open for minutes, and an issue or a receipt posted meanwhile must still stop it
+    # (the service refuses an OP whose issued or received quantity is above zero).
     alvos = a_alterar
     if status == "p":
         numeros = {str(op["doc_num"]) for op in a_alterar}
@@ -1137,8 +1144,9 @@ def manutencao_op_replanejar(
     Equivale ao botão "Planejar" da tela ManutencaoOp (`mudaStatus("p")` + `updateOP`).
     É o caminho para destravar um pedido cujo `cancelar-ops` foi barrado por OP liberada.
 
-    Recusa a OP que já tem saída de insumo lançada (29/09/2026): a saída precisa ser
-    cancelada no SAP antes. Mesma regra da API JSON (`/api/manutencao-op/replanejar`).
+    Recusa a OP que já tem saída de insumo lançada ou produto apontado (29/09/2026): o
+    lançamento precisa ser cancelado no SAP antes. Mesma regra da API JSON
+    (`/api/manutencao-op/replanejar`).
 
     Exemplos:
         python -m controleproducao manutencao-op replanejar 9002

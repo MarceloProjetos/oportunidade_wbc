@@ -39,8 +39,8 @@ do processamento e as OPs planejadas precisam sair.
   **Irreversível** (estorno = cancelar a entrada e a saída no SAP, à mão). A tela mostra a ordem
   calculada (filha antes da mãe) e pede confirmação.
 - **Replanejar** (voltar para Planejada) **não existe na tela** — só pela CLI (com o Anderson) e
-  pela API. As duas **recusam a OP que já tem saída de insumo lançada**: a saída precisa ser
-  cancelada no SAP antes.
+  pela API. As duas **recusam a OP que já tem saída de insumo lançada ou produto apontado**:
+  o lançamento precisa ser cancelado no SAP antes.
 - **Interromper um Encerrar** para **depois da OP em curso**: ela termina saída, entrada e
   encerramento, e as próximas não começam (aparecem como "NÃO INICIADA" no log). Nunca sobra uma
   OP com o insumo baixado e o produto sem entrada por causa do botão.

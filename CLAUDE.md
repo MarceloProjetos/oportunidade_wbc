@@ -232,8 +232,9 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   precisa ser processado de novo; está na tela desde 30/09 (D8 revertida pelo Marcelo), com
   esse aviso na lista e na conferência; (3) `Liberar` grava no 1º POST; `Replanejar` **não está na tela** (D9 — a tela recusa
   `acao=p`): é pela CLI e, desde 29/09, pela API JSON (`/api/manutencao-op/replanejar`), e as duas
-  **recusam OP com saída de insumo lançada** (`service.saida_lancada`, `IssuedQty` > 0; valor
-  desconhecido também recusa); o "Interromper" do Encerrar para **entre OPs** (`parada_combinada`
+  **recusam OP com saída de insumo lançada ou produto apontado** (`service.saida_lancada`,
+  `IssuedQty` > 0; `service.entrada_lancada`, `CmpltQty` > 0 — D6; valor desconhecido também
+  recusa); o "Interromper" do Encerrar para **entre OPs** (`parada_combinada`
   na `Tarefa`, D5) — nunca corta uma OP entre a saída e a entrada; `encerrar` faz OIGE+OIGN (irreversível) e é o **único**
   caminho de encerrar OP (a API 8077 só libera por default, D9); (4) `HANA_SCHEMA` **não é
   lido** pelo pacote — `hana_schema` = `SL_COMPANY_DB` (bug de 21/09: ler num schema, gravar

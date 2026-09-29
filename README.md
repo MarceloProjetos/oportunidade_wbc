@@ -643,7 +643,7 @@ módulo 3 (*Manutenção de OP*) libera, replaneja e **encerra com movimentaçã
   `127.0.0.1:CP_PORTA`.
 - **Módulo 3 (D9):** `Liberar` e `Encerrar` pela tela; `Replanejar` fora da tela — pela CLI
   (`python -m controleproducao manutencao-op replanejar`) e pela API JSON, as duas recusando OP
-  com saída de insumo lançada (a saída se cancela no SAP antes). O "Interromper" do Encerrar para
+  com saída de insumo lançada ou produto apontado (o lançamento se cancela no SAP antes). O "Interromper" do Encerrar para
   depois da OP em curso, nunca no meio dela. A API 8077 deixou de encerrar OP (seção "Ordens de
   Produção" acima): encerrar com estoque é só aqui.
 - **API JSON do módulo 3 (29/09/2026):** `/api/manutencao-op` na mesma porta (8080) e no mesmo
