@@ -1,6 +1,14 @@
 # Plano — API JSON da Manutenção de OP (Controle de Produção, porta 8080)
 
-> **Status (29/09/2026, tarde): F5b e F6 codadas (`464e781`), pendem deploy.** Replanejar pela
+> **Status (29/09/2026, 13:53): F0–F6 NO AR na .11; F6 testada de verdade.** Pela API, com o
+> Marcelo como `solicitante`: Liberar 157426 (execução `60347ff18f0c`) → Replanejar 157426
+> (`b0c759035779`) → a OP terminou Planejada, como começou; Replanejar 62702 (Liberada, 1.122
+> baixados) → `409 saida_lancada`, nada gravado (62702 intocada no SAP). Conferido no HANA, na tela
+> Execuções e no Supabase. ⚠️ **A F5b está no ar, mas nunca foi exercitada em PROD:** interromper
+> um Encerrar real só quando houver um. O que falta do plano: F7 (espera saber quem chama a 8077)
+> e as decisões abertas D1, D4, D6 e D7.
+>
+> **Antes (29/09/2026, tarde): F5b e F6 codadas (`464e781`), pendem deploy.** Replanejar pela
 > API (e pela CLI) recusa OP com saída de insumo lançada — critério conferido em PROD: as duas
 > leituras possíveis dão as mesmas 63.183 OPs. "Interromper" no Encerrar para depois da OP em
 > curso. Suíte 2.465 verde, `ruff` 0. A OP 157426 **já voltou para Planejada** (o Marcelo rodou a
@@ -319,7 +327,7 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
 - **A OP 157426 fica Liberada até a F6.** Se precisar voltar antes, a CLI na .11 faz:
   `python -m controleproducao manutencao-op replanejar 157426` (nada foi baixado dela).
 
-### F5b — Interromper o Encerrar só entre OPs (D5) — `✅ codada 29/09 · 464e781 · pende deploy`
+### F5b — Interromper o Encerrar só entre OPs (D5) — `✅ no ar 29/09 · 464e781 · nunca exercitada em PROD`
 
 > **Objetivo:** "Interromper" nunca deixa uma OP com a saída de insumo lançada e a entrada de
 > produto não: a OP em curso termina a cadeia (ou o próprio erro), e a parada vem antes da próxima.
@@ -343,7 +351,7 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
   da OP em curso…" (conferida na prévia, desktop e celular); API e tela devolvem `entre_etapas`.
   6 testes novos.
 
-### F6 — Replanejar, por último — `✅ codada 29/09 · 464e781 · pende deploy + teste real`
+### F6 — Replanejar, por último — `✅ fechada 29/09 13:53 · 464e781 · testada em PROD`
 
 > **Objetivo:** o consumidor devolve uma OP Liberada para Planejada pela API, e a OP que já tem
 > saída de insumo é recusada antes de chegar ao SAP — na API e na CLI.
@@ -370,6 +378,13 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
   CLI (13:07:48), então o teste é o ciclo inteiro pela API — Liberar 157426 → conferir → Replanejar
   157426 → conferir, e ela termina como estava. E uma recusa: Replanejar uma das 13 OPs Liberadas
   com saída lançada → `409 saida_lancada`, nada grava.
+- ✅ **Teste real (29/09, 13:53, pela API, `solicitante` marcelo.miranda):** Liberar 157426 →
+  `60347ff18f0c`, `ok` em 1,2 s, a busca passou a oferecer `replanejar` → Replanejar 157426 →
+  `b0c759035779`, `ok` em 1,2 s ("Liberada -> Planejada") → a OP terminou Planejada, com nada
+  baixado. Replanejar 62702 (Liberada, 1.122 baixados, sem pedido de origem) → `409 saida_lancada`
+  com `detalhes [{op 62702, baixado 1122}]`, nada gravado — no HANA a 62702 segue `R`, última
+  alteração em 24/01/2025 por `manager`. As duas execuções aparecem nas Execuções e no Supabase com
+  `origem api`.
 - ✅ **Como ficou (29/09):** critério A (`SUM(WOR1.IssuedQty) > 0`) — A e B (linha de `IGE1` num
   `OIGE` não cancelado) selecionam as **mesmas 63.183 OPs** em PROD. ⚠️ Nenhuma saída de OP foi
   cancelada em PROD até hoje, então não dá para ver se o `IssuedQty` volta a zero depois de um
