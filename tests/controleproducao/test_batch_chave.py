@@ -171,3 +171,47 @@ def test_erro_de_negocio_dentro_do_lote_vira_excecao():
         asyncio.run(sl.update_entity("Items", COM_BARRA, {"X": 1}, chave_texto=True))
     assert "Item nao existe" in str(erro.value)
     assert erro.value.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Expired session on the $batch path: re-login ONCE (30/09/2026)
+# ---------------------------------------------------------------------------
+_401_NO_LOTE = MagicMock(status_code=200, text=(
+    "--B1\r\nContent-Type: application/http\r\n\r\nHTTP/1.1 401 Unauthorized\r\n\r\n"
+    '{"error":{"message":{"value":"Invalid session"}}}\r\n--B1--\r\n'
+))
+_204_NO_LOTE = MagicMock(status_code=200, text=(
+    "--B1\r\nContent-Type: application/http\r\n\r\nHTTP/1.1 204 No Content\r\n\r\n--B1--\r\n"
+))
+
+
+def test_401_dentro_do_lote_refaz_login_uma_vez_e_segue():
+    sl = _cliente()
+    sl._ensure_login = AsyncMock()
+    sl._client.post = AsyncMock(side_effect=[_401_NO_LOTE, _204_NO_LOTE])
+
+    asyncio.run(sl.update_entity("Items", COM_BARRA, {"X": 1}, chave_texto=True))
+
+    assert sl._client.post.await_count == 2
+
+
+def test_401_insistente_no_lote_nao_vira_recursao():
+    """Every round used to be a new /Login never logged out — the SL session cap."""
+    sl = _cliente()
+    sl._ensure_login = AsyncMock()
+    sl._client.post = AsyncMock(return_value=_401_NO_LOTE)
+
+    with pytest.raises(ServiceLayerError) as erro:
+        asyncio.run(sl.update_entity("Items", COM_BARRA, {"X": 1}, chave_texto=True))
+    assert erro.value.status_code == 401
+    assert sl._client.post.await_count == 2          # original + ONE replay
+
+
+def test_401_no_proprio_post_do_lote_tambem_refaz_login_uma_vez():
+    sl = _cliente()
+    sl._ensure_login = AsyncMock()
+    sl._client.post = AsyncMock(side_effect=[MagicMock(status_code=401, text="Unauthorized"), _204_NO_LOTE])
+
+    asyncio.run(sl.update_entity("Items", COM_BARRA, {"X": 1}, chave_texto=True))
+
+    assert sl._client.post.await_count == 2

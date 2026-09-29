@@ -479,14 +479,19 @@ def _wbc_worker_alerts(w: dict[str, Any]) -> list:
 
 # ------------------------------------------------------------ controle_producao
 
-CP_PROBE_TIMEOUT_S = 2.0
+CP_PROBE_TIMEOUT_S = 5.0
+
+# Returned by the probe when the port answered but /health did not in time: a task doing a
+# synchronous HANA/SQL Server call holds the app's event loop for seconds (deploy_update.bat
+# waits 20 s for the same reason). Not the same thing as a stopped service.
+_CP_SEM_RESPOSTA_A_TEMPO = {'_lento': True}
 
 
 def _sondar_controle_producao(porta: int) -> dict[str, Any] | None:
     """``GET http://127.0.0.1:<porta>/health`` of the Controle de Produção app; ``None`` unless
-    it answers 200 + JSON. Proxies are bypassed on purpose: a corporate proxy in the
-    environment turns a loopback call into "connection refused" (the MCP facade already
-    pays for that with ``trust_env=False``)."""
+    it answers 200 + JSON (``_CP_SEM_RESPOSTA_A_TEMPO`` on a timeout). Proxies are bypassed on
+    purpose: a corporate proxy in the environment turns a loopback call into "connection
+    refused" (the MCP facade already pays for that with ``trust_env=False``)."""
     url = f'http://127.0.0.1:{porta}/health'
     try:
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -494,7 +499,9 @@ def _sondar_controle_producao(porta: int) -> dict[str, Any] | None:
             if resp.status != 200:
                 return None
             return json.loads(resp.read().decode('utf-8'))
-    except Exception:
+    except Exception as exc:
+        if isinstance(exc, TimeoutError) or isinstance(getattr(exc, 'reason', None), TimeoutError):
+            return _CP_SEM_RESPOSTA_A_TEMPO
         return None
 
 
@@ -517,6 +524,10 @@ def _controle_producao_signal() -> dict[str, Any]:
     if saude is None:
         return {**base, 'installed': True, 'healthy': False,
                 'error': f'sem resposta em http://127.0.0.1:{s.cp_porta}/health'}
+    if saude.get('_lento'):
+        return {**base, 'installed': True, 'healthy': False, 'lento': True,
+                'error': (f'/health não respondeu em {CP_PROBE_TIMEOUT_S:g} s '
+                          f'(http://127.0.0.1:{s.cp_porta}/health)')}
     return {**base, 'installed': True, 'available': True, 'healthy': bool(saude.get('ok', True)),
             'ocupado': bool(saude.get('ocupado')), 'tarefas_ativas': saude.get('tarefas_ativas'),
             'producao': saude.get('producao')}
@@ -526,6 +537,9 @@ def _controle_producao_alerts(cp: dict[str, Any]) -> list:
     """Readable alerts for the ``controle_producao`` block. Nothing before the first start."""
     if not cp.get('installed'):
         return []
+    if cp.get('lento'):
+        return [f"Controle de Produção: {cp['error']} — execução pesada prendendo a tela? "
+                "(a porta respondeu; confira /tarefas antes de reiniciar)"]
     if cp.get('error'):
         return [f"Controle de Produção: {cp['error']} — serviço OrcaView-ControleProducao parado?"]
     if cp.get('healthy') is False:

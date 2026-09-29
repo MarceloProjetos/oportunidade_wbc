@@ -599,6 +599,35 @@ def test_controle_producao_instalado_e_mudo_alerta_e_nomeia_o_servico(monkeypatc
     assert len(alertas) == 1 and 'OrcaView-ControleProducao' in alertas[0] and '8080' in alertas[0]
 
 
+def test_controle_producao_lento_nao_e_chamado_de_parado(monkeypatch, tmp_path):
+    """30/09/2026: a task holding the event loop made /status say "serviço parado?"."""
+    log = tmp_path / 'cp.log'
+    log.write_text('', encoding='utf-8')
+    _apontar_cp(monkeypatch, log)
+    monkeypatch.setattr(monitoring, '_sondar_controle_producao', lambda porta: monitoring._CP_SEM_RESPOSTA_A_TEMPO)
+    cp = monitoring._controle_producao_signal()
+    assert cp['healthy'] is False and cp['lento'] is True
+    alerta, = monitoring._controle_producao_alerts(cp)
+    assert 'não respondeu em' in alerta and 'parado?' not in alerta and '/tarefas' in alerta
+
+
+def test_sonda_distingue_timeout_de_recusa(monkeypatch):
+    import urllib.error
+
+    class _Abridor:
+        def __init__(self, erro):
+            self.erro = erro
+
+        def open(self, *_a, **_k):
+            raise self.erro
+
+    for erro, esperado in ((urllib.error.URLError(TimeoutError('timed out')), monitoring._CP_SEM_RESPOSTA_A_TEMPO),
+                           (TimeoutError('read'), monitoring._CP_SEM_RESPOSTA_A_TEMPO),
+                           (urllib.error.URLError(ConnectionRefusedError()), None)):
+        monkeypatch.setattr(monitoring.urllib.request, 'build_opener', lambda *_a, e=erro: _Abridor(e))
+        assert monitoring._sondar_controle_producao(8080) is esperado
+
+
 def test_controle_producao_entra_no_status_e_respeita_o_filtro(monkeypatch):
     _stub_all_ok(monkeypatch)
     assert 'controle_producao' in monitoring.collect_status()

@@ -238,7 +238,7 @@ class ServiceLayerClient:
     # Desvio pelo $batch — chaves que o servidor web recusa na URL
     # ------------------------------------------------------------------
     async def _via_batch(
-        self, metodo: str, entity_path: str, body: dict[str, Any] | None = None
+        self, metodo: str, entity_path: str, body: dict[str, Any] | None = None, *, _relogin: bool = True
     ) -> dict[str, Any] | None:
         """Manda a requisição dentro de um `$batch`, onde a URL viaja no CORPO.
 
@@ -276,21 +276,25 @@ class ServiceLayerClient:
                 headers={"Content-Type": f"multipart/mixed;boundary={limite}"},
             )
 
+        status, payload, bruto = (
+            (resp.status_code, None, resp.text) if resp.status_code >= 400 else _le_resposta_batch(resp.text)
+        )
+
+        if status == 401 and _relogin:
+            # Sessão expirada: o 401 vem DENTRO do lote (ou no próprio POST /$batch), e o
+            # tratamento do `_request` não o enxerga. Refaz o login e tenta UMA vez, como lá —
+            # the replay carries `_relogin=False`: an SL that keeps answering 401 used to
+            # recurse, and every round was a new /Login never logged out (the session cap).
+            logger.warning("Sessão da Service Layer expirada (no $batch), refazendo login...")
+            self._logged_in = False
+            await self._ensure_login()
+            return await self._via_batch(metodo, entity_path, body, _relogin=False)
+
         if resp.status_code >= 400:
             raise ServiceLayerError(
                 f"Service Layer retornou erro no $batch de {metodo} {entity_path}: {resp.text}",
                 status_code=resp.status_code,
             )
-
-        status, payload, bruto = _le_resposta_batch(resp.text)
-
-        if status == 401:
-            # Sessão expirada: o 401 vem DENTRO do lote, então o tratamento do `_request`
-            # não o enxerga. Refaz o login e tenta uma vez, como lá.
-            logger.warning("Sessão da Service Layer expirada (dentro do $batch), refazendo login...")
-            self._logged_in = False
-            await self._ensure_login()
-            return await self._via_batch(metodo, entity_path, body)
 
         if status is None or status >= 400:
             mensagem = ""
@@ -331,16 +335,6 @@ class ServiceLayerClient:
     async def create_entity(self, entity: str, body: dict[str, Any]) -> dict[str, Any]:
         """Equivalente a `oObj.Add()` preenchendo os campos antes."""
         return await self.post(entity, body)
-
-    async def run_sql_query(self, view_name: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-        """Executa uma HANA SQL Query previamente cadastrada na Service Layer
-        (`POST /SQLQueries('{view_name}')/List`), equivalente a uma View criada
-        para substituir um `Recordset.DoQuery(sql-complexo)` do addon original
-        (ver seção 6.4 do migration_guide.md — leitura híbrida do HANA).
-        """
-        body = {"ParamList": _format_param_list(params)} if params else {}
-        resp = await self._request("POST", f"/SQLQueries('{view_name}')/List", json=body)
-        return resp.json().get("value", [])
 
 
 # Sequências que servidores web recusam no CAMINHO da URL, mesmo corretamente codificadas.
@@ -465,7 +459,3 @@ def _formata_chave(chave: str | int, texto: bool = False) -> str:
     # `safe="'"`: tudo que não for alfanumérico/`_.-~` vira `%XX` — inclusive `#`, `/`,
     # `?`, `%`, `&` e espaço. As aspas ficam legíveis. O httpx não re-encoda o `%`.
     return "'" + quote(escapado, safe="'") + "'"
-
-
-def _format_param_list(params: dict[str, Any]) -> str:
-    return "&".join(f"{key}='{value}'" for key, value in params.items())

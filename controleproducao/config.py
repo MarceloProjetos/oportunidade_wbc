@@ -14,6 +14,8 @@ from pathlib import Path
 from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from wbcpython import safety
+
 # Absolute path so `python -m controleproducao` and the service work from any cwd. The package
 # sits at `<SIS>/controleproducao/`, so `parent.parent` is the SIS root: this is the same
 # `.env` the API, the scheduler and `wbcpython` read — on purpose, one env file per machine.
@@ -40,7 +42,7 @@ class Settings(BaseSettings):
     # escrita (ver `core/guardas.py`). O `.env` pode continuar trazendo a variável: o
     # `extra="ignore"` acima a descarta em silêncio — mas ela não faz mais nada, e é
     # melhor apagá-la do `.env` do que deixar alguém achando que ainda protege.
-    wbc_environment: str = "homolog"
+    # WBC_ENVIRONMENT is the worker's (wbcpython/config.py); this package never read it.
     wbc_production_company_db: str = "SBOALTAMIRAPROD"
 
     # -- SAP Business One — Service Layer --------------------------------------
@@ -95,6 +97,8 @@ class Settings(BaseSettings):
     cp_host: str = "127.0.0.1"
     cp_porta: int = 8080
     cp_log_file: str = "logs/controleproducao.log"
+    # Progress of the CLI's write commands (cli._grava_tambem_em_arquivo), relative to the cwd.
+    cp_cli_log_file: str = "logs/controleproducao_cli.log"
     # Shared with the API 8077 and the WBC panel (see the SIS CLAUDE.md, "OS_API_KEY").
     os_api_key: SecretStr = Field(default=SecretStr(""), validation_alias=AliasChoices("OS_API_KEY"))
     # Only for the link back to the WBC panel (`python -m wbcpython dashboard`); the panel
@@ -130,7 +134,9 @@ class Settings(BaseSettings):
         base da trava de escrita, removida a pedido do Anderson — hoje o efeito é
         informar, não impedir.
         """
-        return self.sl_company_db == self.wbc_production_company_db
+        # Same comparison as the hard gate (strip + casefold): with an exact compare, a
+        # differently-cased name showed "homologação" while the SL client refused as production.
+        return safety.is_production(self.sl_company_db, self.wbc_production_company_db)
 
 
 @lru_cache

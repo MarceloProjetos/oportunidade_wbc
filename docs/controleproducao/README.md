@@ -55,7 +55,8 @@ que entrou depois do primeiro start. Nomes iguais aos do bloco WBC:
 | Service Layer (escrita) | `SL_BASE_URL`, `SL_COMPANY_DB`, `SL_USERNAME`, `SL_PASSWORD`, `SL_VERIFY_SSL`, `SL_CA_BUNDLE`, `SL_TIMEOUT_SECONDS` | usuário/senha vazios caem em `OP_SL_USERNAME`/`OP_SL_PASSWORD` (também com a linha presente e vazia — `env_ignore_empty`) |
 | HANA (só leitura) | `HANA_HOST`, `HANA_PORT`, `HANA_USERNAME`, `HANA_PASSWORD` | vazios caem em `SAP_*`. **`HANA_SCHEMA` não é lido**: o pacote lê ORDR/OWOR na company de `SL_COMPANY_DB` (`Settings.hana_schema` é uma propriedade). `HANA_SCHEMA_LEGADO` só para `comparar-ops` |
 | SQL Server do WBC (só leitura) | `WBC_SQL_HOST/PORT/DATABASE/USERNAME/PASSWORD` | vazios caem em `SQL_*`/`SQLSERVER_*`. Driver: **`pymssql`** desde 29/09/2026 (o mesmo do worker; paridade 10/10 contra o `pyodbc` antigo em PROD) — não depende de ODBC. `WBC_SQL_DRIVER` e `WBC_SQL_TRUST_SERVER_CERTIFICATE` ficaram **sem efeito** |
-| A tela | `CP_HOST` (default 127.0.0.1 = só a máquina; na .11 passa a `0.0.0.0` no deploy da F6, junto com a regra de firewall da 8080 só para a LAN — status no plano; nunca o IP da máquina, porque o deploy e o `/status` sondam `127.0.0.1`), `CP_PORTA` (8080), `CP_LOG_FILE` (`logs/controleproducao.log`), `CP_URL` (link vindo do painel; vazio = mesmo host:porta) | os defaults existem em três configs (raiz, `wbcpython`, aqui) — `tests/test_config_paridade_wbc.py` cobra |
+| A tela | `CP_HOST` (default 127.0.0.1 = só a máquina; na .11 é `0.0.0.0` desde 28/09 ~14:45 (F6), com a regra de firewall `OrcaView-ControleProducao-8080` só para `192.168.0.0/16`; nunca o IP da máquina, porque o deploy e o `/status` sondam `127.0.0.1`), `CP_PORTA` (8080), `CP_LOG_FILE` (`logs/controleproducao.log`), `CP_CLI_LOG_FILE` (`logs/controleproducao_cli.log`, os comandos da CLI que gravam), `CP_URL` (link vindo do painel; vazio = mesmo host:porta) | `CP_PORTA` existe em três configs (raiz, `wbcpython`, aqui) e `CP_LOG_FILE` em dois — `tests/test_config_paridade_wbc.py` cobra |
+| Histórico (Execuções) | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | só na .11; sem elas, a tela fica com a memória do processo (`/health` → `"historico"`) |
 | Login | `OS_API_KEY` | a mesma da API 8077 e do painel. **Sem ela, a tela fica só leitura** (escrita responde 503) |
 | Módulo 3 | `SL_BUSINESS_PLACE_ID` | filial dos lançamentos de estoque quando não dá para derivar do dado (0 = derivar) |
 
@@ -127,6 +128,9 @@ por `http://localhost:8079/` — os botões montam o link com o host da página 
 **Módulo 3 (D9):** `Liberar` e `Encerrar` pela tela; `Replanejar` só pela CLI
 (`python -m controleproducao manutencao-op replanejar`); a API 8077 deixou de encerrar OP
 (`OP_STATUS_PERMITIDOS_DEFAULT = 'boposReleased'`) — encerrar com estoque é só aqui.
+**Módulo 2 (D8):** `Reprocessar` só pela CLI; "Pedidos integrados" na tela é consulta. Os
+comandos da CLI que gravam deixam rastro em `logs/controleproducao_cli.log`. Quem opera a tela:
+[GUIA_OPERADOR.md](GUIA_OPERADOR.md).
 Pré-voo do piloto (só leitura, PROD): `python maintenance/pre_voo_controleproducao.py
 <orçamento>`.
 
@@ -145,7 +149,7 @@ Pré-voo do piloto (só leitura, PROD): `python maintenance/pre_voo_controleprod
 | `controleproducao/modules/{pedidos_wbc,manutencao_op,romaneio}/` | `service.py` (regra), `queries.py` (SQL), `router.py`, `schemas.py` |
 | `controleproducao/modules/pedidos_wbc/resources/` | `Solda.txt`, `Explosao.txt` — listas de negócio lidas pelo código, não remover |
 | `controleproducao/templates/` · `static/` | Jinja + CSS (guia visual em `GUIA_ESTILO_ORCAVIEW.md`) |
-| `tests/controleproducao/` | 309 testes: os 244 do pacote + config, acesso, comando `web`, trava/logout |
+| `tests/controleproducao/` | os 244 testes do pacote + config, acesso, comando `web`, trava/logout, SQL ligado e trava de leitura, histórico (≈460 em 30/09) |
 | `wbcpython/dashboard/acesso.py` | o cookie/HMAC compartilhado (fora de `web.py` para não puxar o painel inteiro) |
 
 ## O que NÃO veio do pacote original

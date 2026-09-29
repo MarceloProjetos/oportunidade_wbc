@@ -122,7 +122,7 @@ Duas regras que sustentam o resto:
 5. **O worker só roda 07:00–20:00, seg–sex.** Pedido armado às 20:05 na sexta só age segunda
    de manhã. A tela tem que dizer isso ao armar, senão parece que não funcionou.
 6. **Escrita é em produção de verdade.** `WBC_BLOCK_PRODUCTION_WRITES=false` na .11 desde
-   02/09. Cancelamento de cotação e criação de pedido **não se desfazem**.
+   02/09 *(ignorada desde 28/09/2026 — a escrita liga pelo IP da .11, `wbcpython/safety.py`)*. Cancelamento de cotação e criação de pedido **não se desfazem**.
 7. **`_acrescentar_colunas_novas` só faz `ADD COLUMN` anulável e sem default de servidor** —
    é a única migração que SQLite e PostgreSQL aceitam sem reescrever a tabela.
 8. **`MESES_DE_JANELA` no `.env` não sai.** Vira o valor de retorno, não uma constante morta.

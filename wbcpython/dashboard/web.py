@@ -108,17 +108,21 @@ TETO_DE_LINHAS = 5000
 #: scrolls into view (`hx-trigger="intersect once"`).
 LINHAS_POR_PAGINA = 300
 
-#: Pill colour of each status in the list, by the label the table shows.
-CLASSE_DA_SITUACAO = {
-    StatusIntegracao.PENDENTE.rotulo: "atencao",
-    StatusIntegracao.SEM_ACAO.rotulo: "neutro",
-    StatusIntegracao.COTACAO_CRIADA.rotulo: "ok",
-    StatusIntegracao.COTACAO_ATUALIZADA.rotulo: "ok",
-    StatusIntegracao.PEDIDO_CRIADO.rotulo: "ok",
-    StatusIntegracao.PEDIDO_ATUALIZADO.rotulo: "ok",
-    StatusIntegracao.ENCERRADA.rotulo: "neutro",
-    StatusIntegracao.ERRO.rotulo: "critico",
-}
+
+#: Column styles of the list: monospaced identifiers/dates and right-aligned money. One copy
+#: for the header and the rows (they lived as a `{% set %}` in two templates).
+COLUNAS_MONO = ("Orçamento", "SitCode", "Rev.", "Cotação", "Pedido", "Aberta em", "Última verificação")
+COLUNAS_NUM = ("Valor do pedido",)
+
+
+def _chave_do_orcamento(registro) -> tuple[int, str]:
+    """Stable order of the list: quote number, newest first (length first, so "9" < "10").
+
+    30/09/2026: the list used to follow `atualizado_em`, which the worker rewrites on EVERY
+    quote EVERY cycle — rows moved between pages while someone scrolled, and the next page
+    repeated some and skipped others (reproduced: 50 of each). The quote number never moves.
+    """
+    return (len(registro.orcnum), registro.orcnum)
 
 SAUDE = {
     "ok": ("ok", "Integração saudável"),
@@ -136,6 +140,10 @@ SELO_DO_STATUS = {
     StatusIntegracao.ENCERRADA: "neutro",
     StatusIntegracao.SEM_ACAO: "neutro",
 }
+
+#: The same colours by the label the list shows (the list rows carry labels, not enums).
+#: Derived, so the list pill and the Detalhe badge cannot drift apart.
+CLASSE_DA_SITUACAO = {s.rotulo: SELO_DO_STATUS.get(s, "ok") for s in StatusIntegracao}
 
 #: As abas, na ordem em que aparecem. O `id` é a rota do fragmento.
 ABAS = (
@@ -372,6 +380,7 @@ def criar_app(
         status: str = "",
         tudo: int = 0,
         recorte: str = "",
+        apos: str = "",
         inicio: int = 0,
     ) -> HTMLResponse:
         """A lista, com o recorte que veio do indicador clicado.
@@ -380,9 +389,11 @@ def criar_app(
         erro?"); `status` continua sendo a escolha fina de uma situação. Os dois
         se somam: dentro de "com ação" ainda dá para ver só as encerradas.
 
-        Paged since 29/09/2026: `inicio=0` renders the block with the first
-        LINHAS_POR_PAGINA rows; `inicio>0` returns only the next rows (plus the
-        row that loads the page after), swapped in place of the loading row.
+        Paged since 29/09/2026, by key since 30/09/2026: without `apos` it renders the
+        block with the first LINHAS_POR_PAGINA rows; `apos=<quote>` returns only the rows
+        AFTER that quote (plus the row that loads the page after), swapped in place of the
+        loading row. `inicio` is the offset form of 29/09, still honoured so a page left
+        open across the deploy keeps working.
         """
         corte = dados.recorte(recorte)
         registros = dados.aplicar(
@@ -394,23 +405,36 @@ def criar_app(
             ),
             corte,
         )
+        registros = sorted(registros, key=_chave_do_orcamento, reverse=True)
         total = len(registros)
-        inicio = max(0, min(inicio, total))
-        fim = min(inicio + LINHAS_POR_PAGINA, total)
-        linhas = [linha_para_tabela(r) for r in registros[inicio:fim]]
+        # Decided from what was ASKED, before any clamping: a "next page" request must get
+        # rows back even when the filtered set emptied meanwhile — the whole block swapped
+        # into a <tbody> nested a card inside the table.
+        pagina_seguinte = bool(apos) or inicio > 0
+        if apos:
+            limite = (len(apos), apos)
+            restantes = [r for r in registros if _chave_do_orcamento(r) < limite]
+        else:
+            restantes = registros[max(0, min(inicio, total)):]
+        pagina = restantes[:LINHAS_POR_PAGINA]
+        mostrando = total - len(restantes) + len(pagina)
+        linhas = [linha_para_tabela(r) for r in pagina]
         mais = None
-        if fim < total:
+        if len(restantes) > len(pagina):
             mais = "/fragmentos/oportunidades?" + urlencode(
-                {"busca": busca, "status": status, "tudo": tudo, "recorte": corte.id, "inicio": fim}
+                {"busca": busca, "status": status, "tudo": tudo, "recorte": corte.id,
+                 "apos": pagina[-1].orcnum}
             )
         contexto = dict(
             linhas=linhas,
             total=total,
-            mostrando=fim,
+            mostrando=mostrando,
             mais=mais,
             classe_situacao=CLASSE_DA_SITUACAO,
+            mono=COLUNAS_MONO,
+            num=COLUNAS_NUM,
         )
-        if inicio > 0:
+        if pagina_seguinte:
             return render(request, "_oportunidades_linhas.html", **contexto)
         return render(
             request,

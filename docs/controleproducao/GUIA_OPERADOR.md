@@ -40,9 +40,13 @@
 - Lista as **30 últimas** execuções da tela (mais as que estão rodando) com o log e o resultado
   de cada uma. Ficam guardadas no Supabase: reiniciar o serviço **não** apaga a lista.
 - A 31ª apaga a mais antiga. O que roda pela CLI (Replanejar, Reprocessar) **não** entra aqui —
-  fica só no log do serviço.
+  fica em `C:\Python\ServidorIntegracaoSAP\logs\controleproducao_cli.log`, com o comando
+  digitado.
 - Aviso amarelo "Não foi possível ler o histórico guardado" = o Supabase não respondeu; a lista
   mostra só o que rodou desde o último reinício. As execuções continuam gravando no SAP normalmente.
+- Os botões que agem sobre uma seleção (Processar, Liberar, Encerrar) e os "Conferir…" só
+  habilitam quando há o que conferir; um clique duplo não reenvia. "Já existe execução em
+  andamento" traz o link para acompanhar a que está rodando.
 
 ## Quando algo não abre
 

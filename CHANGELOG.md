@@ -6,9 +6,62 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-30] — Revisão geral do que foi à .11 em 28–29/09
+
+Revisão em cinco frentes (segurança/configuração, tela do Controle de Produção, SQL, painel
+WBC, documentação), cada achado conferido no código antes de mexer. Entra pelo
+`deploy_update.bat`; sem dependência nova e sem linha nova obrigatória no `.env`.
+
+- **SQL Server do WBC:** o `%` do texto chegava ao servidor como `%%` (eu dobrava para o
+  pymssql, que não desfaz — conferido na substituição do próprio driver 2.4.2); latente, nenhuma
+  consulta de hoje tem `%`. Agora passa intacto e `%s`/`%d` no texto são recusados. Saiu o único
+  caminho de escrita no WBC (`execute_non_query`, sem uso); conexão com `autocommit=False`
+  explícito e teto de 600 s por consulta (antes: sem limite).
+- **Leitores só-leitura por construção:** HANA e WBC passam por `sql_ligado.exige_leitura` (um
+  SELECT/WITH, sem `;`, sem INSERT/UPDATE/DELETE/INTO/EXEC…) — as 70 consultas reais passam,
+  com teste que percorre os módulos. `SET SCHEMA` com o nome validado. O HANA só reconecta
+  quando a conexão caiu de fato (um erro de SQL não joga mais fora uma conexão boa).
+- **Service Layer:** o relogin do `$batch` chamava a si mesmo sem limite (401 insistente = um
+  `/Login` novo por volta, até o teto de sessões); agora uma vez só, também para 401 no próprio
+  POST do lote. Sai o `run_sql_query` (sem uso).
+- **Deploy:** o Controle de Produção passa a ser o **primeiro** serviço parado, logo depois da
+  checagem de `/health/ocupado` (antes ficava de pé durante a parada de outros quatro — uma
+  execução iniciada nessa janela morreria no meio). `pip` decidido só pelo hash quando ele
+  existe. `/health/ocupado` conta também a gravação do histórico em andamento.
+- **Configuração viva:** `op_sl_enabled` (API 8077) e o histórico da tela deixam de ser
+  decididos uma vez só na subida — um boot antes de a .11 ter o IP deixava as rotas de OP em
+  503 o dia inteiro. `is_production` da tela compara como a trava (maiúsculas/espaços).
+- **Tela do Controle de Produção:** execução cancelada aparecia **verde** na lista (âmbar no
+  detalhe) — uma regra só (`Tarefa.desfecho`) para lista, detalhe e barra; clique duplo não
+  reenvia formulário e "já existe execução em andamento" leva à execução que está rodando;
+  escrita recusada (fora da .11 / sem chave) mostra a página de erro em vez do JSON cru;
+  CSRF confere host **e porta**; detalhe terminado desenha na hora, sem consultar de novo;
+  leituras da Manutenção de OP fora do loop do servidor (não travam mais `/health`); filtros
+  da busca de OP mantidos; leitores do HANA fechados; "integrados" sem caixas de seleção;
+  rótulos de acessibilidade; CSS e ícones sem uso removidos (`style.css?v=4`).
+- **CLI:** os comandos que gravam registram em `logs/controleproducao_cli.log`
+  (`CP_CLI_LOG_FILE`), começando pela linha de comando — Replanejar/Reprocessar/`--force` não
+  deixavam rastro além do terminal (o guia dizia, errado, que ficavam no log do serviço).
+- **Painel WBC:** a paginação de ontem seguia `atualizado_em`, que o worker regrava a cada
+  ciclo — rolar durante um ciclo repetia e pulava linhas (reproduzido: 50 e 50). Agora por nº
+  de orçamento (mais novo primeiro), e a página seguinte continua "depois do último mostrado";
+  link antigo `inicio=` segue valendo. Botões vermelhos com contraste AA (6,6:1), textos
+  fracos e de acento legíveis nos dois temas, tema lido antes de desenhar (sem piscar), tela da
+  chave com respiro, cabeçalho do valor à direita, Enter na linha "carregando mais". `?v=20260930`.
+- **Monitoração:** `/health` lento (execução pesada) não é mais anunciado como "serviço parado?".
+- **Docs:** `PLANO_OP_STATUS.md` ensinava a desligar com `OP_SL_ENABLED=false` (não desliga
+  nada; rollback = `OP_STATUS_PERMITIDOS=` vazio); a carta ao Anderson dizia que nada tinha
+  sido gravado em produção; plano (e o artifact, mesma url) com status coerente; README,
+  CLAUDE.md, guia do operador, `.env.example` e docs do WBC alinhados.
+- **Ficou de fora, de propósito:** reusar a conexão do WBC por execução e memoizar leituras
+  repetidas por pedido (desempenho; mexe no fluxo de escrita do Anderson — proposta para ele);
+  unificar os dois `_inteiro` (regras diferentes de propósito); `ordens_producao_sl.py` ainda
+  diz "único caminho de escrita" (arquivo-irmão do web: muda nos dois lados juntos).
+- 2.3 mil testes verdes; prévias do painel e das telas nos dois temas e no celular.
+
 ## [2026-09-29] — Controle de Produção: busca na linha dos números; botões só com o que conferir
 
-Vale no próximo deploy (`OrcaView-ControleProducao`). Sem dependência nova; `style.css?v=3`.
+✅ No ar na .11 em 29/09 (`e4a1252`). Entrou pelo deploy (`OrcaView-ControleProducao`). Sem dependência nova; `style.css?v=3`.
 
 - **Pedidos WBC:** o card de busca (Pedidos novos / integrados / Buscar) foi para a mesma linha
   dos números Novos e Página, à esquerda — antes da primeira busca ele fica sozinho, no mesmo
@@ -33,7 +86,7 @@ Vale no próximo deploy (`OrcaView-ControleProducao`). Sem dependência nova; `s
 
 ## [2026-09-29] — Controle de Produção: as 30 últimas execuções guardadas no Supabase
 
-Vale no próximo deploy (`OrcaView-ControleProducao`), **depois** de aplicar
+✅ No ar na .11 em 29/09 (SQL aplicado no Supabase; `/health` → `"historico":"supabase"` conferido). Entrou pelo deploy (`OrcaView-ControleProducao`), **depois** de aplicar
 `sql/controle_producao_execucoes.sql` no SQL Editor do Supabase. Sem dependência nova e sem
 linha nova no `.env` (usa `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`, as mesmas das cargas
 do SIS; o `/health` diz se ligou).
@@ -56,7 +109,8 @@ do SIS; o `/health` diz se ligou).
   do FastAPI no navegador — agora é a página de erro da tela, com o menu em Execuções (404 =
   não existe; 503 = o histórico não respondeu); o botão Interromper aparecia em execução já
   terminada até a 1ª consulta — agora nasce escondido; o detalhe mostra a data da execução.
-- Só entram as execuções disparadas pela tela; as da CLI ficam no log do serviço.
+- Só entram as execuções disparadas pela tela. (Correção de 30/09: as da CLI **não** ficavam
+  no log do serviço — só no terminal; desde 30/09 vão para `logs/controleproducao_cli.log`.)
 - Conferido em prévia local com um Supabase falso (26 guardadas + 2 na memória; Supabase fora;
   claro e escuro). 27 testes novos (`tests/controleproducao/test_historico.py`, incluindo
   DDL × colunas que o código grava); suíte inteira verde.
@@ -64,7 +118,7 @@ do SIS; o `/health` diz se ligou).
 
 ## [2026-09-29] — Painel WBC com o visual do OrçaView; lista de oportunidades em páginas de 300
 
-Vale no próximo deploy (só o painel, `OrcaView-WBC-Painel`). Sem dependência nova.
+✅ No ar na .11 em 29/09 (`57669f1`). Entrou pelo deploy (só o painel, `OrcaView-WBC-Painel`). Sem dependência nova.
 
 - **Visual OrçaView** (o mesmo da Usuarios.html e da tela do Controle de Produção): paleta
   escura como padrão e clara pelo botão de tema (redondo, ícone sol/lua — não segue mais o
@@ -83,7 +137,7 @@ Vale no próximo deploy (só o painel, `OrcaView-WBC-Painel`). Sem dependência 
 
 ## [2026-09-29] — Controle de Produção: SQL da tela de Pedidos com parâmetro ligado; WBC em pymssql
 
-Vale no próximo deploy (`deploy_update.bat`). Sem dependência nova na .11: `pymssql` já está
+✅ No ar na .11 em 29/09 (`4f83a89`, deploy conferido). Entrou pelo deploy (`deploy_update.bat`). Sem dependência nova na .11: `pymssql` já está
 no `requirements.txt` (é o driver do worker). A linha `WBC_SQL_DRIVER` do `.env` fica sem efeito.
 
 - **Módulo 2 (`pedidos_wbc`):** os ~40 SQL continuam com o MESMO texto do addon, mas nenhum
@@ -103,7 +157,7 @@ no `requirements.txt` (é o driver do worker). A linha `WBC_SQL_DRIVER` do `.env
 
 ## [2026-09-29] — Controle de Produção: F7 parcial (SQL do módulo 3, Reprocessar fora da tela, guia)
 
-Vale no próximo deploy (`deploy_update.bat`; sem dependência nova). F6 está no ar desde 28/09
+✅ No ar na .11 em 29/09 (junto com `4f83a89`). Entrou pelo deploy (`deploy_update.bat`; sem dependência nova). F6 está no ar desde 28/09
 ~14:45 (`CP_HOST=0.0.0.0` + regra de firewall da 8080 com o alcance da 8079).
 
 - **SQL do módulo 3 (`manutencao_op`) com parâmetro ligado:** os 10 textos passam a `?`; o
@@ -115,7 +169,7 @@ Vale no próximo deploy (`deploy_update.bat`; sem dependência nova). F6 está n
 - **`docs/controleproducao/GUIA_OPERADOR.md`** — rascunho de 1 página para quem opera (o
   Anderson valida).
 - **Plano encerrado para operação** (no ar na .11 em 29/09). Melhoria futura: SQL do módulo 2
-  com parâmetro ligado e `pymssql` no cliente do WBC.
+  com parâmetro ligado e `pymssql` no cliente do WBC — feita no mesmo dia (entrada acima, `4f83a89`).
 - **"Errou os pesos" do 84433 não foi a ferramenta:** `vendas01` trocou as quantidades para 1
   no cliente SAP (28/09 13:54) e o SAP dividiu o `Weight1` junto; `projeto06` corrigiu à mão.
   Para achar os outros casos (só leitura, HANA):
@@ -136,7 +190,7 @@ Vale no próximo deploy (`deploy_update.bat`; sem dependência nova). F6 está n
 
 ## [2026-09-28] — Controle de Produção: F6 (rede + módulo 3) e o pré-voo do piloto
 
-⚠️ Vale no próximo deploy. **Muda o contrato da API de OP** (`API_ORDENS_PRODUCAO.md`): `POST
+✅ No ar na .11 em 28/09 ~14:45. Entrou pelo deploy. **Muda o contrato da API de OP** (`API_ORDENS_PRODUCAO.md`): `POST
 /ordens-producao/<n>/status` com `encerrada` passa a responder **400** — encerrar OP é só pela
 tela Manutenção de OP (com estoque). Na .11, depois do `deploy_update.bat`: conferir que o
 `.env` não fixa `OP_STATUS_PERMITIDOS`; `CP_HOST=0.0.0.0` + regra de firewall da 8080 (receita
@@ -211,7 +265,7 @@ ODBC Driver 17 → `WBC_SQL_DRIVER=ODBC Driver 17 for SQL Server` no `.env` + `n
 
 ## [2026-09-28] — Vendas BI conta cada pedido uma vez
 
-⚠️ Vale no próximo deploy do Agendador. **Muda os números da Vendas Resultados e do app**: 2026
+✅ No ar na .11 (deploys de 28–29/09). Entrou pelo deploy do Agendador. **Muda os números da Vendas Resultados e do app**: 2026
 cai R$ 49.899,33 e 3 pedidos; 2024, R$ 105.229,56 e 4.
 
 - **Por quê:** a `VW_PEDIDO_ALTA` repete pedidos, um fan-out de junção dentro da view (sondado
@@ -228,7 +282,7 @@ cai R$ 49.899,33 e 3 pedidos; 2024, R$ 105.229,56 e 4.
 
 ## [2026-09-28] — Escrita em produção liga pelo IP da .11, não pelo `.env`
 
-⚠️ Vale no próximo deploy (worker WBC, painel WBC e API). **Na .11 nada muda de comportamento
+✅ No ar na .11 (deploys de 28–29/09). Entrou pelo deploy (worker WBC, painel WBC e API). **Na .11 nada muda de comportamento
 no worker**; as rotas `/ordens-producao` passam a responder lá mesmo que o `.env` não tenha
 `OP_SL_ENABLED=true`.
 

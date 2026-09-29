@@ -4,8 +4,8 @@ A tela original tinha dois modos ("Pedidos Novos" e "Pedidos Integrados"), uma g
 caixas de seleção e botões que agiam sobre o que estava marcado. O desenho aqui é o mesmo,
 com três diferenças deliberadas, todas por causa de erros reais desta migração:
 
-1. **Nada grava direto do botão.** Processar, reprocessar e cancelar OPs passam por um
-   plano conferido em tela (`core/confirmacao.py`). No legado o botão agia sobre a seleção
+1. **Nada grava direto do botão.** Processar e cancelar OPs passam por um plano conferido
+   em tela (`core/confirmacao.py`); Reprocessar é só pela CLI (D8). No legado o botão agia sobre a seleção
    e pronto; aqui o usuário vê antes o que vai acontecer e confirma sobre isso.
 2. **A execução é em segundo plano** (`core/tarefas.py`): um orçamento médio leva ~7s e um
    grande passa de minuto — tempo demais para um request segurar.
@@ -81,8 +81,9 @@ async def pagina_inicial(
     integrados = modo == "integrados"
     pedidos: list = []
     if buscar:
-        hana_reader = HanaDirectReader(get_settings())
-        pedidos = await service.buscar_pedidos_para_integrar(hana_reader, integrados=integrados)
+        # Closed on the way out: hdbcli connections are released only by close() or GC.
+        with HanaDirectReader(get_settings()) as hana_reader:
+            pedidos = await service.buscar_pedidos_para_integrar(hana_reader, integrados=integrados)
 
     total = len(pedidos)
     paginas = max(1, -(-total // POR_PAGINA))  # divisão para cima
@@ -107,12 +108,6 @@ async def pagina_inicial(
     )
 
 
-@router.post("/buscar")
-async def buscar(request: Request, modo: str = Form(default="novos")):
-    """Compatibilidade: o formulário antigo postava aqui. Redireciona para a URL de busca."""
-    return RedirectResponse(f"/pedidos-wbc?modo={modo}&buscar=1", status_code=303)
-
-
 # ---------------------------------------------------------------------------
 # Etapa 1 — planos (leem, não gravam)
 # ---------------------------------------------------------------------------
@@ -123,7 +118,7 @@ async def conferir_processar(
     force: str = Form(default=""),
 ):
     return await _confere_pedidos(
-        request, opp_ids, integrados=False, force=bool(force),
+        request, opp_ids, force=bool(force),
         operacao="Processar pedidos novos",
         acao="/pedidos-wbc/processar/executar",
         aviso="Cria Ordens de Produção, itens e recursos no SAP, e marca o pedido como "
@@ -146,8 +141,7 @@ async def conferir_reprocessar(request: Request, opp_ids: list[str] = Form(defau
 
 
 async def _confere_pedidos(
-    request: Request, opp_ids: list[str], integrados: bool, force: bool,
-    operacao: str, acao: str, aviso: str,
+    request: Request, opp_ids: list[str], force: bool, operacao: str, acao: str, aviso: str,
 ):
     if not opp_ids:
         return _erro(request, "Nenhum pedido selecionado.")
@@ -155,8 +149,8 @@ async def _confere_pedidos(
     # Relemos a lista em vez de confiar no que o formulário mandou: o que chega do
     # navegador é um número digitável, e a grade do legado nunca deixou o usuário agir
     # sobre um pedido que não estivesse no filtro. Quem não está na busca não entra.
-    hana_reader = HanaDirectReader(get_settings())
-    pedidos = await service.buscar_pedidos_para_integrar(hana_reader, integrados=integrados)
+    with HanaDirectReader(get_settings()) as hana_reader:
+        pedidos = await service.buscar_pedidos_para_integrar(hana_reader, integrados=False)
     selecionados = _pedidos_selecionados(pedidos, opp_ids)
 
     fora = sorted({str(i) for i in opp_ids} - {str(p.opp_id) for p in selecionados})
@@ -207,10 +201,10 @@ async def conferir_cancelar_ops(
     if not (doc_num or orc_num):
         return _erro(request, "Informe o nº do pedido ou o nº do orçamento.")
 
-    hana_reader = HanaDirectReader(get_settings())
-    levantamento = await service.levanta_ops_para_cancelamento(
-        hana_reader, doc_num=doc_num or None, orc_num=orc_num or None
-    )
+    with HanaDirectReader(get_settings()) as hana_reader:
+        levantamento = await service.levanta_ops_para_cancelamento(
+            hana_reader, doc_num=doc_num or None, orc_num=orc_num or None
+        )
     if not levantamento["pedido"]:
         return _erro(request, "Pedido não encontrado.")
 
@@ -270,7 +264,12 @@ def _dispara(request: Request, nome: str, descricao: str, corrotina):
     try:
         tarefa = TAREFAS.criar(MODULO, nome, descricao, corrotina)
     except RuntimeError as exc:
-        return _erro(request, str(exc), titulo="Já existe execução em andamento")
+        # The link matters: after a double submit the operator must land on the run that
+        # DID start, not on an error that invites doing it again.
+        rodando = TAREFAS.em_execucao(MODULO)
+        return _erro(request, str(exc), titulo="Já existe execução em andamento",
+                     link=f"/tarefas/{rodando.id}" if rodando else None,
+                     link_texto="Acompanhar a execução em andamento")
     return RedirectResponse(f"/tarefas/{tarefa.id}", status_code=303)
 
 
@@ -283,7 +282,7 @@ async def executar_processar(request: Request, token: str = Form(default="")):
     force = bool(plano.resumo.get("_force"))
 
     async def executa(tarefa: Tarefa):
-        return await _roda_pedidos(tarefa, alvos, modo="processar", force=force)
+        return await _roda_pedidos(tarefa, alvos, force=force)
 
     return _dispara(
         request, plano.operacao,
@@ -313,7 +312,7 @@ def _descricao(alvos: list[tuple[str, str]]) -> str:
     return f"{len(alvos)} pedido(s): " + ", ".join(doc_num for doc_num, _ in alvos)
 
 
-async def _roda_pedidos(tarefa: Tarefa, alvos: list[tuple[str, str]], modo: str, force: bool):
+async def _roda_pedidos(tarefa: Tarefa, alvos: list[tuple[str, str]], force: bool):
     """`alvos` são pares `(pedido SAP, orçamento WBC)`.
 
     Ao serviço vai o **orçamento** — é o que `GetOrcsWBC` e `GetIdOrcamentosPedido`
@@ -321,9 +320,14 @@ async def _roda_pedidos(tarefa: Tarefa, alvos: list[tuple[str, str]], modo: str,
     em todas as linhas (ver `_oppr_id_do_orcamento`). À tela vai o **pedido**.
     """
     settings = get_settings()
-    hana_reader = HanaDirectReader(settings)
     wbc = WbcSqlServerClient(settings)
     tarefa.avanca(f"Conectando à Service Layer ({settings.sl_company_db})…", 0, len(alvos))
+    with HanaDirectReader(settings) as hana_reader:
+        return await _roda_pedidos_com(tarefa, alvos, force, settings, hana_reader, wbc)
+
+
+async def _roda_pedidos_com(tarefa, alvos, force, settings, hana_reader, wbc):
+    """Body of `_roda_pedidos`, with the HANA reader opened (and closed) by the caller."""
     async with ServiceLayerClient(settings) as sl:
         # Um pedido por vez, e não a lista inteira de uma vez, para o acompanhamento
         # dizer onde parou: o resultado agregado do serviço não diz em qual pedido a
@@ -336,14 +340,9 @@ async def _roda_pedidos(tarefa: Tarefa, alvos: list[tuple[str, str]], modo: str,
             # `logger.info` do serviço; a ponte põe isso na tela enquanto roda, em vez de
             # deixar o usuário olhando uma linha só por vários minutos.
             with acompanha_log(tarefa, service.__name__, service_layer_client.__name__):
-                if modo == "processar":
-                    parcial = await service.processar_pedidos_novos(
-                        sl, wbc, hana_reader, [orc_num], force=force
-                    )
-                else:
-                    parcial = await service.reprocessar_pedidos_integrados(
-                        sl, wbc, hana_reader, [orc_num]
-                    )
+                parcial = await service.processar_pedidos_novos(
+                    sl, wbc, hana_reader, [orc_num], force=force
+                )
             # O serviço identifica tudo pelo orçamento; a tela é do pedido. Acrescenta o
             # nº do pedido a cada registro para o JSON do resultado não obrigar o leitor
             # a traduzir os números de volta na cabeça.

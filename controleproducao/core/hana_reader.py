@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 from controleproducao.config import Settings
 from controleproducao.core.exceptions import WbcDatabaseError
 from controleproducao.core.perf import PERFIL, forma_sql
+from controleproducao.core.sql_ligado import exige_leitura, nome_de_schema
 
 if TYPE_CHECKING:
     from hdbcli import dbapi
@@ -68,7 +69,8 @@ class HanaDirectReader:
                 )
                 if s.hana_schema:
                     cursor = conn.cursor()
-                    cursor.execute(f'SET SCHEMA "{s.hana_schema}"')
+                    # The one name pasted into SQL text: validated, since it comes from .env.
+                    cursor.execute(f'SET SCHEMA "{nome_de_schema(s.hana_schema)}"')
                     cursor.close()
             return conn
         except dbapi.Error as exc:  # pragma: no cover - depende de infra real
@@ -88,6 +90,14 @@ class HanaDirectReader:
                 pass
             self._conexao = None
 
+    def _ainda_conectado(self) -> bool:
+        """hdbcli's `isconnected()`; unknown (no connection / no method / it raises) = False,
+        which keeps the old reconnect-and-retry-once path."""
+        try:
+            return bool(self._conexao is not None and self._conexao.isconnected())
+        except Exception:  # noqa: BLE001 - a broken connection may raise here too
+            return False
+
     def close(self) -> None:
         """Encerra a conexão reaproveitada. A CLI chama no fim de cada comando; um servidor
         web precisa chamar ao descartar o leitor, senão a conexão fica aberta à toa."""
@@ -105,6 +115,9 @@ class HanaDirectReader:
     def _consulta(self, sql: str, params: tuple[Any, ...], como_dict: bool):
         from hdbcli import dbapi
 
+        # hdbcli autocommits by default: the guard, not the driver, keeps this read-only.
+        exige_leitura(sql)
+
         def _executa():
             cursor = self._conexao_ativa().cursor()
             try:
@@ -121,6 +134,11 @@ class HanaDirectReader:
         try:
             return _executa()
         except dbapi.Error as exc:
+            # Reconnect only when the reused connection is actually gone. A SQL/conversion
+            # error on a live connection fails the same way twice: retrying it threw away a
+            # good connection, paid a new login and logged a misleading "Reconectando".
+            if self._ainda_conectado():
+                raise WbcDatabaseError(f"Falha ao consultar o HANA: {exc}") from exc
             # A conexão reaproveitada pode ter expirado ou caído. Descarta, reconecta e
             # tenta UMA vez; se falhar de novo, o erro é de verdade e sobe.
             logger.warning("Consulta ao HANA falhou (%s). Reconectando e tentando de novo...", exc)

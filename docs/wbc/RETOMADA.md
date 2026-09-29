@@ -44,7 +44,9 @@ uv run wbcpython env                # confirma o ambiente-alvo
    escreve nela. A trava `safety.py` continua existindo e continua falhando
    fechada, mas está **desligada** por configuração
    (`WBC_BLOCK_PRODUCTION_WRITES=false`), e as duas recusas do `cli.py` foram
-   removidas.
+   removidas. *(28/09/2026: essa variável é ignorada — a escrita liga pelo IP da
+   .11, `safety.is_production_machine`; em qualquer outra máquina a escrita em
+   produção é recusada.)*
 2. **Nunca escrever no SQL Server do WBC**, em ambiente nenhum. Só leitura.
    Quem escreve no WBC é o WBC. Toda consulta passa por `assert_read_only_sql`.
 

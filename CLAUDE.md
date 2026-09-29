@@ -20,7 +20,8 @@ Serviço de integração SAP B1 → Supabase **e** Integração WBC → SAP. Rod
 - **Fachada MCP** (`OrcaView-MCP`) — stdio no cliente (`mcp/mcp_server.py`) ou HTTP na .11
   (`mcp/serve_http.py`, porta 8078).
 - **Painel WBC** (porta `PAINEL_PORTA`=8079, `OrcaView-WBC-Painel`, FastAPI) — a **porta de
-  entrada** das duas telas; `python -m wbcpython dashboard`.
+  entrada** das outras duas telas (Sincronização 8077 e Controle de Produção 8080); `python -m
+  wbcpython dashboard`.
 - **Worker WBC** (`OrcaView-WBC-Worker`) — `python -m wbcpython worker`: lê os orçamentos do
   WBC e cria/atualiza/cancela cotação e pedido no SAP (Service Layer) a cada
   `WORKER_INTERVAL_SECONDS`, dentro do expediente dele. **Escreve em PRODUÇÃO.**
@@ -59,7 +60,7 @@ do Anderson, importado em 2026-09-28) tem o histórico em `docs/controleproducao
 | `windows_update.py` | Reboot pendente (winreg) + updates pendentes/último patch (COM via PowerShell, thread daemon + cache). **Porte** do homônimo do repo SAP_RDP — diffável |
 | `ordens_producao_sl.py` | Escrita em SAP nº 1: status de Ordem de Produção via Service Layer (REST). Liga só na .11, pelo IP (`wbcpython.safety.PRODUCTION_MACHINE_IP`). Irmão diffável de `web_orcaview_V118/backend/services/compras_sap_service.py` |
 | `wbcpython/` | Escrita em SAP nº 2 (o worker). `domain/` (máquina de estados do SitCode, sem I/O), `application/processar.py` (o caso de uso), `infrastructure/{service_layer,wbc_sql,hana}/`, `tracking/` (SQLite de acompanhamento), `host/worker.py` (APScheduler + trava), `dashboard/` (painel FastAPI+HTMX; `dashboard/acesso.py` = cookie/HMAC compartilhado com o `controleproducao`), `cli.py`, `safety.py` (travas + `is_production_machine`). Imports absolutos `wbcpython.*` |
-| `controleproducao/` | Escrita em SAP nº 3 (Pedidos WBC → OPs; Manutenção de OP). `main.py` (FastAPI: gate de cookie/chave, `/health`, `/painel-wbc`), `cli.py` (Typer: `web`, `pedidos-wbc`, `manutencao-op`, `conexoes`, `diag`), `config.py` (`Settings` plano; `.env` da raiz por `__file__`; `hana_schema` = `sl_company_db`), `core/` (`service_layer_client.py` = trava pelo IP + `/Logout`; `guardas.py`; `confirmacao.py` = token de uso único; `tarefas.py` = execuções em memória, 1 por módulo; `historico.py` = as 30 últimas terminadas no Supabase `controle_producao_execucoes`, só na .11; `acesso.py` = middleware), `modules/{pedidos_wbc,manutencao_op,romaneio}/` (`service.py` = regra, `queries.py` = SQL HANA/WBC, `router.py`), `templates/`, `static/`. Imports absolutos `controleproducao.*`; NÃO se chama `app` (colide com `api.py:app`) |
+| `controleproducao/` | Escrita em SAP nº 3 (Pedidos WBC → OPs; Manutenção de OP). `main.py` (FastAPI: gate de cookie/chave, `/health`, `/painel-wbc`), `cli.py` (Typer: `web`, `pedidos-wbc`, `manutencao-op`, `romaneio`, `conexoes`, `diag`; os comandos que gravam logam também em `logs/controleproducao_cli.log`), `config.py` (`Settings` plano; `.env` da raiz por `__file__`; `hana_schema` = `sl_company_db`), `core/` (`service_layer_client.py` = trava pelo IP + `/Logout`; `guardas.py`; `confirmacao.py` = token de uso único; `tarefas.py` = execuções em memória, 1 por módulo; `historico.py` = as 30 últimas terminadas no Supabase `controle_producao_execucoes`, só na .11; `acesso.py` = middleware), `modules/{pedidos_wbc,manutencao_op,romaneio}/` (`service.py` = regra, `queries.py` = SQL HANA/WBC, `router.py`), `templates/`, `static/`. Imports absolutos `controleproducao.*`; NÃO se chama `app` (colide com `api.py:app`) |
 | `sap_connection.py` · `db_utils.py` · `retry.py` | `SAPExtractor` (HANA via hdbcli; `execute_query(sql, params)`) · `read_dbapi_query` · retry compartilhado |
 | `sql_seguro.py` | `sql(t"...")` (t-string, Python 3.14): `{valor}` vira `?` + parâmetro, `{nome:ident}` identificador conferido, `{n:int}` literal inteiro (LIMIT); `nome_simples()` para o `SAP_SCHEMA` |
 | `feriados_br.py` | Feriados nacionais BR até 2030 (o agendador pula) |
@@ -68,7 +69,7 @@ do Anderson, importado em 2026-09-28) tem o histórico em `docs/controleproducao
 | `mcp/` | Fachada MCP fina e read-only sobre a API 8077 — NÃO fala com banco |
 | `web/sincronizar.html` · `web/entrada.html` | Painel de Sincronização (`GET /sincronizar`) · `GET /` (sonda o painel WBC e redireciona) |
 | `tests/` | pytest; `test_<modulo>.py` espelha o módulo. `tests/wbc/` = suíte do pacote `wbcpython` (mesma árvore dele); `tests/controleproducao/` = suíte do pacote `controleproducao` (244 testes do Anderson + os da integração) |
-| `docs/` | `PLANO_*.md` abertos (encerrados em `arquivo/`); `wbc/` (README, DECISOES, APRENDIZADOS, RISCOS_PRODUCAO, RETOMADA); `controleproducao/` (migration_guide, decisoes, GUIA_ESTILO — históricos do pacote); `INCIDENTES.md`; `changelog/` (meses anteriores) |
+| `docs/` | `PLANO_*.md` (abertos e encerrados recentes — o status está no topo de cada um; os antigos em `arquivo/`); `wbc/` (README, DECISOES, APRENDIZADOS, RISCOS_PRODUCAO, RETOMADA); `controleproducao/` (README = guia; GUIA_OPERADOR = quem opera a tela; PARA_O_ANDERSON; migration_guide, decisoes, GUIA_ESTILO — históricos do pacote); `INCIDENTES.md`; `changelog/` (meses anteriores) |
 | `API_*.md` (raiz) | Contratos HTTP entregues a outras equipes (OS, OP, RH, situação de pedidos). **Ficam na raiz**: repo público, links externos |
 | `sql/` | DDL de referência (NÃO roda automaticamente); `sql/hana/` = view que o worker lê; `sql/migracoes/` = alterações já aplicadas |
 | `maintenance/` | Conferidor de Vendas BI e scripts de disco/log do servidor |
@@ -105,7 +106,7 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
 | Tela Execuções / histórico no Supabase (30 últimas, só .11) | `controleproducao/core/historico.py` + `core/tarefas.py` + `tests/controleproducao/test_historico.py` (+ `sql/controle_producao_execucoes.sql`) |
 | Login compartilhado (cookie `wbc_painel`) | `wbcpython/dashboard/acesso.py` + `controleproducao/core/acesso.py` + `tests/wbc/dashboard/test_entrada.py` + `tests/controleproducao/test_acesso.py` |
 | Trava pelo IP / `/Logout` no Controle de Produção | `controleproducao/core/service_layer_client.py` + `core/guardas.py` + `tests/controleproducao/test_service_layer_client.py` |
-| Variável do Controle de Produção (`CP_*`, `WBC_SQL_DRIVER`, `HANA_SCHEMA_LEGADO`, `SL_BUSINESS_PLACE_ID`) | `controleproducao/config.py` + `.env.example` (bloco CP) + `tests/controleproducao/test_config.py` + `tests/test_config_paridade_wbc.py` |
+| Variável do Controle de Produção (`CP_*`, `HANA_SCHEMA_LEGADO`, `SL_BUSINESS_PLACE_ID`, `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` do histórico) | `controleproducao/config.py` + `.env.example` (bloco CP) + `tests/controleproducao/test_config.py` + `tests/test_config_paridade_wbc.py` |
 | Check `controle_producao` do `/status` | `monitoring.py` (`_controle_producao_signal`) + `tests/test_monitoring.py` |
 
 ## NÃO reler (não é fonte, ou raramente muda)
@@ -202,9 +203,11 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   `state/wbc_previsao.json` relativos ao cwd (painel: `run_wbc_painel.bat`; worker: o
   `AppDirectory` do NSSM). Não há `pip install -e`, hatchling nem uv.
 - **Defaults do worker existem em dois configs** (`config.py` da raiz relê `TRACKING_DB_URL`,
-  `WORKER_*`, `PAINEL_PORTA` para o check `wbc_worker`); `CP_PORTA`/`CP_LOG_FILE` em **três**
-  (raiz, `wbcpython/config.py`, `controleproducao/config.py`). Mudou um, mude os outros —
-  `tests/test_config_paridade_wbc.py` cobra.
+  `WORKER_*`, `PAINEL_PORTA` para o check `wbc_worker`); `CP_PORTA` em **três** (raiz,
+  `wbcpython/config.py`, `controleproducao/config.py`) e `CP_LOG_FILE` em dois (raiz e
+  `controleproducao/config.py`). Mudou um, mude os outros — `tests/test_config_paridade_wbc.py`
+  cobra. `SL_BASE_URL`/`SL_VERIFY_SSL` têm defaults DIFERENTES no worker e no pacote: na .11
+  o `.env` define os dois, e é isso que vale.
 - **`controleproducao` roda como módulo, com cwd na raiz**, igual ao `wbcpython`: `python -m
   controleproducao web|pedidos-wbc|manutencao-op|conexoes|diag`. `config.py` acha o `.env` por
   `__file__` (raiz do SIS), de qualquer cwd; `logs/controleproducao.log` é relativo ao cwd. As
@@ -233,11 +236,15 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   MESMOS modelos `{nome}` do C#, ligados por `core/sql_ligado.ligar` (`'{x}'` → texto, `{x}` →
   inteiro validado, lista → `?, ?`, `{schema}` só identificador, `{filtro}` só vazio) —
   nunca `.format` com valor. Paridade antiga × nova 15/15 + 49/49 contra PROD. O SQL Server do
-  WBC é lido por `pymssql` (não ODBC; `WBC_SQL_DRIVER` sem efeito). `_update_pedido` (recria
+  WBC é lido por `pymssql` (não ODBC; `WBC_SQL_DRIVER` sem efeito); o `%` do texto passa como
+  está e `%s`/`%d` no texto são recusados (o pymssql os trocaria por parâmetro). Os dois leitores
+  (HANA e WBC) passam por `sql_ligado.exige_leitura` — só um SELECT/WITH, sem `;`, sem
+  INSERT/UPDATE/DELETE/INTO/EXEC… — e o cliente do WBC não tem método de escrita nem commit
+  (30/09). `_update_pedido` (recria
   linhas) está FECHADO com erro claro até o Anderson validar. `Reprocessar` saiu da tela (D8); (8) o pacote **não** tem expediente: fora do ar = alerta;
-  (9) `CP_HOST` decide quem alcança a tela: `0.0.0.0` (o alvo da .11 a partir da F6, com regra
-  de firewall da 8080 só para a LAN — `.env`, regra e restart são do Marcelo; status no plano)
-  = a mesma exposição do painel; **nunca o IP da máquina** (o `deploy_update.bat` e o `/status`
+  (9) `CP_HOST` decide quem alcança a tela: `0.0.0.0` (o valor da .11 desde 28/09 ~14:45, F6,
+  com a regra de firewall `OrcaView-ControleProducao-8080` só para `192.168.0.0/16`) = a mesma
+  exposição do painel; **nunca o IP da máquina** (o `deploy_update.bat` e o `/status`
   sondam `127.0.0.1:CP_PORTA`); `127.0.0.1` = só a própria máquina, e aí
   o painel tem de ser aberto por `http://localhost:8079` (os botões montam o link com o host da
   página e o cookie é por host) — de fora, a 8080 **recusa conexão**, não é queda (o `/status`

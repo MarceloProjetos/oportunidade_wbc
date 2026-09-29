@@ -22,18 +22,13 @@ from controleproducao.config import Settings
 from wbcpython import safety
 from wbcpython.safety import ProductionWriteBlocked
 
-__all__ = ["ProductionWriteBlocked", "ambiente_descrito", "aviso_de_escrita", "escrita_permitida"]
+__all__ = ["ProductionWriteBlocked", "ambiente_descrito", "aviso_de_escrita"]
 
 
 def ambiente_descrito(settings: Settings) -> str:
     """Rótulo curto do alvo da escrita, para banners e logs. Nunca inclui credenciais."""
     destino = "PRODUÇÃO" if settings.is_production else "homologação"
     return f"{destino} — company DB '{settings.sl_company_db}'"
-
-
-def escrita_permitida(settings: Settings) -> bool:
-    """Production writes only from the production machine; anything else, always."""
-    return not settings.is_production or safety.is_production_machine()
 
 
 def aviso_de_escrita(settings: Settings, operacao: str) -> str | None:

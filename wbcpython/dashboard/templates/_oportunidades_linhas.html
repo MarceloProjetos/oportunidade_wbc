@@ -1,15 +1,13 @@
 {#
-  As linhas da lista — a primeira página (dentro de _oportunidades.html) e as seguintes
-  (pedidas pela linha "carregando mais", que é trocada por estas).
+  The list rows — the first page (inside _oportunidades.html) and the next ones (asked by
+  the "carregando mais" row, which these replace).
 
-  Paginado desde 29/09/2026: com ~2.000 orçamentos na janela, desenhar todos de uma vez
-  pesava a aba. A linha do fim pede a próxima página quando aparece dentro da caixa da
-  tabela (`intersect once root:#rolagem-oportunidades` — a tabela rola por dentro, e medir
-  contra a janela inteira nunca disparava com a caixa abaixo da dobra); o clique nela faz o
-  mesmo, para quem navega pelo teclado.
+  Paged since 29/09/2026: with ~2,000 quotes in the window, drawing them all made the tab
+  heavy. The last row asks for the next page when it shows up inside the table's own scroll
+  box (`intersect once root:#rolagem-oportunidades` — measured against the whole window it
+  never fired with the box below the fold). A click or Enter on it does the same, for
+  keyboard users. Column styles (`mono`, `num`) come from web.py.
 #}
-{% set mono = ["Orçamento", "SitCode", "Rev.", "Cotação", "Pedido", "Aberta em", "Última verificação"] %}
-{% set num = ["Valor do pedido"] %}
 {% for linha in linhas %}
   <tr>
     {% for coluna, valor in linha.items() %}
@@ -38,7 +36,7 @@
   <tr
     class="mais"
     hx-get="{{ mais }}"
-    hx-trigger="intersect once root:#rolagem-oportunidades, click"
+    hx-trigger="intersect once root:#rolagem-oportunidades, click, keyup[key=='Enter']"
     hx-swap="outerHTML"
     tabindex="0"
     title="Carregar os próximos orçamentos"

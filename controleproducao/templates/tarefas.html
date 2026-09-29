@@ -33,17 +33,8 @@
           <td class="data">{{ t.criada_em.strftime('%d/%m %H:%M:%S') }}</td>
           <td><strong>{{ t.nome }}</strong><br><span class="ov-nota">{{ t.descricao }}</span></td>
           <td>
-            {% if t.com_falhas %}
-            <span class="ov-pill is-warn">{{ t.situacao }} com falhas</span>
-            {% elif t.situacao == 'erro' %}
-            <span class="ov-pill is-erro">{{ t.situacao }}</span>
-            {% elif t.situacao == 'executando' %}
-            <span class="ov-pill is-aberto">{{ t.situacao }}</span>
-            {% elif t.terminada %}
-            <span class="ov-pill is-ok">{{ t.situacao }}</span>
-            {% else %}
-            <span class="ov-pill is-neutro">{{ t.situacao }}</span>
-            {% endif %}
+            <span class="ov-pill {{ CLASSE_DA_PILULA[t.desfecho] }}">{{ t.situacao }}{%
+              if t.desfecho == 'falhas' %} com falhas{% endif %}</span>
           </td>
           <td class="num">{{ (t.duracao_segundos ~ ' s') if t.duracao_segundos is not none else '' }}</td>
           <td><a href="/tarefas/{{ t.id }}">abrir</a></td>

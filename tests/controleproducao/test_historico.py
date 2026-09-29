@@ -10,7 +10,7 @@ import asyncio
 import logging
 import re
 import threading
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -532,3 +532,33 @@ def test_o_sql_fecha_a_tabela_para_a_anon():
     for situacao in ("concluída", "erro", "cancelada"):
         assert f"'{situacao}'" in codigo
         assert Tarefa(id="x", nome="n", descricao="d", criada_em=datetime.now(), situacao=situacao).terminada
+
+
+def test_hora_volta_igual_quando_o_supabase_devolve_em_utc():
+    """PostgREST answers timestamptz in UTC (+00:00); the fake above echoed the local offset,
+    so the UTC → local path was never exercised (30/09/2026)."""
+
+    local = datetime(2026, 9, 29, 15, 36, 5)
+    como_o_supabase_devolve = datetime.fromisoformat(mod._para_iso(local)).astimezone(UTC).isoformat()
+    assert como_o_supabase_devolve.endswith("+00:00")
+    assert mod._de_iso(como_o_supabase_devolve) == local
+
+
+def test_historico_e_procurado_de_novo_se_a_11_ainda_nao_tinha_o_ip(monkeypatch):
+    """The service starts at boot; the IP may not be bound yet. Re-asked, not frozen."""
+    from controleproducao.core import tarefas as mod_tarefas
+
+    respostas = [None, "historico-da-11"]
+    registro = RegistroDeTarefas()
+    relogio = [1000.0]
+    monkeypatch.setattr(mod_tarefas.time, "monotonic", lambda: relogio[0])
+
+    registro.usar_historico(lambda: respostas.pop(0))
+    assert registro.historico is None                         # at startup: not the .11 yet
+    relogio[0] += mod_tarefas.REVER_HISTORICO_S - 1
+    assert registro.historico is None and len(respostas) == 1  # not asked again too soon
+    relogio[0] += 2
+    assert registro.historico == "historico-da-11"            # found, and kept
+    registro.historico = None                                 # explicit value stops re-checks
+    relogio[0] += 10 * mod_tarefas.REVER_HISTORICO_S
+    assert registro.historico is None

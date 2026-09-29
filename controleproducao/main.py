@@ -13,10 +13,13 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from controleproducao.core import acesso, historico
 from controleproducao.core.tarefas import TAREFAS
@@ -25,6 +28,7 @@ from controleproducao.core.templates import templates
 from controleproducao.modules.manutencao_op.router import router as manutencao_op_router
 from controleproducao.modules.pedidos_wbc.router import router as pedidos_wbc_router
 from controleproducao.modules.romaneio.router import router as romaneio_router
+from wbcpython.dashboard import acesso as painel
 
 
 @asynccontextmanager
@@ -34,7 +38,7 @@ async def _ciclo_de_vida(_app: FastAPI) -> AsyncIterator[None]:
     At startup and not at import: importing the app (tests, the CLI) must not decide which
     machine this is nor read Supabase settings.
     """
-    TAREFAS.historico = historico.da_maquina()
+    TAREFAS.usar_historico(historico.da_maquina)
     yield
     await TAREFAS.aguardar_gravacoes()
 
@@ -49,6 +53,29 @@ app = FastAPI(
 # Caminho absoluto: ver a nota em `core/templates.py`. A app precisa subir de
 # qualquer diretório de trabalho.
 app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent / "static"), name="static")
+
+@app.exception_handler(StarletteHTTPException)
+async def _erro_http(request: Request, exc: StarletteHTTPException):
+    """A browser navigation (form POST, typed URL) gets the screen's error page; everything
+    else — the page's own fetches, scripts, tests — keeps FastAPI's JSON.
+
+    Before 30/09/2026 a refused write (off the .11, or no OS_API_KEY → 503) showed the raw
+    `{"detail": ...}` in the browser, right after the operator pressed "Confirmar".
+    """
+    navegacao = "text/html" in request.headers.get("accept", "") and not request.headers.get("x-requested-with")
+    if not navegacao:
+        return await http_exception_handler(request, exc)
+    return templates.TemplateResponse(
+        request, "erro.html",
+        {"mensagem": ("Página não encontrada." if exc.status_code == 404 and exc.detail == "Not Found"
+                      else exc.detail if isinstance(exc.detail, str) else "Não foi possível continuar."),
+         "titulo": "Escrita recusada" if exc.status_code == 503 else None,
+         # Back to the page that posted, as a LOCAL path only (the Referer is a header).
+         "voltar": painel.destino_local(urlsplit(request.headers.get("referer", "")).path)},
+        status_code=exc.status_code,
+        headers=getattr(exc, "headers", None),
+    )
+
 
 app.include_router(pedidos_wbc_router)
 app.include_router(manutencao_op_router)

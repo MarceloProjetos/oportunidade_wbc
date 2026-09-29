@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import traceback
 import uuid
 from collections import deque
@@ -45,9 +46,35 @@ MAX_TAREFAS = 200
 # linha por OP por etapa; o suficiente para acompanhar, não para virar arquivo de log.
 MAX_LINHAS_LOG = 500
 
+# While no history is attached, how often to ask again whether this machine has one.
+REVER_HISTORICO_S = 300.0
+
 # Finished executions on the Execuções screen — and, on the .11, how many the Supabase
 # history keeps (`core/historico.py` reads this, so the two cannot drift apart).
 MAX_NA_TELA = 30
+
+# How an outcome is painted: the list pill, the detail pill and the detail bar all read these
+# (templates via Jinja globals, the page script via `tojson`). There were three copies, and on
+# 29/09/2026 the list painted a cancelled run GREEN while the detail showed it amber.
+CLASSE_DA_PILULA = {"erro": "is-erro", "falhas": "is-warn", "cancelada": "is-warn",
+                    "ok": "is-ok", "rodando": "is-aberto", "fila": "is-neutro"}
+CLASSE_DA_BARRA = {"erro": "is-erro", "falhas": "is-warn", "cancelada": "is-erro",
+                   "ok": "is-ok", "rodando": "", "fila": ""}
+
+
+def desfecho_de(situacao: str, com_falhas: bool) -> str:
+    """The one reading of a task's outcome: erro | falhas | cancelada | ok | rodando | fila."""
+    if situacao == "erro":
+        return "erro"
+    if com_falhas:
+        return "falhas"
+    if situacao == "cancelada":
+        return "cancelada"
+    if situacao == "concluída":
+        return "ok"
+    if situacao == "executando":
+        return "rodando"
+    return "fila"
 
 
 @dataclass
@@ -88,6 +115,10 @@ class Tarefa:
         return bool(isinstance(self.resultado, dict) and self.resultado.get("com_erro"))
 
     @property
+    def desfecho(self) -> str:
+        return desfecho_de(self.situacao, self.com_falhas)
+
+    @property
     def duracao_segundos(self) -> float | None:
         if not self.iniciada_em:
             return None
@@ -115,6 +146,7 @@ class Tarefa:
             "situacao": self.situacao,
             "terminada": self.terminada,
             "com_falhas": self.com_falhas,
+            "desfecho": self.desfecho,
             "passo": self.passo,
             "passos_feitos": self.passos_feitos,
             "passos_total": self.passos_total,
@@ -144,9 +176,36 @@ class RegistroDeTarefas:
         self._ordem: deque[str] = deque(maxlen=MAX_TAREFAS)
         self._em_execucao: dict[str, str] = {}  # módulo -> id da tarefa
         self._jobs: dict[str, asyncio.Task] = {}
-        # `core.historico.HistoricoSupabase` on the .11 (set at app startup), None elsewhere.
-        self.historico = historico
+        # `core.historico.HistoricoSupabase` on the .11 (see `usar_historico`), None elsewhere.
+        self._historico = historico
+        self._resolver: Callable[[], Any] | None = None
+        self._resolvido_em: float | None = None
         self._gravacoes: set[asyncio.Future] = set()
+
+    @property
+    def historico(self) -> Any:
+        """The stored history, asking the resolver again at most every `REVER_HISTORICO_S`
+        while there is none: the service starts at boot, possibly before the .11's address is
+        bound, and a None frozen at startup would keep the screen memory-only all day."""
+        if self._historico is None and self._resolver is not None:
+            agora = time.monotonic()
+            if self._resolvido_em is None or agora - self._resolvido_em >= REVER_HISTORICO_S:
+                self._resolvido_em = agora
+                self._historico = self._resolver()
+        return self._historico
+
+    @historico.setter
+    def historico(self, valor: Any) -> None:
+        # An explicit value (tests, a fake) wins and stops the re-checks.
+        self._historico = valor
+        self._resolver = None
+
+    def usar_historico(self, resolver: Callable[[], Any]) -> None:
+        """Attach the history by asking `resolver` now, and again later while it says None."""
+        self._historico = None
+        self._resolver = resolver
+        self._resolvido_em = None
+        _ = self.historico
 
     def em_execucao(self, modulo: str) -> Tarefa | None:
         """Tarefa ainda rodando naquele módulo, se houver."""
@@ -220,6 +279,11 @@ class RegistroDeTarefas:
         # Strong reference until done: shutdown waits on these (`aguardar_gravacoes`).
         self._gravacoes.add(gravacao)
         gravacao.add_done_callback(self._gravacoes.discard)
+
+    def gravacoes_pendentes(self) -> int:
+        """History writes still in flight. `/health/ocupado` counts them: a deploy that
+        stops the service mid-write loses exactly the row the history exists to keep."""
+        return sum(1 for g in self._gravacoes if not g.done())
 
     async def aguardar_gravacoes(self, timeout: float = 15.0) -> None:
         """Let pending history writes finish before the process exits (service stop)."""

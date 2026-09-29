@@ -95,14 +95,18 @@ if not "%CP_OCUPADO%"=="0" (
   echo [cp] OrcaView-ControleProducao parado ou nao instalado: nada a proteger.
 )
 
-REM --- parar servicos antes de mexer nos arquivos (MCP depende da API: para o MCP 1o;
+REM --- parar servicos antes de mexer nos arquivos (Controle de Producao 1o; MCP antes da API, que ele usa;
 REM     o worker por ultimo, porque a parada dele espera o ciclo em andamento) ---
 echo [nssm] parando servicos...
+REM Controle de Producao FIRST (30/09/2026): the ocupado check above is only true for the
+REM moment it ran. Stopped last, it stayed up through four other stops (each .bat-wrapped
+REM service waits its own stop timeout) - seconds in which a Liberar or processar clicked
+REM on the screen would be killed mid-way.
+nssm stop OrcaView-ControleProducao >nul 2>&1
 nssm stop OrcaView-MCP        >nul 2>&1
 nssm stop OrcaView-OS-API     >nul 2>&1
 nssm stop OrcaView-Scheduler  >nul 2>&1
 nssm stop OrcaView-WBC-Painel >nul 2>&1
-nssm stop OrcaView-ControleProducao >nul 2>&1
 if defined WORKER_ATIVO (
   REM Parada por arquivo (09/09/2026): o python.exe direto no servico nao tem console, o
   REM Ctrl+C do NSSM nao chega e o worker era morto no meio do ciclo (trava presa 30 min,
@@ -152,8 +156,11 @@ set "INSTALADO="
 if exist "state\deps.sha256" set /p INSTALADO=<"state\deps.sha256"
 if not defined REQHASH (
   echo [pip] AVISO: nao calculei o hash dos requirements ^(python no PATH?^); decidindo so pelo git.
-) else if not "!INSTALADO!"=="!REQHASH!" (
-  set "REQCHANGED=1"
+) else (
+  REM With the hash available it alone decides: the git heuristic above also matches
+  REM requirements-dev.txt, which is never installed here (pip for nothing).
+  set "REQCHANGED="
+  if not "!INSTALADO!"=="!REQHASH!" set "REQCHANGED=1"
 )
 if defined REQCHANGED (
   where %PYEXE% >nul 2>&1 || (echo ERRO: python nao encontrado no PATH. & goto :fail)

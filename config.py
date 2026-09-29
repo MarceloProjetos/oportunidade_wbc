@@ -298,8 +298,8 @@ class Settings:
     os_api_host: str
     os_api_port: int
 
-    # Ordem de Produção — status write via Service Layer (see ordens_producao_sl.py)
-    op_sl_enabled: bool
+    # Ordem de Produção — status write via Service Layer (see ordens_producao_sl.py).
+    # `op_sl_enabled` is a property below, not a field.
     op_sl_server: str
     op_sl_port: int
     op_sl_company_db: str
@@ -384,7 +384,6 @@ class Settings:
             status_id=os.getenv('STATUS_ID') or None,
             os_api_host=os.getenv('OS_API_HOST', OS_API_HOST_DEFAULT),
             os_api_port=int(os.getenv('OS_API_PORT', OS_API_PORT_DEFAULT)),
-            op_sl_enabled=is_production_machine(),
             op_sl_server=os.getenv('OP_SL_SERVER', OP_SL_SERVER_DEFAULT),
             op_sl_port=_env_int('OP_SL_PORT', OP_SL_PORT_DEFAULT),
             op_sl_company_db=os.getenv('OP_SL_COMPANY_DB', OP_SL_COMPANY_DB_DEFAULT),
@@ -459,6 +458,16 @@ class Settings:
     def op_sl_timeout(self) -> tuple[float, float]:
         """``(connect, read)`` for every Service Layer call."""
         return (self.op_sl_timeout_connect_s, self.op_sl_timeout_read_s)
+
+    @property
+    def op_sl_enabled(self) -> bool:
+        """On only on the .11 — checked on every read, not frozen at startup (30/09/2026).
+
+        `get_settings()` is cached for the life of the API process, which starts at boot
+        (~06:12): if the address was not bound yet at that instant, a stored False kept the OP
+        routes answering 503 "only on the .11" all day, on the .11. The check is one UDP bind.
+        """
+        return is_production_machine()
 
     def op_sl_ready(self) -> bool:
         """True when the OP status write may run at all.

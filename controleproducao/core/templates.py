@@ -20,6 +20,7 @@ from fastapi.templating import Jinja2Templates
 
 from controleproducao.config import get_settings
 from controleproducao.core.formato import numero_br, quantidade_br
+from controleproducao.core.tarefas import CLASSE_DA_BARRA, CLASSE_DA_PILULA
 from controleproducao.core.web import contexto_do_ambiente
 
 # Caminho absoluto, derivado do próprio arquivo: a aplicação precisa subir de qualquer
@@ -45,3 +46,11 @@ templates.env.globals["exige_chave"] = lambda: bool(get_settings().os_api_key.ge
 # para qualquer outro uso no mesmo template.
 templates.env.filters["moeda"] = numero_br
 templates.env.filters["qtd"] = quantidade_br
+
+# `tojson` embeds a finished task's state in its page (tarefa.html): a Decimal/datetime in a
+# service result must become text, not a 500 on a page that only shows a result.
+templates.env.policies["json.dumps_kwargs"] = {"sort_keys": True, "default": str}
+
+# One map from a task outcome to its CSS classes (see `core/tarefas.py`).
+templates.env.globals["CLASSE_DA_PILULA"] = CLASSE_DA_PILULA
+templates.env.globals["CLASSE_DA_BARRA"] = CLASSE_DA_BARRA

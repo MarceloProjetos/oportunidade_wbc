@@ -9,6 +9,10 @@
 
 <div class="ov-alerta is-erro">{{ icone('x', 16) }}<span>{{ mensagem }}</span></div>
 
+{% if link %}
+<p><a class="ov-btn-ghost" href="{{ link }}">{{ icone('execucoes', 16) }} {{ link_texto or link }}</a></p>
+{% endif %}
+
 {% if detalhes %}
 <section class="ov-table-card">
   <div class="ov-scroll">

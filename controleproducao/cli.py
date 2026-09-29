@@ -23,6 +23,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import logging.handlers
+import sys
+from pathlib import Path
 
 import typer
 from rich.console import Console
@@ -103,6 +106,38 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+def _grava_tambem_em_arquivo() -> None:
+    """The CLI's progress also goes to `CP_CLI_LOG_FILE` (30/09/2026), same format and rotation
+    as the service log, starting with the command line that was run.
+
+    The writes that are CLI-only — Replanejar, Reprocessar, `--force` — used to leave no trace
+    but the terminal that ran them. Its own file, not the service's: two processes rotating
+    one file on Windows collide. A file that cannot be opened never stops the command.
+    """
+    from wbcpython.logs import ARQUIVOS_MANTIDOS, FORMATO_DA_DATA, FORMATO_DO_ARQUIVO, TAMANHO_MAXIMO
+
+    settings = get_settings()
+    caminho = getattr(settings, "cp_cli_log_file", None)
+    if not isinstance(caminho, str) or not caminho.strip():
+        # A stand-in settings object (the CLI tests patch `get_settings`) has no real path;
+        # without this check its repr became a folder in the repo.
+        return
+    destino = Path(caminho)
+    try:
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        em_arquivo = logging.handlers.RotatingFileHandler(
+            destino, maxBytes=TAMANHO_MAXIMO, backupCount=ARQUIVOS_MANTIDOS, encoding="utf-8"
+        )
+    except OSError as exc:
+        logging.getLogger(__name__).warning("Sem log da CLI em arquivo (%s): %s", destino, exc)
+        return
+    em_arquivo.setFormatter(logging.Formatter(FORMATO_DO_ARQUIVO, datefmt=FORMATO_DA_DATA))
+    logging.getLogger().addHandler(em_arquivo)
+    logging.getLogger(__name__).info(
+        "CLI: python -m controleproducao %s — %s", " ".join(sys.argv[1:]), ambiente_descrito(settings)
+    )
+
+
 def _ativa_perfil_e_progresso() -> None:
     """Liga a medição de tempo e joga o progresso (logger.info dos services) no console.
 
@@ -114,6 +149,7 @@ def _ativa_perfil_e_progresso() -> None:
         handlers=[RichHandler(console=console, show_path=False, log_time_format="%H:%M:%S")],
         force=True,
     )
+    _grava_tambem_em_arquivo()
 
 
 def _ativa_perfil_e_progresso_silencioso() -> None:
@@ -128,6 +164,7 @@ def _ativa_perfil_e_progresso_silencioso() -> None:
     # Silencia o log de cada requisição HTTP do httpx, que aqui só polui: o progresso útil
     # ("OP X cancelada") já vem dos logs do próprio service.
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    _grava_tambem_em_arquivo()
 
 
 def _imprime_relatorio_perfil() -> None:

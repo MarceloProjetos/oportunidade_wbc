@@ -1,10 +1,17 @@
 <!doctype html>
-<html lang="pt-BR" data-tema="">
+<html lang="pt-BR">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Entrar — Integração WBC × SAP</title>
-    <link rel="stylesheet" href="/static/painel.css?v=20260929" />
+    <link rel="stylesheet" href="/static/painel.css?v=20260930" />
+    <script>
+      // Theme before the first paint (30/09/2026): dark is the default (no attribute); only
+      // "claro" is ever set, so a light-theme viewer no longer sees a dark flash.
+      try {
+        if (localStorage.getItem("wbc-tema") === "claro") document.documentElement.setAttribute("data-tema", "claro");
+      } catch (e) { /* blocked storage: the default theme */ }
+    </script>
   </head>
   <body>
     {#
@@ -50,10 +57,5 @@
       </div>
     </main>
 
-    <script>
-      try {
-        document.documentElement.setAttribute("data-tema", localStorage.getItem("wbc-tema") || "");
-      } catch (e) { /* segue no tema do sistema */ }
-    </script>
   </body>
 </html>

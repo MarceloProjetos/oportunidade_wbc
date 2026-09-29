@@ -88,7 +88,7 @@ do WBC; `OP_SL_*` é o Service Layer do status de OP; `SL_*` é o do WBC).
 | Acompanhamento | `TRACKING_DB_URL` | `sqlite:///./state/wbc_tracking.db` — relativo ao cwd (a raiz); o serviço **cria** o arquivo e as 4 tabelas na primeira subida |
 | Worker | `WORKER_INTERVAL_SECONDS`, `WORKER_HORARIO_INICIO`, `WORKER_HORARIO_FIM`, `WORKER_DIAS_DE_TRABALHO`, `MESES_DE_JANELA`, `MESES_DE_JANELA_DIRIGIDA`, `LIMITE_DE_ESCRITA_POR_CICLO`, `FATOR_PESO_EMBARQUE` | produção em 08/09/2026: 180 s, 07:00–20:00, seg–sex, 6 meses |
 | Log | `LOG_LEVEL`, `LOG_FILE` | `logs/wbcpython.log` — o mesmo texto da tela; rotação 5 MB × 3 |
-| Painel | `PAINEL_HOST`, `PAINEL_PORTA`, `PAINEL_SENHA`, `OS_API_KEY`, `SIS_PAINEL_URL`, `OS_API_PORT` | ver abaixo |
+| Painel | `PAINEL_HOST`, `PAINEL_PORTA`, `PAINEL_SENHA`, `OS_API_KEY`, `SIS_PAINEL_URL`, `OS_API_PORT`, `CP_URL` | ver abaixo |
 
 ---
 
@@ -102,6 +102,13 @@ vivo), **Execuções** (do worker) e **Log** (o arquivo `LOG_FILE`, filtrável, 
 Cada bloco se repinta no seu ritmo (log a cada 5 s, números a cada 30 s). Sem CDN: o
 `htmx.min.js` é servido do próprio pacote.
 
+**Visual e lista (29–30/09/2026).** O visual é o do OrçaView: escuro por padrão, claro pelo
+botão redondo de sol/lua (guardado por navegador, em `localStorage`). A lista de oportunidades
+vai ao navegador **300 linhas por vez**, do orçamento mais novo para o mais antigo; a próxima
+página é pedida quando a última linha aparece dentro da caixa da tabela (ou por clique/Enter) e
+continua **depois do último nº de orçamento mostrado** — não por posição, porque o worker
+regrava `atualizado_em` de todos a cada ciclo e a ordem antiga embaralhava as páginas.
+
 **Entrada.** Com `OS_API_KEY` no `.env` (a mesma chave da API 8077 / Painel de
 Sincronização), o painel pede a chave uma vez e guarda um cookie `HttpOnly` com um token
 derivado dela (HMAC) — nunca a chave. Trocar a chave invalida todos os cookies. Scripts e
@@ -111,7 +118,8 @@ igual à API (e o `dashboard` avisa no arranque se estiver exposto na rede).
 **Botão "Sincronização SAP → Supabase"** (topo) → `GET /sincronizacao` → o Painel de
 Sincronização: `SIS_PAINEL_URL` se configurada; senão o mesmo host da requisição, na porta
 `OS_API_PORT` (8077). Do outro lado, `⇄ Integração WBC` (`GET /painel-wbc` da API) volta
-para cá.
+para cá. **Botões "Pedidos WBC → OPs" e "Manutenção de OP"** → as duas telas do Controle de
+Produção (8080; `CP_URL` se configurada, senão o mesmo host na `CP_PORTA`), com o mesmo cookie.
 
 **Aba Executar.** Leitura e diagnóstico (`pendentes`, `env`, `doctor`, `check-sap`,
 `check-hana`) sem proteção extra. Escrita (`ciclo`, `pesos`, `datas-de-abertura`) exige
@@ -167,7 +175,7 @@ corrompido). Depois, `python -m wbcpython datas-de-abertura` se as linhas antiga
 ## Testes
 
 ```bash
-python -m pytest tests/wbc            # 843 testes, ~10 s, sem rede
+python -m pytest tests/wbc            # ~1.240 testes (30/09), ~40 s, sem rede
 python -m pytest tests/wbc --run-integration   # + os que acessam SL / SQL Server / HANA de verdade
 python -m ruff check .
 ```

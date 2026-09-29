@@ -5,6 +5,10 @@
 > `controleproducao/`; o `.env` é o do SIS (mesmos nomes); `.venv`, `scripts/00-06`,
 > `config/log_config.json` e as `wheels/` não existem mais (serviço `OrcaView-ControleProducao`,
 > `install_wbc_services.bat`, `deploy_update.bat`). Plano: `docs/PLANO_CONTROLE_PRODUCAO_11.md`.
+> O diário (§7) vai até 24/09. Desde 28/09 as mudanças estão no plano e no `CHANGELOG.md`: SQL
+> com parâmetro ligado (`core/sql_ligado`), `pymssql` no lugar de `pyodbc` (onde §6 diz
+> `WbcSqlServerClient (pyodbc)`), leitores só-leitura por construção, `_update_pedido` fechado,
+> Replanejar/Reprocessar só pela CLI (D8/D9), histórico das execuções no Supabase.
 
 # Guia de Migração — ControleProducao (Addon SAP B1) → Aplicação Web Python
 

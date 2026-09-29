@@ -44,7 +44,7 @@ _NOMES = (
 
 
 @pytest.fixture(autouse=True)
-def _ambiente_neutro(monkeypatch: pytest.MonkeyPatch):
+def _ambiente_neutro(monkeypatch: pytest.MonkeyPatch, tmp_path):
     for nome in list(os.environ):
         if nome.startswith(_PREFIXOS) or nome in _NOMES:
             monkeypatch.delenv(nome, raising=False)
@@ -54,6 +54,8 @@ def _ambiente_neutro(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("SL_BASE_URL", "http://127.0.0.1:9/b1s/v1")
     monkeypatch.setenv("HANA_HOST", "127.0.0.1")
     monkeypatch.setenv("WBC_SQL_HOST", "127.0.0.1")
+    # CLI commands driven by CliRunner write their log file: never into the repo's logs/.
+    monkeypatch.setenv("CP_CLI_LOG_FILE", str(tmp_path / "controleproducao_cli.log"))
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
@@ -76,6 +78,7 @@ def _logging_restaurado():
     for handler in list(raiz.handlers):
         if handler not in handlers_raiz:
             raiz.removeHandler(handler)
+            handler.close()   # the CLI's file handler holds a file in tmp_path
     for handler in handlers_raiz:
         if handler not in raiz.handlers:
             raiz.addHandler(handler)

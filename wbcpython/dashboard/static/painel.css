@@ -9,7 +9,7 @@
 /* OrçaView look (29/09/2026): the same palette, surfaces and accent as the OrçaView
  * pages (Usuarios.html) and the Controle de Produção screen next door — this painel is
  * their sister screen. Dark is the DEFAULT, as in OrçaView; light is the explicit
- * `data-tema="claro"` override chosen with the "Tema" button (kept per browser). The
+ * `data-tema="claro"` override chosen with the round sun/moon button (kept per browser). The
  * operating-system preference no longer decides: the house default does.
  *
  * Surface ladder: page < card header < card < inner surface (KPIs) < input.
@@ -28,7 +28,7 @@
   --traco-forte: #5c5c5c;
   --tinta: #f3f4f6;
   --tinta-fraca: #9ca3af;
-  --tinta-fraquissima: #7b8390;
+  --tinta-fraquissima: #959ca8; /* 4.6:1 on --superficie (30/09/2026: was 3.3:1) */
 
   --acento: #da7756;
   --acento-texto: #e8956e;
@@ -70,9 +70,9 @@
   --traco-forte: #b8c3d1;
   --tinta: #1f2733;
   --tinta-fraca: #5a6675;
-  --tinta-fraquissima: #7a8594;
+  --tinta-fraquissima: #667180; /* 4.9:1 on white */
   --acento: #c45a3a;
-  --acento-texto: #c45a3a;
+  --acento-texto: #a94a2e; /* 5.7:1 on white, 5.0:1 on the page (was 4.3:1) */
   --acento-fraco: rgb(196 90 58 / 10%);
   --ok: #1c7a4c;
   --ok-fundo: #e4f3ea;
@@ -126,6 +126,7 @@ a {
   position: sticky;
   top: 0;
   z-index: 20;
+  background: var(--fundo); /* fallback: no color-mix → a transparent sticky bar */
   background: color-mix(in srgb, var(--fundo) 92%, transparent);
   backdrop-filter: blur(6px);
   border-bottom: 1px solid var(--traco);
@@ -557,6 +558,7 @@ button.acao.tema .ir-escuro,
 .bloco.entrada {
   max-width: 440px;
   margin: 48px auto;
+  padding: 20px;
 }
 
 .bloco.entrada form {
@@ -565,18 +567,10 @@ button.acao.tema .ir-escuro,
   margin: 14px 0;
 }
 
+/* Only the monospace font: size, border, radius and focus ring come from the global field
+ * style (the old block kept a 5 px radius and a second focus outline). */
 .bloco.entrada input[type="password"] {
-  font: 15.5px/1.4 var(--mono);
-  padding: 8px 10px;
-  border: 1px solid var(--traco-forte);
-  border-radius: 5px;
-  background: var(--painel);
-  color: var(--tinta);
-}
-
-.bloco.entrada input[type="password"]:focus {
-  outline: 2px solid var(--acento);
-  outline-offset: 1px;
+  font-family: var(--mono);
 }
 
 .entrada-ajuda {
@@ -1098,10 +1092,11 @@ code,
   letter-spacing: 0;
 }
 
-/* Vermelho, e não cobre: o cobre é a cor do que a tela faz o tempo todo. Um
- * botão que cria pedido no SAP não pode parecer o botão que aplica um filtro. */
+/* Vermelho, e não o coral do acento: um botão que cria pedido no SAP não pode parecer o
+ * botão que aplica um filtro. A fixed dark red in both themes (30/09/2026): `--critico` in
+ * the now-default dark theme was white on #f2726a (2.8:1) and ~11° from the coral primary. */
 button.acao.perigosa {
-  background: var(--critico);
+  background: #b42318; /* 6.6:1 with white */
 }
 
 button.acao:disabled {
@@ -1162,7 +1157,7 @@ pre.console.alta {
   font: 600 13px/1 var(--ui);
   padding: 5px 6px 5px 10px;
   border-radius: 999px;
-  color: var(--acento);
+  color: var(--acento-texto);
   background: var(--acento-fraco);
   border: 1px solid color-mix(in srgb, var(--acento) 35%, transparent);
 }
@@ -1177,30 +1172,13 @@ pre.console.alta {
   text-decoration: none;
   font-size: 14.5px;
   line-height: 1;
-  color: var(--acento);
+  color: var(--acento-texto);
   background: color-mix(in srgb, var(--acento) 16%, transparent);
 }
 
 .recorte .sair:hover {
   background: var(--acento);
   color: var(--painel);
-}
-
-/* Card "Janela de busca" (aba Executar).
- *
- * Prosa, e nao formulario: a `.resumo` do catalogo e escopada em `.comando`,
- * que e uma acao. Aqui o texto explica para quem e de vendas o que a janela
- * faz, e precisa de largura de leitura — dai o `max-width` em ch, o unico
- * lugar da tela que tem um. */
-#janela .janela-texto {
-  margin: 0 0 10px;
-  font-size: 14.5px;
-  max-width: 78ch;
-  color: var(--tinta-fraca);
-}
-
-#janela .janela-texto:last-of-type {
-  margin-bottom: 0;
 }
 
 /* Os dois botoes de resposta ficam lado a lado, e nao empilhados: sao as duas

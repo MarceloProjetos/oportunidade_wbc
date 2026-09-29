@@ -1,10 +1,17 @@
 <!doctype html>
-<html lang="pt-BR" data-tema="">
+<html lang="pt-BR">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Integração WBC × SAP</title>
-    <link rel="stylesheet" href="/static/painel.css?v=20260929" />
+    <link rel="stylesheet" href="/static/painel.css?v=20260930" />
+    <script>
+      // Theme before the first paint (30/09/2026): dark is the default (no attribute); only
+      // "claro" is ever set, so a light-theme viewer no longer sees a dark flash.
+      try {
+        if (localStorage.getItem("wbc-tema") === "claro") document.documentElement.setAttribute("data-tema", "claro");
+      } catch (e) { /* blocked storage: the default theme */ }
+    </script>
     <script src="/static/htmx.min.js" defer></script>
   </head>
   <body>
@@ -125,21 +132,16 @@
     </main>
 
     <script>
-      // O tema fica no navegador de quem olha, não no servidor: o painel é
-      // uma tela de leitura compartilhada e a preferência é de cada pessoa.
-      // Em falha (navegador com armazenamento bloqueado) a página segue no
-      // tema do sistema, que é o padrão correto.
-      function aplicarTema(t) {
-        document.documentElement.setAttribute("data-tema", t || "");
-      }
-      // Dark is the default since 29/09/2026 (OrçaView): no attribute = dark.
+      // The theme lives in the viewer's browser, not on the server: the panel is a shared
+      // screen and the preference is each person's. Dark is the default (no attribute, since
+      // 29/09/2026); only "claro" is ever set — the first read happens in <head>.
       function alternarTema() {
-        var atual = document.documentElement.getAttribute("data-tema") === "claro" ? "claro" : "escuro";
-        var novo = atual === "claro" ? "escuro" : "claro";
-        aplicarTema(novo);
-        try { localStorage.setItem("wbc-tema", novo); } catch (e) { /* segue no do sistema */ }
+        var raiz = document.documentElement;
+        var novo = raiz.getAttribute("data-tema") === "claro" ? "escuro" : "claro";
+        if (novo === "claro") raiz.setAttribute("data-tema", "claro");
+        else raiz.removeAttribute("data-tema");
+        try { localStorage.setItem("wbc-tema", novo); } catch (e) { /* blocked storage: this page only */ }
       }
-      try { aplicarTema(localStorage.getItem("wbc-tema")); } catch (e) { /* idem */ }
 
       // A barra de abas é da casca, então quem a mexe mora aqui — inclusive
       // quando o pedido vem de dentro de um fragmento (um indicador do topo ou

@@ -144,7 +144,6 @@ def _espera_terminar(cliente, tarefa_id: str, teto: int = 50) -> dict:
 ROTAS_QUE_NAO_GRAVAM = {
     # Etapas de conferência: leem e montam o plano, não gravam. A trava é aplicada na
     # execução, que é onde a gravação acontece.
-    "/pedidos-wbc/buscar",
     "/pedidos-wbc/processar/conferir",
     "/pedidos-wbc/reprocessar/conferir",
     # D8 (28/09/2026): Reprocessar is CLI-only; the screen route only refuses.
@@ -1062,4 +1061,44 @@ def test_css_da_linha_do_topo_e_da_barra_no_celular():
     assert re.search(r"@media \(max-width: 760px\) \{\s*\.ov-nav \{\s*height: auto; flex-wrap: wrap;", css)
     assert ".ov-opcao:has(input:disabled)" in css
     base = (_RAIZ_SIS / "controleproducao/templates/base.html").read_text(encoding="utf-8")
-    assert "style.css?v=3" in base
+    assert "style.css?v=4" in base
+
+
+def test_escrita_recusada_no_navegador_mostra_a_pagina_de_erro(cliente):
+    """30/09/2026: the browser used to show FastAPI's raw JSON after "Confirmar"."""
+    with _Ligado(_patches(producao=True)):
+        conferir = cliente.post("/pedidos-wbc/processar/conferir", data={"opp_ids": ["4321"]})
+        token = _token(conferir.text)
+        resposta = cliente.post(
+            "/pedidos-wbc/processar/executar", data={"token": token},
+            headers={"Accept": "text/html,application/xhtml+xml", "Referer": "http://evil.example//x"},
+        )
+    assert resposta.status_code == 503
+    assert "text/html" in resposta.headers["content-type"]
+    assert "Escrita recusada" in resposta.text and "máquina de produção" in resposta.text
+    assert 'href="//' not in resposta.text               # the Referer never becomes an off-site link
+
+
+def test_dispara_com_modulo_ocupado_leva_a_execucao_em_andamento(cliente):
+    import asyncio as _asyncio
+
+    from controleproducao.modules.pedidos_wbc import router as r
+
+    parar = _asyncio.Event()
+
+    async def demorado(_t):
+        await parar.wait()
+
+    async def cenario():
+        from starlette.requests import Request
+
+        pedido = Request({"type": "http", "method": "POST", "path": "/", "headers": [], "query_string": b""})
+        TAREFAS.criar(r.MODULO, "Processar pedidos novos", "a", demorado)
+        resposta = r._dispara(pedido, "Processar pedidos novos", "b", demorado)
+        rodando = TAREFAS.em_execucao(r.MODULO)
+        parar.set()
+        return resposta, rodando
+
+    resposta, rodando = _asyncio.run(cenario())
+    assert resposta.status_code == 400
+    assert f'href="/tarefas/{rodando.id}"' in resposta.body.decode()

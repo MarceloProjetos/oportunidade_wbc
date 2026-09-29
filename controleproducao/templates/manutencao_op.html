@@ -33,7 +33,7 @@
 
 {% if buscou and ops %}
 <section class="ov-kpis">
-  <div class="ov-kpi"><b>{{ ops|length }}</b><span>OPs do pedido</span></div>
+  <div class="ov-kpi"><b>{{ ops|length }}</b><span>{{ 'OPs no filtro' if filtrado else 'OPs do pedido' }}</span></div>
   {% for codigo, descricao in status_op.items() %}
   {% set quantas = ops | selectattr('Status', 'equalto', codigo) | list | length %}
   {% if quantas %}
@@ -47,20 +47,24 @@
 
 <form method="post" action="/manutencao-op/buscar" class="ov-filtros">
   <div class="ov-field"><label for="f-pedido">Nº Pedido*</label>
-    <input class="ov-input" id="f-pedido" type="text" name="doc_num" value="{{ doc_num }}" required></div>
+    <input class="ov-input" id="f-pedido" type="text" name="doc_num" value="{{ doc_num }}" required
+           inputmode="numeric" autocomplete="off"></div>
+  {% set f = filtros or {} %}
   <div class="ov-field"><label for="f-opde">OP de</label>
-    <input class="ov-input ov-input--curto" id="f-opde" type="text" name="op_de"></div>
+    <input class="ov-input ov-input--curto" id="f-opde" type="text" name="op_de" value="{{ f.op_de or '' }}"
+           inputmode="numeric" autocomplete="off"></div>
   <div class="ov-field"><label for="f-opate">até</label>
-    <input class="ov-input ov-input--curto" id="f-opate" type="text" name="op_ate"></div>
+    <input class="ov-input ov-input--curto" id="f-opate" type="text" name="op_ate" value="{{ f.op_ate or '' }}"
+           inputmode="numeric" autocomplete="off"></div>
   <div class="ov-field"><label for="f-stde">Status de</label>
     <select class="ov-select" id="f-stde" name="status_de">
       <option value="">—</option>
-      {% for cod, desc in status_op.items() %}<option value="{{ cod }}">{{ cod }} — {{ desc }}</option>{% endfor %}
+      {% for cod, desc in status_op.items() %}<option value="{{ cod }}"{% if f.status_de == cod %} selected{% endif %}>{{ cod }} — {{ desc }}</option>{% endfor %}
     </select></div>
   <div class="ov-field"><label for="f-state">até</label>
     <select class="ov-select" id="f-state" name="status_ate">
       <option value="">—</option>
-      {% for cod, desc in status_op.items() %}<option value="{{ cod }}">{{ cod }} — {{ desc }}</option>{% endfor %}
+      {% for cod, desc in status_op.items() %}<option value="{{ cod }}"{% if f.status_ate == cod %} selected{% endif %}>{{ cod }} — {{ desc }}</option>{% endfor %}
     </select></div>
   <button type="submit" class="ov-btn">{{ icone('buscar') }} Buscar</button>
   <p class="ov-nota">O intervalo de status é <strong>alfabético</strong> (C &lt; L &lt; P &lt; R),
@@ -135,13 +139,13 @@
     {# Both start disabled; the script below enables them with at least one OP marked
        (Liberar writes on the first click). The server still refuses an empty selection. #}
     <button type="submit" class="ov-btn-ghost" formaction="/manutencao-op/status" name="acao" value="l"
-            data-exige-selecao disabled title="Marque ao menos uma OP">
+            data-exige-selecao disabled title="Marque ao menos uma OP" aria-describedby="dica-ops">
       {{ icone('check') }} Liberar selecionadas</button>
     {# Replanejar saiu da tela em 28/09/2026 (D9): fica na CLI, como caminho de recuperação. #}
     <button type="submit" class="ov-btn ov-btn--perigo" formaction="/manutencao-op/encerrar/conferir"
-            data-exige-selecao disabled title="Marque ao menos uma OP">
+            data-exige-selecao disabled title="Marque ao menos uma OP" aria-describedby="dica-ops">
       {{ icone('raio') }} Encerrar selecionadas…</button>
-    <span class="ov-nota-inline" id="dica-ops">
+    <span class="ov-nota-inline" id="dica-ops" aria-live="polite">
       {%- if selecionaveis %}Marque ao menos uma OP.
       {%- elif buscou and ops %}Nenhuma OP deste pedido pode ser liberada ou encerrada.
       {%- else %}Busque um pedido para selecionar as OPs.{% endif -%}
@@ -159,9 +163,9 @@
   <div class="ov-field"><label for="e-pedido">Nº Pedido</label>
     <input class="ov-input" id="e-pedido" type="text" name="pedido" inputmode="numeric"
            autocomplete="off" data-numero></div>
-  <button type="submit" class="ov-btn ov-btn--perigo" disabled
+  <button type="submit" class="ov-btn ov-btn--perigo" disabled aria-describedby="dica-encerrar-pedido"
           title="Informe o nº do pedido">{{ icone('escudo') }} Conferir…</button>
-  <p class="ov-nota" data-dica>Informe o nº do pedido (só números).</p>
+  <p class="ov-nota" id="dica-encerrar-pedido" data-dica aria-live="polite">Informe o nº do pedido (só números).</p>
   <p class="ov-nota">Age recursivamente sobre a hierarquia: a OP filha é encerrada antes da
     mãe, porque a saída de insumo da mãe consome o item que a filha produz.</p>
 </form>

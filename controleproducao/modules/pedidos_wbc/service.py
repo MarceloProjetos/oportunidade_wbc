@@ -1371,7 +1371,7 @@ async def checa_semi_acabado(
         semi_acabados: list[SemiAcabado] = []
         for codigo in codigos_planos:
             # `fetch_all_values`: os 3 campos vêm de `REPLACE(CONVERT(...))`/`CONVERT(...)`
-            # sem alias, que colidem por nome no driver ODBC (mesmo bug de
+            # sem alias, que colidem por nome no driver (mesmo bug de
             # `_busca_header_nova_tabela_quot`).
             peso_qtd_rows = wbc.fetch_all_values(q.VERIFICA_SEMI_ACABADO_PESO, (codigo, id_integracao, oopr))
             if not peso_qtd_rows:

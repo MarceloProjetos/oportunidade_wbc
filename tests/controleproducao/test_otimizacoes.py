@@ -34,6 +34,8 @@ class _CursorFake:
     def execute(self, sql, params=()):
         if self.conexao.morta and "SET SCHEMA" not in sql:
             raise _ErroFake("connection closed")
+        if "ERRO_DE_SQL" in sql:
+            raise _ErroFake("invalid column name")
         self.conexao.consultas.append(sql)
 
     def fetchall(self):
@@ -51,6 +53,9 @@ class _ConexaoFake:
 
     def cursor(self):
         return _CursorFake(self)
+
+    def isconnected(self):
+        return not self.morta
 
     def close(self):
         self.fechada = True
@@ -112,6 +117,31 @@ def test_reconecta_sozinho_se_a_conexao_cair(hana_falso):
 
     assert len(abertas) == 2
     assert abertas[0].fechada
+
+
+def test_erro_de_sql_com_conexao_viva_nao_reconecta(hana_falso):
+    """30/09/2026: a SQL error fails the same way twice — retrying it only threw away a good
+    connection and paid a new login."""
+    from controleproducao.core.exceptions import WbcDatabaseError
+
+    criar_leitor, abertas = hana_falso
+    leitor = criar_leitor()
+    leitor.fetch_all("SELECT 1")
+    with pytest.raises(WbcDatabaseError, match="invalid column"):
+        leitor.fetch_all("SELECT ERRO_DE_SQL")
+    assert len(abertas) == 1 and not abertas[0].fechada
+
+
+def test_leitor_recusa_escrita_e_schema_invalido(hana_falso, monkeypatch):
+    criar_leitor, abertas = hana_falso
+    leitor = criar_leitor()
+    with pytest.raises(ValueError, match="só lê"):
+        leitor.fetch_all('UPDATE "ORDR" SET "Comments" = ?', ("x",))
+    assert abertas == []                      # refused before even connecting
+
+    leitor._settings.hana_schema = 'SCH"; DROP'
+    with pytest.raises(ValueError, match="schema inválido"):
+        leitor.fetch_all("SELECT 1")
 
 
 def test_close_encerra_a_conexao(hana_falso):

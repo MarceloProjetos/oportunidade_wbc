@@ -1,5 +1,3 @@
-{% set mono = ["Orçamento", "SitCode", "Rev.", "Cotação", "Pedido", "Aberta em", "Última verificação"] %}
-{% set num = ["Valor do pedido"] %}
 <div class="bloco">
   <header>
     <h2>Oportunidades acompanhadas</h2>
@@ -85,7 +83,7 @@
         <thead>
           <tr>
             {% for coluna in linhas[0].keys() %}
-              <th class="{{ 'mono' if coluna in mono }}">{{ coluna }}</th>
+              <th class="{{ 'num' if coluna in num else ('mono' if coluna in mono else '') }}">{{ coluna }}</th>
             {% endfor %}
           </tr>
         </thead>

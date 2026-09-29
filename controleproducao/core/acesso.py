@@ -47,15 +47,25 @@ def _e_chamada_de_script(request: Request) -> bool:
 
 
 def _mesma_origem(request: Request) -> bool:
-    """``Origin`` (or ``Referer``) host must be the request's own host; neither → refused."""
+    """``Origin`` (or ``Referer``) host AND port must be this server's; neither → refused.
+
+    Port included since 30/09/2026: the other screens of this machine (8077, 8078, 8079) are
+    other origins, and none of them posts here.
+    """
     origem = request.headers.get("origin") or request.headers.get("referer") or ""
-    host_origem = urlsplit(origem).hostname
-    return bool(host_origem) and host_origem == request.url.hostname
+    netloc_origem = urlsplit(origem).netloc
+    return bool(netloc_origem) and netloc_origem == request.url.netloc
 
 
 def tarefas_ativas() -> int:
     """Tasks running or queued — what a deploy must not interrupt."""
     return sum(1 for tarefa in TAREFAS.listar(limite=200) if not tarefa.terminada)
+
+
+def ocupado() -> bool:
+    """A task, or the Supabase write of one that just ended (seconds; ~30 s if Supabase is
+    down): stopping the service now loses SAP work or the history row."""
+    return bool(tarefas_ativas() or TAREFAS.gravacoes_pendentes())
 
 
 def _tela_de_entrada(request: Request, *, erro: str | None, proximo: str) -> HTMLResponse:
@@ -131,6 +141,7 @@ def instalar(app: FastAPI) -> None:
         """Liveness for the SIS ``/status`` check and for people. Open; no secrets."""
         s = get_settings()
         ativas = tarefas_ativas()
+        pendentes = TAREFAS.gravacoes_pendentes()
         return JSONResponse(
             {
                 "ok": True,
@@ -138,7 +149,8 @@ def instalar(app: FastAPI) -> None:
                 "producao": s.is_production,
                 "company_db": s.sl_company_db,
                 "tarefas_ativas": ativas,
-                "ocupado": ativas > 0,
+                "gravacoes_pendentes": pendentes,
+                "ocupado": bool(ativas or pendentes),
                 "chave_configurada": bool(s.os_api_key.get_secret_value()),
                 # Where the Execuções screen keeps finished runs: "supabase" (the .11) or
                 # "memoria" (lost on restart) — the post-deploy check reads it here.
@@ -147,10 +159,11 @@ def instalar(app: FastAPI) -> None:
         )
 
     @app.get("/health/ocupado", response_class=PlainTextResponse)
-    def ocupado() -> str:
-        """``1`` while a task runs or waits, else ``0`` — what ``deploy_update.bat`` reads
-        before ``nssm stop`` (stopping mid-task leaves half-created OPs in the SAP)."""
-        return "1" if tarefas_ativas() else "0"
+    def health_ocupado() -> str:
+        """``1`` while a task runs or waits (or its history write is in flight), else ``0`` —
+        what ``deploy_update.bat`` reads before ``nssm stop`` (stopping mid-task leaves
+        half-created OPs in the SAP)."""
+        return "1" if ocupado() else "0"
 
     @app.get("/painel-wbc")
     def painel_wbc(request: Request) -> RedirectResponse:

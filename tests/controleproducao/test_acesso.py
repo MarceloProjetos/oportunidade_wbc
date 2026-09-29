@@ -150,6 +150,10 @@ class TestOrigem:
         resposta = logado.post("/tarefas/x/cancelar", headers={"Origin": "http://testserver"})
         assert resposta.status_code == 200 and resposta.json() == {"cancelada": False}
 
+    def test_post_por_cookie_de_outra_porta_do_mesmo_host_e_403(self, logado: TestClient) -> None:
+        """30/09/2026: host-only matching let the 8077/8078/8079 pages of this machine through."""
+        assert logado.post("/tarefas/x/cancelar", headers={"Origin": "http://testserver:8079"}).status_code == 403
+
     def test_referer_vale_como_origin(self, logado: TestClient) -> None:
         resposta = logado.post("/tarefas/x/cancelar", headers={"Referer": "http://testserver/tarefas/x"})
         assert resposta.status_code == 200
@@ -200,3 +204,14 @@ class TestHealth:
         monkeypatch.setattr(acesso, "tarefas_ativas", lambda: 2)
         assert aberto.get("/health/ocupado").text == "1"
         assert aberto.get("/health").json()["ocupado"] is True
+
+    def test_ocupado_ve_gravacao_do_historico_em_andamento(
+        self, aberto: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """30/09/2026: a deploy right after a run ended could kill the Supabase write."""
+        from controleproducao.core.tarefas import TAREFAS
+
+        monkeypatch.setattr(TAREFAS, "gravacoes_pendentes", lambda: 1)
+        assert aberto.get("/health/ocupado").text == "1"
+        corpo = aberto.get("/health").json()
+        assert corpo["ocupado"] is True and corpo["gravacoes_pendentes"] == 1 and corpo["tarefas_ativas"] == 0

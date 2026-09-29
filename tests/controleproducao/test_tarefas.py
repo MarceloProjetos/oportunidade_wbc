@@ -269,7 +269,33 @@ def test_barra_carrega_o_desfecho_e_nao_so_o_andamento():
             or f".ov-barra.{classe} > i {{ --ov-barra-cor: var({token}); }}" in css, classe
 
     # A pílula e a barra leem a MESMA decisão: duas leituras independentes do mesmo
-    # estado divergiriam na primeira vez que alguém mexesse numa delas.
+    # estado divergiriam na primeira vez que alguém mexesse numa delas. Since 30/09/2026 the
+    # decision is `Tarefa.desfecho` (server) and the class maps are the templates' globals.
     html = open(_RAIZ / "controleproducao/templates/tarefa.html", encoding="utf-8").read()
-    assert "function desfecho(d)" in html
+    assert "const fim = d.desfecho;" in html
+    assert "CLASSE_DA_PILULA|tojson" in html and "CLASSE_DA_BARRA|tojson" in html
     assert "CLASSE_PILULA[fim]" in html and "CLASSE_BARRA[fim]" in html
+
+
+@pytest.mark.parametrize("situacao,resultado,esperado", [
+    ("concluída", {"com_erro": []}, "ok"),
+    ("concluída", {"com_erro": [1]}, "falhas"),
+    ("cancelada", None, "cancelada"),
+    ("erro", {"com_erro": [1]}, "erro"),
+    ("executando", None, "rodando"),
+    ("na fila", None, "fila"),
+])
+def test_um_so_desfecho_para_lista_detalhe_e_barra(situacao, resultado, esperado):
+    """29/09/2026: the list painted a cancelled run GREEN while the detail showed it amber."""
+    from datetime import datetime
+
+    from controleproducao.core.tarefas import CLASSE_DA_BARRA, CLASSE_DA_PILULA, Tarefa
+
+    tarefa = Tarefa(id="t", nome="n", descricao="d", criada_em=datetime.now(),
+                    situacao=situacao, resultado=resultado)
+    assert tarefa.desfecho == esperado == tarefa.para_json()["desfecho"]
+    assert esperado in CLASSE_DA_PILULA and esperado in CLASSE_DA_BARRA
+    assert CLASSE_DA_PILULA["cancelada"] != "is-ok"
+
+    lista = open(_RAIZ / "controleproducao/templates/tarefas.html", encoding="utf-8").read()
+    assert "CLASSE_DA_PILULA[t.desfecho]" in lista

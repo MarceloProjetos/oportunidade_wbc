@@ -2,14 +2,6 @@
 {% from "_icones.html" import icone %}
 {% set ativo = 'tarefas' %}
 {% block title %}{{ tarefa.nome }}{% endblock %}
-{% set desfecho = 'erro' if tarefa.situacao == 'erro'
-                  else ('falhas' if tarefa.com_falhas
-                  else ('cancelada' if tarefa.situacao == 'cancelada'
-                  else ('ok' if tarefa.terminada else 'rodando'))) %}
-{% set classe_pilula = {'erro':'is-erro','falhas':'is-warn','cancelada':'is-warn',
-                        'ok':'is-ok','rodando':'is-aberto'} %}
-{% set classe_barra = {'erro':'is-erro','falhas':'is-warn','cancelada':'is-erro',
-                       'ok':'is-ok','rodando':''} %}
 {% block content %}
 <header class="ov-topbar">
   <span class="simbolo">{{ icone('execucoes', 30) }}</span>
@@ -21,14 +13,14 @@
 
 <section class="ov-card" data-tarefa="{{ tarefa.id }}">
   <p style="margin-top:0">
-    <span class="ov-pill {{ classe_pilula[desfecho] }}" id="situacao">{{
-      tarefa.situacao }}{% if tarefa.com_falhas %} com falhas{% endif %}</span>
+    <span class="ov-pill {{ CLASSE_DA_PILULA[tarefa.desfecho] }}" id="situacao">{{
+      tarefa.situacao }}{% if tarefa.desfecho == 'falhas' %} com falhas{% endif %}</span>
     <span class="ov-nota" id="progresso"></span>
     <span class="ov-nota" id="duracao"></span>
     <span class="ov-nota">· {{ tarefa.criada_em.strftime('%d/%m/%Y %H:%M:%S') }}{% if tarefa.guardada %}
       · guardada no Supabase (só leitura){% endif %}</span>
   </p>
-  <div class="ov-barra {{ classe_barra[desfecho] }}" id="barra-casca"><i id="barra"></i></div>
+  <div class="ov-barra {{ CLASSE_DA_BARRA[tarefa.desfecho] }}" id="barra-casca"><i id="barra"></i></div>
   <p id="passo" class="ov-passo">{{ tarefa.passo }}</p>
 
   <pre id="linhas" class="ov-log">{% for l in tarefa.linhas %}{{ l }}
@@ -101,25 +93,15 @@
       .finally(function () { btnCancelar.disabled = false; });
   });
 
-  // Uma decisão só sobre o desfecho, lida pela pílula E pela barra. Duas leituras
-  // independentes do mesmo estado divergiriam na primeira vez que alguém mexesse numa.
-  function desfecho(d) {
-    if (d.situacao === 'erro') { return 'erro'; }
-    if (d.com_falhas) { return 'falhas'; }
-    if (d.situacao === 'cancelada') { return 'cancelada'; }
-    if (d.terminada) { return 'ok'; }
-    return 'rodando';
-  }
-  const CLASSE_PILULA = { erro: 'is-erro', falhas: 'is-warn', cancelada: 'is-warn',
-                          ok: 'is-ok', rodando: 'is-aberto' };
-  // Enquanto roda a barra fica no acento: '' deixa o padrão do CSS valer.
-  const CLASSE_BARRA = { erro: 'is-erro', falhas: 'is-warn', cancelada: 'is-erro',
-                         ok: 'is-ok', rodando: '' };
+  // The outcome is decided once, on the server (`Tarefa.desfecho`), and painted from the same
+  // maps the templates use — the pill, the bar and the Execuções list cannot disagree.
+  const CLASSE_PILULA = {{ CLASSE_DA_PILULA|tojson }};
+  const CLASSE_BARRA = {{ CLASSE_DA_BARRA|tojson }};
 
   function pinta(d) {
     // "concluída" com erros no resultado não pode aparecer em verde.
-    const fim = desfecho(d);
-    elSituacao.textContent = d.com_falhas ? d.situacao + ' com falhas' : d.situacao;
+    const fim = d.desfecho;
+    elSituacao.textContent = fim === 'falhas' ? d.situacao + ' com falhas' : d.situacao;
     elSituacao.className = 'ov-pill ' + CLASSE_PILULA[fim];
     elBarraCasca.className = 'ov-barra ' + CLASSE_BARRA[fim];
     elProgresso.textContent = d.passos_total ? ' — ' + d.passos_feitos + '/' + d.passos_total : '';
@@ -141,14 +123,26 @@
     return d.terminada;
   }
 
+  // The server's own message (404 "saiu do histórico", 503 "histórico não respondeu"),
+  // with a fallback for bodies that are not JSON.
+  function detalhe(r, padrao) {
+    return r.json().then(function (d) { return (d && d.detail) || padrao; }, function () { return padrao; });
+  }
+
   function consulta() {
     fetch('/tarefas/' + id + '/estado', { headers: CABECALHOS })
       .then(function (r) {
         if (r.status === 401 || r.redirected) { sessaoExpirou(); return null; }
         if (r.status === 404) {
-          avisa('Esta tarefa saiu do histórico ou o servidor foi reiniciado — o acompanhamento parou.');
           elAcoes.hidden = true;
-          return null;
+          return detalhe(r, 'Esta execução saiu do histórico — o acompanhamento parou.').then(avisa);
+        }
+        if (r.status === 503) {
+          // The stored history is down: retry, but slowly — every try waits on Supabase.
+          return detalhe(r, 'O histórico não respondeu.').then(function (t) {
+            avisa(t + ' Nova tentativa em 15 s.');
+            setTimeout(consulta, 15000);
+          });
         }
         if (!r.ok || (r.headers.get('content-type') || '').indexOf('application/json') === -1) {
           avisa('O servidor respondeu algo inesperado (HTTP ' + r.status + '); nova tentativa em 5 s.');
@@ -161,7 +155,15 @@
       // e a página precisa voltar a mostrá-la quando a rede voltar.
       .catch(function () { setTimeout(consulta, 5000); });
   }
+
+  // Already finished at render (a stored execution, or one that ended before the page
+  // opened): paint the final state that came with the page — polling would only repeat the
+  // same read, and for a stored one each read goes to Supabase.
+  {% if tarefa.terminada %}
+  pinta({{ tarefa.para_json()|tojson }});
+  {% else %}
   consulta();
+  {% endif %}
 })();
 </script>
 {% endblock %}

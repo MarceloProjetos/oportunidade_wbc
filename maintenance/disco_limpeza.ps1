@@ -136,7 +136,7 @@ if ($Confirmar) {
 $LOGS_VIVOS = @(
     'api.log', 'scheduled_execution.log', 'mcp_service.log', 'wbcpython.log', 'controleproducao.log',
     'api_service.log', 'scheduler_service.log', 'wbc_painel_service.log', 'wbc_worker_service.log',
-    'controleproducao_service.log'
+    'controleproducao_service.log', 'controleproducao_cli.log'
 )
 $LOGS_SIS = 'C:\Python\ServidorIntegracaoSAP\logs'
 foreach ($filtro in @('*.log', '*.log.*')) {

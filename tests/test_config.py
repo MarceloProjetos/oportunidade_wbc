@@ -194,3 +194,12 @@ def test_op_porta_torta_no_env_cai_no_default(monkeypatch):
 def test_op_timeout_default_tem_connect_curto_e_read_longo():
     reset_settings()
     assert get_settings().op_sl_timeout == (5.0, 30.0)
+
+
+def test_op_sl_enabled_acompanha_o_ip_sem_reiniciar(monkeypatch):
+    """30/09/2026: frozen at startup, a boot where the address was not bound yet kept the OP
+    routes off all day on the .11. It is read live from the IP now."""
+    s = get_settings()
+    assert s.op_sl_enabled is False
+    monkeypatch.setattr(safety, "PRODUCTION_MACHINE_IP", "127.0.0.1")
+    assert s.op_sl_enabled is True            # same cached Settings object

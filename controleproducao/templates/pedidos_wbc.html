@@ -40,21 +40,23 @@
   {% endif %}
 </div>
 
-<form method="post" id="form-pedidos"
-      action="/pedidos-wbc/{{ 'reprocessar' if modo == 'integrados' else 'processar' }}/conferir">
+{# "Integrados" is a read-only list since D8 (Reprocessar is CLI-only): no boxes to tick. #}
+{% set selecionavel = modo != 'integrados' %}
+<form method="post" id="form-pedidos" action="/pedidos-wbc/processar/conferir">
   <section class="ov-table-card">
     <div class="ov-scroll">
       <table class="ov-table">
         <thead>
           <tr>
-            <th></th><th>Pedido</th><th>Oportunidade</th><th>WBC</th>
+            {% if selecionavel %}<th></th>{% endif %}<th>Pedido</th><th>Oportunidade</th><th>WBC</th>
             <th>Cliente</th><th class="num">Total</th><th>Criado</th>
           </tr>
         </thead>
         <tbody>
           {% for p in pedidos %}
           <tr>
-            <td><input type="checkbox" name="opp_ids" value="{{ p.opp_id }}"></td>
+            {% if selecionavel %}<td><input type="checkbox" name="opp_ids" value="{{ p.opp_id }}"
+              aria-label="Selecionar o pedido {{ p.doc_num }}"></td>{% endif %}
             <td class="num"><strong>{{ p.doc_num }}</strong></td>
             <td class="num">{{ p.opp_id }}</td>
             <td><span class="ov-pill is-aberto">{{ p.orc_num_masc }}</span></td>
@@ -63,7 +65,7 @@
             <td class="data">{{ p.data_lancamento[:10] }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="7" class="vazio">
+          <tr><td colspan="{{ 7 if selecionavel else 6 }}" class="vazio">
             {% if buscou %}Nenhum pedido neste modo.{% else %}Use "Buscar" para carregar a lista.{% endif %}
           </td></tr>
           {% endfor %}
@@ -85,7 +87,9 @@
       <a href="/pedidos-wbc?modo={{ modo }}&buscar=1&pagina={{ pagina + 1 }}">próxima ›</a>
       {% endif %}
     </span>
+    {% if selecionavel %}
     <span class="ov-nota-inline">A seleção vale só para esta página — mudar de página a perde.</span>
+    {% endif %}
     {% endif %}
   </div>
   {% endif %}
@@ -98,9 +102,9 @@
     {# Starts disabled; the script below enables it with at least one pedido marked. The
        server still refuses an empty selection ("Nenhum pedido selecionado."). #}
     <button type="submit" class="ov-btn ov-btn--perigo" id="btn-processar" disabled
-            title="Marque ao menos um pedido">{{ icone('play') }}
+            title="Marque ao menos um pedido" aria-describedby="dica-processar">{{ icone('play') }}
       <span id="rotulo-processar">Processar selecionados…</span></button>
-    <span class="ov-nota-inline" id="dica-processar">
+    <span class="ov-nota-inline" id="dica-processar" aria-live="polite">
       {%- if pedidos %}Marque ao menos um pedido.
       {%- elif buscou %}Nenhum pedido para processar.
       {%- else %}Busque os pedidos para selecionar.{% endif -%}
@@ -109,8 +113,10 @@
       id="forcar" disabled> forçar (ignora as checagens de reprocessamento)</label>
     {% endif %}
   </div>
+  {% if selecionavel %}
   <p class="ov-nota">Nada é gravado neste passo: a próxima tela mostra exatamente o que será
     feito e pede confirmação.</p>
+  {% endif %}
 </form>
 
 <h2>Cancelar as OPs de um pedido</h2>
@@ -124,9 +130,9 @@
   <div class="ov-field"><label for="c-orc">Nº Orçamento</label>
     <input class="ov-input" id="c-orc" type="text" name="orc_num" inputmode="numeric"
            autocomplete="off" data-numero></div>
-  <button type="submit" class="ov-btn ov-btn--perigo" disabled
+  <button type="submit" class="ov-btn ov-btn--perigo" disabled aria-describedby="dica-cancelar"
           title="Informe o nº do pedido ou do orçamento">{{ icone('escudo') }} Conferir…</button>
-  <p class="ov-nota" data-dica>Informe o nº do pedido ou do orçamento (só números).</p>
+  <p class="ov-nota" id="dica-cancelar" data-dica aria-live="polite">Informe o nº do pedido ou do orçamento (só números).</p>
 </form>
 
 <script>

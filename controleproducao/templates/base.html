@@ -26,7 +26,7 @@
       }
     })();
   </script>
-  <link rel="stylesheet" href="/static/style.css?v=3">
+  <link rel="stylesheet" href="/static/style.css?v=4">
 </head>
 <body>
   <nav class="ov-nav">
@@ -104,6 +104,27 @@
         // Back/forward and autofill can restore values without an input event.
         window.addEventListener("pageshow", pinta);
         pinta();
+      });
+    })();
+
+    // One submit per page load for every POST form. A double click on "Confirmar e executar"
+    // sent the single-use token twice: the task started and the page showed the SECOND answer
+    // ("confirmação já utilizada") — an error on screen while the SAP write was running
+    // invites doing it again. The submitter is not disabled (its name/value, e.g. acao=l,
+    // must still be posted); the extra submits are just dropped.
+    (function () {
+      Array.prototype.forEach.call(document.querySelectorAll('form[method="post"]'), function (form) {
+        form.addEventListener("submit", function (evento) {
+          if (form.dataset.enviando) { evento.preventDefault(); return; }
+          form.dataset.enviando = "1";
+        });
+      });
+      // Coming back with the browser's Back button restores the page from cache with the
+      // flag still set: clear it, or the form would never submit again.
+      window.addEventListener("pageshow", function () {
+        Array.prototype.forEach.call(document.querySelectorAll("form[data-enviando]"), function (f) {
+          delete f.dataset.enviando;
+        });
       });
     })();
   </script>

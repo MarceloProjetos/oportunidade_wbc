@@ -25,9 +25,9 @@ WHERE T0."DocNum" = ? AND T1."Status" != 'C'
 #   AND (T1."Status" BETWEEN ? AND ?)   -- or = ?
 #   ORDER BY T1."DocNum" DESC
 
-OPDE = 'SELECT T0."DocEntry" FROM OWOR T0 WHERE T0."DocNum" = ?'
-
-QTDE_FALTANTE_OP = 'SELECT T1."ItemCode", T1."PlannedQty" - T1."IssuedQty" FROM OWOR T0 INNER JOIN WOR1 T1 ON T0."DocEntry" = T1."DocEntry" WHERE T0."DocEntry" = ?'
+# The legacy `OPDE` and `QTDE_FALTANTE_OP` (Querys.resx) were removed on 30/09/2026: nothing
+# executed them — DocEntry comes from the listing, and `LINHAS_FALTANTES_OP` below replaced
+# the second one.
 
 
 # --- Adicionadas em 16/09/2026 ao implementar liberar/replanejar -------------------
@@ -58,7 +58,7 @@ ORDER BY T0."DocNum"
 # --- Adicionadas em 17/09/2026 ao concluir o módulo 3 -----------------------------
 # Linhas de componente de uma OP com a quantidade ainda não baixada.
 #
-# O legado usa `QTDE_FALTANTE_OP` (acima), que devolve só ItemCode e a diferença, sem o
+# O legado usa `QTDE_FALTANTE_OP` (Querys.resx), que devolve só ItemCode e a diferença, sem o
 # `LineNum` — e então usa o ÍNDICE da linha no recordset como `BaseLine` da saída de
 # insumo. Isso só funciona enquanto a ordem devolvida pelo banco coincidir com a numeração
 # das linhas da OP, o que a consulta original nem sequer garante (não tem ORDER BY).

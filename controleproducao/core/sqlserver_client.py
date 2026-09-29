@@ -4,19 +4,24 @@ Equivalente direto de `Controllers/SQLConnection.cs` no addon original: mesma ba
 dados, mesmas tabelas `INTEGRACAO_*`, mesmo padrão de "monta string SQL e executa".
 
 Diferença deliberada em relação ao legado (ver "Débitos técnicos", item 2, no
-migration_guide.md): aqui usamos **parâmetros bindados** (`?` do pyodbc) em vez de
-concatenar valores vindos de tela diretamente na string SQL, para eliminar o risco de
-SQL injection que existia no C# original — sem mudar o texto/lógica das queries em si.
+migration_guide.md): aqui usamos **parâmetros** (`?`) em vez de concatenar valores vindos de
+tela diretamente na string SQL, para eliminar o risco de SQL injection que existia no C#
+original — sem mudar o texto/lógica das queries em si.
 
 Driver since 29/09/2026 (F7 of docs/PLANO_CONTROLE_PRODUCAO_11.md): `pymssql`, the one the
 WBC worker already uses on the .11 against the same server — it replaced `pyodbc`, which
 depended on the exact name of an installed ODBC driver (the .11 only has Driver 17 and the
 default was 18: it bit on 28/09). Callers still write `?` and pass a tuple;
 `_para_pyformat` translates to the `%s` that `pymssql` expects.
+
+Read-only, and it has no switch (30/09/2026): every statement passes
+`sql_ligado.exige_leitura`, there is no write method, and the connection is opened with
+`autocommit=False` and never committed.
 """
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -24,30 +29,37 @@ from typing import Any
 from controleproducao.config import Settings
 from controleproducao.core.exceptions import WbcDatabaseError
 from controleproducao.core.perf import PERFIL, forma_sql
+from controleproducao.core.sql_ligado import exige_leitura
 
 logger = logging.getLogger(__name__)
 
 # A dead server must fail in seconds, not hang the task for a minute (pymssql default: 60).
 _LOGIN_TIMEOUT_S = 15
+# Per-query ceiling (pymssql default: 0 = forever). A query stuck on a lock would keep the
+# task — and /health/ocupado — alive indefinitely; the C# addon used 300–500 s.
+_QUERY_TIMEOUT_S = 600
+
+# pymssql 2.4 substitutes `%s`/`%d` anywhere in the text (literals included) and leaves every
+# other `%` untouched — so a literal `%` needs no escaping, but these two must not appear.
+_MARCADOR_DO_DRIVER = re.compile(r"%[sd]")
 
 
 def _para_pyformat(sql: str, quantidade_params: int) -> str:
     """Translate qmark (`?`) placeholders to pymssql's `%s`.
 
-    `pymssql` interpolates with Python `%` formatting, so every literal `%` (a `LIKE '%x%'`)
-    must become `%%`, and only the `?` OUTSIDE string literals, quoted/bracketed identifiers
-    and comments are placeholders. The count must match the parameters: a mismatch is a
-    programming error and is refused here, before the server sees anything.
+    Only the `?` OUTSIDE string literals, quoted/bracketed identifiers and comments are
+    placeholders. A literal `%` passes as is (checked against pymssql 2.4.2's substitution
+    on 30/09/2026 — doubling it reached the server as `%%`). The count must match the
+    parameters: a mismatch is a programming error and is refused here, before the server
+    sees anything.
     """
+    if _MARCADOR_DO_DRIVER.search(sql):
+        raise ValueError(f"SQL com '%s'/'%d' no texto, que o pymssql trocaria por parâmetro: {forma_sql(sql)}")
     saida: list[str] = []
     marcadores = 0
     i, n = 0, len(sql)
     while i < n:
         c = sql[i]
-        if c == "%":
-            saida.append("%%")
-            i += 1
-            continue
         if c in ("'", '"', "["):
             fecha = "]" if c == "[" else c
             j = i + 1
@@ -59,19 +71,19 @@ def _para_pyformat(sql: str, quantidade_params: int) -> str:
                         continue
                     break
                 j += 1
-            saida.append(sql[i:j + 1].replace("%", "%%"))
+            saida.append(sql[i:j + 1])
             i = j + 1
             continue
         if c == "-" and sql.startswith("--", i):
             fim = sql.find("\n", i)
             fim = n if fim == -1 else fim
-            saida.append(sql[i:fim].replace("%", "%%"))
+            saida.append(sql[i:fim])
             i = fim
             continue
         if c == "/" and sql.startswith("/*", i):
             fim = sql.find("*/", i + 2)
             fim = n if fim == -1 else fim + 2
-            saida.append(sql[i:fim].replace("%", "%%"))
+            saida.append(sql[i:fim])
             i = fim
             continue
         if c == "?":
@@ -91,7 +103,8 @@ def _para_pyformat(sql: str, quantidade_params: int) -> str:
 class WbcSqlServerClient:
     """Espelha os métodos de `SQLConnection.cs`:
 
-    - `ExecuteQuery`      -> `execute_non_query` / `fetch_all` conforme o caso
+    - `ExecuteQuery`      -> `fetch_all` (the write path was removed on 30/09/2026: the
+      WBC database is read-only for this package)
     - `ExecuteSelect`     -> `fetch_scalar_list`
     - `ExecuteSelectMultip` / `ExecuteSelectMultipString` -> `fetch_row`
     - `ExecuteSelectNew`, `ExecuteSelect2`, `selectORCCAB`, `PegaEstruturaPrd`,
@@ -120,6 +133,10 @@ class WbcSqlServerClient:
                     password=s.wbc_sql_password,
                     database=s.wbc_sql_database,
                     login_timeout=_LOGIN_TIMEOUT_S,
+                    timeout=_QUERY_TIMEOUT_S,
+                    # Explicit on purpose: nothing here commits, so even a statement that
+                    # slipped past `exige_leitura` would be rolled back on close.
+                    autocommit=False,
                 )
         except pymssql.Error as exc:  # pragma: no cover - depende de infra real
             raise WbcDatabaseError(f"Falha ao conectar no SQL Server WBC: {exc}") from exc
@@ -132,11 +149,12 @@ class WbcSqlServerClient:
     def _executa(cursor: Any, sql: str, params: tuple[Any, ...]) -> None:
         import pymssql
 
+        exige_leitura(sql)
         try:
             if params:
                 cursor.execute(_para_pyformat(sql, len(params)), tuple(params))
             else:
-                # No parameters: pymssql does not %-format, so the text goes as is.
+                # No parameters: pymssql does no substitution, so the text goes as is.
                 _para_pyformat(sql, 0)
                 cursor.execute(sql)
         except pymssql.Error as exc:
@@ -168,15 +186,3 @@ class WbcSqlServerClient:
             with PERFIL.medir("WBC (SQL Server) · executar query", forma_sql(sql)):
                 self._executa(cursor, sql, params)
                 return [list(row) for row in cursor.fetchall()]
-
-    def execute_non_query(self, sql: str, params: tuple[Any, ...] = ()) -> None:
-        """Equivalente ao caminho de `INSERT`/`UPDATE` em `SQLConnection.ExecuteQuery`
-        ⚠️ Sem uso desde 22/09/2026: o único `INSERT` do porte (`INTEGRACAO_ORCINC`)
-        pertencia ao módulo 1, removido. Mantido porque é a única via de escrita no WBC e
-        o módulo 4 (Romaneio) ainda não foi portado — se ele não precisar escrever, este
-        método pode sair junto.
-        """
-        with self._connect() as conn:
-            cursor = conn.cursor()
-            self._executa(cursor, sql, params)
-            conn.commit()

@@ -124,8 +124,7 @@ echo   2. python -m wbcpython doctor
 echo   3. nssm start OrcaView-WBC-Painel   ^(se parar: Get-Content .\logs\wbc_painel_service.log -Tail 30 -Encoding utf8^)
 echo   4. bloco CP no .env ^(CP_HOST=0.0.0.0 + regra de firewall da 8080 so para a LAN - README, "Controle de Producao";
 echo      127.0.0.1 = so a propria maquina, e ai o painel abre por http://localhost:8079; CP_PORTA=8080;
-echo      WBC_SQL_DRIVER=ODBC Driver 17 for SQL Server - a .11 so tem o 17, o default do config e o 18 e nao ha
-echo      fallback: a subida nao acusa, so o primeiro "buscar"^)
+echo      o WBC e lido por pymssql - WBC_SQL_DRIVER nao tem efeito desde 29/09/2026^)
 echo      e  nssm start OrcaView-ControleProducao   ^(confere: curl http://127.0.0.1:8080/health^)
 echo      ^(.env editado com o servico ja rodando? nssm restart OrcaView-ControleProducao - o .env e lido na subida^)
 endlocal

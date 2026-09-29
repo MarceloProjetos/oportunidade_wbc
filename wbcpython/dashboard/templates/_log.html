@@ -13,7 +13,7 @@
 <div class="bloco">
   <header>
     <h2>Log da integração</h2>
-    <label class="caixa" style="padding-bottom: 0">
+    <label class="caixa">
       <input type="checkbox" id="seguir" {% if seguir %}checked{% endif %} />
       Acompanhar (a cada {{ ritmo }}s)
     </label>
@@ -66,7 +66,7 @@
     hx-include="#log-filtros"
   >
     {% if graves %}
-      <div style="padding: 0 14px">
+      <div style="padding: 0 20px">
         <div class="aviso erro">
           <div>{{ graves }} linha(s) de erro entre as {{ linhas | length }} mostradas.</div>
         </div>
@@ -109,7 +109,7 @@
       </div>
       {# Mais novas primeiro: quem abre um monitor quer saber o que acabou de
          acontecer, não o que aconteceu quando o arquivo começou. #}
-      <div style="padding: 9px 14px">
+      <div style="padding: 9px 20px">
         <span class="carimbo">
           <span class="pulso" id="pulso-log"></span>
           {{ linhas | length }} linha(s), mais recentes primeiro · {{ atualizado }}

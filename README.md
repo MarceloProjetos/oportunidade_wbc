@@ -4,7 +4,7 @@
 view do **SAP B1 (HANA)**, enriquece com a situação do orçamento vinda do **SQL Server
 (WBCcad)** e carrega tudo numa tabela do **Supabase (PostgreSQL)** — e, desde 2026-09-08,
 também a **Integração WBC → SAP** (`wbcpython/`): o worker que cria cotação e pedido no SAP
-a partir dos orçamentos do WBC, com o painel que é a porta de entrada das duas telas.
+a partir dos orçamentos do WBC, com o painel que é a porta de entrada das outras duas telas.
 
 ![Python](https://img.shields.io/badge/Python-3.14-blue)
 ![SAP HANA](https://img.shields.io/badge/SAP-HANA-orange)
@@ -490,8 +490,8 @@ Conferir: abra `http://127.0.0.1:8077/health` (ou de outra máquina `http://<ip-
 
 ## Ordens de Produção — escrita de status no SAP
 
-⚠️ **É o único caminho deste serviço que muda dado DENTRO do SAP** (todo o resto lê SAP e
-escreve no Supabase), e ele aponta para a base de **produção** `SBOALTAMIRAPROD`. Vai pelo
+⚠️ **É um dos três caminhos deste serviço que mudam dado DENTRO do SAP** — os outros são o
+worker `wbcpython` e o `controleproducao` — e o **único pela API 8077**; aponta para a base de **produção** `SBOALTAMIRAPROD`. Vai pelo
 **Service Layer** (REST, porta 50000), não pelo HANA. Módulo:
 [ordens_producao_sl.py](ordens_producao_sl.py) · plano: [docs/PLANO_OP_STATUS.md](docs/PLANO_OP_STATUS.md).
 
@@ -561,7 +561,8 @@ WBCPython, reescrita Python do `WBCServConsole`): o worker lê os orçamentos do
 Server, **só leitura**), decide pela máquina de estados do `SitCode` e cria/atualiza/cancela
 **cotação e pedido no SAP** pelo Service Layer, espelha o status na oportunidade e grava o
 `OrcDetalhe`. O painel (FastAPI + HTMX, porta `PAINEL_PORTA`, 8079) é a **porta de entrada**
-das duas telas: de lá um botão leva ao Painel de Sincronização (8077); de cá o link
+das outras duas telas: de lá um botão leva ao Painel de Sincronização (8077) e dois ao Controle
+de Produção (8080); de cá o link
 `⇄ Integração WBC` (`GET /painel-wbc`) volta.
 
 | Peça | Comando (na raiz) | Serviço NSSM |
@@ -608,7 +609,7 @@ módulo 3 (*Manutenção de OP*) libera, replaneja e **encerra com movimentaçã
 | Diagnóstico | `python -m controleproducao conexoes testar` · `diag entidade <Nome>` | — |
 
 - **Configuração:** bloco "Controle de Produção" do `.env.example` (`CP_HOST`, `CP_PORTA`,
-  `CP_LOG_FILE`, `WBC_SQL_DRIVER`, `HANA_SCHEMA_LEGADO`, `SL_BUSINESS_PLACE_ID`); as
+  `CP_LOG_FILE`, `CP_CLI_LOG_FILE`, `HANA_SCHEMA_LEGADO`, `SL_BUSINESS_PLACE_ID`); as
   credenciais são as `SL_*`/`HANA_*`/`WBC_SQL_*` do bloco WBC, com os mesmos fallbacks.
   `HANA_SCHEMA` **não** é lido: o pacote lê ORDR/OWOR na company de `SL_COMPANY_DB`. O SQL
   Server do WBC é lido por `pymssql` desde 29/09/2026 (o mesmo driver do worker) — sem ODBC;
@@ -643,6 +644,13 @@ módulo 3 (*Manutenção de OP*) libera, replaneja e **encerra com movimentaçã
 - **Módulo 3 (D9):** `Liberar` e `Encerrar` pela tela; `Replanejar` só pela CLI
   (`python -m controleproducao manutencao-op replanejar`). A API 8077 deixou de encerrar OP
   (seção "Ordens de Produção" acima): encerrar com estoque é só aqui.
+- **Módulo 2 (D8):** `Reprocessar` só pela CLI (`pedidos-wbc reprocessar-integrados`); na tela,
+  "Pedidos integrados" é lista de consulta. Os comandos da CLI que gravam registram o que
+  fizeram em `logs/controleproducao_cli.log` (`CP_CLI_LOG_FILE`), com a linha de comando.
+- **Execuções (29/09):** as 30 últimas terminadas ficam no Supabase
+  `controle_producao_execucoes` (só na .11; DDL em `sql/controle_producao_execucoes.sql`) e
+  sobrevivem ao restart. Conferência: `GET :8080/health` → `"historico": "supabase"`.
+- **Quem opera a tela:** `docs/controleproducao/GUIA_OPERADOR.md` (1 página).
 - **Pré-voo do piloto (só leitura, PROD):** `python maintenance/pre_voo_controleproducao.py
   <orçamento>` — lista os pedidos pendentes de OP, as duas localizações do pedido, as flags
   INO, linhas/grupos, `GGF_`, `@INO_LOG`, OPs existentes, quem criou OP nos últimos dias

@@ -5,6 +5,11 @@
 > em produção desde 28/09 (1º pedido real: 84433, 15:36). SQL dos módulos 2 e 3 com parâmetro
 > ligado e o WBC lido por `pymssql` também estão no ar. O que resta não é código — está em
 > "O que falta" (§F7), por dono.
+>
+> **Depois do encerramento (29–30/09, no `CHANGELOG.md`):** histórico das Execuções no Supabase
+> (`10ea64b`), botões que só agem com o que conferir (`e4a1252`) e uma revisão geral de 30/09
+> (leitores só-leitura por construção, `%` do pymssql, relogin do `$batch` limitado, ordem de
+> parada do deploy, log em arquivo da CLI, paginação do painel por nº de orçamento).
 
 
 > **Status (28/09/2026, 2ª versão): DESENHO MUDOU — um projeto só.** Decisão do Marcelo
@@ -20,8 +25,8 @@
 > ~14:45)** — `CP_HOST=0.0.0.0`, regra de firewall `OrcaView-ControleProducao-8080` com o
 > alcance da 8079 (`192.168.0.0/16`), a tela abre pelo IP, API 8077 só libera OP (D9),
 > Replanejar só CLI; **F7 parcial (29/09)** — guia do operador (rascunho), SQL do módulo 3 com
-> parâmetro ligado (paridade 15/15 em PROD), Reprocessar fora da tela (D8); pendem o porte do
-> SQL do módulo 2, o `pymssql` e a pasta original (D2).** A 1ª versão deste plano
+> parâmetro ligado (paridade 15/15 em PROD), Reprocessar fora da tela (D8); o porte do SQL do
+> módulo 2 e o `pymssql` saíram no mesmo dia (`4f83a89`); resta a pasta original (D2).** A 1ª versão deste plano
 > (manhã de 28/09) recomendava instalar
 > isolado em `C:\ControleProducao` — está superada; o que dela vale (riscos, fatos,
 > reteste, piloto) foi incorporado aqui.
@@ -49,6 +54,9 @@ máquina do Anderson, `anderson.marques@altamira.com.br`, dono da aplicação; m
 ---
 
 ## Onde está agora
+
+> *Retrato de 28/09 à tarde — superado pelo cabeçalho: F6 no ar desde 28/09 ~14:45, F7 no ar
+> (`4f83a89`). Não refaça os passos da F6 (`.env`, regra de firewall) a partir desta seção.*
 
 - **Notebook (F0):** lado do SIS pronto e verde — login compartilhado extraído para
   `wbcpython/dashboard/acesso.py`, links de menu (painel → "Controle de Produção", API 8077
@@ -516,8 +524,7 @@ para os seis, `/status` vê os seis.
    tirar a linha do `.gitignore`.
 3. **Claude na .11** — ✅ não. Você cola blocos PowerShell (F2/F3) e devolve a saída.
 4. **Acesso** — ✅ decidido 28/09: `CP_HOST=127.0.0.1` no 1º deploy (feito, F3) e `0.0.0.0` +
-   regra de firewall da LAN na F6 (código e docs prontos; falta o `.env`, a regra e o restart
-   na .11).
+   regra de firewall da LAN na F6 (✅ no ar 28/09 ~14:45).
 5. **Usuários de banco** — *aberta.* Com o `.env` único o default virou "os mesmos do
    worker" (fallback `OP_SL_*`/`SAP_*`/`SQL_*`). **Recomendado:** manter no piloto (menos
    peças) e criar usuário SL próprio quando o módulo 3 subir, para separar o rastro no
@@ -532,9 +539,9 @@ para os seis, `/status` vê os seis.
 9. **Dono das transições de OP** — ✅ no código (F6, 28/09): API 8077 só Liberar
    (`OP_STATUS_PERMITIDOS_DEFAULT = 'boposReleased'`, constante — não flag); Encerrar com
    estoque = pacote; Replanejar só CLI. Pende: avisar quem consome `encerrada` na API (contrato).
-10. **Reboot pendente** — *aberta (a F3 foi sem conferir).* **Recomendado:** conferir no resto
-    da F2; reiniciar à mão só com o worker parado por arquivo (`state\wbc_worker.stop`) e
-    `/health/ocupado`=0; o reboot das 06:12 de 29/09 é o teste de "volta sozinho" dos 6 serviços.
+10. **Reboot pendente** — ✅ 29/09: a .11 reiniciou (06:12) e os 6 serviços voltaram sozinhos;
+    sem reboot pendente (conferido pelo Marcelo). Regra que fica: reiniciar à mão só com o worker
+    parado por arquivo (`state\wbc_worker.stop`) e `/health/ocupado`=0.
 11. **Check no `/status` + CLAUDE.md** — ✅ feito em F0.
 
 **Anderson**

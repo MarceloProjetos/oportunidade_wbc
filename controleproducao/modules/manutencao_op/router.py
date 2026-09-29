@@ -7,9 +7,13 @@ Cancelar e Encerrar. O desenho aqui é o mesmo; o que muda é o que a migração
   (`core/tarefas.py`): 68 OPs são ~270 chamadas à Service Layer, na casa de minutos.
 - **A ordem é calculada, não escolhida**: filha antes da mãe, porque a saída de insumo de
   uma OP pai consome o item que a filha produz. Um ciclo recusa a operação inteira.
-- **Liberar is reversible** (status only) — simple confirmation, no token plan. Replanejar
-  (Liberada -> Planejada) left the screen on 28/09/2026 (D9 of the plan) and lives in the
-  CLI only: next to a half-failed `encerrar` it would break the stock chain.
+- **Liberar changes the status only and writes on the first click** (no token plan).
+  Undoing it — Replanejar (Liberada -> Planejada) — left the screen on 28/09/2026 (D9 of the
+  plan) and lives in the CLI only: next to a half-failed `encerrar` it would break the stock
+  chain.
+- The read-only routes (`buscar`, `encerrar/conferir`) are plain `def` (30/09/2026): FastAPI
+  runs them in its threadpool, so a slow HANA query no longer freezes the event loop — and
+  with it /health, the task polling and a task running in the other module.
 
 A regra de negócio de 22/09: uma OP só pode ser apontada estando Liberada, então o
 encerramento libera antes a que estiver Planejada. Isso aparece na coluna "Ação" do plano,
@@ -17,6 +21,7 @@ em vez de ficar escondido dentro do `corrige_op` — é o estado que sobra se a 
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Form, Request
@@ -65,7 +70,7 @@ async def pagina_inicial(request: Request):
 
 
 @router.post("/buscar", response_class=HTMLResponse)
-async def buscar(
+def buscar(
     request: Request,
     doc_num: str = Form(default=""),
     op_de: str = Form(default=""),
@@ -87,15 +92,18 @@ async def buscar(
     finally:
         leitor.close()
 
+    # The filters go back to the form: a filtered list under empty fields read as "all OPs".
+    filtros = {"op_de": op_de, "op_ate": op_ate, "status_de": status_de, "status_ate": status_ate}
     return templates.TemplateResponse(
         request, "manutencao_op.html",
-        {"ops": ops, "doc_num": doc_num, "buscou": True,
+        {"ops": ops, "doc_num": doc_num, "buscou": True, "filtros": filtros,
+         "filtrado": any(filtros.values()),
          "em_execucao": TAREFAS.em_execucao(MODULO), "status_op": service.STATUS_OP},
     )
 
 
 # ---------------------------------------------------------------------------
-# Liberar — reversible, simple confirmation (replanejar is CLI-only since 28/09/2026, D9)
+# Liberar — status only, writes on the first click (replanejar is CLI-only since 28/09/2026, D9)
 # ---------------------------------------------------------------------------
 @router.post("/status", response_class=HTMLResponse)
 async def mudar_status(
@@ -127,7 +135,8 @@ async def mudar_status(
 
     leitor = _leitor()
     try:
-        ops = service.levanta_ops(leitor, op_docnums=list(op_docnums))
+        # In a thread: this route is async (it starts a task) and the read is blocking.
+        ops = await asyncio.to_thread(service.levanta_ops, leitor, op_docnums=list(op_docnums))
     finally:
         leitor.close()
     if not ops:
@@ -173,7 +182,7 @@ async def mudar_status(
 # Encerrar — irreversível: plano conferido + execução em segundo plano
 # ---------------------------------------------------------------------------
 @router.post("/encerrar/conferir", response_class=HTMLResponse)
-async def conferir_encerrar(
+def conferir_encerrar(
     request: Request,
     op_docnums: list[str] = Form(default=[]),
     pedido: str = Form(default=""),
@@ -333,5 +342,9 @@ def _dispara(request: Request, nome: str, descricao: str, corrotina):
     try:
         tarefa = TAREFAS.criar(MODULO, nome, descricao, corrotina)
     except RuntimeError as exc:
-        return _erro(request, str(exc), titulo="Já existe execução em andamento")
+        # Link to the run that DID start (see the same helper in pedidos_wbc/router.py).
+        rodando = TAREFAS.em_execucao(MODULO)
+        return _erro(request, str(exc), titulo="Já existe execução em andamento",
+                     link=f"/tarefas/{rodando.id}" if rodando else None,
+                     link_texto="Acompanhar a execução em andamento")
     return RedirectResponse(f"/tarefas/{tarefa.id}", status_code=303)

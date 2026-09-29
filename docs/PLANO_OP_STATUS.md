@@ -312,6 +312,12 @@ F0-F2 são 100% offline e não tocaram em produção. **F3 é a única fase que 
 
 ## 9. Fase 3 — pré-voo em produção (pendente)
 
+> ⚠️ **Desde 28/09/2026 (IP + D9) este roteiro não vale como está.** Pule o passo 2 —
+> `OP_SL_ENABLED` é **ignorada** (a rota liga pelo IP da .11) — e os passos 7 e 8: `encerrada`
+> responde **400** pelo default (encerrar OP com estoque é só na Manutenção de OP do
+> `controleproducao`). O **rollback** também mudou: `OP_STATUS_PERMITIDOS=` **vazio** no `.env`
+> + `nssm restart OrcaView-OS-API` (lista vazia → 503); `OP_SL_ENABLED=false` **não desliga nada**.
+
 Nada abaixo roda sem você. A OP escolhida é a **129850**.
 
 1. Deploy na .11: `git pull` **+ `pip install -r requirements.txt`** (o `requests` virou

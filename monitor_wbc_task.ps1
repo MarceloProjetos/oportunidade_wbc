@@ -39,7 +39,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # Log proprio do monitor (mesma pasta do estado). Registra o resultado de cada execucao
-# e — crucial — a EXCECAO REAL quando a gravacao falha, para um exit 1 nunca ser silencioso.
+# e - crucial - a EXCECAO REAL quando a gravacao falha, para um exit 1 nunca ser silencioso.
 $LogFile = Join-Path (Split-Path -Parent $StateFile) 'monitor_wbc_task.log'
 
 function Write-MonitorLog {
@@ -166,7 +166,7 @@ $state.healthy  = $state.found -and ($problems.Count -eq 0)
 
 # ---- Gravacao do estado (UTF-8 sem BOM) ----
 # Preferencia: escrita atomica (tmp + move). Se o REPLACE do arquivo final falhar
-# (ACL de arquivo, lock por leitor, etc.), cai para escrita direta — logando o motivo.
+# (ACL de arquivo, lock por leitor, etc.), cai para escrita direta - logando o motivo.
 try {
     $dir = Split-Path -Parent $StateFile
     if ($dir -and -not (Test-Path -LiteralPath $dir)) {

@@ -11,7 +11,9 @@ O `importorskip` mantém a suíte verde em quem não instalou o extra `dashboard
 
 from __future__ import annotations
 
+import html
 import json
+import re
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -605,16 +607,39 @@ class TestRecortes:
 
 
 class TestListaPaginada:
-    """The list goes to the browser 300 rows at a time (29/09/2026).
+    """The list goes to the browser 300 rows at a time (29/09/2026), paged by quote number
+    (30/09/2026).
 
     With ~2,000 quotes in the window, drawing every row at once made the tab heavy. The
-    last row loads the next page when it shows up inside the table's scroll box.
+    last row loads the next page when it shows up inside the table's scroll box. The first
+    version paged by offset over `atualizado_em`, which the worker rewrites every cycle —
+    a cycle in the middle of a scroll repeated some rows and skipped others.
     """
 
     @staticmethod
-    def _semeia(repo: RepositorioTracking, quantidade: int) -> None:
+    def _semeia(repo: RepositorioTracking, quantidade: int, status=StatusIntegracao.SEM_ACAO) -> None:
         for i in range(quantidade):
-            repo.registrar_verificacao(f"{i:08d}", status=StatusIntegracao.SEM_ACAO)
+            repo.registrar_verificacao(f"{i:08d}", status=status)
+
+    @staticmethod
+    def _orcamentos(texto: str) -> list[str]:
+        return re.findall(r'hx-get="/fragmentos/detalhe\?orcnum=(\d+)"', texto)
+
+    @staticmethod
+    def _mais(texto: str) -> str | None:
+        achado = re.search(r'<tr\s+class="mais"\s+hx-get="([^"]+)"', texto)
+        return html.unescape(achado.group(1)) if achado else None
+
+    def _percorre(self, cliente: TestClient, params: dict, entre_paginas=None) -> list[str]:
+        texto = cliente.get("/fragmentos/oportunidades", params=params).text
+        vistos = self._orcamentos(texto)
+        while (url := self._mais(texto)) is not None:
+            if entre_paginas:
+                entre_paginas()
+            texto = cliente.get(url).text
+            assert 'class="filtros"' not in texto, "a later page is rows only"
+            vistos += self._orcamentos(texto)
+        return vistos
 
     def test_primeira_pagina_traz_300_e_a_linha_que_carrega_mais(
         self, cliente: TestClient, repo: RepositorioTracking
@@ -624,22 +649,58 @@ class TestListaPaginada:
         texto = cliente.get("/fragmentos/oportunidades").text
 
         assert texto.count('class="orcamento"') == 300
-        assert 'class="mais"' in texto
-        assert "inicio=300" in texto
+        assert self._orcamentos(texto)[0] == "00000304", "newest quote first"
+        assert "apos=00000005" in texto, "the next page starts after the last quote shown"
         assert "305 orçamento(s)" in texto, "the header counts everything, not just the page"
         assert 'root:#rolagem-oportunidades' in texto
         assert 'id="rolagem-oportunidades"' in texto
 
-    def test_proxima_pagina_traz_so_as_linhas_que_faltam(
+    def test_percorrer_tudo_mostra_cada_orcamento_uma_vez(
         self, cliente: TestClient, repo: RepositorioTracking
     ) -> None:
+        self._semeia(repo, 705)
+        vistos = self._percorre(cliente, {})
+        assert len(vistos) == len(set(vistos)) == 705
+
+    def test_ciclo_do_worker_no_meio_da_rolagem_nao_repete_nem_pula(
+        self, cliente: TestClient, repo: RepositorioTracking
+    ) -> None:
+        """Reproduces the 30/09 finding: a cycle re-verifies quotes between two pages."""
+        self._semeia(repo, 705)
+
+        def ciclo() -> None:
+            for i in range(0, 705, 7):
+                repo.registrar_verificacao(f"{i:08d}", status=StatusIntegracao.SEM_ACAO)
+
+        vistos = self._percorre(cliente, {}, entre_paginas=ciclo)
+        assert len(vistos) == len(set(vistos)) == 705
+
+    def test_filtro_vale_na_pagina_seguinte(self, cliente: TestClient, repo: RepositorioTracking) -> None:
+        self._semeia(repo, 320)
+        for i in range(0, 320, 2):
+            repo.registrar_erro(f"{i:08d}", "falhou")
+
+        vistos = self._percorre(cliente, {"recorte": "com_erro", "tudo": 1})
+
+        assert len(vistos) == len(set(vistos)) == 160
+        assert all(int(o) % 2 == 0 for o in vistos)
+
+    def test_pagina_seguinte_de_lista_que_esvaziou_nao_devolve_o_bloco(
+        self, cliente: TestClient, repo: RepositorioTracking
+    ) -> None:
+        self._semeia(repo, 5)
+        for params in ({"busca": "zzz", "apos": "00000300"}, {"busca": "zzz", "inicio": 300}):
+            texto = cliente.get("/fragmentos/oportunidades", params=params).text
+            assert 'class="filtros"' not in texto and 'id="lista-oportunidades"' not in texto
+            assert self._orcamentos(texto) == []
+
+    def test_link_antigo_por_inicio_continua_funcionando(
+        self, cliente: TestClient, repo: RepositorioTracking
+    ) -> None:
+        """A page left open across the deploy still asks with `inicio=`."""
         self._semeia(repo, 305)
-
         texto = cliente.get("/fragmentos/oportunidades", params={"inicio": 300}).text
-
-        assert texto.count('class="orcamento"') == 5
-        assert 'class="filtros"' not in texto, "a later page is rows only"
-        assert 'class="mais"' not in texto, "nothing left to load"
+        assert len(self._orcamentos(texto)) == 5 and 'class="mais"' not in texto
 
     def test_o_filtro_viaja_na_linha_que_carrega_mais(
         self, cliente: TestClient, repo: RepositorioTracking
@@ -650,6 +711,14 @@ class TestListaPaginada:
 
         assert "busca=000" in texto
         assert "tudo=1" in texto
+
+    def test_linha_que_carrega_mais_ocupa_todas_as_colunas(
+        self, cliente: TestClient, repo: RepositorioTracking
+    ) -> None:
+        self._semeia(repo, 305)
+        texto = cliente.get("/fragmentos/oportunidades").text
+        colunas = texto.split("<thead>")[1].split("</thead>")[0].count("<th")
+        assert f'<td colspan="{colunas}">' in texto
 
     def test_situacao_sai_em_pilula(self, cliente: TestClient, repo: RepositorioTracking) -> None:
         repo.registrar_verificacao("00000001", status=StatusIntegracao.ERRO)

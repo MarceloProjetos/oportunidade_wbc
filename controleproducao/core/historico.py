@@ -34,7 +34,7 @@ from datetime import datetime
 from typing import Any
 
 from controleproducao.config import Settings, get_settings
-from controleproducao.core.tarefas import MAX_LINHAS_LOG, MAX_NA_TELA, Tarefa
+from controleproducao.core.tarefas import MAX_LINHAS_LOG, MAX_NA_TELA, Tarefa, desfecho_de
 from wbcpython import safety
 
 logger = logging.getLogger(__name__)
@@ -76,6 +76,10 @@ class ExecucaoGuardada:
     duracao_segundos: float | None
     terminada: bool = True
     guardada: bool = True
+
+    @property
+    def desfecho(self) -> str:
+        return desfecho_de(self.situacao, self.com_falhas)
 
 
 class HistoricoSupabase:
@@ -174,7 +178,8 @@ class HistoricoSupabase:
 def da_maquina(settings: Settings | None = None) -> HistoricoSupabase | None:
     """The history this machine keeps: Supabase on the .11, none (memory only) elsewhere."""
     if not safety.is_production_machine():
-        logger.info("Histórico de execuções: só em memória (esta máquina não é a .11).")
+        # DEBUG: asked again every few minutes while there is no history (tarefas.py).
+        logger.debug("Histórico de execuções: só em memória (esta máquina não é a .11).")
         return None
     s = settings or get_settings()
     url = s.supabase_url.strip()

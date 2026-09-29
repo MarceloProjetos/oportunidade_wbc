@@ -8,6 +8,17 @@
 > Desde 28/09 13:26 o serviço `OrcaView-ControleProducao` está no ar na .11 (F3 do plano;
 > a F6 abre a tela para a rede). Nada foi gravado no SAP por ele lá ainda: o piloto (F5)
 > depende das decisões abaixo.
+>
+> **Atualização 30/09/2026 — o parágrafo acima é o retrato de 28/09 de manhã.** Hoje: a tela
+> está na rede desde 28/09 ~14:45 (F6) e **já gravou em produção** — 1º pedido real 84433 às
+> 15:36 de 28/09, processado **também pelo addon** (as OPs do addon foram canceladas; é o risco
+> de §4). O módulo 3 está na tela desde 28/09 (Liberar/Encerrar; Replanejar só CLI, D9); a F4
+> ficou coberta por decisão (D7: a semana de uso no seu notebook), **sem reteste** — a §5 deixou
+> de ser pré-requisito. Em 29–30/09: SQL dos módulos 2 e 3 com parâmetro ligado
+> (`core/sql_ligado`), WBC em `pymssql`, `_update_pedido` fechado com erro até você validar,
+> Reprocessar só CLI (D8), leitores só-leitura por construção, histórico das execuções no
+> Supabase e log em arquivo dos comandos da CLI que gravam. O plano e o `CHANGELOG.md` têm o
+> detalhe.
 
 ## 1. O que mudou no seu código
 
@@ -38,7 +49,8 @@ Duas coisas que o seu código ainda tem e que ficaram **anotadas, não corrigida
 o `basicConfig(force=True)` + `getLogger("httpx").setLevel(WARNING)` da CLI vaza para o
 processo (contido no `conftest` da suíte); e o SQL do módulo 3 monta `doc_num`/`op_docnums` por
 `str.format` — o SIS usa `sql_seguro` (t-string) para valor vindo de fora; fica para uma etapa
-combinada.
+combinada. *(30/09: o SQL já foi resolvido — F7, módulos 2 e 3 com parâmetro ligado; resta
+só o `basicConfig(force=True)`.)*
 
 ## 2. Como trabalhar daqui em diante
 
@@ -140,6 +152,9 @@ E, pelo que o diário registra: as OPs em dobro do 84426 (addon + porte), os Orc
 `Solda.txt` entrar (21/09). O que corrigir à mão é decisão sua; o resultado entra no plano.
 
 ## 5. Reteste em homologação (F4 do plano) — o que precisamos de você
+
+> *30/09/2026: não é mais pré-requisito — F4 coberta por decisão (D7). Fica como roteiro, se
+> você quiser provar o rollback do `encerrar` antes de usá-lo em volume.*
 
 Do seu notebook (ou do do Marcelo), contra `SBOALTAMIRAHOMOLOG` restaurada de produção:
 
