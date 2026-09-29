@@ -5,7 +5,8 @@
 > chave → 401 no formato novo; busca do 84433 (50 OPs Planejadas); chave errada → 401; Liberar
 > sem `solicitante` → 400; conferir do 84433 → plano (token não usado); execução inexistente →
 > 404; `GET :8077/ordens-producao/129850` → 200. Falta a **1ª gravação real** (F5 passo 4: OP
-> escolhida pelo Marcelo).
+> escolhida pelo Marcelo). Decisões do Marcelo em 29/09: D2 (mesma `OS_API_KEY`), D3 (não
+> aposentar a rota da 8077 agora) e D5 (Interromper só entre OPs → nova **F5b**).
 >
 > **Antes (29/09, noite): F0–F4 no GitHub, pendem deploy na .11.** F4 = contrato
 > `API_MANUTENCAO_OP.md` na raiz (`8e38276`), com uma correção achada ao escrevê-lo: número de OP
@@ -139,7 +140,8 @@ Mensagem de erro igual por construção: as duas mostram o mesmo texto, que vem 
    Se uma OP falha, as que dependem dela são **puladas**; a liberação só é desfeita se nada foi
    lançado. ⚠️ **Não serve para limpar OP de pedido já entregue** (achado da F0; D7).
 5. **Interromper corta no próximo `await` e não desfaz nada.** No Encerrar isso pode cair entre a
-   saída e a entrada da mesma OP — já é assim na tela hoje (D5).
+   saída e a entrada da mesma OP — é assim hoje, na tela e na API. A D5 (decidida em 29/09) troca
+   isso por parada entre OPs: F5b.
 6. **DocNum ≠ DocEntry** (a OP 125060 é o DocEntry 126599). A API só recebe DocNum — de OP e de
    pedido; o DocEntry só aparece na resposta.
 7. **Buscar por pedido esconde OP Cancelada** (filtro `Status != 'C'` do legado); por número de
@@ -193,7 +195,7 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
   planejada ("replanejar" entra na F6).
 - **Encerrar:** a trava do módulo é conferida **antes** de consumir o token. Hoje, com o módulo
   ocupado, o token é queimado e o operador tem de reconferir — vale para a tela também.
-- Se a D5 for aprovada: `finalizar_ops` para **só entre OPs** — a OP em curso termina a cadeia.
+- A D5 (parada só entre OPs) foi decidida depois desta fase, em 29/09: está na F5b.
 - Testes: "já no destino", `acoes_possiveis`, cada `Recusa`; suíte inteira + `ruff` 0.
 
 ### F2 — Quem pediu — `✅ codada 29/09 · a3a217f · SQL aplicado pelo Marcelo · pende deploy`
@@ -294,6 +296,24 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
 4. **1ª gravação real:** um Liberar numa OP Planejada escolhida por você (ou pelo Anderson), sem
    saída lançada. Conferir no SAP e nas Execuções ("por *fulano* · API"). **Anotar o número: é
    essa OP que a F6 devolve para Planejada.**
+
+### F5b — Interromper o Encerrar só entre OPs (D5) — `aberta · eu · decidida 29/09`
+
+> **Objetivo:** "Interromper" nunca deixa uma OP com a saída de insumo lançada e a entrada de
+> produto não: a OP em curso termina a cadeia (ou o próprio erro), e a parada vem antes da próxima.
+
+- `finalizar_ops` confere um pedido de parada **no começo de cada OP**; a OP em andamento vai até
+  o fim. As OPs que não começaram vão para uma lista nova do resultado (`interrompidas`), e a
+  execução termina `cancelada`.
+- `TAREFAS.cancelar` passa a pedir essa parada combinada nas execuções de Encerrar, em vez de
+  cortar a corrotina no meio. Liberar fica como está: cada OP é um PATCH só, não há meio-termo.
+- ⚠️ A conferir na implementação: se uma chamada ao SAP travar, a parada espera o timeout do
+  cliente do Service Layer — é o limite de quanto o "Interromper" pode demorar.
+- Tela: o texto ao lado de "Interromper" muda ("para depois da OP em curso"); contrato
+  (`API_MANUTENCAO_OP.md` §6) idem.
+- Testes: pedido de parada no meio de uma OP → ela termina a cadeia, as próximas não começam,
+  `interrompidas` lista as que ficaram.
+- Sobe junto com a F6 ou antes, num deploy só dela — escolha sua.
 
 ### F6 — Replanejar, por último — `aberta · eu + Marcelo`
 
@@ -437,23 +457,22 @@ gravado; `409 ocupado` → acompanhar a execução que veio na resposta, não in
 
 1. **Quem consome** — *aberta por enquanto (Marcelo, 29/09).* Não trava F1–F6: o contrato sai
    genérico. O chamador desconhecido da rota da 8077 é candidato natural.
-2. **Qual chave** — *aberta.* **Recomendado: a mesma `OS_API_KEY`.** Não trava nenhuma fase: a F3
-   usa a `OS_API_KEY` que já existe; uma chave própria entra depois, se você decidir. Motivo da
-   recomendação: zero linha nova no `.env`; "sem chave configurada → 503" já é o comportamento;
+2. **Qual chave** — ✅ *decidida pelo Marcelo em 29/09: a mesma `OS_API_KEY`.* É a que a API já
+   usa desde a F3 (no ar); nenhuma linha nova no `.env`. Motivo: zero linha nova no `.env`; "sem chave configurada → 503" já é o comportamento;
    uma chave própria seria uma linha no `.env` capaz de desligar a função — o padrão que a regra
    das funções de produção evita. Custo: quem tem a chave também entra nas telas e na API 8077, e
    trocar a chave derruba os cookies de todos.
-3. **Rota `POST /ordens-producao/{n}/status` da 8077** — *aberta.* **Recomendação mudou em 29/09
-   (F0): não aposentar agora.** Ela é usada. Primeiro identificar o chamador (F0) e dar a ele um
-   caminho; 410 só depois (F7), com aviso. Continua valendo o motivo de ter uma porta só: a da
+3. **Rota `POST /ordens-producao/{n}/status` da 8077** — ✅ *decidida pelo Marcelo em 29/09: não
+   aposentar agora.* Ela é usada. Primeiro identificar o chamador (o log da F0 está no ar desde
+   29/09) e dar a ele um caminho; 410 só depois (F7), com aviso. Continua valendo o motivo de ter uma porta só: a da
    8077 não entra na trava do módulo, nem nas Execuções, nem registra quem pediu.
 4. **Replanejar volta à tela?** — *aberta.* **Recomendado: não nesta entrega.** A regra da saída
    lançada remove o motivo da D9 (replanejar ao lado de um Encerrar que falhou no meio), mas a
    tela só muda se você pedir.
-5. **Interromper o Encerrar só entre OPs** — *aberta.* **Recomendado: sim.** Hoje o "Interromper"
-   da tela pode cortar entre a saída e a entrada da mesma OP (insumo baixado, produto não
-   entrado, OP Liberada). Com a parada entre OPs, a OP em curso termina a cadeia. Vale para a
-   tela e a API.
+5. **Interromper o Encerrar só entre OPs** — ✅ *decidida pelo Marcelo em 29/09: sim.* Hoje o
+   "Interromper" da tela pode cortar entre a saída e a entrada da mesma OP (insumo baixado,
+   produto não entrado, OP Liberada). Com a parada entre OPs, a OP em curso termina a cadeia.
+   Vale para a tela e a API. Vira a **F5b**.
 6. **Replanejar com produto já apontado** (`apontada > 0`, entrada lançada sem saída) —
    *aberta.* **Recomendado: recusar também**, com a mesma família de mensagem: é o mesmo problema
    (estoque movimentado numa OP Planejada). O pedido original fala só da saída de insumo.
