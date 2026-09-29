@@ -39,20 +39,22 @@ def test_peso_diferente_sai_como_aviso(caplog):
     registro = caplog.records[-1]
     assert registro.levelno == logging.WARNING
     assert registro.getMessage() == (
-        "Pedido 00125817: peso da linha 0 (item I000003, OrcItm 1, qtd 1): "
-        "SAP 124,50 kg · WBC nível 1 da árvore 226,43 kg — DIFERENTE."
+        "Pedido 00125817: peso da linha 0 (item I000003, OrcItm 1, qtd 1): SAP 124,50 kg · "
+        "esperado 249,07 kg (árvore do WBC 226,43 kg + 10%) — DIFERENTE."
     )
     sql, _params = leitor.fetch_all.call_args.args
     assert 'FROM RDR1 T0' in sql and "?" in sql       # bound, never pasted into the text
 
 
-def test_peso_igual_sai_como_info(caplog):
-    leitor = _leitor({"LineNum": 0, "ItemCode": "I000003", "Quantity": 1, "Weight1": 226.43,
-                      "U_INO_ORCITM": "1"})
-    with caplog.at_level(logging.INFO, logger=service.__name__):
-        service._loga_pesos(leitor, "00125817", 20243, [_arvore(1, 1, 226.42999999999998)])
-    assert caplog.records[-1].levelno == logging.INFO
-    assert "SAP 226,43 kg · WBC nível 1 da árvore 226,43 kg." in caplog.text
+def test_peso_dentro_de_1_por_cento_sai_como_info(caplog):
+    """O 248 digitado à mão no 84444 fica a 0,4% dos 249,07 esperados: é o certo."""
+    for sap in (249.07, 248.0):
+        leitor = _leitor({"LineNum": 0, "ItemCode": "I000003", "Quantity": 1, "Weight1": sap,
+                          "U_INO_ORCITM": "1"})
+        with caplog.at_level(logging.INFO, logger=service.__name__):
+            service._loga_pesos(leitor, "00125817", 20243, [_arvore(1, 1, 226.42999999999998)])
+        assert caplog.records[-1].levelno == logging.INFO
+    assert "SAP 248,00 kg · esperado 249,07 kg (árvore do WBC 226,43 kg + 10%)." in caplog.text
 
 
 def test_linha_sem_arvore_e_leitura_que_falha_nao_param_o_processamento(caplog):
@@ -63,5 +65,5 @@ def test_linha_sem_arvore_e_leitura_que_falha_nao_param_o_processamento(caplog):
     with caplog.at_level(logging.INFO, logger=service.__name__):
         service._loga_pesos(sem_arvore, "00125817", 20243, [_arvore(1, 1, 10.0)])
         service._loga_pesos(quebrado, "00125817", 20243, [])
-    assert "WBC nível 1 da árvore sem peso." in caplog.text
+    assert "árvore do WBC sem peso." in caplog.text
     assert "não foi possível comparar os pesos: HANA fora" in caplog.text

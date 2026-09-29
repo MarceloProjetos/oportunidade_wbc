@@ -707,13 +707,19 @@ def _kg(valor: float) -> str:
 
 
 def _loga_pesos(hana_reader: HanaDirectReader, orc_num: str, doc_entry, estrutura) -> None:
-    """One log line per order line: the SAP ``Weight1`` next to the WBC tree's level 1.
+    """One log line per order line: the SAP ``Weight1`` next to what it should be.
 
-    Read-only, and never stops the processing: this step does not write the weight (the
-    worker does, when it creates the order). It exists because the weight went wrong on
-    quote 00125817 (29/09/2026) with nothing about it in this log. A difference above 1 g
-    comes out as a WARNING.
+    Expected = WBC tree level 1 + 10% — the worker's rule (`wbcpython.domain.linhas.
+    peso_da_linha`, imported so the two cannot drift). Read-only, and never stops the
+    processing: this step does not write the weight (the worker does, when it creates the
+    order). It exists because the weight went wrong on quote 00125817 (29/09/2026) with
+    nothing about it in this log. More than 1% away from the expected value (hand-typed
+    weights are round numbers: 248 for 249.07) comes out as a WARNING.
     """
+    from decimal import Decimal
+
+    from wbcpython.domain.linhas import peso_da_linha
+
     try:
         wbc: dict[int, float] = {}
         for no in estrutura:            # `EstruturaPrd`, from `busca_estrutura_produto`
@@ -727,13 +733,14 @@ def _loga_pesos(hana_reader: HanaDirectReader, orc_num: str, doc_entry, estrutur
         orc_itm = str(linha.get("U_INO_ORCITM") or "").strip()
         sap = float(linha.get("Weight1") or 0)
         arvore = wbc.get(int(orc_itm)) if orc_itm.isdigit() else None
+        esperado = peso_da_linha(Decimal(str(arvore))) if arvore is not None else None
         texto = (
             f"Pedido {orc_num}: peso da linha {linha.get('LineNum')} (item {linha.get('ItemCode')}, "
-            f"OrcItm {orc_itm or '—'}, qtd {float(linha.get('Quantity') or 0):g}): "
-            f"SAP {_kg(sap)} kg · WBC nível 1 da árvore "
-            + (f"{_kg(arvore)} kg" if arvore is not None else "sem peso")
+            f"OrcItm {orc_itm or '—'}, qtd {float(linha.get('Quantity') or 0):g}): SAP {_kg(sap)} kg"
+            + (f" · esperado {_kg(float(esperado))} kg (árvore do WBC {_kg(arvore)} kg + 10%)"
+               if esperado is not None else " · árvore do WBC sem peso")
         )
-        if arvore is not None and abs(round(arvore, 2) - sap) > 0.001:
+        if esperado is not None and abs(sap - float(esperado)) > float(esperado) * 0.01:
             logger.warning("%s — DIFERENTE.", texto)
         else:
             logger.info("%s.", texto)

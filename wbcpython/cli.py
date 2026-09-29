@@ -917,8 +917,8 @@ def _cmd_pesos(
     relatar(settings.describe_environment())
     relatar("")
     relatar(
-        "Peso da linha = peso líquido do nível 1 da árvore do WBC, com 2 casas "
-        "(sem folga e sem truncar — regra de 29/09/2026)."
+        "Peso da linha = nível 1 da árvore do WBC + 10%, com 2 casas "
+        "(sem truncar — regra de 29/09/2026)."
     )
     if simular:
         relatar("")
@@ -1028,7 +1028,7 @@ def _pesos_das_linhas(
             )
             continue
 
-        # Mesma conta da criação: peso líquido da linha inteira, sem dividir pela
+        # Mesma conta da criação: árvore + 10% da linha inteira, sem dividir pela
         # quantidade.
         quantidade = Decimal(str(linha.get("Quantity") or 1))
         calculado = peso_da_linha(peso)

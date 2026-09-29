@@ -6,6 +6,20 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-29] — Peso da linha do pedido = árvore + 10% (2 casas); log com tolerância de 1%
+
+Entra pelo `deploy_update.bat` (worker WBC e `OrcaView-ControleProducao`); sem SQL.
+
+- **Corrige a entrada "peso líquido, sem folga" logo abaixo** — foi um mal-entendido. A regra
+  confirmada pelo Marcelo: `Weight1` = nível 1 da árvore do WBC **+ 10%**, com 2 casas, sem
+  truncar (`domain.linhas.FATOR_DE_EMBALAGEM = 1.10`, constante — não volta para o `.env`).
+  `00125817`: 226,43 kg na árvore → 249,07 kg na linha. Nenhum pedido foi criado com a regra
+  intermediária (o último do integrador é o 84445, de antes).
+- Log do worker: "peso do item 1: árvore do WBC 226,43 kg + 10% = 249,07 kg no Weight1 da linha."
+- Log do "Processar pedidos novos": "SAP 248,00 kg · esperado 249,07 kg (árvore do WBC 226,43 kg
+  + 10%)", em vermelho com "DIFERENTE" só quando o SAP foge mais de 1% do esperado (peso
+  digitado à mão costuma ser redondo). A conta vem da mesma função do worker.
+
 ## [2026-09-29] — Sem a faixa vermelha de PRODUÇÃO; "Voltar" na tela da execução
 
 Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem SQL. `style.css?v=7`.

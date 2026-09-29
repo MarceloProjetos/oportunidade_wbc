@@ -412,14 +412,17 @@ def _peso_da_linha(item: Any, pesos: Mapping[int, Decimal] | None) -> Decimal | 
     return peso_da_linha(pesos.get(item.orcitm))
 
 
-def peso_da_linha(liquido: Decimal | None) -> Decimal | None:
-    """`Weight1` of the whole line: the net weight of tree level 1, or `None` when unknown.
+#: The order line weighs 10% more than the tree's net weight (packaging). A business rule
+#: confirmed by Marcelo on 29/09/2026 — not configuration: no `.env` key changes it.
+FATOR_DE_EMBALAGEM = Decimal("1.10")
 
-    Rule decided by Marcelo on 29/09/2026: the net weight as the WBC gives it, rounded to
-    2 decimals (the tree's own precision; the SUM comes back as a float, 226.42999…) —
-    no packaging factor and no truncation. Until then the line took net × 1.10, truncated
-    (a factor measured on hand-typed weights), and quote 00125817 went out with 249 kg
-    for a tree of 226.43 kg.
+
+def peso_da_linha(liquido: Decimal | None) -> Decimal | None:
+    """`Weight1` of the whole line: tree level 1 × 1.10, or `None` when unknown.
+
+    Rule confirmed by Marcelo on 29/09/2026: the WBC net weight plus 10%, rounded to
+    2 decimals — no truncation (quote 00125817: 226.43 kg in the tree → 249.07 kg on the
+    line). Until that day it was truncated to an integer (249).
 
     Used by order creation and by `wbcpython pesos`; the two cannot diverge.
 
@@ -431,5 +434,7 @@ def peso_da_linha(liquido: Decimal | None) -> Decimal | None:
     """
     if liquido is None or liquido <= 0:
         return None
-    arredondado = Decimal(liquido).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    arredondado = (Decimal(liquido) * FATOR_DE_EMBALAGEM).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
     return arredondado if arredondado > 0 else None

@@ -843,8 +843,8 @@ class ProcessadorDeOrcamento:
             peso = peso_da_linha(pesos.get(item.orcitm))
             if peso is not None:
                 logger.info(
-                    "%s: peso do item %s = %s kg (nível 1 da árvore do WBC) → Weight1 da linha.",
-                    orcamento.orcnum, item.orcitm, _kg(peso),
+                    "%s: peso do item %s: árvore do WBC %s kg + 10%% = %s kg no Weight1 da linha.",
+                    orcamento.orcnum, item.orcitm, _kg(pesos[item.orcitm]), _kg(peso),
                 )
         sem_peso = [item.orcitm for item in orcamento.itens if item.orcitm not in pesos]
         if sem_peso:

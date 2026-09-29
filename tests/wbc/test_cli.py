@@ -1012,9 +1012,9 @@ class TestComandoPesos:
         )
 
         assert main(["pesos", "--pedido", "84315"]) == 0
-        # O peso líquido da árvore, com 2 casas (regra de 29/09/2026).
-        assert registro["pesos_gravados"] == [(19489, {0: 760.65, 1: 45.13})]
-        assert "1 -> 760.65 kg" in capsys.readouterr().out
+        # Árvore + 10%, com 2 casas (regra de 29/09/2026).
+        assert registro["pesos_gravados"] == [(19489, {0: 836.72, 1: 49.64})]
+        assert "1 -> 836.72 kg" in capsys.readouterr().out
 
     def test_casa_por_orcitm_e_nao_por_ordem(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
@@ -1027,7 +1027,7 @@ class TestComandoPesos:
         )
 
         assert main(["pesos", "--pedido", "84315"]) == 0
-        assert registro["pesos_gravados"] == [(19489, {0: 45.13, 1: 760.65})]
+        assert registro["pesos_gravados"] == [(19489, {0: 49.64, 1: 836.72})]
 
     def test_peso_nao_e_dividido_pela_quantidade(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
@@ -1040,8 +1040,8 @@ class TestComandoPesos:
         )
 
         assert main(["pesos", "--pedido", "84315"]) == 0
-        assert registro["pesos_gravados"] == [(19489, {0: 20830.79})]
-        assert "137 -> 20830.8 kg" in capsys.readouterr().out
+        assert registro["pesos_gravados"] == [(19489, {0: 22913.87})]
+        assert "137 -> 22913.9 kg" in capsys.readouterr().out
 
     def test_simular_nao_escreve(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
@@ -1064,7 +1064,7 @@ class TestComandoPesos:
         """Escrita à toa é ida à rede e ruído no histórico do documento."""
         registro = self._montar_ambiente(
             monkeypatch,
-            doc=self._pedido(self._linha(0, 1, peso=760.65)),
+            doc=self._pedido(self._linha(0, 1, peso=836.72)),
             pesos={1: "760.65"},
         )
 
@@ -1082,7 +1082,7 @@ class TestComandoPesos:
         )
 
         assert main(["pesos", "--pedido", "84315"]) == 0
-        assert registro["pesos_gravados"] == [(19489, {0: 760.65})]
+        assert registro["pesos_gravados"] == [(19489, {0: 836.72})]
         assert "sem peso na árvore" in capsys.readouterr().out
 
     def test_peso_que_arredonda_para_zero_e_mantido(
