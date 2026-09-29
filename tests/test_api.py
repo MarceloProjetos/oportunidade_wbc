@@ -1,5 +1,7 @@
 """Testes da API HTTP de disparo da sync de OS (sem rede; sync_os mockado)."""
 
+import logging
+
 import pytest
 
 pytest.importorskip('flask')  # pula o módulo se flask não estiver instalado
@@ -1173,6 +1175,37 @@ def test_op_status_tem_trava_anti_loop(op_client, monkeypatch):
                        json={'status': 'encerrada'}, headers=op_client._auth)
     assert r.status_code == 429
     assert r.headers['Retry-After']
+
+
+def test_rota_de_op_registra_quem_chamou_inclusive_a_recusa(op_client, monkeypatch, caplog):
+    """F0 of PLANO_API_MANUTENCAO_OP (29/09/2026): an unknown caller closed >=552 OPs through
+    this route, and the D9 400 for ``encerrada`` is raised before the network — it left no
+    trace. Every call now logs origin, what was asked and what came back."""
+    def _recusa(*a, **k):
+        raise apimod.op_sl.OPStatusInvalido('encerrada fora da allowlist')
+    monkeypatch.setattr(apimod.op_sl, 'atualizar_status', _recusa)
+
+    with caplog.at_level(logging.INFO, logger=apimod.__name__):
+        r = op_client.post('/ordens-producao/129850/status',
+                           json={'status': 'encerrada', 'status_atual': 'liberada'},
+                           headers={**op_client._auth, 'User-Agent': 'script-do-pcp/1.0'},
+                           environ_base={'REMOTE_ADDR': '192.168.3.44'})
+        sem_chave = op_client.get('/ordens-producao/129850')
+
+    assert r.status_code == 400 and sem_chave.status_code == 401
+    linhas = [m for m in caplog.messages if m.startswith('Rota de OP:')]
+    assert len(linhas) == 2
+    assert 'POST /ordens-producao/129850/status -> 400' in linhas[0]
+    for trecho in ('origem 192.168.3.44', 'script-do-pcp/1.0', 'status pedido encerrada',
+                   'status_atual liberada', 'tipo status_invalido'):
+        assert trecho in linhas[0], trecho
+    assert 'GET /ordens-producao/129850 -> 401' in linhas[1]
+
+
+def test_outras_rotas_nao_entram_no_registro_de_op(client, caplog):
+    with caplog.at_level(logging.INFO, logger=apimod.__name__):
+        client.get('/health')
+    assert not [m for m in caplog.messages if m.startswith('Rota de OP:')]
 
 
 def test_op_status_corpo_invalido_nao_gasta_a_trava(op_client, monkeypatch):

@@ -1139,6 +1139,34 @@ def _chave_docentry() -> bool:
     return (request.args.get('chave') or '').strip().lower() in ('docentry', 'entry', 'absentry')
 
 
+@app.after_request
+def _registra_chamada_de_op(resposta: Response) -> Response:
+    """One INFO line per call to the OP routes: who called, what was asked, what came back.
+
+    Added on 2026-09-29 (F0 of docs/PLANO_API_MANUTENCAO_OP.md): the status route had a real
+    caller that closed >=552 OPs without stock movements, and nothing identified it — this
+    API has no access log, and a refusal raised before the network (the D9 400 for
+    ``encerrada``, a 401, a 429) left no trace at all. Runs after every response, so those
+    refusals are logged too. Never raises: a logging problem must not change the answer.
+    """
+    if not request.path.startswith('/ordens-producao/'):
+        return resposta
+    try:
+        corpo = request.get_json(silent=True) if request.method == 'POST' else None
+        corpo = corpo if isinstance(corpo, dict) else {}
+        devolvido = resposta.get_json(silent=True) if resposta.is_json else None
+        tipo = devolvido.get('tipo') if isinstance(devolvido, dict) else None
+        logger.info(
+            'Rota de OP: %s %s -> %s | origem %s | agente %s | status pedido %s | status_atual %s | tipo %s',
+            request.method, request.full_path.rstrip('?'), resposta.status_code,
+            request.remote_addr or '-', (request.user_agent.string or '-')[:120],
+            corpo.get('status', '-'), corpo.get('status_atual', '-'), tipo or '-',
+        )
+    except Exception as exc:  # noqa: BLE001 - see the docstring
+        logger.warning('Rota de OP: falha ao registrar a chamada: %s', exc)
+    return resposta
+
+
 def _resposta_op_erro(exc: op_sl.OPError) -> tuple[Any, int]:
     """Turn a domain error into its HTTP answer.
 
