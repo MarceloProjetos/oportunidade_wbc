@@ -3,12 +3,19 @@
 {% set ativo = 'tarefas' %}
 {% block title %}{{ tarefa.nome }}{% endblock %}
 {% block content %}
+{# Back to the screen the execution came from (asked by the owner, 29/09/2026); an
+   execution of an unknown module goes back to the Execuções list. #}
+{% set origens = {'pedidos_wbc': ('/pedidos-wbc', 'Pedidos WBC'),
+                  'manutencao_op': ('/manutencao-op', 'Manutenção de OP'),
+                  'romaneio': ('/romaneio', 'Romaneio')} %}
+{% set volta = origens.get(tarefa.modulo, ('/tarefas', 'Execuções')) %}
 <header class="ov-topbar">
   <span class="simbolo">{{ icone('execucoes', 30) }}</span>
   <div>
     <h1>{{ tarefa.nome }}</h1>
     <p>{{ tarefa.descricao }}{% if tarefa.origem == 'api' %} · por {{ tarefa.solicitante or '—' }} · API{% endif %}</p>
   </div>
+  <a class="ov-btn ov-voltar" href="{{ volta[0] }}" id="voltar">{{ icone('voltar') }} Voltar para {{ volta[1] }}</a>
 </header>
 
 <section class="ov-card" data-tarefa="{{ tarefa.id }}">

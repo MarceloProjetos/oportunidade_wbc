@@ -26,7 +26,7 @@
       }
     })();
   </script>
-  <link rel="stylesheet" href="/static/style.css?v=6">
+  <link rel="stylesheet" href="/static/style.css?v=7">
 </head>
 <body>
   <nav class="ov-nav">
@@ -54,12 +54,10 @@
     </span>
   </nav>
 
+  {# The red "Gravando em PRODUÇÃO" strip was removed at the owner's request (29/09/2026):
+     production is the normal state of this screen. Off production the grey strip stays. #}
   {% set amb = amb_atual() %}
-  {% if amb.em_producao %}
-  <div class="ov-faixa ov-faixa--producao">
-    {{ icone('alerta', 15) }} Gravando em <strong>PRODUÇÃO</strong> — company DB {{ amb.company_db }}
-  </div>
-  {% else %}
+  {% if not amb.em_producao %}
   <div class="ov-faixa ov-faixa--ambiente">{{ icone('escudo', 13) }} Ambiente: {{ amb.ambiente }}</div>
   {% endif %}
 

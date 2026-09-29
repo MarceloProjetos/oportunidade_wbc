@@ -1097,7 +1097,7 @@ def test_css_da_linha_do_topo_e_da_barra_no_celular():
     assert re.search(r"@media \(max-width: 760px\) \{\s*\.ov-nav \{\s*height: auto; flex-wrap: wrap;", css)
     assert ".ov-opcao:has(input:disabled)" in css
     base = (_RAIZ_SIS / "controleproducao/templates/base.html").read_text(encoding="utf-8")
-    assert "style.css?v=6" in base
+    assert "style.css?v=7" in base
     # 29/09/2026: the mode choice of the search card is larger than the other options.
     assert re.search(r"\.ov-linha-topo \.ov-opcao input\[type=\"radio\"\] \{\s*width: 20px; height: 20px;", css)
 
@@ -1173,3 +1173,13 @@ def test_numero_de_op_com_letra_no_liberar_e_erro_de_tela_e_nao_500(cliente):
         resposta = cliente.post("/manutencao-op/status", data={"op_docnums": ["12a"], "acao": "l"})
     assert resposta.status_code == 400
     assert "Número da OP inválido" in _texto(resposta.text)
+
+
+def test_tela_da_execucao_tem_voltar_para_a_origem_e_sem_faixa_de_producao():
+    """29/09/2026 (owner): a "Voltar" to the screen the execution came from, and no red
+    "Gravando em PRODUÇÃO" strip."""
+    base = (_RAIZ_SIS / "controleproducao/templates/base.html").read_text(encoding="utf-8")
+    tarefa = (_RAIZ_SIS / "controleproducao/templates/tarefa.html").read_text(encoding="utf-8")
+    assert "ov-faixa--producao" not in base
+    assert "'pedidos_wbc': ('/pedidos-wbc', 'Pedidos WBC')" in tarefa
+    assert 'id="voltar"' in tarefa

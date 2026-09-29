@@ -6,6 +6,17 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-29] — Sem a faixa vermelha de PRODUÇÃO; "Voltar" na tela da execução
+
+Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem SQL. `style.css?v=7`.
+
+- A faixa vermelha "Gravando em PRODUÇÃO — company DB SBOALTAMIRAPROD" saiu de todas as telas
+  (pedido do Marcelo). Fora da produção a faixa cinza "Ambiente: …" continua.
+- A tela da execução (ex.: "Processar pedidos novos") tem um botão **Voltar para <tela>**: volta
+  para Pedidos WBC, Manutenção de OP ou Romaneio, conforme o módulo; execução de outro módulo
+  volta para Execuções. No celular o botão desce para baixo do título.
+- Conferido na prévia com o CSS real (computador e 375 px).
+
 ## [2026-09-29] — Erros em vermelho no log das execuções; checks das tabelas maiores
 
 Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem SQL. `style.css?v=6`.

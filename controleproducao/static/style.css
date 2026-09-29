@@ -162,20 +162,12 @@ code {
 .theme-toggle-btn:hover { border-color: var(--ov-accent); }
 
 /* ── Faixa de ambiente ────────────────────────────────────────────────────── */
-/* O alvo das gravações fica visível em toda página: o painel usa o mesmo .env da
-   CLI, e confundir homologação com produção foi um erro real em 21/09 — ali
-   custou uma investigação, numa tela custaria uma gravação.
-   A faixa de PRODUÇÃO é a única área grande com cor forte do painel, e é
-   deliberada: §4 proíbe fundo de área grande NO ACENTO; aqui é o vermelho
-   semântico de perigo, que não compete com o coral da marca. */
+/* Only off production now: the red PRODUÇÃO strip was removed at the owner's request
+   (29/09/2026) — on the .11 production is the normal state. A homologação run still says
+   so on every page (mixing the two was a real mistake on 21/09). */
 .ov-faixa {
   display: flex; align-items: center; gap: var(--space-2);
   padding: var(--space-2) var(--space-5); font-size: var(--fs-sm);
-}
-.ov-faixa--producao {
-  background: color-mix(in srgb, var(--color-danger) 16%, transparent);
-  color: var(--color-danger); font-weight: 700; letter-spacing: .01em;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
 }
 .ov-faixa--ambiente {
   background: var(--ov-panel); color: var(--ov-text-2);
@@ -195,6 +187,12 @@ code {
 .ov-topbar > .simbolo { font-size: var(--fs-3xl); color: var(--ov-accent-text); display: flex; }
 .ov-topbar h1 { font-size: var(--fs-2xl); margin: 0; color: var(--ov-text); font-weight: 700; }
 .ov-topbar p { font-size: var(--fs-sm); color: var(--ov-text-2); margin: 0; }
+/* "Voltar" of the execution page, pushed to the right of the title (29/09/2026). */
+.ov-topbar .ov-voltar { margin-left: auto; text-decoration: none; }
+@media (max-width: 760px) {
+  .ov-topbar:has(.ov-voltar) { flex-wrap: wrap; }
+  .ov-topbar .ov-voltar { margin-left: 0; }
+}
 
 /* ── Faixa de KPI (§5.3) ──────────────────────────────────────────────────── */
 /* grid + auto-fit — NUNCA flex+min-width (deixa buraco à direita) */
