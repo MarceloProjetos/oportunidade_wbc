@@ -1,6 +1,16 @@
 # Plano — API JSON da Manutenção de OP (Controle de Produção, porta 8080)
 
-> **Status (29/09/2026, 14:46): D6 no ar na .11 (deploy ~14:45), nunca exercitada em PROD.**
+> **Status (29/09/2026, fim da tarde): D1 decidida — qualquer um com a chave; `8edcae3` pende
+> deploy.** O Marcelo decidiu que a API não tem consumidor definido: basta a chave, de dentro da
+> rede. Duas barreiras de transporte caíram, só em `/api/*`: **CORS** para qualquer origem, sem
+> credenciais (uma página de outro servidor não conseguia chamar), e **`charset=utf-8`** no JSON
+> (o PowerShell 5.1 lia "concluída" como "concluÃ­da" — conferido contra a .11). O
+> `API_MANUTENCAO_OP.md` foi reescrito como guia: primeiros passos, conceitos, receitas com
+> requisição e resposta, erros, FAQ, "como testar sem estragar nada" e exemplos em Python,
+> PowerShell e JavaScript que pedem confirmação antes de gravar. Suíte 2.475 verde. Falta: o
+> deploy, F7 (quem chama a 8077) e as decisões D4 e D7.
+>
+> **Antes (29/09/2026, 14:46): D6 no ar na .11 (deploy ~14:45), nunca exercitada em PROD.**
 > Conferência só de leitura: `/health` ok; a busca do pedido 84080 (784 OPs Liberadas, nada
 > baixado nem apontado) devolveu `acoes_possiveis` igual à regra calculada no HANA, OP a OP, com
 > `replanejar` em todas; Replanejar sem `solicitante` → 400 e com OP inexistente → 404, nada
@@ -136,7 +146,7 @@ Service Layer às 16:05 de 28/09, sem mudança de status em seguida.
 
 ```mermaid
 flowchart LR
-    CONS["Consumidor (D1)"] -->|"X-API-Key · JSON"| API["/api/manutencao-op<br/>api_router.py"]
+    CONS["Qualquer um com a chave (D1)"] -->|"X-API-Key · JSON"| API["/api/manutencao-op<br/>api_router.py"]
     OPER["Operador · navegador"] -->|"cookie wbc_painel · form"| TELA["/manutencao-op<br/>router.py (HTML)"]
     subgraph P8080["processo OrcaView-ControleProducao · porta 8080"]
         API --> AC["acoes.py<br/>fluxos extraídos da tela"]
@@ -523,8 +533,13 @@ gravado; `409 ocupado` → acompanhar a execução que veio na resposta, não in
 
 **Marcelo**
 
-1. **Quem consome** — *aberta por enquanto (Marcelo, 29/09).* Não trava F1–F6: o contrato sai
-   genérico. O chamador desconhecido da rota da 8077 é candidato natural.
+1. **Quem consome** — ✅ *decidida pelo Marcelo em 29/09: qualquer um com a chave.* Sem
+   consumidor definido nem cadastro: a chave (`X-API-Key`, a `OS_API_KEY` — D2) e a rede interna
+   bastam. Para isso valer para qualquer cliente, `8edcae3` abriu CORS em `/api/*` (qualquer
+   origem, sem credenciais — a API nunca lê o cookie, então nada se abre a quem não tem a chave;
+   as telas seguem sem CORS) e passou a declarar `charset=utf-8` no JSON (PowerShell 5.1). O
+   guia `API_MANUTENCAO_OP.md` avisa que, numa página web, a chave fica visível a quem abre a
+   página. O chamador desconhecido da rota da 8077 continua sendo candidato natural.
 2. **Qual chave** — ✅ *decidida pelo Marcelo em 29/09: a mesma `OS_API_KEY`.* É a que a API já
    usa desde a F3 (no ar); nenhuma linha nova no `.env`. Motivo: zero linha nova no `.env`; "sem chave configurada → 503" já é o comportamento;
    uma chave própria seria uma linha no `.env` capaz de desligar a função — o padrão que a regra
