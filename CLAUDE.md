@@ -226,7 +226,9 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   queda no meio = pedido "processado" sem OP; retomada = `manutencao-op buscar` →
   `cancelar-ops` → `processar-novos` **sem `--force`** (`--force` duplica OP, na CLI e na web);
   (2) `reprocessar-integrados` cancela **toda** OP planejada do pedido (de qualquer origem) e
-  **não recria**; (3) `Liberar` grava no 1º POST; `Replanejar` é **só pela CLI** desde 28/09
+  **não recria** — o pedido volta para "Pedidos novos" (`ProcessWBC='N'`, `U_INO_OP` zerado) e
+  precisa ser processado de novo; está na tela desde 30/09 (D8 revertida pelo Marcelo), com
+  esse aviso na lista e na conferência; (3) `Liberar` grava no 1º POST; `Replanejar` é **só pela CLI** desde 28/09
   (D9 — a tela recusa `acao=p`); `encerrar` faz OIGE+OIGN (irreversível) e é o **único**
   caminho de encerrar OP (a API 8077 só libera por default, D9); (4) `HANA_SCHEMA` **não é
   lido** pelo pacote — `hana_schema` = `SL_COMPANY_DB` (bug de 21/09: ler num schema, gravar
@@ -242,7 +244,7 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   (HANA e WBC) passam por `sql_ligado.exige_leitura` — só um SELECT/WITH, sem `;`, sem
   INSERT/UPDATE/DELETE/INTO/EXEC… — e o cliente do WBC não tem método de escrita nem commit
   (30/09). `_update_pedido` (recria
-  linhas) está FECHADO com erro claro até o Anderson validar. `Reprocessar` saiu da tela (D8); (8) o pacote **não** tem expediente: fora do ar = alerta;
+  linhas) está FECHADO com erro claro até o Anderson validar. `Reprocessar` voltou à tela em 30/09 (D8 revertida); (8) o pacote **não** tem expediente: fora do ar = alerta;
   (9) `CP_HOST` decide quem alcança a tela: `0.0.0.0` (o valor da .11 desde 28/09 ~14:45, F6,
   com a regra de firewall `OrcaView-ControleProducao-8080` só para `192.168.0.0/16`) = a mesma
   exposição do painel; **nunca o IP da máquina** (o `deploy_update.bat` e o `/status`

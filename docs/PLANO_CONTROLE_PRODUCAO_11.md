@@ -435,6 +435,9 @@ esperou o uvicorn) e a 8080 ficou fora nesse intervalo — esperar o `/health` a
 - ✅ SQL do módulo 3 (`manutencao_op`) com parâmetro ligado; números validados na borda;
   paridade antiga × nova **15/15** contra PROD (só SELECT).
 - ✅ `Reprocessar` fora da tela (D8): botão removido; as duas rotas recusam com "só pela CLI".
+  **Revertido em 30/09 pelo Marcelo:** voltou em "Pedidos integrados", atrás do mesmo plano
+  conferido + token, com o aviso real na lista e na conferência (cancela as OPs planejadas de
+  qualquer origem e **não recria**; o pedido volta para "Pedidos novos").
 - ✅ SQL do módulo 2 (`pedidos_wbc`) com parâmetro ligado (29/09): os MESMOS modelos `{nome}`
   do C#, ligados por `core/sql_ligado.ligar` — paridade antiga × nova **39/39** contra PROD.
   `_update_pedido` (recria as linhas; mandava tabelas do SAP ao SQL Server do WBC) passou a ler
@@ -490,7 +493,7 @@ levanta antes de criar tarefa (503 na web, saída 2 na CLI). GET continua livre.
 | 1 | Sem login/CSRF, `/docs` aberto, `0.0.0.0` + sub-rede do SAP | **Fechado em F0:** cookie do painel, `Origin` nos POST, `/docs` off; `CP_HOST=127.0.0.1` no 1º deploy (D4) e `0.0.0.0` só com a regra de firewall da LAN (F6) |
 | 2 | Sem `/Logout` — sessões SL acumulam; mesmo SL do worker | **Fechado em F0:** `/Logout` em `aclose()`, molde do worker |
 | 3 | `ProcessWBC='Y'` antes da 1ª OP; `--force` duplica | **Aberto (negócio):** procedimento de retomada (F5); pedir ao Anderson gravar depois da 1ª OP |
-| 4 | `reprocessar` cancela OPs de qualquer origem, não recria | **Aberto:** fora da 1ª entrega (D8); esconder do menu (F7) |
+| 4 | `reprocessar` cancela OPs de qualquer origem, não recria | **Aceito pelo Marcelo (30/09):** de volta à tela com o aviso explícito na lista e na conferência; D8 revertida |
 | 5 | Módulo 3 pendente de reteste | **Aceito pelo Marcelo (28/09):** F4 coberta pelo uso no notebook do Anderson; módulo 3 entra na F6 com Replanejar só CLI; 1º `encerrar` real com o Anderson ao lado |
 | 6 | Produção decidida só por `SL_COMPANY_DB`; `HANA_SCHEMA` divergente | **Fechado em F0:** `hana_schema` = `SL_COMPANY_DB`; trava pelo IP |
 | 7 | Worker refaz linhas/recria pedido sem olhar OWOR; OPs órfãs | **Aberto (negócio):** conferir painel antes; auditoria de órfãs (F5); D13 |
@@ -538,7 +541,8 @@ para os seis, `/status` vê os seis.
    Anderson; sem reteste em HOMOLOG. Nunca na .11 (o `.env` é o do worker).
 8. **Escopo da 1ª entrega** — ✅ decidido 28/09 (F6): Buscar + `processar-novos` +
    `cancelar-ops` + módulo 3 (Liberar/Encerrar pela tela; Replanejar só CLI); `reprocessar`
-   fora do menu (F7).
+   fora do menu (F7). **30/09: revista pelo Marcelo — `reprocessar` voltou à tela**, com o aviso
+   de que cancela as OPs planejadas de qualquer origem e não recria.
 9. **Dono das transições de OP** — ✅ no código (F6, 28/09): API 8077 só Liberar
    (`OP_STATUS_PERMITIDOS_DEFAULT = 'boposReleased'`, constante — não flag); Encerrar com
    estoque = pacote; Replanejar só CLI. Pende: avisar quem consome `encerrada` na API (contrato).

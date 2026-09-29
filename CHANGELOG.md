@@ -6,6 +6,25 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-30] — Controle de Produção: Reprocessar volta à tela (D8 revertida)
+
+Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem dependência nova.
+
+- **Decisão do Marcelo (30/09):** "Pedidos integrados" volta a ter as caixas de seleção e o
+  botão **Reprocessar selecionados (N)…**, atrás do mesmo plano conferido + token de uso único
+  do Processar, com a mesma regra dos botões (só habilita com pedido marcado). As caixas tinham
+  saído na revisão de 30/09 por não haver botão que usasse a seleção desde a D8 (28/09).
+- **O aviso diz o que ele faz de fato** (lido no código): grava uma tabela nova do orçamento,
+  marca o pedido como NÃO processado e zera o `U_INO_OP` das linhas, revincula a Oportunidade
+  e **cancela todas as OPs planejadas** do pedido — de qualquer origem, inclusive as do addon
+  — e **não recria**: o pedido volta para "Pedidos novos" e precisa ser processado de novo. OP
+  liberada ou encerrada não é tocada (e o Processar seguinte não a duplica). O texto de antes
+  da D8 prometia "antes de recriá-las", o que nunca foi verdade. Aviso na lista (âmbar) e na
+  conferência; no acompanhamento, cada pedido termina com "processe de novo em Pedidos novos".
+- Plano (D8/D-risco 4, e o artifact, mesma url), README, guia do operador, CLAUDE.md e carta
+  ao Anderson atualizados. 2 testes novos (fluxo conferir → token → execução com o serviço
+  certo; lista com caixas e botão) no lugar do teste da recusa.
+
 ## [2026-09-30] — Controle de Produção: uma conexão com o WBC por execução; leituras do pedido uma vez
 
 Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem dependência nova. Mexe no

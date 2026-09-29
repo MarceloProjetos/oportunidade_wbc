@@ -16,7 +16,8 @@
 > ficou coberta por decisão (D7: a semana de uso no seu notebook), **sem reteste** — a §5 deixou
 > de ser pré-requisito. Em 29–30/09: SQL dos módulos 2 e 3 com parâmetro ligado
 > (`core/sql_ligado`), WBC em `pymssql`, `_update_pedido` fechado com erro até você validar,
-> Reprocessar só CLI (D8), leitores só-leitura por construção, histórico das execuções no
+> Reprocessar só CLI (D8 — **revertida em 30/09**: voltou à tela, com o aviso de que não
+> recria), leitores só-leitura por construção, histórico das execuções no
 > Supabase e log em arquivo dos comandos da CLI que gravam. O plano e o `CHANGELOG.md` têm o
 > detalhe.
 >

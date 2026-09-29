@@ -128,8 +128,10 @@ por `http://localhost:8079/` — os botões montam o link com o host da página 
 **Módulo 3 (D9):** `Liberar` e `Encerrar` pela tela; `Replanejar` só pela CLI
 (`python -m controleproducao manutencao-op replanejar`); a API 8077 deixou de encerrar OP
 (`OP_STATUS_PERMITIDOS_DEFAULT = 'boposReleased'`) — encerrar com estoque é só aqui.
-**Módulo 2 (D8):** `Reprocessar` só pela CLI; "Pedidos integrados" na tela é consulta. Os
-comandos da CLI que gravam deixam rastro em `logs/controleproducao_cli.log`. Quem opera a tela:
+**Módulo 2:** `Reprocessar` em "Pedidos integrados" (fora da tela de 28 a 30/09 — D8,
+revertida pelo Marcelo): cancela todas as OPs planejadas do pedido (de qualquer origem) e não
+recria — o pedido volta para "Pedidos novos". Os comandos da CLI que gravam deixam rastro em
+`logs/controleproducao_cli.log`. Quem opera a tela:
 [GUIA_OPERADOR.md](GUIA_OPERADOR.md).
 Pré-voo do piloto (só leitura, PROD): `python maintenance/pre_voo_controleproducao.py
 <orçamento>`.

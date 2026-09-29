@@ -4,8 +4,9 @@ A tela original tinha dois modos ("Pedidos Novos" e "Pedidos Integrados"), uma g
 caixas de seleção e botões que agiam sobre o que estava marcado. O desenho aqui é o mesmo,
 com três diferenças deliberadas, todas por causa de erros reais desta migração:
 
-1. **Nada grava direto do botão.** Processar e cancelar OPs passam por um plano conferido
-   em tela (`core/confirmacao.py`); Reprocessar é só pela CLI (D8). No legado o botão agia sobre a seleção
+1. **Nada grava direto do botão.** Processar, reprocessar e cancelar OPs passam por um
+   plano conferido em tela (`core/confirmacao.py`). Reprocessar saiu da tela em 28/09 (D8) e
+   voltou em 30/09, a pedido do Marcelo, com o aviso do que ele faz de fato. No legado o botão agia sobre a seleção
    e pronto; aqui o usuário vê antes o que vai acontecer e confirma sobre isso.
 2. **A execução é em segundo plano** (`core/tarefas.py`): um orçamento médio leva ~7s e um
    grande passa de minuto — tempo demais para um request segurar.
@@ -118,7 +119,7 @@ async def conferir_processar(
     force: str = Form(default=""),
 ):
     return await _confere_pedidos(
-        request, opp_ids, force=bool(force),
+        request, opp_ids, integrados=False, force=bool(force),
         operacao="Processar pedidos novos",
         acao="/pedidos-wbc/processar/executar",
         aviso="Cria Ordens de Produção, itens e recursos no SAP, e marca o pedido como "
@@ -126,22 +127,33 @@ async def conferir_processar(
     )
 
 
-_REPROCESSAR_SO_CLI = (
-    "Reprocessar não está disponível na tela: ele cancela TODA OP planejada do pedido "
-    "(de qualquer origem) e não recria. Use a CLI na .11, com o Anderson — "
-    "`python -m controleproducao pedidos-wbc reprocessar-integrados` (decisão D8)."
+# What Reprocessar really does, read from `service.reprocessar_pedidos_integrados` on
+# 30/09/2026. The pre-D8 screen said it cancelled the OPs "before recreating them" — it
+# recreates nothing: the order goes back to "Pedidos novos" and needs Processar again.
+AVISO_REPROCESSAR = (
+    "Para cada pedido: grava uma tabela nova do orçamento (OrcDetalhe), marca o pedido como "
+    "NÃO processado e zera o U_INO_OP das linhas, revincula a Oportunidade e CANCELA todas as "
+    "OPs PLANEJADAS do pedido — de qualquer origem, inclusive as do addon. NÃO recria as OPs: "
+    "o pedido volta para \"Pedidos novos\" e precisa ser processado de novo. OP liberada ou "
+    "encerrada não é tocada; OP cancelada não volta."
 )
 
 
 @router.post("/reprocessar/conferir", response_class=HTMLResponse)
 async def conferir_reprocessar(request: Request, opp_ids: list[str] = Form(default=[])):
-    # D8 (F7, 28/09/2026): out of the screen. A stale page or a hand-made POST gets the
-    # explicit refusal before any lookup, plan or write.
-    return _erro(request, _REPROCESSAR_SO_CLI, titulo="Reprocessar é só pela CLI")
+    # Back on the screen on 30/09/2026 (D8 reversed by the owner), behind the same checked
+    # plan + single-use token as Processar.
+    return await _confere_pedidos(
+        request, opp_ids, integrados=True, force=False,
+        operacao="Reprocessar pedidos integrados",
+        acao="/pedidos-wbc/reprocessar/executar",
+        aviso=AVISO_REPROCESSAR,
+    )
 
 
 async def _confere_pedidos(
-    request: Request, opp_ids: list[str], force: bool, operacao: str, acao: str, aviso: str,
+    request: Request, opp_ids: list[str], integrados: bool, force: bool,
+    operacao: str, acao: str, aviso: str,
 ):
     if not opp_ids:
         return _erro(request, "Nenhum pedido selecionado.")
@@ -150,7 +162,7 @@ async def _confere_pedidos(
     # navegador é um número digitável, e a grade do legado nunca deixou o usuário agir
     # sobre um pedido que não estivesse no filtro. Quem não está na busca não entra.
     with HanaDirectReader(get_settings()) as hana_reader:
-        pedidos = await service.buscar_pedidos_para_integrar(hana_reader, integrados=False)
+        pedidos = await service.buscar_pedidos_para_integrar(hana_reader, integrados=integrados)
     selecionados = _pedidos_selecionados(pedidos, opp_ids)
 
     fora = sorted({str(i) for i in opp_ids} - {str(p.opp_id) for p in selecionados})
@@ -282,7 +294,7 @@ async def executar_processar(request: Request, token: str = Form(default="")):
     force = bool(plano.resumo.get("_force"))
 
     async def executa(tarefa: Tarefa):
-        return await _roda_pedidos(tarefa, alvos, force=force)
+        return await _roda_pedidos(tarefa, alvos, modo="processar", force=force)
 
     return _dispara(
         request, plano.operacao,
@@ -293,8 +305,15 @@ async def executar_processar(request: Request, token: str = Form(default="")):
 
 @router.post("/reprocessar/executar")
 async def executar_reprocessar(request: Request, token: str = Form(default="")):
-    # D8: refused even with a token — no screen path can issue one any more.
-    return _erro(request, _REPROCESSAR_SO_CLI, titulo="Reprocessar é só pela CLI")
+    plano, erro = _consome(request, token)
+    if erro:
+        return erro
+    alvos = _alvos(plano)
+
+    async def executa(tarefa: Tarefa):
+        return await _roda_pedidos(tarefa, alvos, modo="reprocessar", force=False)
+
+    return _dispara(request, plano.operacao, _descricao(alvos), executa)
 
 
 def _alvos(plano) -> list[tuple[str, str]]:
@@ -312,7 +331,7 @@ def _descricao(alvos: list[tuple[str, str]]) -> str:
     return f"{len(alvos)} pedido(s): " + ", ".join(doc_num for doc_num, _ in alvos)
 
 
-async def _roda_pedidos(tarefa: Tarefa, alvos: list[tuple[str, str]], force: bool):
+async def _roda_pedidos(tarefa: Tarefa, alvos: list[tuple[str, str]], modo: str, force: bool):
     """`alvos` são pares `(pedido SAP, orçamento WBC)`.
 
     Ao serviço vai o **orçamento** — é o que `GetOrcsWBC` e `GetIdOrcamentosPedido`
@@ -323,10 +342,10 @@ async def _roda_pedidos(tarefa: Tarefa, alvos: list[tuple[str, str]], force: boo
     tarefa.avanca(f"Conectando à Service Layer ({settings.sl_company_db})…", 0, len(alvos))
     # Both readers keep ONE connection for the whole execution and close it here.
     with HanaDirectReader(settings) as hana_reader, WbcSqlServerClient(settings) as wbc:
-        return await _roda_pedidos_com(tarefa, alvos, force, settings, hana_reader, wbc)
+        return await _roda_pedidos_com(tarefa, alvos, modo, force, settings, hana_reader, wbc)
 
 
-async def _roda_pedidos_com(tarefa, alvos, force, settings, hana_reader, wbc):
+async def _roda_pedidos_com(tarefa, alvos, modo, force, settings, hana_reader, wbc):
     """Body of `_roda_pedidos`, with both readers opened (and closed) by the caller."""
     async with ServiceLayerClient(settings) as sl:
         # Um pedido por vez, e não a lista inteira de uma vez, para o acompanhamento
@@ -340,9 +359,14 @@ async def _roda_pedidos_com(tarefa, alvos, force, settings, hana_reader, wbc):
             # `logger.info` do serviço; a ponte põe isso na tela enquanto roda, em vez de
             # deixar o usuário olhando uma linha só por vários minutos.
             with acompanha_log(tarefa, service.__name__, service_layer_client.__name__):
-                parcial = await service.processar_pedidos_novos(
-                    sl, wbc, hana_reader, [orc_num], force=force
-                )
+                if modo == "reprocessar":
+                    parcial = await service.reprocessar_pedidos_integrados(
+                        sl, wbc, hana_reader, [orc_num]
+                    )
+                else:
+                    parcial = await service.processar_pedidos_novos(
+                        sl, wbc, hana_reader, [orc_num], force=force
+                    )
             # O serviço identifica tudo pelo orçamento; a tela é do pedido. Acrescenta o
             # nº do pedido a cada registro para o JSON do resultado não obrigar o leitor
             # a traduzir os números de volta na cabeça.
@@ -377,6 +401,11 @@ async def _roda_pedidos_com(tarefa, alvos, force, settings, hana_reader, wbc):
                         + "; ".join(f"{g.get('item')} — {g.get('motivo')}" for g in sem_rateio)
                     )
                 tarefa.avanca(f"{rotulo}: ATENÇÃO — " + " | ".join(ressalvas), i)
+            elif modo == "reprocessar":
+                tarefa.avanca(
+                    f"{rotulo}: reprocessado — OPs planejadas canceladas; processe de novo "
+                    "em \"Pedidos novos\" para criar as OPs.", i,
+                )
             else:
                 tarefa.avanca(f"{rotulo}: concluído.", i)
     return agregado

@@ -40,9 +40,13 @@
   {% endif %}
 </div>
 
-{# "Integrados" is a read-only list since D8 (Reprocessar is CLI-only): no boxes to tick. #}
-{% set selecionavel = modo != 'integrados' %}
-<form method="post" id="form-pedidos" action="/pedidos-wbc/processar/conferir">
+{# Both modes select: "novos" → Processar, "integrados" → Reprocessar (back on the screen
+   since 30/09/2026 — D8 reversed by the owner). #}
+{% set selecionavel = true %}
+{% set reprocessar = modo == 'integrados' %}
+{% set verbo = 'Reprocessar' if reprocessar else 'Processar' %}
+<form method="post" id="form-pedidos"
+      action="/pedidos-wbc/{{ 'reprocessar' if reprocessar else 'processar' }}/conferir">
   <section class="ov-table-card">
     <div class="ov-scroll">
       <table class="ov-table">
@@ -95,24 +99,30 @@
   {% endif %}
 
   <div class="ov-acoes-lote">
-    {% if modo == 'integrados' %}
-    {# Reprocessar saiu da tela em 28/09/2026 (D8): cancela toda OP planejada e não recria. #}
-    <p class="ov-nota">Lista só para consulta. Reprocessar é só pela CLI, na .11, com o Anderson.</p>
-    {% else %}
     {# Starts disabled; the script below enables it with at least one pedido marked. The
        server still refuses an empty selection ("Nenhum pedido selecionado."). #}
     <button type="submit" class="ov-btn ov-btn--perigo" id="btn-processar" disabled
-            title="Marque ao menos um pedido" aria-describedby="dica-processar">{{ icone('play') }}
-      <span id="rotulo-processar">Processar selecionados…</span></button>
+            data-verbo="{{ verbo }}" title="Marque ao menos um pedido"
+            aria-describedby="dica-processar">{{ icone('raio' if reprocessar else 'play') }}
+      <span id="rotulo-processar">{{ verbo }} selecionados…</span></button>
     <span class="ov-nota-inline" id="dica-processar" aria-live="polite">
       {%- if pedidos %}Marque ao menos um pedido.
-      {%- elif buscou %}Nenhum pedido para processar.
+      {%- elif buscou %}Nenhum pedido para {{ verbo | lower }}.
       {%- else %}Busque os pedidos para selecionar.{% endif -%}
     </span>
+    {% if not reprocessar %}
     <label class="ov-opcao" style="padding-bottom:0"><input type="checkbox" name="force" value="1"
       id="forcar" disabled> forçar (ignora as checagens de reprocessamento)</label>
     {% endif %}
   </div>
+  {% if reprocessar %}
+  {# Said on the page, not only on the confirmation screen: this is the button that cancels
+     OPs of any origin and recreates none. #}
+  <div class="ov-alerta is-warn">{{ icone('alerta', 16) }}<span><strong>Reprocessar</strong> cancela
+    todas as OPs <strong>planejadas</strong> do pedido — de qualquer origem, inclusive as do addon —
+    e <strong>não recria</strong>: o pedido volta para "Pedidos novos" e precisa ser processado
+    de novo.</span></div>
+  {% endif %}
   {% if selecionavel %}
   <p class="ov-nota">Nada é gravado neste passo: a próxima tela mostra exatamente o que será
     feito e pede confirmação.</p>
@@ -137,26 +147,29 @@
 
 <script>
 (function () {
-  // "Processar selecionados…" only with at least one pedido marked, and the label counts
-  // them: the number is the last check before the confirmation screen. "forçar" follows the
-  // button and is cleared when nothing is marked — it duplicates OPs, so it must never stay
-  // checked unnoticed from an earlier selection.
+  // "Processar/Reprocessar selecionados…" only with at least one pedido marked, and the
+  // label counts them: the number is the last check before the confirmation screen.
+  // "forçar" (Processar only) follows the button and is cleared when nothing is marked — it
+  // duplicates OPs, so it must never stay checked unnoticed from an earlier selection.
   var form = document.getElementById("form-pedidos");
   var botao = document.getElementById("btn-processar");
   if (!form || !botao) { return; }
   var caixas = Array.prototype.slice.call(form.querySelectorAll("input[name=opp_ids]"));
   var rotulo = document.getElementById("rotulo-processar");
   var dica = document.getElementById("dica-processar");
-  var forcar = document.getElementById("forcar");
+  var forcar = document.getElementById("forcar");      // absent in "integrados"
+  var verbo = botao.dataset.verbo;
 
   function pinta() {
     var n = caixas.filter(function (c) { return c.checked; }).length;
     botao.disabled = n === 0;
     botao.title = n ? "" : "Marque ao menos um pedido";
-    rotulo.textContent = n ? "Processar selecionados (" + n + ")…" : "Processar selecionados…";
+    rotulo.textContent = n ? verbo + " selecionados (" + n + ")…" : verbo + " selecionados…";
     dica.hidden = n > 0;
-    forcar.disabled = n === 0;
-    if (!n) { forcar.checked = false; }
+    if (forcar) {
+      forcar.disabled = n === 0;
+      if (!n) { forcar.checked = false; }
+    }
   }
 
   caixas.forEach(function (c) { c.addEventListener("change", pinta); });

@@ -19,8 +19,14 @@
    - dentro do expediente, **nunca depois das 17:30**.
 3. Marque o pedido → **Processar selecionados (N)…** (só habilita com pedido marcado) → a tela
    mostra o que vai gravar → confirme em até 10 min.
-4. **Não marque "forçar"** (duplica OP). Não existe Reprocessar na tela (só CLI, com o Anderson).
+4. **Não marque "forçar"** (duplica OP).
 5. Depois: confira as OPs no SAP; em **Execuções**, o resultado sem "SEM OP" nem "rateio".
+
+**Reprocessar** (em "Pedidos integrados"): marque o pedido → **Reprocessar selecionados (N)…** →
+confira → confirme. Ele **cancela todas as OPs planejadas** do pedido — de qualquer origem,
+inclusive as do addon — e **não recria**: o pedido volta para "Pedidos novos" e precisa ser
+processado de novo. OP liberada ou encerrada não é tocada. Use quando o orçamento mudou depois
+do processamento e as OPs planejadas precisam sair.
 
 **Caiu no meio?** Não processe de novo. Chame o Anderson: a retomada é `manutencao-op buscar` →
 `cancelar-ops` → `processar-novos` **sem** `--force`.
@@ -39,7 +45,7 @@
 
 - Lista as **30 últimas** execuções da tela (mais as que estão rodando) com o log e o resultado
   de cada uma. Ficam guardadas no Supabase: reiniciar o serviço **não** apaga a lista.
-- A 31ª apaga a mais antiga. O que roda pela CLI (Replanejar, Reprocessar) **não** entra aqui —
+- A 31ª apaga a mais antiga. O que roda pela CLI (Replanejar, ou qualquer comando digitado) **não** entra aqui —
   fica em `C:\Python\ServidorIntegracaoSAP\logs\controleproducao_cli.log`, com o comando
   digitado.
 - Aviso amarelo "Não foi possível ler o histórico guardado" = o Supabase não respondeu; a lista

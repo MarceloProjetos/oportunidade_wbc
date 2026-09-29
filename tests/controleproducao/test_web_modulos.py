@@ -146,8 +146,6 @@ ROTAS_QUE_NAO_GRAVAM = {
     # execução, que é onde a gravação acontece.
     "/pedidos-wbc/processar/conferir",
     "/pedidos-wbc/reprocessar/conferir",
-    # D8 (28/09/2026): Reprocessar is CLI-only; the screen route only refuses.
-    "/pedidos-wbc/reprocessar/executar",
     "/pedidos-wbc/cancelar-ops/conferir",
     "/manutencao-op/buscar",
     "/manutencao-op/encerrar/conferir",
@@ -674,15 +672,47 @@ def test_post_com_op_terminal_barra_o_lote_inteiro(cliente):
     mudar.assert_not_called()
 
 
-def test_reprocessar_pela_tela_e_recusado(cliente):
-    """D8 (28/09/2026): Reprocessar cancels every planned OP of the order and does not
-    recreate them — the screen refuses both steps, before any lookup or task."""
-    with patch("controleproducao.modules.pedidos_wbc.router._roda_pedidos") as roda:
-        for rota in ("/pedidos-wbc/reprocessar/conferir", "/pedidos-wbc/reprocessar/executar"):
-            resposta = cliente.post(rota, data={"opp_ids": ["15056"], "token": "x"})
-            assert resposta.status_code == 400
-            assert "CLI" in resposta.text
-    roda.assert_not_called()
+def test_reprocessar_volta_a_tela_com_aviso_e_executa(cliente):
+    """30/09/2026: Reprocessar is back on the screen (D8 reversed by the owner), behind the
+    same checked plan + single-use token as Processar — and the confirmation says what it
+    really does: cancels the planned OPs of any origin and recreates NONE (the pre-D8 text
+    promised "before recreating them")."""
+    chamado: dict = {}
+
+    async def _falso(sl, wbc, hana, ids):
+        chamado["ids"] = list(ids)
+        return {"atualizados": list(ids), "com_erro": []}
+
+    with _Ligado(_patches()):
+        conferir = cliente.post("/pedidos-wbc/reprocessar/conferir", data={"opp_ids": ["4321"]})
+        assert conferir.status_code == 200
+        texto = _texto(conferir.text)
+        assert "Reprocessar pedidos integrados" in texto
+        assert "NÃO recria as OPs" in texto and "inclusive as do addon" in texto
+        assert "antes de recriá-las" not in texto
+        token = _token(conferir.text)
+        with patch("controleproducao.modules.pedidos_wbc.service.reprocessar_pedidos_integrados", _falso), \
+             patch("controleproducao.modules.pedidos_wbc.router.ServiceLayerClient", MagicMock()), \
+             patch("controleproducao.modules.pedidos_wbc.router.WbcSqlServerClient", MagicMock()):
+            resposta = cliente.post(
+                "/pedidos-wbc/reprocessar/executar", data={"token": token}, follow_redirects=False
+            )
+            assert resposta.status_code == 303, resposta.text[:400]
+            estado = _espera_terminar(cliente, resposta.headers["location"].rsplit("/", 1)[-1])
+
+    assert chamado["ids"] == [PEDIDO.orc_num_masc]          # the service gets the WBC quote
+    assert "processe de novo" in "\n".join(estado["linhas"])
+
+
+def test_integrados_tem_caixas_e_o_botao_reprocessar(cliente):
+    with _Ligado(_patches(pedidos=_pedidos(3))):
+        html = cliente.get("/pedidos-wbc?modo=integrados&buscar=1").text
+
+    assert html.count('name="opp_ids"') == 3
+    assert 'action="/pedidos-wbc/reprocessar/conferir"' in html
+    assert re.search(r'id="btn-processar" disabled\s+data-verbo="Reprocessar"', html)
+    assert 'id="forcar"' not in html                         # "forçar" is Processar-only
+    assert "não recria" in _texto(html)
 
 
 def test_replanejar_pela_tela_e_recusado(cliente):
@@ -987,7 +1017,8 @@ def test_processar_nasce_desabilitado_e_so_liga_com_pedido_marcado(cliente):
     assert "Marque ao menos um pedido." in html
     # The script counts the marked boxes, drives the button and clears "forçar" with none.
     for trecho in ("input[name=opp_ids]", "botao.disabled = n === 0",
-                   '"Processar selecionados (" + n + ")…"', "forcar.checked = false",
+                   'verbo + " selecionados (" + n + ")…"', 'data-verbo="Processar"',
+                   "forcar.checked = false",
                    'addEventListener("pageshow", pinta)'):
         assert trecho in html, trecho
 

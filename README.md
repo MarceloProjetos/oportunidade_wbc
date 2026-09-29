@@ -644,9 +644,11 @@ módulo 3 (*Manutenção de OP*) libera, replaneja e **encerra com movimentaçã
 - **Módulo 3 (D9):** `Liberar` e `Encerrar` pela tela; `Replanejar` só pela CLI
   (`python -m controleproducao manutencao-op replanejar`). A API 8077 deixou de encerrar OP
   (seção "Ordens de Produção" acima): encerrar com estoque é só aqui.
-- **Módulo 2 (D8):** `Reprocessar` só pela CLI (`pedidos-wbc reprocessar-integrados`); na tela,
-  "Pedidos integrados" é lista de consulta. Os comandos da CLI que gravam registram o que
-  fizeram em `logs/controleproducao_cli.log` (`CP_CLI_LOG_FILE`), com a linha de comando.
+- **Módulo 2:** `Reprocessar` em "Pedidos integrados" (saiu da tela em 28/09 — D8 — e voltou
+  em 30/09, decisão do Marcelo): cancela **todas** as OPs planejadas do pedido, de qualquer
+  origem, e **não recria** — o pedido volta para "Pedidos novos" e precisa ser processado de
+  novo. Os comandos da CLI que gravam registram o que fizeram em
+  `logs/controleproducao_cli.log` (`CP_CLI_LOG_FILE`), com a linha de comando.
 - **Execuções (29/09):** as 30 últimas terminadas ficam no Supabase
   `controle_producao_execucoes` (só na .11; DDL em `sql/controle_producao_execucoes.sql`) e
   sobrevivem ao restart. Conferência: `GET :8080/health` → `"historico": "supabase"`.
