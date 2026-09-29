@@ -23,8 +23,9 @@
   <div class="ov-barra {{ CLASSE_DA_BARRA[tarefa.desfecho] }}" id="barra-casca"><i id="barra"></i></div>
   <p id="passo" class="ov-passo">{{ tarefa.passo }}</p>
 
-  <pre id="linhas" class="ov-log">{% for l in tarefa.linhas %}{{ l }}
-{% endfor %}</pre>
+  {# Error and warning lines carry the ⚠ mark (Tarefa.anota) and are painted red. #}
+  <pre id="linhas" class="ov-log">{% for l in tarefa.linhas %}<span{% if '⚠' in l %} class="is-problema"{% endif %}>{{ l }}
+</span>{% endfor %}</pre>
 
   <div id="painel-erro" class="ov-alerta is-erro" hidden></div>
   <div id="painel-resultado" hidden></div>
@@ -115,7 +116,12 @@
     elDuracao.textContent = d.duracao_segundos !== null ? ' — ' + d.duracao_segundos + ' s' : '';
     elPasso.textContent = d.passo || '';
     elBarra.style.width = (d.percentual === null ? 0 : d.percentual) + '%';
-    elLinhas.textContent = d.linhas.join('\n');
+    elLinhas.replaceChildren(...d.linhas.map((texto) => {
+      const linha = document.createElement('span');
+      if (texto.includes('⚠')) { linha.className = 'is-problema'; }
+      linha.textContent = texto + '\n';
+      return linha;
+    }));
     if (colado) { elLinhas.scrollTop = elLinhas.scrollHeight; }
 
     if (d.erro) { elErro.hidden = false; elErro.textContent = d.erro; }

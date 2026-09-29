@@ -6,6 +6,21 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-29] — Erros em vermelho no log das execuções; checks das tabelas maiores
+
+Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem SQL. `style.css?v=6`.
+
+- **Erros e avisos em vermelho** na tela da execução (Execuções → detalhe). `Tarefa.anota` ganhou
+  `problema=True`, que abre a linha com "⚠"; a ponte de log marca sozinha todo `WARNING` e
+  `ERROR` dos serviços, e as anotações de erro do Encerrar ("ERRO em", "PULADA", "ATENÇÃO") e a
+  falha da execução também. A marca fica no texto, então vale no histórico do Supabase e na
+  API (onde `linhas` continua texto). O "DIFERENTE" do peso já sai em vermelho.
+- **Checks de seleção das tabelas** (Pedidos WBC e Manutenção de OP) com 20 px.
+- **Correção:** o log de pesos do "Processar pedidos novos" lia campos que o `EstruturaPrd` não
+  tem (`orc_prd_arv_nivel`) — na .11 saía "não foi possível comparar os pesos". O teste agora usa
+  o `EstruturaPrd` de verdade.
+- Conferido na prévia com o CSS real, tema claro e escuro.
+
 ## [2026-09-29] — Pedidos WBC: escolha "novos / integrados" maior
 
 Só CSS (`style.css?v=5`, para o navegador não ficar com o antigo em cache): no cartão de busca da

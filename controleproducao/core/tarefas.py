@@ -82,6 +82,10 @@ def desfecho_de(situacao: str, com_falhas: bool) -> str:
     return "fila"
 
 
+#: Opens every error or warning line of an execution log (see `Tarefa.anota`).
+MARCA_PROBLEMA = "⚠"
+
+
 @dataclass
 class Tarefa:
     """Uma execução em andamento ou terminada."""
@@ -141,9 +145,15 @@ class Tarefa:
         fim = self.terminada_em or datetime.now()
         return round((fim - self.iniciada_em).total_seconds(), 1)
 
-    def anota(self, linha: str) -> None:
-        """Acrescenta uma linha ao acompanhamento. Visível ao usuário enquanto roda."""
-        self.linhas.append(f"{datetime.now():%H:%M:%S}  {linha}")
+    def anota(self, linha: str, *, problema: bool = False) -> None:
+        """Acrescenta uma linha ao acompanhamento. Visível ao usuário enquanto roda.
+
+        ``problema`` (errors and warnings, 29/09/2026) prefixes the line with ``MARCA_PROBLEMA``:
+        the Execuções screen paints those lines red, and the mark survives the Supabase
+        history and the API, where the lines stay plain text.
+        """
+        marca = f"{MARCA_PROBLEMA} " if problema else ""
+        self.linhas.append(f"{datetime.now():%H:%M:%S}  {marca}{linha}")
 
     def avanca(self, passo: str, feitos: int | None = None, total: int | None = None) -> None:
         """Atualiza o passo atual e, opcionalmente, o progresso."""
@@ -293,7 +303,7 @@ class RegistroDeTarefas:
         except Exception as exc:  # noqa: BLE001 - a falha é o resultado da tarefa
             tarefa.situacao = "erro"
             tarefa.erro = str(exc)
-            tarefa.anota(f"ERRO: {exc}")
+            tarefa.anota(f"ERRO: {exc}", problema=True)
             # O traceback vai para o log do servidor, não para a tela: a mensagem o usuário
             # já tem, e o rastro completo é para quem for investigar.
             logger.error("Tarefa %s (%s) falhou:\n%s", tarefa.id, tarefa.nome, traceback.format_exc())
@@ -411,7 +421,7 @@ class _PonteDeLog(logging.Handler):
 
     def emit(self, registro: logging.LogRecord) -> None:
         try:
-            self._tarefa.anota(registro.getMessage())
+            self._tarefa.anota(registro.getMessage(), problema=registro.levelno >= logging.WARNING)
         except Exception:  # noqa: BLE001 - log nunca derruba a execução
             pass
 

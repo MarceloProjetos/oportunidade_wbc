@@ -369,6 +369,11 @@ h2::before {
 }
 .ov-input--curto { width: 8ch; }
 input[type="checkbox"], input[type="radio"] { accent-color: var(--ov-accent); }
+/* Row selection in the tables (Pedidos WBC, Manutenção de OP): easier to hit and to see
+   (asked by the owner, 29/09/2026). */
+.ov-table input[type="checkbox"] {
+  width: 20px; height: 20px; margin: 0; vertical-align: middle; cursor: pointer;
+}
 
 /* Linha de filtros: os campos ficam lado a lado, cada um com seu rótulo em caps */
 .ov-filtros {
@@ -441,6 +446,9 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--ov-accent); }
   font-size: var(--fs-sm); line-height: 1.65; white-space: pre-wrap; margin: var(--space-3) 0;
   font-variant-numeric: tabular-nums;
 }
+/* Error and warning lines of an execution (marked ⚠ by Tarefa.anota): red, in both themes. */
+.ov-log .is-problema { color: #b42318; font-weight: 600; }
+:root:not([data-theme="light"]) .ov-log .is-problema { color: #ff8a80; }
 .ov-acoes-lote { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 /* Separa a seleção (não grava nada) das ações que gravam. Um espaço maior aqui é
    o que evita clicar em "Encerrar" mirando "Selecionar todas". */

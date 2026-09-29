@@ -355,16 +355,17 @@ def corrotina_encerramento(plano: Plano) -> Callable[[Tarefa], Awaitable[dict]]:
                 + (" (liberada antes)" if op.get("foi_liberada") else "")
             )
         for op in resultado.get("puladas", []):
-            tarefa.anota(f"OP {op['doc_num']}: PULADA — dependia de uma OP que falhou.")
+            tarefa.anota(f"OP {op['doc_num']}: PULADA — dependia de uma OP que falhou.", problema=True)
         for op in interrompidas:
             tarefa.anota(f"OP {op['doc_num']}: NÃO INICIADA — a execução foi interrompida antes dela.")
         for erro in resultado["com_erro"]:
-            tarefa.anota(f"OP {erro['doc_num']}: ERRO em '{erro['etapa']}' — {erro['motivo']}")
+            tarefa.anota(f"OP {erro['doc_num']}: ERRO em '{erro['etapa']}' — {erro['motivo']}", problema=True)
             if erro.get("liberacao") == "mantida (saída já lançada)":
                 tarefa.anota(
                     f"  ATENÇÃO na OP {erro['doc_num']}: a saída de insumo JÁ foi lançada e "
                     "a OP continua Liberada. Não use replanejar — a saída precisa ser "
-                    "cancelada no SAP primeiro."
+                    "cancelada no SAP primeiro.",
+                    problema=True,
                 )
         tarefa.avanca(
             f"{len(resultado['finalizadas'])} encerrada(s), "

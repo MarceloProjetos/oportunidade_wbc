@@ -378,3 +378,25 @@ def test_sem_parada_combinada_o_cancelar_corta_como_antes():
 
     tarefa = asyncio.run(cenario())
     assert tarefa.situacao == "cancelada" and tarefa.resultado is None
+
+
+# ---------------------------------------------------------------------------
+# Error and warning lines are marked, so the screen can paint them red (29/09/2026)
+# ---------------------------------------------------------------------------
+def test_aviso_e_erro_do_log_ganham_a_marca_e_info_nao():
+    import logging
+    from datetime import datetime
+
+    from controleproducao.core.tarefas import MARCA_PROBLEMA, Tarefa, acompanha_log
+
+    tarefa = Tarefa(id="t1", nome="Teste", descricao="", criada_em=datetime.now(), modulo="teste")
+    registro = logging.getLogger("controleproducao.teste_marca")
+    with acompanha_log(tarefa, registro.name):
+        registro.info("tudo certo")
+        registro.warning("peso DIFERENTE")
+        registro.error("falhou")
+    tarefa.anota("OP 1: ERRO em 'saída de insumo' — sem estoque", problema=True)
+
+    linhas = list(tarefa.linhas)
+    assert MARCA_PROBLEMA not in linhas[0] and linhas[0].endswith("  tudo certo")
+    assert all(linha.split("  ", 1)[1].startswith(f"{MARCA_PROBLEMA} ") for linha in linhas[1:])

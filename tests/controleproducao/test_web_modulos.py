@@ -1097,7 +1097,7 @@ def test_css_da_linha_do_topo_e_da_barra_no_celular():
     assert re.search(r"@media \(max-width: 760px\) \{\s*\.ov-nav \{\s*height: auto; flex-wrap: wrap;", css)
     assert ".ov-opcao:has(input:disabled)" in css
     base = (_RAIZ_SIS / "controleproducao/templates/base.html").read_text(encoding="utf-8")
-    assert "style.css?v=5" in base
+    assert "style.css?v=6" in base
     # 29/09/2026: the mode choice of the search card is larger than the other options.
     assert re.search(r"\.ov-linha-topo \.ov-opcao input\[type=\"radio\"\] \{\s*width: 20px; height: 20px;", css)
 
