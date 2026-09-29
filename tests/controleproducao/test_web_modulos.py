@@ -643,9 +643,9 @@ def test_tela_nao_oferece_caixa_para_op_terminal(cliente):
     selecionaveis = _re.findall(r'name="op_docnums" value="(\d+)"', resposta.text)
     assert selecionaveis == ["155747", "155744"]      # só Planejada e Liberada
     assert resposta.text.count("<input type=\"checkbox\" disabled") == 2
-    # D9 (28/09/2026): Liberar is the only status action the screen offers; Replanejar is CLI-only.
+    # D4 (29/09/2026): Replanejar is back beside Liberar.
     assert 'name="acao" value="l"' in resposta.text
-    assert 'name="acao" value="p"' not in resposta.text
+    assert 'name="acao" value="p"' in resposta.text
 
 
 def test_post_com_op_terminal_barra_o_lote_inteiro(cliente):
@@ -720,23 +720,109 @@ def test_integrados_tem_caixas_e_o_botao_reprocessar(cliente):
     assert "não recria" in _texto(html)
 
 
-def test_replanejar_pela_tela_e_recusado(cliente):
-    """D9 (28/09/2026): replanejar is CLI-only. The screen refuses ``acao=p`` before any
-    lookup or write — the button is gone from the template, so a ``p`` here is a stale page
-    or a hand-made POST, and both deserve the explicit message, not a silent no-op."""
+def _ops_para_replanejar():
+    """Three Liberadas: 155744 nothing moved, 155743 material issued, 155742 product received."""
+    base = {
+        "Cód. Produto": "PAR000", "Produto": "CONJ PARAFUSO", "Qtde. Planejada": 20,
+        "Qtde. Restante": 20, "Data Pedido": "2026-09-22 00:00:00",
+        "Data inicio": "2026-09-22 00:00:00", "Data Vencimento": "2026-10-12 00:00:00",
+        "Cod. Cliente": "C1", "Cliente": "GARRETT",
+    }
+    return [
+        {"Número OP": 155747, "Status": "P", "Qtde. Apontada": 0, **base, "Status (descrição)": "Planejada"},
+        {"Número OP": 155744, "Status": "R", "Qtde. Apontada": 0, **base, "Status (descrição)": "Liberada"},
+        {"Número OP": 155743, "Status": "R", "Qtde. Apontada": 0, **base, "Status (descrição)": "Liberada"},
+        {"Número OP": 155742, "Status": "R", "Qtde. Apontada": 5, **base, "Status (descrição)": "Liberada"},
+    ]
+
+
+def _busca_para_replanejar(cliente, baixadas):
     with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
          patch("controleproducao.core.web.get_settings", return_value=_settings()), \
-         patch("controleproducao.modules.manutencao_op.service.levanta_ops") as levanta, \
+         patch("controleproducao.modules.manutencao_op.router.HanaDirectReader", MagicMock()), \
+         patch("controleproducao.modules.manutencao_op.service.buscar_ops", return_value=_ops_para_replanejar()), \
+         patch("controleproducao.modules.manutencao_op.service.baixada_das_ops_do_pedido", **baixadas):
+        return cliente.post("/manutencao-op/buscar", data={"doc_num": "84376"}).text
+
+
+def test_a_grade_diz_quais_ops_podem_voltar_e_por_que_nao(cliente):
+    """D4 (29/09/2026): the reason sits next to the status, and each box carries whether the
+    OP can go back — so the button knows before the POST (same rule as the action)."""
+    html = _busca_para_replanejar(
+        cliente, {"return_value": {155744: 0.0, 155743: 3.5, 155742: 0.0, 155747: 0.0}}
+    )
+    marcas = dict(re.findall(r'name="op_docnums" value="(\d+)"\s+data-replanejar="(\w+)"', html))
+    assert marcas == {"155747": "na", "155744": "sim", "155743": "nao", "155742": "nao"}
+    texto = _texto(html)
+    assert "Liberada insumo baixado" in texto and "Liberada produto apontado" in texto
+    assert 'id="btn-replanejar" disabled' in html
+    assert "Replanejar selecionadas" in texto
+
+
+def test_sem_o_insumo_baixado_nenhuma_liberada_e_oferecida(cliente):
+    """Fail-closed: if the issued quantity cannot be read, the grid still shows and no
+    Liberada is offered for Replanejar (the action would refuse it too)."""
+    html = _busca_para_replanejar(cliente, {"side_effect": RuntimeError("HANA fora")})
+    marcas = dict(re.findall(r'name="op_docnums" value="(\d+)"\s+data-replanejar="(\w+)"', html))
+    assert marcas == {"155747": "na", "155744": "nao", "155743": "nao", "155742": "nao"}
+    assert "não foi possível conferir o insumo" in _texto(html)
+
+
+def test_replanejar_pela_tela_devolve_para_planejada(cliente):
+    """D4 (29/09/2026): Replanejar runs from the screen like Liberar — one click, background."""
+    ops = [{"doc_entry": 1, "doc_num": 155744, "status": "R", "item_code": "A",
+            "planejada": 1.0, "apontada": 0.0, "pedido": 84376, "baixada": 0.0}]
+    mudar = AsyncMock(return_value={"alteradas": ops, "com_erro": [], "ignoradas": []})
+    with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
+         patch("controleproducao.core.web.get_settings", return_value=_settings()), \
+         patch("controleproducao.modules.manutencao_op.router.HanaDirectReader", MagicMock()), \
+         patch("controleproducao.modules.manutencao_op.acoes.get_settings", return_value=_settings()), \
+         patch("controleproducao.modules.manutencao_op.acoes.ServiceLayerClient", MagicMock()), \
+         patch("controleproducao.modules.manutencao_op.service.levanta_ops", return_value=ops), \
+         patch("controleproducao.modules.manutencao_op.service.muda_status", mudar):
+        resposta = cliente.post(
+            "/manutencao-op/status", data={"op_docnums": ["155744"], "acao": "p"},
+            follow_redirects=False,
+        )
+        assert resposta.status_code == 303, resposta.text[:400]
+        estado = _espera_terminar(cliente, resposta.headers["location"].rsplit("/", 1)[-1])
+
+    assert estado["nome"] == "Replanejar OPs" and estado["desfecho"] == "ok"
+    assert mudar.await_args.args[1:] == (ops, "p")
+
+
+def test_replanejar_pela_tela_recusa_op_com_insumo_baixado(cliente):
+    """The screen shows the API's refusal, with the OPs in a table — nothing is written."""
+    ops = [
+        {"doc_entry": 1, "doc_num": 155744, "status": "R", "item_code": "A",
+         "planejada": 1.0, "apontada": 0.0, "pedido": 84376, "baixada": 0.0},
+        {"doc_entry": 2, "doc_num": 155743, "status": "R", "item_code": "B",
+         "planejada": 1.0, "apontada": 0.0, "pedido": 84376, "baixada": 3.5},
+    ]
+    with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
+         patch("controleproducao.core.web.get_settings", return_value=_settings()), \
+         patch("controleproducao.modules.manutencao_op.router.HanaDirectReader", MagicMock()), \
+         patch("controleproducao.modules.manutencao_op.service.levanta_ops", return_value=ops), \
          patch("controleproducao.modules.manutencao_op.service.muda_status", AsyncMock()) as mudar:
         resposta = cliente.post(
-            "/manutencao-op/status",
-            data={"op_docnums": ["155747"], "acao": "p"},
+            "/manutencao-op/status", data={"op_docnums": ["155744", "155743"], "acao": "p"},
         )
 
     assert resposta.status_code == 400
-    assert "CLI" in resposta.text
-    levanta.assert_not_called()
+    texto = _texto(resposta.text)
+    assert "já têm saída de insumo lançada" in texto and "Nenhuma OP foi alterada" in texto
+    assert "155743" in texto and "Baixado" in texto
     mudar.assert_not_called()
+
+
+def test_acao_desconhecida_pela_tela_e_recusada(cliente):
+    with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
+         patch("controleproducao.core.web.get_settings", return_value=_settings()), \
+         patch("controleproducao.modules.manutencao_op.service.levanta_ops") as levanta:
+        resposta = cliente.post("/manutencao-op/status", data={"op_docnums": ["155747"], "acao": "c"})
+    assert resposta.status_code == 400
+    assert "use liberar ou replanejar" in resposta.text
+    levanta.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -1045,7 +1131,7 @@ def test_liberar_e_encerrar_so_com_op_marcada(cliente):
         inicial = cliente.get("/manutencao-op").text
 
     acoes = re.findall(r"<button[^>]*data-exige-selecao[^>]*>", html)
-    assert len(acoes) == 2 and all("disabled" in b for b in acoes)
+    assert len(acoes) == 3 and all("disabled" in b for b in acoes)      # Liberar, Replanejar, Encerrar
     assert "Marque ao menos uma OP." in html
     assert "b.disabled = n === 0" in html
     assert "Busque um pedido para selecionar as OPs." in _texto(inicial)
@@ -1097,7 +1183,7 @@ def test_css_da_linha_do_topo_e_da_barra_no_celular():
     assert re.search(r"@media \(max-width: 760px\) \{\s*\.ov-nav \{\s*height: auto; flex-wrap: wrap;", css)
     assert ".ov-opcao:has(input:disabled)" in css
     base = (_RAIZ_SIS / "controleproducao/templates/base.html").read_text(encoding="utf-8")
-    assert "style.css?v=7" in base
+    assert "style.css?v=8" in base
     # 29/09/2026: the mode choice of the search card is larger than the other options.
     assert re.search(r"\.ov-linha-topo \.ov-opcao input\[type=\"radio\"\] \{\s*width: 20px; height: 20px;", css)
 

@@ -1,6 +1,15 @@
 # Plano — API JSON da Manutenção de OP (Controle de Produção, porta 8080)
 
-> **Status (29/09/2026, 15:33): D1 no ar na .11 (deploy ~15:15) e conferida, só leitura.**
+> **Status (29/09/2026, noite): D4 codada — Replanejar de volta à tela (pende deploy); F7
+> decidida — B com prazo de 30 dias.** Na tela Manutenção de OP: botão "Replanejar selecionadas"
+> ao lado do Liberar; a OP Liberada que não pode voltar mostra o motivo em vermelho ao lado do
+> status ("insumo baixado", "produto apontado"), e o botão fica desabilitado enquanto uma delas
+> estiver marcada, dizendo qual desmarcar; o servidor recusa igual à API. Conferido na prévia
+> com o template e o CSS reais (cinco combinações de marcação, tema claro e escuro). F7: achar
+> quem usava a rota da 8077 (perguntar ao PCP e ao Anderson); se ninguém aparecer e o log seguir
+> vazio até **29/10/2026**, a rota vira 410. Abertas: D7.
+>
+> **Antes (29/09/2026, 15:33): D1 no ar na .11 (deploy ~15:15) e conferida, só leitura.**
 > Preflight CORS sem chave → `200` com `access-control-allow-origin: *`, métodos `GET, POST` e
 > cabeçalhos `x-api-key, content-type`; `GET` com origem de fora → `200` e o `401` sem chave
 > também trazem o cabeçalho; a API responde `application/json; charset=utf-8`; as telas seguem
@@ -104,7 +113,8 @@ Artifact (mesma história, MESMA url): https://claude.ai/artifact/1Mt4xBk4bvuqv7
 - **No ar hoje (.11, porta 8080, desde 28/09):** a tela Manutenção de OP — Buscar; Liberar
   (grava no 1º POST, sem token); Encerrar (conferir → plano com token de 10 min → execução em
   segundo plano); tela Execuções com as 30 últimas guardadas no Supabase. Replanejar só pela CLI
-  (D9 do `PLANO_CONTROLE_PRODUCAO_11.md`). Uma execução por módulo.
+  (D9 do `PLANO_CONTROLE_PRODUCAO_11.md`) — até a D4 (29/09, noite), que o trouxe de volta.
+  Uma execução por módulo.
 - **No ar na 8077:** `POST /ordens-producao/{n}/status` libera OP; desde a D9 (28/09 ~14:45)
   recusa `encerrada` com 400. **Tem um usuário real, que não conhecemos** (achado abaixo).
 - **Não existe:** nenhuma rota JSON de escrita na 8080. O que a tela decide está dentro de
@@ -407,7 +417,7 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
   e a OP não entra; as OPs são **relidas logo antes de gravar** (o prompt de confirmação pode
   ficar minutos aberto).
 - **API:** `POST /api/manutencao-op/replanejar` e o `tipo` `saida_lancada` (409, lote inteiro
-  recusado). A tela continua sem Replanejar (D4).
+  recusado). A tela ficou sem Replanejar até a D4 (29/09, noite), que o devolveu.
 - Contrato, `CLAUDE.md` (D9 passa a "Replanejar: CLI e API, não a tela"), nota na D9 do
   `PLANO_CONTROLE_PRODUCAO_11.md`, commit, deploy.
 - **Teste final (depois do deploy, com o seu ok):** a OP 157426 já voltou para Planejada pela
@@ -429,12 +439,16 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
   qualquer chamador) e a CLI (tabela + releitura antes de gravar). Busca da API ganhou `baixada`
   (consulta à parte, por pedido — a grade da tela não muda). 13 testes novos.
 
-### F7 — O destino da rota da 8077 — `espera a F0 (quem chama), a D3 e a D7`
+### F7 — O destino da rota da 8077 — `decidida 29/09: B com prazo · fecha em 29/10/2026 se ninguém aparecer`
 
 > **Objetivo:** liberar OP tem uma porta só, com uma regra só, e ninguém é quebrado sem aviso.
 
-- Só depois de identificar o chamador e de ele ter um caminho na API nova (ou de a D7 dizer que a
-  limpeza por status não é mais permitida).
+- **Decisão do Marcelo (29/09): opção B com o prazo da C.** Achar quem usava a rota — ele
+  pergunta ao PCP e ao Anderson quem encerrou as OPs de 23, 25 e 28/09 — e passar a essa pessoa o
+  `API_MANUTENCAO_OP.md`. Se ninguém aparecer e o log da F0 (`Rota de OP:` no `logs/api.log`)
+  continuar sem chamadas até **29/10/2026**, a rota fecha do mesmo jeito. Se a pessoa aparecer
+  pedindo "encerrar sem estoque", isso é a D7, não a F7.
+- Conferência no dia 29/10: `Select-String -Path .\logs\api.log* -Pattern 'Rota de OP:'` na .11.
 - Aí: `POST /ordens-producao/{n}/status` → **410** `{"ok": false, "tipo": "movida", "motivo":
   "Liberar OP passou para a API da Manutenção de OP (porta 8080): POST
   /api/manutencao-op/liberar — ver API_MANUTENCAO_OP.md."}`, sem ler o corpo e sem Service Layer.
@@ -558,10 +572,15 @@ gravado; `409 ocupado` → acompanhar a execução que veio na resposta, não in
 3. **Rota `POST /ordens-producao/{n}/status` da 8077** — ✅ *decidida pelo Marcelo em 29/09: não
    aposentar agora.* Ela é usada. Primeiro identificar o chamador (o log da F0 está no ar desde
    29/09) e dar a ele um caminho; 410 só depois (F7), com aviso. Continua valendo o motivo de ter uma porta só: a da
-   8077 não entra na trava do módulo, nem nas Execuções, nem registra quem pediu.
-4. **Replanejar volta à tela?** — *aberta.* **Recomendado: não nesta entrega.** A regra da saída
-   lançada remove o motivo da D9 (replanejar ao lado de um Encerrar que falhou no meio), mas a
-   tela só muda se você pedir.
+   8077 não entra na trava do módulo, nem nas Execuções, nem registra quem pediu. **Prazo (29/09,
+   noite):** se ninguém aparecer até 29/10/2026, a rota fecha (F7).
+4. **Replanejar volta à tela?** — ✅ *decidida pelo Marcelo em 29/09: sim, "de forma clara e
+   prática".* A recusa por estoque lançado (F6 + D6) tirou o motivo da D9. Codada (pende
+   deploy): botão "Replanejar selecionadas" ao lado do Liberar, grava no 1º clique como ele; a
+   grade diz, em vermelho ao lado do status, por que uma Liberada não pode voltar ("insumo
+   baixado", "produto apontado" ou "não foi possível conferir o insumo" — na dúvida, não
+   oferece); o botão fica desabilitado enquanto uma dessas estiver marcada e a dica diz quais
+   desmarcar; o POST recusa igual à API (tabela com as OPs). 5 testes novos.
 5. **Interromper o Encerrar só entre OPs** — ✅ *decidida pelo Marcelo em 29/09: sim.* Hoje o
    "Interromper" da tela pode cortar entre a saída e a entrada da mesma OP (insumo baixado,
    produto não entrado, OP Liberada). Com a parada entre OPs, a OP em curso termina a cadeia.

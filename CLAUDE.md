@@ -230,8 +230,8 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   (2) `reprocessar-integrados` cancela **toda** OP planejada do pedido (de qualquer origem) e
   **não recria** — o pedido volta para "Pedidos novos" (`ProcessWBC='N'`, `U_INO_OP` zerado) e
   precisa ser processado de novo; está na tela desde 30/09 (D8 revertida pelo Marcelo), com
-  esse aviso na lista e na conferência; (3) `Liberar` grava no 1º POST; `Replanejar` **não está na tela** (D9 — a tela recusa
-  `acao=p`): é pela CLI e, desde 29/09, pela API JSON (`/api/manutencao-op/replanejar`), e as duas
+  esse aviso na lista e na conferência; (3) `Liberar` e `Replanejar` gravam no 1º POST; o `Replanejar` voltou à tela em 29/09 (D4, desfaz
+  a D9) e está também na CLI e na API JSON (`/api/manutencao-op/replanejar`) — os três
   **recusam OP com saída de insumo lançada ou produto apontado** (`service.saida_lancada`,
   `IssuedQty` > 0; `service.entrada_lancada`, `CmpltQty` > 0 — D6; valor desconhecido também
   recusa); o "Interromper" do Encerrar para **entre OPs** (`parada_combinada`

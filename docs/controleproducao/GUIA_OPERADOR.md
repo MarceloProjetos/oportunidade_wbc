@@ -38,9 +38,13 @@ do processamento e as OPs planejadas precisam sair.
 - **Encerrar selecionadas…** — lança **saída dos insumos + entrada do produto** e encerra.
   **Irreversível** (estorno = cancelar a entrada e a saída no SAP, à mão). A tela mostra a ordem
   calculada (filha antes da mãe) e pede confirmação.
-- **Replanejar** (voltar para Planejada) **não existe na tela** — só pela CLI (com o Anderson) e
-  pela API. As duas **recusam a OP que já tem saída de insumo lançada ou produto apontado**:
-  o lançamento precisa ser cancelado no SAP antes.
+- **Replanejar selecionadas** (voltar para Planejada), desde 29/09: marque as OPs Liberadas e
+  clique — grava no primeiro clique, como o Liberar, e roda em segundo plano. Só volta a OP
+  **sem insumo baixado e sem produto apontado**: a tabela mostra o motivo em vermelho ao lado
+  do status ("insumo baixado", "produto apontado"), e o botão fica desabilitado enquanto uma
+  dessas estiver marcada, dizendo qual desmarcar. O lançamento se cancela no SAP antes. OP
+  Planejada marcada junto não atrapalha (já está lá). Também pela CLI e pela API, com a mesma
+  regra.
 - **Interromper um Encerrar** para **depois da OP em curso**: ela termina saída, entrada e
   encerramento, e as próximas não começam (aparecem como "NÃO INICIADA" no log). Nunca sobra uma
   OP com o insumo baixado e o produto sem entrada por causa do botão.

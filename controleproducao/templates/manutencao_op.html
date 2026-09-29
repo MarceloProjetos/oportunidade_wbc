@@ -21,7 +21,7 @@
   <span class="simbolo">{{ icone('ops', 30) }}</span>
   <div>
     <h1>Manutenção de OP</h1>
-    <p>Liberar e encerrar Ordens de Produção</p>
+    <p>Liberar, replanejar e encerrar Ordens de Produção</p>
   </div>
 </header>
 
@@ -88,8 +88,13 @@
           </tr>
         </thead>
         <tbody>
+          {# `replanejar` (router): Liberada OP → None when it can go back to Planejada, or the
+             reason it cannot. The checkbox carries it so the button knows before the POST. #}
+          {% set pode_replanejar = replanejar | default({}) %}
           {% for op in ops %}
           {% set terminal = op['Status'] in STATUS_TERMINAIS %}
+          {% set chave = op['Número OP'] | string %}
+          {% set motivo = pode_replanejar.get(chave) %}
           <tr{% if terminal %} class="is-terminal"{% endif %}>
             <td>
               {% if terminal %}
@@ -98,6 +103,7 @@
                      aria-label="OP {{ op['Número OP'] }} está {{ op['Status (descrição)'] }} e não pode ser selecionada">
               {% else %}
               <input type="checkbox" name="op_docnums" value="{{ op['Número OP'] }}"
+                     data-replanejar="{{ 'na' if chave not in pode_replanejar else ('nao' if motivo else 'sim') }}"
                      aria-label="Selecionar a OP {{ op['Número OP'] }}">
               {% endif %}
             </td>
@@ -108,7 +114,10 @@
             <td class="data">{{ (valor | string)[:10] }}</td>
               {% elif coluna == 'Status' %}
             <td><span class="ov-pill {{ classe_do_status.get(valor, 'is-neutro') }}">{{
-              op['Status (descrição)'] }}</span></td>
+              op['Status (descrição)'] }}</span>
+              {%- if motivo %}
+              <span class="ov-motivo" title="Não pode voltar para Planejada: {{ motivo }}. O lançamento se cancela no SAP antes.">{{ icone('alerta', 12) }} {{ motivo }}</span>
+              {%- endif %}</td>
               {% elif coluna.startswith('Qtde') %}
             <td class="num">{{ valor | qtd }}</td>
               {% elif coluna == 'Número OP' %}
@@ -141,7 +150,12 @@
     <button type="submit" class="ov-btn-ghost" formaction="/manutencao-op/status" name="acao" value="l"
             data-exige-selecao disabled title="Marque ao menos uma OP" aria-describedby="dica-ops">
       {{ icone('check') }} Liberar selecionadas</button>
-    {# Replanejar saiu da tela em 28/09/2026 (D9): fica na CLI, como caminho de recuperação. #}
+    {# Back on the screen since 29/09/2026 (D4): only a Liberada with nothing issued and nothing
+       received goes back; the script keeps it disabled while such an OP is marked. #}
+    <button type="submit" class="ov-btn-ghost" formaction="/manutencao-op/status" name="acao" value="p"
+            data-exige-selecao id="btn-replanejar" disabled title="Marque ao menos uma OP"
+            aria-describedby="dica-ops dica-replanejar">
+      {{ icone('voltar') }} Replanejar selecionadas</button>
     <button type="submit" class="ov-btn ov-btn--perigo" formaction="/manutencao-op/encerrar/conferir"
             data-exige-selecao disabled title="Marque ao menos uma OP" aria-describedby="dica-ops">
       {{ icone('raio') }} Encerrar selecionadas…</button>
@@ -150,11 +164,13 @@
       {%- elif buscou and ops %}Nenhuma OP deste pedido pode ser liberada ou encerrada.
       {%- else %}Busque um pedido para selecionar as OPs.{% endif -%}
     </span>
+    <span class="ov-nota-inline ov-motivo-texto" id="dica-replanejar" aria-live="polite" hidden></span>
   </div>
   <p class="ov-nota">Liberar muda apenas o status (Planejada → Liberada).
+    <strong>Replanejar</strong> faz o caminho de volta (Liberada → Planejada), só para a OP
+    sem insumo baixado e sem produto apontado — o lançamento se cancela no SAP antes.
     <strong>Encerrar</strong> gera saída de insumos e entrada do produto — a próxima tela
-    mostra a ordem calculada e pede confirmação. Replanejar (voltar a Planejada) é só pela
-    CLI, na .11.</p>
+    mostra a ordem calculada e pede confirmação.</p>
 </form>
 
 <h2>Encerrar todas as OPs de um pedido</h2>
@@ -185,6 +201,8 @@
   var desmarcarTudo = {{ icone('desmarcar-tudo')|tojson }};
   var acoes = Array.prototype.slice.call(form.querySelectorAll("button[data-exige-selecao]"));
   var dica = document.getElementById("dica-ops");
+  var replanejar = document.getElementById("btn-replanejar");
+  var dicaReplanejar = document.getElementById("dica-replanejar");
 
   function marcadas() { return caixas.filter(function (c) { return c.checked; }).length; }
 
@@ -202,6 +220,28 @@
       b.title = n ? "" : "Marque ao menos uma OP";
     });
     dica.hidden = n > 0;
+    pintaReplanejar();
+  }
+
+  // Replanejar: a marked Liberada with material issued or product received would make the
+  // server refuse the whole batch, so the button says so before the click (the grid shows
+  // the reason on each such OP). Planejadas marked alongside are harmless: already there.
+  function pintaReplanejar() {
+    var presas = caixas.filter(function (c) { return c.checked && c.dataset.replanejar === "nao"; });
+    var voltam = caixas.filter(function (c) { return c.checked && c.dataset.replanejar === "sim"; });
+    var motivo = "";
+    if (presas.length) {
+      motivo = presas.length === 1
+        ? "A OP " + presas[0].value + " não pode voltar para Planejada — desmarque-a para replanejar as outras."
+        : presas.length + " OPs marcadas não podem voltar para Planejada ("
+          + presas.map(function (c) { return c.value; }).join(", ") + ") — desmarque-as.";
+    } else if (marcadas() && !voltam.length) {
+      motivo = "Nenhuma OP marcada está Liberada: não há o que replanejar.";
+    }
+    replanejar.disabled = !!motivo || marcadas() === 0;
+    if (marcadas()) { replanejar.title = motivo; }
+    dicaReplanejar.textContent = motivo;
+    dicaReplanejar.hidden = !motivo;
   }
 
   botao.addEventListener("click", function () {

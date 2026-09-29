@@ -641,8 +641,9 @@ módulo 3 (*Manutenção de OP*) libera, replaneja e **encerra com movimentaçã
   "igual à da 8079", mas não "só a LAN"; trocar as duas para `LocalSubnet` é decisão do
   Marcelo. Nunca `CP_HOST=<IP da máquina>`: o `deploy_update.bat` e o `/status` sondam
   `127.0.0.1:CP_PORTA`.
-- **Módulo 3 (D9):** `Liberar` e `Encerrar` pela tela; `Replanejar` fora da tela — pela CLI
-  (`python -m controleproducao manutencao-op replanejar`) e pela API JSON, as duas recusando OP
+- **Módulo 3:** `Liberar`, `Replanejar` (de volta à tela desde 29/09 — D4) e `Encerrar` pela
+  tela; `Replanejar` também pela CLI (`python -m controleproducao manutencao-op replanejar`) e
+  pela API JSON — os três recusando OP
   com saída de insumo lançada ou produto apontado (o lançamento se cancela no SAP antes). O "Interromper" do Encerrar para
   depois da OP em curso, nunca no meio dela. A API 8077 deixou de encerrar OP (seção "Ordens de
   Produção" acima): encerrar com estoque é só aqui.

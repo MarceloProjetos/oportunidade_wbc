@@ -16,8 +16,8 @@ that belong to the API alone:
 - ``X-API-Key`` only (``core/acesso.py``); no cookie, no ``?key=``.
 - ``solicitante`` is required on every write and on cancel: it goes to the log and to the
   history. It is what the caller declares, not a verified identity (the key is shared).
-- Replanejar (F6, 29/09/2026) is here and not on the screen (D4): it refuses the OP whose
-  material issue was already posted, like the CLI.
+- Replanejar (F6, 29/09/2026; on the screen too since D4, same day): it refuses the OP whose
+  material issue or product receipt was already posted, like the screen and the CLI.
 - Encerrar stops between OPs when interrupted (D5): the OP in progress finishes its chain.
 """
 from __future__ import annotations
@@ -322,7 +322,7 @@ async def replanejar(request: Request, corpo: Any = Body(default=None)):
     """Liberada → Planejada, written as soon as the execution starts (F6, 29/09/2026).
 
     Refuses the WHOLE batch when an OP already has material issued: the issue must be
-    cancelled in the SAP first. Not on the screen (D4); same rule as the CLI.
+    cancelled in the SAP first. Same rule as the screen (D4) and the CLI.
     """
     try:
         dados = _objeto(corpo)

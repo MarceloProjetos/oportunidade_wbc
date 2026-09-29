@@ -548,8 +548,8 @@ para os seis, `/status` vê os seis.
    estoque = pacote; Replanejar só CLI. Pende: avisar quem consome `encerrada` na API (contrato).
    **29/09:** Replanejar também pela API JSON do pacote (`/api/manutencao-op/replanejar`), e ela e a
    CLI recusam OP com saída de insumo lançada (e, pela D6, com produto apontado) —
-   `docs/PLANO_API_MANUTENCAO_OP.md` (F6). A tela
-   continua sem Replanejar.
+   `docs/PLANO_API_MANUTENCAO_OP.md` (F6). **29/09, noite:** o Replanejar voltou à tela (D4 do
+   mesmo plano) — a recusa por estoque lançado tirou o motivo desta D9.
 10. **Reboot pendente** — ✅ 29/09: a .11 reiniciou (06:12) e os 6 serviços voltaram sozinhos;
     sem reboot pendente (conferido pelo Marcelo). Regra que fica: reiniciar à mão só com o worker
     parado por arquivo (`state\wbc_worker.stop`) e `/health/ocupado`=0.

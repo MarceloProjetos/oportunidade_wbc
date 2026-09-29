@@ -6,6 +6,28 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-29] — Replanejar de volta à tela Manutenção de OP (D4)
+
+Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem SQL. `style.css?v=8`.
+
+- **Botão "Replanejar selecionadas"** ao lado do Liberar (Liberada → Planejada; grava no 1º
+  clique, em segundo plano, como o Liberar). Desfaz a D9 de 28/09: o motivo dela — replanejar
+  ao lado de um Encerrar que falhou no meio — sumiu quando o Replanejar passou a recusar OP com
+  insumo baixado ou produto apontado (F6 + D6).
+- **A grade explica antes do clique:** a OP Liberada que não pode voltar ganha o motivo em
+  vermelho ao lado do status ("insumo baixado", "produto apontado"; "não foi possível conferir o
+  insumo" se a leitura falhar — na dúvida, não oferece). Cada caixa carrega essa informação, e o
+  botão fica desabilitado enquanto uma dessas estiver marcada, com a dica dizendo quais
+  desmarcar (ou "nenhuma OP marcada está Liberada"). Mesma regra do servidor
+  (`service.saida_lancada`/`entrada_lancada`, via `_replanejar_por_op` no router).
+- **O POST recusa igual à API** (`acoes.prepara_mudanca_status`): lote inteiro, com a tabela das
+  OPs e o quanto foi baixado ou apontado. Ação desconhecida continua recusada.
+- Documentação: guia do operador, README, `CLAUDE.md`, contrato da API, nota na D9 do plano do
+  Controle de Produção, dica do painel WBC. 5 testes novos (grade, leitura que falha, execução,
+  recusa, ação inválida); os que garantiam a ausência do botão foram invertidos.
+- Conferido na prévia com o template e o CSS reais: cinco combinações de marcação, tema claro e
+  escuro.
+
 ## [2026-09-29] — Peso da linha do pedido = árvore + 10% (2 casas); log com tolerância de 1%
 
 Entra pelo `deploy_update.bat` (worker WBC e `OrcaView-ControleProducao`); sem SQL.

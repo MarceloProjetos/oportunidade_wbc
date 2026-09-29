@@ -389,6 +389,15 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--ov-accent); }
 }
 /* A disabled option ("forçar" with nothing marked) must look unavailable, not just ignore clicks. */
 .ov-opcao:has(input:disabled) { opacity: .55; cursor: not-allowed; }
+/* Why a Liberada OP cannot go back to Planejada (Replanejar, 29/09/2026): next to its status,
+   and the button's hint when such an OP is marked. Red text on the neutral card, both themes. */
+.ov-motivo {
+  display: inline-flex; align-items: center; gap: 3px; margin-left: var(--space-2);
+  font-size: var(--fs-xs); font-weight: 600; color: #b42318; white-space: nowrap;
+}
+.ov-motivo-texto { color: #b42318; font-weight: 600; }
+:root:not([data-theme="light"]) .ov-motivo,
+:root:not([data-theme="light"]) .ov-motivo-texto { color: #ff8a80; }
 
 /* ── Avisos ───────────────────────────────────────────────────────────────── */
 .ov-alerta {

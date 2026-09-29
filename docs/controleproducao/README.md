@@ -125,8 +125,9 @@ de fora a 8080 **recusa conexão** (não é queda) e, na própria .11, o painel 
 por `http://localhost:8079/` — os botões montam o link com o host da página e o cookie
 `wbc_painel` é por host.
 
-**Módulo 3 (D9):** `Liberar` e `Encerrar` pela tela; `Replanejar` só pela CLI
-(`python -m controleproducao manutencao-op replanejar`); a API 8077 deixou de encerrar OP
+**Módulo 3:** `Liberar`, `Replanejar` (de volta à tela desde 29/09 — D4) e `Encerrar` pela
+tela; `Replanejar` também pela CLI (`python -m controleproducao manutencao-op replanejar`) e pela
+API JSON, sempre recusando OP com insumo baixado ou produto apontado; a API 8077 deixou de encerrar OP
 (`OP_STATUS_PERMITIDOS_DEFAULT = 'boposReleased'`) — encerrar com estoque é só aqui.
 **Módulo 2:** `Reprocessar` em "Pedidos integrados" (fora da tela de 28 a 30/09 — D8,
 revertida pelo Marcelo): cancela todas as OPs planejadas do pedido (de qualquer origem) e não

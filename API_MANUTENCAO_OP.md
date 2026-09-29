@@ -569,8 +569,8 @@ servidor não conseguir saber quanto foi baixado, a OP também é recusada
 (`"baixado": "desconhecido"`) — na dúvida, não grava.
 
 **Regras do Replanejar:** as mesmas do Liberar (repetir é seguro, número errado ou OP final
-recusam tudo), mais a do estoque acima. Replanejar **não existe na tela** Manutenção de OP: só
-nesta API e na linha de comando do servidor, com a mesma regra.
+recusam tudo), mais a do estoque acima. Desde 29/09/2026 o Replanejar também está na tela
+Manutenção de OP, com a mesma regra e a mesma trava de uma execução por vez.
 
 ### 5.3 Encerrar OPs
 
