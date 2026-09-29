@@ -25,6 +25,8 @@
       tarefa.situacao }}{% if tarefa.com_falhas %} com falhas{% endif %}</span>
     <span class="ov-nota" id="progresso"></span>
     <span class="ov-nota" id="duracao"></span>
+    <span class="ov-nota">· {{ tarefa.criada_em.strftime('%d/%m/%Y %H:%M:%S') }}{% if tarefa.guardada %}
+      · guardada no Supabase (só leitura){% endif %}</span>
   </p>
   <div class="ov-barra {{ classe_barra[desfecho] }}" id="barra-casca"><i id="barra"></i></div>
   <p id="passo" class="ov-passo">{{ tarefa.passo }}</p>
@@ -35,7 +37,9 @@
   <div id="painel-erro" class="ov-alerta is-erro" hidden></div>
   <div id="painel-resultado" hidden></div>
 
-  <div id="acoes" class="ov-acoes-lote">
+  {# Hidden from the first paint when already finished: a stored execution has nothing to
+     interrupt, and showing the button until the first poll invited a useless click. #}
+  <div id="acoes" class="ov-acoes-lote"{% if tarefa.terminada %} hidden{% endif %}>
     <button type="button" class="ov-btn-ghost" id="btn-cancelar">
       {{ icone('parar') }} Interromper</button>
     <span class="ov-nota-inline">Interrompe entre passos — <strong>não desfaz</strong>

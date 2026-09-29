@@ -35,6 +35,15 @@
 - **Replanejar** (voltar para Planejada) **não existe na tela** — só pela CLI, com o Anderson.
 - A API 8077 não encerra mais OP: encerrar é **só aqui**.
 
+## Execuções
+
+- Lista as **30 últimas** execuções da tela (mais as que estão rodando) com o log e o resultado
+  de cada uma. Ficam guardadas no Supabase: reiniciar o serviço **não** apaga a lista.
+- A 31ª apaga a mais antiga. O que roda pela CLI (Replanejar, Reprocessar) **não** entra aqui —
+  fica só no log do serviço.
+- Aviso amarelo "Não foi possível ler o histórico guardado" = o Supabase não respondeu; a lista
+  mostra só o que rodou desde o último reinício. As execuções continuam gravando no SAP normalmente.
+
 ## Quando algo não abre
 
 | Sintoma | O que é | O que fazer |

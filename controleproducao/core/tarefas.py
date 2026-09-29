@@ -11,9 +11,12 @@ usuário esperando a página responder.
 A aplicação é de uso interno, com operações disparadas manualmente por uma pessoa de cada
 vez — é o modelo do addon legado, e a decisão de manter "botões manuais" foi tomada em
 14/09. Um Celery/RQ traria broker, worker e deploy próprios para um problema que não temos
-ainda. O custo dessa escolha está escrito e é real: **reiniciou a aplicação, o histórico
-das tarefas some**. Quando isso incomodar, o caminho é persistir em banco (o
-`TRACKING_DB_URL` do `.env` existe para isso) — não trocar de arquitetura.
+ainda.
+
+Since 29/09/2026 a finished execution is also written to Supabase (``core/historico.py``,
+the last 30, on the .11 only), so a restart no longer empties the Execuções screen. The
+execution itself still lives only here: a restart in the middle of one loses its live
+progress (``deploy_update.bat`` refuses to stop the service while ``/health/ocupado`` = 1).
 
 ⚠️ O que **não** fica só aqui: as tarefas escrevem no SAP. Este módulo não decide o que
 pode ser executado; ele executa o que lhe entregam. As travas (produção, confirmação de
@@ -42,6 +45,10 @@ MAX_TAREFAS = 200
 # linha por OP por etapa; o suficiente para acompanhar, não para virar arquivo de log.
 MAX_LINHAS_LOG = 500
 
+# Finished executions on the Execuções screen — and, on the .11, how many the Supabase
+# history keeps (`core/historico.py` reads this, so the two cannot drift apart).
+MAX_NA_TELA = 30
+
 
 @dataclass
 class Tarefa:
@@ -51,6 +58,7 @@ class Tarefa:
     nome: str
     descricao: str
     criada_em: datetime
+    modulo: str = ""
     situacao: str = "na fila"  # na fila | executando | concluída | erro | cancelada
     iniciada_em: datetime | None = None
     terminada_em: datetime | None = None
@@ -60,6 +68,8 @@ class Tarefa:
     linhas: deque[str] = field(default_factory=lambda: deque(maxlen=MAX_LINHAS_LOG))
     resultado: Any = None
     erro: str | None = None
+    # True when rebuilt from the Supabase history (read-only; nothing runs behind it).
+    guardada: bool = False
 
     @property
     def terminada(self) -> bool:
@@ -129,11 +139,14 @@ class RegistroDeTarefas:
     motivo.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, historico: Any = None) -> None:
         self._tarefas: dict[str, Tarefa] = {}
         self._ordem: deque[str] = deque(maxlen=MAX_TAREFAS)
         self._em_execucao: dict[str, str] = {}  # módulo -> id da tarefa
         self._jobs: dict[str, asyncio.Task] = {}
+        # `core.historico.HistoricoSupabase` on the .11 (set at app startup), None elsewhere.
+        self.historico = historico
+        self._gravacoes: set[asyncio.Future] = set()
 
     def em_execucao(self, modulo: str) -> Tarefa | None:
         """Tarefa ainda rodando naquele módulo, se houver."""
@@ -162,7 +175,8 @@ class RegistroDeTarefas:
             )
 
         tarefa = Tarefa(
-            id=uuid.uuid4().hex[:12], nome=nome, descricao=descricao, criada_em=datetime.now()
+            id=uuid.uuid4().hex[:12], nome=nome, descricao=descricao, criada_em=datetime.now(),
+            modulo=modulo,
         )
         self._guardar(tarefa)
         self._em_execucao[modulo] = tarefa.id
@@ -192,14 +206,71 @@ class RegistroDeTarefas:
             tarefa.terminada_em = datetime.now()
             self._em_execucao.pop(modulo, None)
             self._jobs.pop(tarefa.id, None)
+            self._arquivar(tarefa)
+
+    def _arquivar(self, tarefa: Tarefa) -> None:
+        """Hand the finished task to the stored history, off the event loop.
+
+        Fire and forget: `guardar` never raises and does blocking HTTP, so it runs in the
+        default executor and the task (and the module lock) is released right away.
+        """
+        if self.historico is None:
+            return
+        gravacao = asyncio.get_running_loop().run_in_executor(None, self.historico.guardar, tarefa)
+        # Strong reference until done: shutdown waits on these (`aguardar_gravacoes`).
+        self._gravacoes.add(gravacao)
+        gravacao.add_done_callback(self._gravacoes.discard)
+
+    async def aguardar_gravacoes(self, timeout: float = 15.0) -> None:
+        """Let pending history writes finish before the process exits (service stop)."""
+        if self._gravacoes:
+            await asyncio.wait(set(self._gravacoes), timeout=timeout)
 
     def obter(self, tarefa_id: str) -> Tarefa | None:
         return self._tarefas.get(tarefa_id)
+
+    async def obter_ou_guardada(self, tarefa_id: str) -> Tarefa | None:
+        """Memory first (live progress), then the stored history.
+
+        Raises when the history cannot be read: "not found" and "could not look" are
+        different answers and the screen must not merge them.
+        """
+        tarefa = self.obter(tarefa_id)
+        if tarefa is not None or self.historico is None:
+            return tarefa
+        return await asyncio.to_thread(self.historico.obter, tarefa_id)
 
     def listar(self, limite: int = 20) -> list[Tarefa]:
         """Mais recentes primeiro."""
         ids = list(self._ordem)[-limite:]
         return [self._tarefas[i] for i in reversed(ids) if i in self._tarefas]
+
+    async def recentes(self, limite: int = MAX_NA_TELA) -> tuple[list[Any], str | None]:
+        """What the Execuções screen lists, and a notice when the list is partial.
+
+        Running or queued tasks first, then the ``limite`` most recent finished ones from
+        memory and from the stored history together (a task finished in this process is in
+        both; memory wins). When the history cannot be read the notice says so: a shorter
+        list presented as complete would hide executions that did write to the SAP.
+        """
+        em_memoria = self.listar(limite=MAX_TAREFAS)
+        rodando = [t for t in em_memoria if not t.terminada]
+        terminadas: list[Any] = [t for t in em_memoria if t.terminada]
+        aviso = None
+        if self.historico is not None:
+            try:
+                guardadas = await asyncio.to_thread(self.historico.listar, limite)
+            except Exception as exc:  # noqa: BLE001 - the screen degrades to memory, with a notice
+                logger.warning("Histórico de execuções indisponível na leitura: %s", exc)
+                aviso = (
+                    "Não foi possível ler o histórico guardado no Supabase agora — esta lista "
+                    "mostra só as execuções desde o último reinício do serviço."
+                )
+            else:
+                vistas = {t.id for t in em_memoria}
+                terminadas += [g for g in guardadas if g.id not in vistas]
+        terminadas.sort(key=lambda t: t.criada_em, reverse=True)
+        return rodando + terminadas[:limite], aviso
 
     async def cancelar(self, tarefa_id: str) -> bool:
         """Pede o cancelamento. Devolve se havia o que cancelar.

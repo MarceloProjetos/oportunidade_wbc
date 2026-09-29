@@ -140,6 +140,9 @@ def instalar(app: FastAPI) -> None:
                 "tarefas_ativas": ativas,
                 "ocupado": ativas > 0,
                 "chave_configurada": bool(s.os_api_key.get_secret_value()),
+                # Where the Execuções screen keeps finished runs: "supabase" (the .11) or
+                # "memoria" (lost on restart) — the post-deploy check reads it here.
+                "historico": "supabase" if TAREFAS.historico is not None else "memoria",
             }
         )
 

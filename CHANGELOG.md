@@ -6,6 +6,37 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-29] — Controle de Produção: as 30 últimas execuções guardadas no Supabase
+
+Vale no próximo deploy (`OrcaView-ControleProducao`), **depois** de aplicar
+`sql/controle_producao_execucoes.sql` no SQL Editor do Supabase. Sem dependência nova e sem
+linha nova no `.env` (usa `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`, as mesmas das cargas
+do SIS; o `/health` diz se ligou).
+
+- **Tela Execuções sobrevive ao restart.** Cada execução terminada (concluída, erro ou
+  cancelada) vai para a tabela nova `controle_producao_execucoes` com módulo, operação,
+  situação, duração, o log e o resultado; depois de gravar, o serviço apaga o que passar das
+  **30 mais recentes** (o mesmo padrão de poda do `sincronizacao_log`). A lista junta as que
+  estão rodando (memória) com as 30 guardadas; o detalhe de uma antiga abre só para leitura.
+  Tabela nova porque nenhuma das de log existentes (`sincronizacao_log`,
+  `sincronizacao_log_os_integracao`, `rotinas_execucao`) tem operação, log ou resultado.
+- **Só a .11 grava e lê** (pelo IP, como as escritas no SAP): o notebook continua só com a
+  memória. RLS ligado e sem policy — só o `service_role` enxerga a tabela.
+- **Nunca atrapalha a execução:** a gravação roda numa thread depois que a execução terminou
+  (3 tentativas, `upsert` por `tarefa_id` — nova tentativa não duplica). Supabase fora = aviso
+  no log do serviço e, na tela, um aviso âmbar dizendo que a lista está parcial. No stop do
+  serviço, dá até 15 s às gravações pendentes (uma gravação leva menos de 1 s).
+- `GET /health` ganhou `"historico": "supabase" | "memoria"` — é a conferência pós-deploy.
+- Achados no caminho, corrigidos: o detalhe de uma execução que não existe devolvia o JSON cru
+  do FastAPI no navegador — agora é a página de erro da tela, com o menu em Execuções (404 =
+  não existe; 503 = o histórico não respondeu); o botão Interromper aparecia em execução já
+  terminada até a 1ª consulta — agora nasce escondido; o detalhe mostra a data da execução.
+- Só entram as execuções disparadas pela tela; as da CLI ficam no log do serviço.
+- Conferido em prévia local com um Supabase falso (26 guardadas + 2 na memória; Supabase fora;
+  claro e escuro). 27 testes novos (`tests/controleproducao/test_historico.py`, incluindo
+  DDL × colunas que o código grava); suíte inteira verde.
+- Mapa do Supabase atualizado no repo do OrçaView (`docs/SUPABASE.md`, 148 tabelas).
+
 ## [2026-09-29] — Painel WBC com o visual do OrçaView; lista de oportunidades em páginas de 300
 
 Vale no próximo deploy (só o painel, `OrcaView-WBC-Painel`). Sem dependência nova.

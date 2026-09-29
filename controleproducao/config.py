@@ -102,6 +102,12 @@ class Settings(BaseSettings):
     painel_porta: int = 8079
     wbc_painel_url: str = ""
 
+    # -- Supabase: history of the Execuções screen (core/historico.py) -----------------
+    # The SIS names, read as they are (the API and the ETLs use the same two lines). Only the
+    # service role key works: the table has RLS on and no policy. Used on the .11 only.
+    supabase_url: str = ""
+    supabase_service_role_key: SecretStr = SecretStr("")
+
     log_level: str = "INFO"
 
     @property

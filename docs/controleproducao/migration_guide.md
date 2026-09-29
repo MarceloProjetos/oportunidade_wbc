@@ -1356,6 +1356,8 @@ A ordem (filha antes da mãe) é **calculada e exibida** na coluna `#` do plano,
 
 Tarefas e planos vivem **em memória, no processo**. Reiniciar a aplicação apaga o histórico de execuções e invalida os tokens pendentes. O segundo efeito é desejado (nenhum token sobrevive para ser executado depois, contra um estado que já mudou); o primeiro é custo aceito enquanto o uso for interno e manual. O caminho quando incomodar é persistir (`TRACKING_DB_URL` existe para isso), não trocar de arquitetura.
 
+> **29/09/2026 — o primeiro efeito deixou de valer para o histórico.** Na .11, cada execução terminada vai também para o Supabase (`controle_producao_execucoes`, as 30 mais recentes; `core/historico.py`), e a tela Execuções lê de lá: reiniciar não apaga mais a lista. Foi Supabase e não o SQLite do `TRACKING_DB_URL` por decisão do Marcelo (o mesmo banco dos outros logs do SIS, legível fora da .11). A execução em si continua só em memória — reiniciar no meio dela perde o acompanhamento, e é por isso que o `deploy_update.bat` recusa parar com `/health/ocupado` = 1. Tokens pendentes continuam morrendo no restart, de propósito.
+
 Cancelar uma tarefa interrompe **entre passos** e **não desfaz** o que já foi gravado no SAP. A tela diz isso ao lado do botão.
 
 #### Ainda não feito na web

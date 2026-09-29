@@ -11,6 +11,10 @@ Why each block exists:
 - `SL_BASE_URL` / `HANA_HOST` / `WBC_SQL_HOST` point at 127.0.0.1 (port 9 for the Service
   Layer) as a safety net: a test that forgets a stub fails at once instead of hanging httpx.
 - `get_settings` is `lru_cache`d: cleared before AND after, so no test sees another's env.
+- `SUPABASE_*` is deleted and `TAREFAS.historico` reset: the app attaches the Supabase history
+  at startup (`with TestClient(app)` runs it), and a test playing the .11 must not leave a
+  real history object on the process-wide registry for the next test. History tests inject
+  a fake or set the env themselves.
 - `cli.py` calls `logging.basicConfig(force=True)` and pins the `httpx` logger to WARNING on
   every CLI command (the tests drive it through `CliRunner`). Loggers are process globals:
   left as is, `tests/wbc/test_logs.py` (which runs later and expects httpx INFO in the
@@ -25,13 +29,14 @@ import os
 import pytest
 
 from controleproducao.config import Settings, get_settings
+from controleproducao.core.tarefas import TAREFAS
 from wbcpython import safety
 
 # Same list as tests/wbc/conftest.py plus `CP_` (this package's own knobs). The SIS prefixes
 # (SAP_, SQL_, SQLSERVER_, OP_SL_) are in because the credentials fall back to them.
 _PREFIXOS = (
     "SL_", "WBC_SQL_", "HANA_", "TRACKING_", "WORKER_", "PAINEL_", "MESES_DE_JANELA",
-    "SAP_", "SQL_", "SQLSERVER_", "OP_SL_", "CP_",
+    "SAP_", "SQL_", "SQLSERVER_", "OP_SL_", "CP_", "SUPABASE_",
 )
 _NOMES = (
     "WBC_ENVIRONMENT", "WBC_PRODUCTION_COMPANY_DB", "LOG_LEVEL", "LOG_FILE", "WBC_PAINEL_URL",
@@ -52,6 +57,13 @@ def _ambiente_neutro(monkeypatch: pytest.MonkeyPatch):
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _sem_historico_guardado():
+    TAREFAS.historico = None
+    yield
+    TAREFAS.historico = None
 
 
 @pytest.fixture(autouse=True)

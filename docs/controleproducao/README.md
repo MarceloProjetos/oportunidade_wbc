@@ -141,6 +141,7 @@ Pré-voo do piloto (só leitura, PROD): `python maintenance/pre_voo_controleprod
 | `controleproducao/core/guardas.py` · `core/web.py` | regra "quem grava onde" (IP) e sua tradução em 503 |
 | `controleproducao/core/service_layer_client.py` | cliente httpx; `_assegura_escrita` em `_request`/`_via_batch`; `/Logout` |
 | `controleproducao/core/confirmacao.py` · `core/tarefas.py` | token de uso único; execuções em memória (1 por módulo) |
+| `controleproducao/core/historico.py` | tela Execuções: as 30 últimas terminadas no Supabase (`controle_producao_execucoes`, `sql/`), só na .11; sobrevivem ao restart |
 | `controleproducao/modules/{pedidos_wbc,manutencao_op,romaneio}/` | `service.py` (regra), `queries.py` (SQL), `router.py`, `schemas.py` |
 | `controleproducao/modules/pedidos_wbc/resources/` | `Solda.txt`, `Explosao.txt` — listas de negócio lidas pelo código, não remover |
 | `controleproducao/templates/` · `static/` | Jinja + CSS (guia visual em `GUIA_ESTILO_ORCAVIEW.md`) |

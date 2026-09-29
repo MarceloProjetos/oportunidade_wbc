@@ -10,22 +10,41 @@ mantida para continuar casando com a do addon legado e com o migration_guide.md.
 """
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from controleproducao.core import acesso
+from controleproducao.core import acesso, historico
+from controleproducao.core.tarefas import TAREFAS
 from controleproducao.core.tarefas_router import router as tarefas_router
 from controleproducao.core.templates import templates
 from controleproducao.modules.manutencao_op.router import router as manutencao_op_router
 from controleproducao.modules.pedidos_wbc.router import router as pedidos_wbc_router
 from controleproducao.modules.romaneio.router import router as romaneio_router
 
+
+@asynccontextmanager
+async def _ciclo_de_vida(_app: FastAPI) -> AsyncIterator[None]:
+    """Attach the Supabase history at startup (.11 only); let pending writes land on stop.
+
+    At startup and not at import: importing the app (tests, the CLI) must not decide which
+    machine this is nor read Supabase settings.
+    """
+    TAREFAS.historico = historico.da_maquina()
+    yield
+    await TAREFAS.aguardar_gravacoes()
+
+
 # No /docs, /redoc or /openapi.json: a screen that writes into the production SAP does not
 # publish its own route catalog (SIS painel does the same).
-app = FastAPI(title="Controle de Produção — WBC (Web)", docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(
+    title="Controle de Produção — WBC (Web)", docs_url=None, redoc_url=None, openapi_url=None,
+    lifespan=_ciclo_de_vida,
+)
 
 # Caminho absoluto: ver a nota em `core/templates.py`. A app precisa subir de
 # qualquer diretório de trabalho.
