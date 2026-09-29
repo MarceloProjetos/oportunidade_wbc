@@ -1,9 +1,10 @@
 # Plano — Controle de Produção (WBC → OPs) como pacote do SIS, na .11
 
-> **ENCERRADO PARA OPERAÇÃO em 29/09/2026** (`8728980` na .11; F0–F7). A tela roda em
-> produção desde 28/09 (1º pedido real: 84433, 15:36). O que resta não é código deste plano —
-> está em "O que falta" (§F7), por dono. Os portes de código (SQL do módulo 2, `pymssql`)
-> viraram melhoria futura, com o Anderson.
+> **ENCERRADO em 29/09/2026 — `4f83a89` no ar na .11** (F0–F7; deploy conferido: 6 serviços
+> `RUNNING`, `/health` ok, `/status?checks=cp,wbc_worker,scheduler&strict=1` → 200). A tela roda
+> em produção desde 28/09 (1º pedido real: 84433, 15:36). SQL dos módulos 2 e 3 com parâmetro
+> ligado e o WBC lido por `pymssql` também estão no ar. O que resta não é código — está em
+> "O que falta" (§F7), por dono.
 
 
 > **Status (28/09/2026, 2ª versão): DESENHO MUDOU — um projeto só.** Decisão do Marcelo
