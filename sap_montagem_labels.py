@@ -1,7 +1,7 @@
 """sap_montagem_labels -- fonte unica do rotulo "Tipo de Montagem".
 
 **PORTE de** ``web_orcaview_V118/backend/services/sap_montagem_labels.py`` (D1 do plano
-``docs/PLANO_SITUACAO_PEDIDOS_MCP.md``). O pedido guarda so o codigo em
+``PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29; historico no git)``). O pedido guarda so o codigo em
 ``ORDR.U_INO_TPO_MONTAGEM`` (``1``, ``2``, ``3``, ``5``, ``6``, ``EXP``); o rotulo legivel
 e' o da lista de valores validos da UDF, que mora em ``UFD1``.
 

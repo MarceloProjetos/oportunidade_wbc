@@ -5,7 +5,7 @@ E' o suficiente para cravar o que importa nesta fase: o cache, a guarda de volum
 conversao de tipos e -- principalmente -- que HANA fora do ar vira **mensagem legivel**,
 nunca um 500 cru.
 
-Plano: ``docs/PLANO_SITUACAO_PEDIDOS_MCP.md``.
+Plano: ``PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29; historico no git)``.
 """
 from __future__ import annotations
 

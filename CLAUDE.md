@@ -35,7 +35,7 @@ Serviço de integração SAP B1 → Supabase **e** Integração WBC → SAP. Rod
 
 O pacote `wbcpython/` (ex-projeto WBCPython, importado em 2026-09-08) tem guia próprio em
 `docs/wbc/README.md` e as decisões em `docs/wbc/DECISOES.md`. Plano da integração:
-`docs/PLANO_INTEGRACAO_WBCPYTHON.md`. O pacote `controleproducao/` (pacote ControleProducao
+`PLANO_INTEGRACAO_WBCPYTHON.md (removido em 2026-09-29; historico no git)`. O pacote `controleproducao/` (pacote ControleProducao
 do Anderson, importado em 2026-09-28) tem o histórico em `docs/controleproducao/`
 (`migration_guide.md` §7 é o diário; `decisoes.md`) e o plano em
 `docs/PLANO_CONTROLE_PRODUCAO_11.md` — abra o plano antes de mexer. Guia do pacote:

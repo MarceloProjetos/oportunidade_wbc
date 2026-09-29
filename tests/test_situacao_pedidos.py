@@ -9,7 +9,7 @@ o V117; aqui se verifica o COMPORTAMENTO na .11 -- inclusive o dos quatro acresc
 nao existem no V117 (``alerta_liberacao``, ``com_alerta``, ``filtrar_bloqueio``,
 ``resumir``).
 
-Plano: ``docs/PLANO_SITUACAO_PEDIDOS_MCP.md``.
+Plano: ``PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29; historico no git)``.
 """
 from __future__ import annotations
 

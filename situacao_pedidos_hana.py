@@ -22,7 +22,7 @@ consequencias, todas deliberadas:
 O SQL e' o MESMO do ``sap_hana_client.fetch_status_pedidos`` do V117 -- e' isso que faz a
 .11 e a tela responderem igual. Ao mexer nele, mexa nos dois.
 
-Plano: ``docs/PLANO_SITUACAO_PEDIDOS_MCP.md``.
+Plano: ``PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29; historico no git)``.
 """
 from __future__ import annotations
 

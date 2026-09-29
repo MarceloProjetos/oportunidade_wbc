@@ -370,7 +370,7 @@ def ultimos_erros(limit: int = 10) -> dict[str, Any]:
 
 
 # ────────────────── Situação dos Pedidos (F4) — a view DDP do SAP ──────────────────
-# As três consultas de docs/PLANO_SITUACAO_PEDIDOS_MCP.md, sobre a MESMA view que
+# As três consultas de PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29; historico no git), sobre a MESMA view que
 # desenha a tela "Situação dos Pedidos" do OrçaView. Continuam finas: quem lê o HANA é
 # a API 8077, e a normalização é um porte do núcleo do V117 (com teste comparando os
 # dois fontes) — por isso a resposta aqui e a tela não divergem.

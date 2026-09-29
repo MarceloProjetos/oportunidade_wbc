@@ -1274,7 +1274,7 @@ def op_status(numero: str):
 # `situacao_pedidos_hana`, nao um rate-limit: dois clientes MCP conversando ao mesmo
 # tempo compartilham o mesmo retrato.
 #
-# Contrato congelado em 2026-08-24: docs/PLANO_SITUACAO_PEDIDOS_MCP.md secao 5.
+# Contrato congelado em 2026-08-24: PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29; historico no git) secao 5.
 
 
 def _resposta_situacao_erro(exc: Exception) -> tuple[Any, int]:

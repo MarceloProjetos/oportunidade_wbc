@@ -971,4 +971,4 @@ mudou de tipo, ou qualquer número que divirja da tela do OrçaView de forma con
 ---
 
 *Servidor de Integração SAP · `192.168.7.11` · atualizado em 2026-09-14.*
-*Runbook interno: `docs/PLANO_SITUACAO_PEDIDOS_MCP.md`.*
+*Runbook interno: `PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29; historico no git)`.*

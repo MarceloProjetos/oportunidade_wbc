@@ -1,6 +1,15 @@
 # Plano — API JSON da Manutenção de OP (Controle de Produção, porta 8080)
 
-> **Status (29/09/2026, fim da tarde): D1 decidida — qualquer um com a chave; `8edcae3` pende
+> **Status (29/09/2026, 15:33): D1 no ar na .11 (deploy ~15:15) e conferida, só leitura.**
+> Preflight CORS sem chave → `200` com `access-control-allow-origin: *`, métodos `GET, POST` e
+> cabeçalhos `x-api-key, content-type`; `GET` com origem de fora → `200` e o `401` sem chave
+> também trazem o cabeçalho; a API responde `application/json; charset=utf-8`; as telas seguem
+> sem CORS. No Windows PowerShell 5.1, o exemplo do guia, como está, lê "concluída" certo e trata
+> o erro. ⚠️ Não deu para provar num navegador daqui: o navegador embutido barra o `fetch` da
+> página para outro endereço antes de sair (`ERR_BLOCKED_BY_CLIENT`). Falta: F7 (quem chama a
+> 8077) e as decisões D4 e D7.
+>
+> **Antes (29/09/2026, fim da tarde): D1 decidida — qualquer um com a chave; `8edcae3` pende
 > deploy.** O Marcelo decidiu que a API não tem consumidor definido: basta a chave, de dentro da
 > rede. Duas barreiras de transporte caíram, só em `/api/*`: **CORS** para qualquer origem, sem
 > credenciais (uma página de outro servidor não conseguia chamar), e **`charset=utf-8`** no JSON
@@ -535,7 +544,7 @@ gravado; `409 ocupado` → acompanhar a execução que veio na resposta, não in
 
 1. **Quem consome** — ✅ *decidida pelo Marcelo em 29/09: qualquer um com a chave.* Sem
    consumidor definido nem cadastro: a chave (`X-API-Key`, a `OS_API_KEY` — D2) e a rede interna
-   bastam. Para isso valer para qualquer cliente, `8edcae3` abriu CORS em `/api/*` (qualquer
+   bastam. Para isso valer para qualquer cliente, `8edcae3` (no ar desde ~15:15) abriu CORS em `/api/*` (qualquer
    origem, sem credenciais — a API nunca lê o cookie, então nada se abre a quem não tem a chave;
    as telas seguem sem CORS) e passou a declarar `charset=utf-8` no JSON (PowerShell 5.1). O
    guia `API_MANUTENCAO_OP.md` avisa que, numa página web, a chave fica visível a quem abre a
