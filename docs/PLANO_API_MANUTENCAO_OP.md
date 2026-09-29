@@ -1,11 +1,13 @@
 # Plano — API JSON da Manutenção de OP (Controle de Produção, porta 8080)
 
-> **Status (29/09/2026): plano escrito, nada codado.** Aguarda a aprovação do Marcelo e a
-> resposta da D1 (quem vai consumir). A tela Manutenção de OP está no ar na .11 desde 28/09
-> (Buscar, Liberar, Encerrar; Replanejar só pela CLI — D9 do `PLANO_CONTROLE_PRODUCAO_11.md`).
-> A rota `POST /ordens-producao/{n}/status` da API 8077 também libera OP, mas **nunca rodou em
-> produção** (o pré-voo da OP 129850 nunca foi feito) e **não tem chamador** no web, no app nem
-> na fachada MCP (grep de 29/09).
+> **Status (29/09/2026, tarde): plano revisto, nada codado.** A F0 mudou o quadro: a rota
+> `POST /ordens-producao/{n}/status` da API 8077 **é usada**. Pelo menos **552 OPs** foram
+> encerradas por ela **só pelo status**, sem nenhuma saída de insumo nem entrada de produto (23, 25
+> e 28/09; a última às 13:30 de 28/09, cerca de 1 h 15 antes do deploy da D9). Quem chama é
+> desconhecido: a 8077 não registra IP. Decisões do Marcelo em 29/09: D1 (quem consome) fica aberta
+> por enquanto; D2 e D3 abertas; **Replanejar vira a última fase**, depois de o resto estar no ar e
+> testado. Com o achado, a recomendação da D3 mudou: não aposentar a rota antes de saber quem a usa.
+> Aguarda aprovação para começar a F1.
 
 Artifact (mesma história, MESMA url): https://claude.ai/artifact/1Mt4xBk4bvuqv7oUuLuThf
 
@@ -15,26 +17,61 @@ Artifact (mesma história, MESMA url): https://claude.ai/artifact/1Mt4xBk4bvuqv7
 
 | | |
 | --- | --- |
-| **7 rotas JSON** | em `/api/manutencao-op`, no processo da tela (8080) |
-| **1 regra nova** | Replanejar recusa OP com saída de insumo lançada — na API e na CLI |
+| **6 rotas JSON + Replanejar** | em `/api/manutencao-op`, no processo da tela (8080); Replanejar é a última fase |
+| **≥ 552 OPs** | encerradas pela rota da 8077 sem saída nem entrada (23, 25 e 28/09) |
 | **0 regra duplicada** | tela e API chamam as mesmas funções (`acoes.py` → `service.py`) |
 | **2 colunas** | `solicitante` e `origem` no histórico de Execuções (ALTER, sem tabela nova) |
 | **10 min** | validade do token do Encerrar, uso único (o mesmo da tela) |
-| **1 rota aposentada** | `POST /ordens-producao/{n}/status` da 8077 → 410 (D3) |
+| **1 chamador desconhecido** | usa a rota de OP da 8077; identificar antes de mexer nela (D3, D7) |
 
 ## Onde está agora
 
 - **No ar hoje (.11, porta 8080, desde 28/09):** a tela Manutenção de OP — Buscar; Liberar
   (grava no 1º POST, sem token); Encerrar (conferir → plano com token de 10 min → execução em
   segundo plano); tela Execuções com as 30 últimas guardadas no Supabase. Replanejar só pela CLI
-  (D9). Uma execução por módulo.
-- **Não existe:** nenhuma rota JSON de escrita na 8080 — as rotas atuais devolvem HTML de
-  formulário. O que a tela faz está dentro de `modules/manutencao_op/router.py`, misturado com
-  o HTML.
-- **Pende para começar:** aprovação deste plano, D1 (quem consome) e a F0 (duas conferências só
-  leitura).
+  (D9 do `PLANO_CONTROLE_PRODUCAO_11.md`). Uma execução por módulo.
+- **No ar na 8077:** `POST /ordens-producao/{n}/status` libera OP; desde a D9 (28/09 ~14:45)
+  recusa `encerrada` com 400. **Tem um usuário real, que não conhecemos** (achado abaixo).
+- **Não existe:** nenhuma rota JSON de escrita na 8080. O que a tela decide está dentro de
+  `modules/manutencao_op/router.py`, misturado com o HTML.
+- **Pende para começar:** aprovação do plano. D1 continua aberta e não trava as fases de código
+  (o contrato sai genérico). A F7 (rota da 8077) depende de identificar o chamador.
 - Commits ainda não deployados na .11 (`e4a1252` → `3692fe6`, se continuarem pendentes) sobem
-  junto com o deploy da API (F6).
+  junto com o 1º deploy da API (F5).
+
+### O que a F0 achou (29/09)
+
+**Log da .11** (7 dias de `logs/api.log*`, bloco rodado pelo Marcelo): 2.219 linhas do módulo
+`ordens_producao_sl`. As últimas escritas foram em 28/09, das 13:30:17 às 13:30:38: OPs
+149312–149322, `boposReleased -> boposClosed`, uma a cada ~3,3 s. Depois disso, só um login no
+Service Layer às 16:05 de 28/09, sem mudança de status em seguida.
+
+**HANA de produção** (só leitura, do notebook, 29/09): OPs cuja última alteração foi do usuário
+`orcaview`, o usuário de Service Layer da rota:
+
+| Dia | Status | OPs | Pedidos | Com saída | Com entrada |
+| --- | --- | --- | --- | --- | --- |
+| 03/09 | Liberada | 10 | 1 | 0 | 0 |
+| 16/09 | Liberada | 106 | 2 | 0 | 0 |
+| 23/09 | Encerrada | 5 | 1 | 0 | 0 |
+| **25/09** | **Encerrada** | **528** | **18** | **0** | **0** |
+| 25/09 | Liberada | 5 | 1 | 0 | 0 |
+| 28/09 | Encerrada | 19 | 2 | 0 | 0 |
+| 28/09 | Liberada | 14 | 1 | 0 | 0 |
+
+- Das 18 ordens de venda das OPs encerradas em 25/09, **17 estão Fechadas** no SAP (entregues,
+  não canceladas), com data de julho a setembro. A **84278 está Aberta** e teve 14 OPs encerradas.
+- Leitura: alguém fecha, só pelo status, as OPs que sobraram de pedidos já entregues — uma
+  limpeza. ⚠️ **Não é o Encerrar da tela, que lança saída e entrada.** Se o consumidor fizer essa
+  limpeza pela API nova, o SAP vai baixar insumo e dar entrada de produto hoje para peças
+  entregues em agosto.
+- "Última alteração" (`UserSign2`) conta só as OPs que ninguém mexeu depois, então 552 é o
+  mínimo. As Liberadas de 28/09 podem ser da tela nova, que usa o mesmo usuário.
+- Desde a D9 a rota responde 400 para `encerrada`, **e esse 400 não vai para o log** (é recusado
+  antes da rede). O login das 16:05 sem mudança em seguida combina com "consultou a OP e levou
+  400 no encerrar" — é hipótese; não dá para saber se o chamador tentou de novo.
+- A memória do projeto e o plano do Controle de Produção diziam que a rota "nunca rodou em
+  produção" — estava errado. O que nunca foi feito é o pré-voo planejado da OP 129850.
 
 ---
 
@@ -55,7 +92,8 @@ flowchart LR
     SV -->|"leitura"| HANA[("HANA")]
     SV -->|"PATCH/POST · só na .11 (IP)"| SL["Service Layer :50000"]
     TK -->|"execução terminada"| HS[("Supabase<br/>controle_producao_execucoes")]
-    OLD["API 8077<br/>POST /ordens-producao/{n}/status"] -.->|"410 · aponta a rota nova"| CONS
+    DESC["Chamador desconhecido"] -->|"≥552 encerradas só por status"| OLD["API 8077<br/>POST /ordens-producao/{n}/status"]
+    OLD --> SL
 ```
 
 A API **não é uma camada nova de regra**: o que hoje está dentro das rotas da tela (validar a
@@ -79,7 +117,7 @@ Mensagem de erro igual por construção: as duas mostram o mesmo texto, que vem 
 4. **Encerrar é irreversível e em cadeia:** por OP, filha antes da mãe — libera (se Planejada) e
    põe as linhas em `im_Manual` → saída de insumo (OIGE) → entrada de produto (OIGN) → Encerrada.
    Se uma OP falha, as que dependem dela são **puladas**; a liberação só é desfeita se nada foi
-   lançado.
+   lançado. ⚠️ **Não serve para limpar OP de pedido já entregue** (achado da F0; D7).
 5. **Interromper corta no próximo `await` e não desfaz nada.** No Encerrar isso pode cair entre a
    saída e a entrada da mesma OP — já é assim na tela hoje (D5).
 6. **DocNum ≠ DocEntry** (a OP 125060 é o DocEntry 126599). A API só recebe DocNum — de OP e de
@@ -91,45 +129,35 @@ Mensagem de erro igual por construção: as duas mostram o mesmo texto, que vem 
 9. **Rede:** `CP_HOST=0.0.0.0` + regra de firewall `192.168.0.0/16` — só a LAN alcança a 8080.
 10. **Liberar não tem conferência** (a tela grava no 1º POST). A API segue a tela: Liberar e
     Replanejar gravam na primeira chamada; só o Encerrar tem token.
+11. **A rota de OP da 8077 tem um chamador real e desconhecido**, e a 8077 não registra IP nem as
+    recusas 400. Mexer nela sem saber quem é quebra alguém sem aviso.
 
 ---
 
 ## §2 Fases
 
-### F0 — Conferências só leitura — `aberta · Marcelo + eu`
+Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de verdade na .11;
+**Replanejar por último** (F6).
 
-> **Objetivo:** sabemos se alguém chama a rota de OP da 8077 e qual critério de "saída lançada"
-> o SAP sustenta — antes de escrever uma linha.
+### F0 — Conferências — `✅ log conferido 29/09 · falta saber quem chama`
 
-- **Marcelo, na .11** — conta o que a rota de OP registrou no log da API (7 dias de
-  `logs/api.log*`; a API não tem log de acesso, mas o módulo `ordens_producao_sl` registra cada
-  consulta, mudança e recusa do SAP):
+> **Objetivo:** saber se alguém usa a rota de OP da 8077 e quem é — antes de mexer nela.
 
-  ```powershell
-  [Console]::OutputEncoding = [Text.Encoding]::UTF8
-  cd C:\Python\ServidorIntegracaoSAP
-  $linhas = Get-ChildItem .\logs\api.log* | Select-String -Pattern 'ordens_producao_sl|status da OP'
-  "linhas: $($linhas.Count)"
-  $linhas | Select-Object -Last 15 | ForEach-Object { $_.Line }
-  ```
-
-  Zero linhas → F4 aposenta direto (410). Alguma linha de `atualizada para` → alguém usa; D3
-  passa a ter janela de aviso.
-- **Eu, do notebook** (leitura em PROD, como o pré-voo de 28/09) — critério de "saída lançada":
-  - **A:** `SUM(WOR1."IssuedQty") > 0` na OP;
-  - **B:** existe linha em `IGE1` com `BaseType = 202` e `BaseEntry` = DocEntry da OP, num `OIGE`
-    com `CANCELED = 'N'`.
-  Conferir, nas OPs que tiveram saída **cancelada**, se o `IssuedQty` volta a 0. Se A e B
-  concordam → **A** (uma subconsulta na `WOR1`, que o módulo já lê); se divergem → **B**.
-  ⚠️ **Não sabemos se o SAP já recusa sozinho Liberada → Planejada com insumo
-  baixado — nunca foi tentado.** A recusa fica no nosso código de qualquer jeito, antes da
-  Service Layer, com mensagem legível.
-- D1 respondida.
+- ✅ **Log da .11** (bloco rodado pelo Marcelo em 29/09) e ✅ **HANA de produção** (só leitura, do
+  notebook): a rota é usada — ver "O que a F0 achou".
+- **Falta: quem chama.** Dois caminhos, os dois valem:
+  1. o Marcelo pergunta (PCP, Anderson, outra equipe que recebeu o `API_ORDENS_PRODUCAO.md`) —
+     é quem, em 25/09, fechou 528 OPs de 18 pedidos em cerca de meia hora;
+  2. **log de acesso nas duas rotas de OP da 8077** (código meu, pequeno, só `api.py` — o
+     `ordens_producao_sl.py` é arquivo-irmão e não muda): IP de origem, método, OP, status
+     pedido, código HTTP devolvido e `tipo` da recusa, **inclusive os 400** que hoje somem. Uma
+     linha INFO por chamada no `logs/api.log`. Deploy dele. Depois, um bloco PowerShell mostra
+     IPs e tentativas.
 
 ### F1 — Uma regra, um lugar — `aberta · eu`
 
 > **Objetivo:** a tela continua idêntica para o operador, e tudo o que ela decide passa a estar
-> numa função que a API e a CLI podem chamar.
+> numa função que a API pode chamar.
 
 - **`modules/manutencao_op/acoes.py` (novo)** — os fluxos que hoje moram em `router.py`:
   `prepara_mudanca_status(numeros, acao)`, `monta_plano_encerramento(ops | pedido)`,
@@ -138,23 +166,14 @@ Mensagem de erro igual por construção: as duas mostram o mesmo texto, que vem 
   `Recusa(tipo, mensagem, titulo, detalhes, colunas)`: a tela a mostra em `erro.html` (400, como
   hoje), a API em JSON com o HTTP do `tipo`.
 - **`router.py`** vira adaptador; os testes da tela passam **sem mudar nenhuma mensagem**.
-- **`service.py`:**
-  - `levanta_ops` traz `baixada` (critério da F0); `queries.py` ganha a subconsulta em
-    `OPS_POR_DOCNUM`, `OPS_POR_PEDIDO` e `OPS_MANUTENCAO`;
-  - `muda_status("p")` recusa OP com `baixada > 0` (vai para `ignoradas` com o motivo; `baixada`
-    ausente = recusa, fail-closed) — é a regra valendo também para quem chamar o serviço direto;
-  - OP **já no destino** vai para `ignoradas` ("já estava Liberada") **sem PATCH**. A CLI e a
-    rota 8077 já faziam isso; a tela gastava um PATCH sem efeito;
-  - `acoes_possiveis(op)` → `["liberar", "replanejar", "encerrar"]` filtrado pelo status, pela
-    saída lançada e por apontada < planejada. A API devolve isso em cada OP da busca.
+- **`service.py`:** OP **já no destino** vai para `ignoradas` ("já estava Liberada") **sem
+  PATCH** — a CLI e a rota 8077 já faziam isso, a tela gastava um PATCH sem efeito;
+  `acoes_possiveis(op)` → `["liberar", "encerrar"]` filtrado pelo status e por apontada <
+  planejada ("replanejar" entra na F6).
 - **Encerrar:** a trava do módulo é conferida **antes** de consumir o token. Hoje, com o módulo
   ocupado, o token é queimado e o operador tem de reconferir — vale para a tela também.
-- **CLI `manutencao-op replanejar`:** a coluna Ação mostra "saída lançada — cancele no SAP antes"
-  e a OP não entra; as OPs são **relidas logo antes de gravar** (o prompt de confirmação pode
-  ficar minutos aberto).
 - Se a D5 for aprovada: `finalizar_ops` para **só entre OPs** — a OP em curso termina a cadeia.
-- Testes: regra da saída, "já no destino", `acoes_possiveis`, cada `Recusa`, CLI recusando;
-  suíte inteira + `ruff` 0.
+- Testes: "já no destino", `acoes_possiveis`, cada `Recusa`; suíte inteira + `ruff` 0.
 
 ### F2 — Quem pediu — `aberta · eu (código) + Marcelo (SQL)`
 
@@ -176,21 +195,20 @@ Mensagem de erro igual por construção: as duas mostram o mesmo texto, que vem 
   notify pgrst, 'reload schema';
   ```
 
-  ⚠️ **Deploy antes do SQL = toda gravação do histórico falha (coluna
-  desconhecida) e a lista da tela mostra "histórico indisponível".** A execução no SAP não
-  é afetada, mas a linha se perde.
+  ⚠️ **Deploy antes do SQL = toda gravação do histórico falha (coluna desconhecida) e a lista da
+  tela mostra "histórico indisponível".** A execução no SAP não é afetada, mas a linha se perde.
 - Tela Execuções: "por *fulano* · API" na lista e no detalhe.
 - Log (`logs/controleproducao.log`, WARNING, junto do aviso de escrita que já existe): uma linha
   por gravação e por cancelamento — ação, `solicitante`, IP de origem, OPs, id da execução.
 
-### F3 — A API — `aberta · eu`
+### F3 — A API, sem o Replanejar — `aberta · eu`
 
-> **Objetivo:** o consumidor busca, libera, replaneja, confere e encerra, acompanha e interrompe
-> — pelo contrato do §3, com a mesma trava, o mesmo histórico e as mesmas mensagens da tela.
+> **Objetivo:** o consumidor busca, libera, confere e encerra, acompanha e interrompe — pelo
+> contrato do §3, com a mesma trava, o mesmo histórico e as mesmas mensagens da tela.
 
-- **`modules/manutencao_op/api_router.py` (novo)**, prefixo `/api/manutencao-op`, as 7 rotas do
-  §3. Busca e conferência são `def` (threadpool, como a tela: consulta lenta no HANA não congela
-  o loop); gravações são `async` (criam a tarefa).
+- **`modules/manutencao_op/api_router.py` (novo)**, prefixo `/api/manutencao-op`, as 6 rotas do
+  §3 (todas menos `/replanejar`). Busca e conferência são `def` (threadpool, como a tela:
+  consulta lenta no HANA não congela o loop); gravações são `async` (criam a tarefa).
 - **`core/acesso.py`:** `/api/*` só por `X-API-Key` — sem cookie (sem superfície de CSRF) e sem
   `?key=` (chave na URL vai parar em log). Chave ausente ou errada → 401 JSON. Sem chave
   configurada: leitura aberta, gravação 503 (fato 3).
@@ -206,37 +224,22 @@ Mensagem de erro igual por construção: as duas mostram o mesmo texto, que vem 
   `test_web_modulos.py` (toda rota POST que grava passa por `avisa_escrita`) passa a varrer
   `/api/*` também.
 
-### F4 — O destino da rota da 8077 — `depende da F0 e da D3`
-
-> **Objetivo:** liberar OP tem uma porta só, com uma regra só.
-
-- `POST /ordens-producao/{n}/status` → **410** `{"ok": false, "tipo": "movida", "motivo": "Liberar
-  OP passou para a API da Manutenção de OP (porta 8080): POST /api/manutencao-op/liberar — ver
-  API_MANUTENCAO_OP.md."}` — sem ler o corpo, sem Service Layer.
-- `GET /ordens-producao/{n}` **fica** (é a única consulta de uma OP isolada pelo número; a API
-  nova busca por pedido). `transicoes_permitidas` passa a vir sempre `[]` — o campo fica para não
-  quebrar quem o lê.
-- `ordens_producao_sl.py` **intocado** (arquivo-irmão do web): `atualizar_status` fica sem
-  chamador; removê-lo é decisão separada. `OP_STATUS_PERMITIDOS` deixa de ter efeito (não é mais
-  rollback de nada).
-- `API_ORDENS_PRODUCAO.md` ganha aviso datado no topo; `CLAUDE.md` troca as três invariantes da
-  rota de OP pela nova situação; testes da rota atualizados.
-
-### F5 — Contrato e documentação — `aberta · eu`
+### F4 — Contrato e documentação — `aberta · eu`
 
 > **Objetivo:** o consumidor integra lendo um arquivo só.
 
 - **`API_MANUTENCAO_OP.md` na raiz**, no molde do `API_ORDENS_PRODUCAO.md`: DocNum ≠ DocEntry,
   base e chave, cada rota com `curl`, tabela de códigos, exemplos em Python e PowerShell, e as
-  recomendações do §3.
-- `CLAUDE.md` (Tarefa → o que ler; D9 passa a "Replanejar: CLI e API, não a tela"), `README.md`,
-  `CHANGELOG.md`, `docs/controleproducao/GUIA_OPERADOR.md` (Execuções mostram quem pediu),
-  nota na D9 do `PLANO_CONTROLE_PRODUCAO_11.md`.
+  recomendações do §3 — com o aviso de que Encerrar lança estoque e não serve para limpar OP de
+  pedido entregue.
+- `CLAUDE.md` (Tarefa → o que ler), `README.md`, `CHANGELOG.md`,
+  `docs/controleproducao/GUIA_OPERADOR.md` (Execuções mostram quem pediu).
 - Commit nominal + push.
 
-### F6 — Deploy e 1ª chamada real — `Marcelo`
+### F5 — Deploy e 1º teste real — `Marcelo`
 
-> **Objetivo:** a API responde na .11 e a primeira gravação real foi conferida no SAP.
+> **Objetivo:** a API responde na .11 e a primeira gravação real foi conferida no SAP. É o
+> "tudo ok" que libera a F6.
 
 1. SQL da F2 no Supabase (antes de tudo).
 2. `.\deploy_update.bat` na .11 (aborta se houver execução em andamento).
@@ -245,31 +248,72 @@ Mensagem de erro igual por construção: as duas mostram o mesmo texto, que vem 
    - `POST /api/manutencao-op/liberar` **sem** `solicitante` → 400 (nada grava);
    - `POST /api/manutencao-op/encerrar/conferir` com um pedido → plano (o token vence sozinho em
      10 min, sem executar);
-   - `POST :8077/ordens-producao/<n>/status` → 410 (se F4 entrou);
    - `/health` → `ok`, `historico: supabase`.
-4. **1ª gravação real com o consumidor ao lado:** um Liberar numa OP escolhida por ele (ou pelo
-   Anderson), conferida no SAP e nas Execuções ("por *fulano* · API").
+4. **1ª gravação real:** um Liberar numa OP Planejada escolhida por você (ou pelo Anderson), sem
+   saída lançada. Conferir no SAP e nas Execuções ("por *fulano* · API"). **Anotar o número: é
+   essa OP que a F6 devolve para Planejada.**
+
+### F6 — Replanejar, por último — `aberta · eu + Marcelo`
+
+> **Objetivo:** o consumidor devolve uma OP Liberada para Planejada pela API, e a OP que já tem
+> saída de insumo é recusada antes de chegar ao SAP — na API e na CLI.
+
+- **Critério de "saída lançada"** (leitura em PROD, do notebook): **A** =
+  `SUM(WOR1."IssuedQty") > 0` na OP; **B** = existe linha em `IGE1` com `BaseType = 202` e
+  `BaseEntry` = DocEntry da OP, num `OIGE` com `CANCELED = 'N'`. Conferir nas OPs que tiveram
+  saída cancelada se o `IssuedQty` volta a 0. A e B concordam → **A** (uma subconsulta na
+  `WOR1`, que o módulo já lê); divergem → **B**. ⚠️ **Não sabemos se o SAP já recusa sozinho
+  Liberada → Planejada com insumo baixado — nunca foi tentado.** A recusa fica no nosso código de
+  qualquer jeito, antes da Service Layer, com mensagem legível.
+- **`service.py`:** `levanta_ops` traz `baixada`; `queries.py` ganha a subconsulta em
+  `OPS_POR_DOCNUM`, `OPS_POR_PEDIDO` e `OPS_MANUTENCAO`; `muda_status("p")` recusa OP com
+  `baixada > 0` (vai para `ignoradas` com o motivo; `baixada` ausente = recusa); D6, se
+  aprovada, recusa também `apontada > 0`; `acoes_possiveis` passa a oferecer "replanejar".
+- **CLI `manutencao-op replanejar`:** a coluna Ação mostra "saída lançada — cancele no SAP antes"
+  e a OP não entra; as OPs são **relidas logo antes de gravar** (o prompt de confirmação pode
+  ficar minutos aberto).
+- **API:** `POST /api/manutencao-op/replanejar` e o `tipo` `saida_lancada` (409, lote inteiro
+  recusado). A tela continua sem Replanejar (D4).
+- Contrato, `CLAUDE.md` (D9 passa a "Replanejar: CLI e API, não a tela"), nota na D9 do
+  `PLANO_CONTROLE_PRODUCAO_11.md`, commit, deploy.
+- **Teste final:** Replanejar, pela API, a OP liberada na F5 → volta a Planejada, e o teste
+  termina com ela como estava. Se existir OP Liberada com saída lançada, pedir o Replanejar dela
+  → 409 `saida_lancada`, nada grava.
+
+### F7 — O destino da rota da 8077 — `espera a F0 (quem chama), a D3 e a D7`
+
+> **Objetivo:** liberar OP tem uma porta só, com uma regra só, e ninguém é quebrado sem aviso.
+
+- Só depois de identificar o chamador e de ele ter um caminho na API nova (ou de a D7 dizer que a
+  limpeza por status não é mais permitida).
+- Aí: `POST /ordens-producao/{n}/status` → **410** `{"ok": false, "tipo": "movida", "motivo":
+  "Liberar OP passou para a API da Manutenção de OP (porta 8080): POST
+  /api/manutencao-op/liberar — ver API_MANUTENCAO_OP.md."}`, sem ler o corpo e sem Service Layer.
+  `GET /ordens-producao/{n}` fica (é a única consulta de uma OP isolada pelo número);
+  `transicoes_permitidas` passa a vir sempre `[]`.
+- `ordens_producao_sl.py` **intocado** (arquivo-irmão do web); `API_ORDENS_PRODUCAO.md` com aviso
+  datado; `CLAUDE.md` troca as três invariantes da rota; testes atualizados.
 
 ---
 
-## §3 Contrato proposto (vira o `API_MANUTENCAO_OP.md` na F5)
+## §3 Contrato proposto (vira o `API_MANUTENCAO_OP.md` na F4; Replanejar entra na F6)
 
 **Base:** `http://192.168.7.11:8080/api/manutencao-op` — só da LAN.
 **Autenticação:** cabeçalho `X-API-Key: <chave>` (D2). Sem cabeçalho ou chave errada → 401.
 **Números:** DocNum (de OP e de pedido), inteiros; texto só com dígitos também é aceito.
 **`solicitante`:** obrigatório em toda gravação e no cancelamento; 1–80 caracteres; é o que
-aparece no log e nas Execuções. ⚠️ **É declaração de quem chama, não identidade
-conferida** — a chave é uma só.
+aparece no log e nas Execuções. ⚠️ **É declaração de quem chama, não identidade conferida** — a
+chave é uma só.
 
 | Rota | Corpo / parâmetros | Sucesso | Grava? |
 | --- | --- | --- | --- |
 | `GET /pedidos/{pedido}/ops` | `?op_de&op_ate&status_de&status_ate` (status P/R/L/C) | 200 lista de OPs, DocNum decrescente | não |
 | `POST /liberar` | `{"ops": [125060], "solicitante": "…"}` | 202 + execução | sim, na hora |
-| `POST /replanejar` | `{"ops": [125060], "solicitante": "…"}` | 202 + execução | sim, na hora |
 | `POST /encerrar/conferir` | `{"ops": [...]}` **ou** `{"pedido": 84245}` | 200 plano + token | não |
-| `POST /encerrar/executar` | `{"token": "…", "solicitante": "…"}` | 202 + execução | sim — irreversível |
+| `POST /encerrar/executar` | `{"token": "…", "solicitante": "…"}` | 202 + execução | sim — irreversível, lança estoque |
 | `GET /execucoes/{id}` | — | 200 estado | não |
 | `POST /execucoes/{id}/cancelar` | `{"solicitante": "…"}` | 200 `{"cancelada": true\|false}` | interrompe |
+| `POST /replanejar` **(F6)** | `{"ops": [125060], "solicitante": "…"}` | 202 + execução | sim, na hora |
 
 Liberar e Replanejar recebem **lista de OPs** (como a tela); "todas do pedido" = buscar e mandar
 os números. Encerrar aceita as duas formas, como a tela.
@@ -279,10 +323,12 @@ os números. Encerrar aceita as duas formas, como a tela.
 ```json
 {"op": 125060, "doc_entry": 126599, "status": "P", "status_desc": "Planejada",
  "item": "PPLPRTGALVA175000000#0#0#1050", "produto": "…", "planejada": 12.0, "apontada": 0.0,
- "restante": 12.0, "baixada": 0.0, "data_pedido": "2026-09-25", "data_inicio": "2026-09-26",
+ "restante": 12.0, "data_pedido": "2026-09-25", "data_inicio": "2026-09-26",
  "data_vencimento": "2026-10-10", "cliente_codigo": "C0…", "cliente": "…",
  "acoes_possiveis": ["liberar", "encerrar"]}
 ```
+
+(Na F6 entram `baixada` e "replanejar" em `acoes_possiveis`.)
 
 **Plano do Encerrar** (ordem = filha antes da mãe, calculada pela estrutura; é a ordem que a
 execução segue):
@@ -322,7 +368,7 @@ OPs) quando a recusa é por OP:
 | 401 | `sem_chave` | `X-API-Key` ausente ou errada |
 | 404 | `nao_encontrada` | nenhuma OP com esses números; execução inexistente ou de outro módulo |
 | 409 | `status_terminal` | Liberar/Replanejar com OP Encerrada ou Cancelada — **o lote inteiro** é recusado |
-| 409 | `saida_lancada` | Replanejar com OP que já tem saída de insumo — **o lote inteiro** é recusado |
+| 409 | `saida_lancada` **(F6)** | Replanejar com OP que já tem saída de insumo — **o lote inteiro** é recusado |
 | 409 | `ciclo` | Encerrar: OPs com dependência circular |
 | 409 | `nada_a_encerrar` | nenhuma OP em condição (vem com os itens e o motivo de cada um) |
 | 409 | `confirmacao_invalida` | token vencido, já usado ou desconhecido — reconferir |
@@ -335,8 +381,9 @@ Mensagens novas (não existem na tela): `saida_lancada` (vale também na CLI), `
 tela redireciona para `/entrar`) e `sap_indisponivel` (a tela dá 500).
 
 **Recomendações ao consumidor** (vão para o contrato): conferir → mostrar o plano à pessoa →
-executar; ler `desfecho`, nunca só `situacao`; consultar o estado a cada 2 s e parar em
-`terminada`; repetir Liberar/Replanejar é seguro (OP já no destino é ignorada sem gravar),
+executar; ⚠️ **Encerrar lança saída de insumo e entrada de produto — não é para fechar OP de
+pedido já entregue**; ler `desfecho`, nunca só `situacao`; consultar o estado a cada 2 s e parar
+em `terminada`; repetir Liberar/Replanejar é seguro (OP já no destino é ignorada sem gravar),
 repetir Encerrar não é possível (token de uso único); **interromper não desfaz** o que já foi
 gravado; `409 ocupado` → acompanhar a execução que veio na resposta, não insistir.
 
@@ -346,21 +393,18 @@ gravado; `409 ocupado` → acompanhar a execução que veio na resposta, não in
 
 **Marcelo**
 
-1. **Quem consome** — *aberta* (o pedido veio com `<quem vai consumir>` em branco). Muda o texto
-   do contrato, a D2 e se a máquina do consumidor está na LAN (a 8080 só aceita
-   `192.168.0.0/16`). **Recomendado:** dizer a equipe/sistema e de qual máquina chama; o contrato
-   sai genérico até lá.
-2. **Qual chave** — *aberta.* **Recomendado: a mesma `OS_API_KEY`.** Zero linha nova no `.env`;
-   "sem chave configurada → 503" já é o comportamento; uma chave própria seria uma linha no `.env`
-   capaz de desligar a função — o padrão que a regra das funções de produção evita. Custo: quem
-   tem a chave também entra nas telas e na API 8077, e trocar a chave derruba os cookies de todos.
-   Reavaliar se o consumidor for de fora da casa.
-3. **Rota `POST /ordens-producao/{n}/status` da 8077** — *aberta.* **Recomendado: aposentar com
-   410 (F4)** se a F0 mostrar zero uso; o `GET` fica. Motivo: duas portas para a mesma transição,
-   com regras diferentes — a da 8077 não entra na trava do módulo, não entra nas Execuções e não
-   registra quem pediu. Alternativas descartadas: manter as duas (a regra diverge com o tempo);
-   fazer a 8077 chamar o serviço da 8080 (grava fora da trava e do histórico, que são memória da
-   8080).
+1. **Quem consome** — *aberta por enquanto (Marcelo, 29/09).* Não trava F1–F6: o contrato sai
+   genérico. O chamador desconhecido da rota da 8077 é candidato natural.
+2. **Qual chave** — *aberta.* **Recomendado: a mesma `OS_API_KEY`.** Não trava nenhuma fase: a F3
+   usa a `OS_API_KEY` que já existe; uma chave própria entra depois, se você decidir. Motivo da
+   recomendação: zero linha nova no `.env`; "sem chave configurada → 503" já é o comportamento;
+   uma chave própria seria uma linha no `.env` capaz de desligar a função — o padrão que a regra
+   das funções de produção evita. Custo: quem tem a chave também entra nas telas e na API 8077, e
+   trocar a chave derruba os cookies de todos.
+3. **Rota `POST /ordens-producao/{n}/status` da 8077** — *aberta.* **Recomendação mudou em 29/09
+   (F0): não aposentar agora.** Ela é usada. Primeiro identificar o chamador (F0) e dar a ele um
+   caminho; 410 só depois (F7), com aviso. Continua valendo o motivo de ter uma porta só: a da
+   8077 não entra na trava do módulo, nem nas Execuções, nem registra quem pediu.
 4. **Replanejar volta à tela?** — *aberta.* **Recomendado: não nesta entrega.** A regra da saída
    lançada remove o motivo da D9 (replanejar ao lado de um Encerrar que falhou no meio), mas a
    tela só muda se você pedir.
@@ -371,9 +415,20 @@ gravado; `409 ocupado` → acompanhar a execução que veio na resposta, não in
 6. **Replanejar com produto já apontado** (`apontada > 0`, entrada lançada sem saída) —
    *aberta.* **Recomendado: recusar também**, com a mesma família de mensagem: é o mesmo problema
    (estoque movimentado numa OP Planejada). O pedido original fala só da saída de insumo.
+7. **Encerrar só pelo status (limpeza de OP de pedido entregue)** — *nova, aberta; negócio:
+   Marcelo + Anderson/PCP.* É o que o chamador da 8077 fazia (≥ 552 OPs) e o que a D9 bloqueou
+   em 28/09. **Recomendado:** saber quem e por quê antes de qualquer código. Enquanto isso a D9
+   fica (a 8077 recusa `encerrada`), e o contrato da API nova avisa que Encerrar lança estoque.
+   Se for uma operação legítima, o lugar dela é uma operação explícita na API nova ("encerrar sem
+   movimentação", com conferir + token e restrita a OP de pedido Fechado) — regra a decidir com o
+   Anderson e o PCP, não a inventar aqui. Também para eles: a **84278** está Aberta e teve 14 OPs
+   encerradas assim.
+8. **Ordem das fases** — ✅ *decidida pelo Marcelo em 29/09.* Replanejar é a última fase (F6),
+   depois de o resto estar no ar e testado na .11; o 1º teste real do Replanejar devolve para
+   Planejada a OP liberada no teste da F5.
 
 ---
 
 Plano no repositório: `MCPs/ServidorIntegracaoSAP/docs/PLANO_API_MANUTENCAO_OP.md` · código de
 referência: `controleproducao/modules/manutencao_op/{service,router}.py`, `core/{tarefas,confirmacao,
-historico,acesso,web}.py`, `api.py` (rota de OP) · 29/09/2026.
+historico,acesso,web}.py`, `api.py` (rota de OP) · 29/09/2026, revisto na tarde do mesmo dia.
