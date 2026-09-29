@@ -1,6 +1,11 @@
 # Plano — API JSON da Manutenção de OP (Controle de Produção, porta 8080)
 
-> **Status (29/09/2026, fim do dia): F0–F3 codadas e no GitHub, pendem deploy na .11.**
+> **Status (29/09/2026, noite): F0–F4 no GitHub, pendem deploy na .11.** F4 = contrato
+> `API_MANUTENCAO_OP.md` na raiz (`8e38276`), com uma correção achada ao escrevê-lo: número de OP
+> inexistente num lote era descartado em silêncio — agora recusa o lote (404). Próximo: F5
+> (deploy + 1º teste real, dele).
+>
+> **Antes (29/09, fim do dia): F0–F3 codadas e no GitHub, pendem deploy na .11.**
 > `4e238d0` (F0: log de quem chama a rota de OP da 8077) e `a3a217f` (F1–F3: `acoes.py`, quem
 > pediu no histórico, API JSON com 6 rotas); SQL das 2 colunas do histórico **aplicado pelo
 > Marcelo em 29/09**. Suíte 2.445 verde, `ruff` 0; lista e detalhe das Execuções conferidos na
@@ -243,7 +248,7 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
 - ⚠️ **O que a busca não devolve:** `doc_entry` (a grade da tela não lê o DocEntry, e acrescentá-lo
   mudaria a tabela da tela). Ele aparece no plano do Encerrar e no resultado das execuções.
 
-### F4 — Contrato e documentação — `aberta · eu`
+### F4 — Contrato e documentação — `✅ feita 29/09 · 8e38276 · pende deploy (a correção do 404)`
 
 > **Objetivo:** o consumidor integra lendo um arquivo só.
 
@@ -254,6 +259,17 @@ Ordem decidida pelo Marcelo em 29/09: primeiro o que a tela já faz, testado de 
 - `CLAUDE.md` (Tarefa → o que ler), `README.md`, `CHANGELOG.md`,
   `docs/controleproducao/GUIA_OPERADOR.md` (Execuções mostram quem pediu).
 - Commit nominal + push.
+
+- **Como ficou (29/09):** `API_MANUTENCAO_OP.md` com as 6 rotas (`curl`), os quatro fatos que
+  mudam a integração, `acoes_possiveis`, a `acao` por OP, estado × `desfecho`, erros por `tipo`,
+  exemplos em Python (compila; conferido) e PowerShell 5.1, oito recomendações e a tabela 8077 ×
+  8080. Os exemplos de resposta saíram do código com o SAP dublado. `API_ORDENS_PRODUCAO.md`
+  aponta para ele; README, guia do operador e CLAUDE.md atualizados.
+- ⚠️ **O que mordeu:** `levanta_ops` devolve só o que acha. Num Liberar com um número errado, as
+  outras OPs eram liberadas e a execução dizia "concluída". A tela nunca sentiu (os números vêm da
+  busca dela); a API aceita qualquer número. Agora o lote inteiro é recusado (`404`, números em
+  `detalhes`), no Liberar e no conferir por OPs. Conferido em PROD (só leitura): nenhum DocNum de
+  OP se repete (157.426 OPs, uma série) — o DocNum ambíguo que a 8077 recusa não existe hoje.
 
 ### F5 — Deploy e 1º teste real — `Marcelo`
 
