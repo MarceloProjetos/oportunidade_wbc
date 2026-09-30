@@ -26,14 +26,38 @@
 {# Search and numbers on one line (29/09/2026). Search first: it is what is used first and
    the only card before the first search, so it keeps its place when the numbers appear. #}
 <div class="ov-linha-topo">
-  <form method="get" action="/pedidos-wbc" class="ov-filtros">
+  {# No "Buscar" button (owner, 30/09/2026): picking a mode loads it right away. The button
+     survives only for a browser without JavaScript, where nothing else would submit. #}
+  <form method="get" action="/pedidos-wbc" class="ov-filtros" id="form-modo">
     <input type="hidden" name="buscar" value="1">
     <label class="ov-opcao"><input type="radio" name="modo" value="novos"
       {% if modo != 'integrados' %}checked{% endif %}> Pedidos novos</label>
     <label class="ov-opcao"><input type="radio" name="modo" value="integrados"
       {% if modo == 'integrados' %}checked{% endif %}> Pedidos integrados</label>
-    <button type="submit" class="ov-btn">{{ icone('buscar') }} Buscar</button>
+    <span class="ov-nota" id="modo-carregando" hidden>Carregando…</span>
+    <noscript><button type="submit" class="ov-btn">{{ icone('buscar') }} Buscar</button></noscript>
   </form>
+  <script>
+    (function () {
+      var form = document.getElementById("form-modo");
+      form.addEventListener("change", function (evento) {
+        if (evento.target.name !== "modo") { return; }
+        // The HANA read takes a few seconds: say so, and block a second pick meanwhile.
+        document.getElementById("modo-carregando").hidden = false;
+        Array.prototype.forEach.call(form.querySelectorAll('input[name="modo"]'), function (r) {
+          if (r !== evento.target) { r.disabled = true; }
+        });
+        form.submit();
+      });
+      // Back button: the page comes from the cache still "loading" — undo it.
+      window.addEventListener("pageshow", function () {
+        document.getElementById("modo-carregando").hidden = true;
+        Array.prototype.forEach.call(form.querySelectorAll('input[name="modo"]'), function (r) {
+          r.disabled = false;
+        });
+      });
+    })();
+  </script>
   {% if buscou %}
   <div class="ov-kpi">
     <b>{{ total }}</b><span>{{ 'Integrados' if modo == 'integrados' else 'Novos' }}</span>
@@ -74,7 +98,7 @@
           </tr>
           {% else %}
           <tr><td colspan="{{ 7 if selecionavel else 6 }}" class="vazio">
-            {% if buscou %}Nenhum pedido neste modo.{% else %}Use "Buscar" para carregar a lista.{% endif %}
+            {% if buscou %}Nenhum pedido neste modo.{% else %}Escolha "Pedidos novos" ou "Pedidos integrados" para carregar a lista.{% endif %}
           </td></tr>
           {% endfor %}
         </tbody>

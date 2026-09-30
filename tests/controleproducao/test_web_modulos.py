@@ -1121,6 +1121,19 @@ def _linha_topo(html: str) -> str:
     return html[inicio:html.index('<form method="post" id="form-pedidos"', inicio)]
 
 
+def test_trocar_o_modo_ja_carrega_sem_botao_buscar(cliente):
+    """30/09/2026 (owner): no "Buscar" — picking Pedidos novos/integrados loads the list. The
+    button stays only inside <noscript>, where nothing else would submit the form."""
+    with _Ligado(_patches(pedidos=_pedidos(3))):
+        html = cliente.get("/pedidos-wbc").text
+    linha = _linha_topo(html)
+    sem_noscript = re.sub(r"<noscript>.*?</noscript>", "", linha, flags=re.S)
+    assert "Buscar" not in sem_noscript
+    assert re.search(r"<noscript><button[^>]*>.*Buscar</button></noscript>", linha, re.S)
+    assert 'form.addEventListener("change"' in linha and "form.submit()" in linha
+    assert 'id="modo-carregando" hidden' in linha
+
+
 def test_busca_e_numeros_na_mesma_linha_com_a_busca_primeiro(cliente):
     with _Ligado(_patches(pedidos=_pedidos(3))):
         antes = cliente.get("/pedidos-wbc?buscar=0").text

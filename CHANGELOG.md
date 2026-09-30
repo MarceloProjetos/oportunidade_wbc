@@ -6,6 +6,18 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-30] — Pedidos WBC: sem botão Buscar, o modo carrega ao clicar
+
+Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); só a tela.
+
+- **"Buscar" saiu** (pedido do Marcelo): a tela já abre com "Pedidos novos", e clicar em "Pedidos
+  integrados" (ou de volta em "Pedidos novos") carrega a lista na hora. Enquanto o HANA responde
+  aparece "Carregando…" e a outra opção trava, para não disparar duas buscas; o botão Voltar do
+  navegador desfaz isso. O botão sobrevive só dentro de `<noscript>`, para navegador sem
+  JavaScript.
+- Textos que citavam o botão: a lista vazia agora diz para escolher o modo, e a falha da busca
+  automática ao abrir pede para recarregar a página (F5).
+
 ## [2026-09-30] — Controle de Produção: botões coloridos em navegador antigo
 
 Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); só aparência. `style.css?v=11`.

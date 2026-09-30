@@ -82,7 +82,8 @@ async def pagina_inicial(
     Opening the page with no parameters already searches "Pedidos novos" (asked by the
     owner, 30/09/2026): it is what the operator wants first, one click less. ``?buscar=0``
     still opens the empty page. If that automatic read fails the page opens anyway, with a
-    notice to use "Buscar" — a click the operator chose may fail loudly, the page itself not.
+    notice to reload — a click the operator chose may fail loudly, the page itself not. There
+    is no "Buscar" button since 30/09/2026: picking the mode submits the form.
     """
     integrados = modo == "integrados"
     automatica = buscar is None and not integrados
@@ -97,7 +98,10 @@ async def pagina_inicial(
             if not automatica:
                 raise
             logger.warning("Pedidos WBC: busca automática ao abrir falhou: %s", exc)
-            erro_busca = "Não foi possível carregar os pedidos novos agora — clique em Buscar para tentar de novo."
+            erro_busca = (
+                "Não foi possível carregar os pedidos novos agora — "
+                "recarregue a página (F5) para tentar de novo."
+            )
 
     total = len(pedidos)
     paginas = max(1, -(-total // POR_PAGINA))  # divisão para cima
