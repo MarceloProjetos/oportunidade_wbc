@@ -262,6 +262,37 @@ def entrada_lancada(op: dict) -> bool:
     return apontada is None or float(apontada) > 0
 
 
+#: Why a Liberada OP cannot go back to Planejada: short label (grids, CLI table) and what
+#: unblocks it. Keys are also the JSON API's refusal `tipo`.
+IMPEDIMENTOS_REPLANEJAR = {
+    "saida_lancada": ("insumo baixado", "cancele a saída no SAP antes"),
+    "entrada_lancada": ("produto apontado", "cancele a entrada no SAP antes"),
+}
+
+
+def impedimento_replanejar(op: dict) -> str | None:
+    """``None`` when the OP may go back to Planejada, else a key of ``IMPEDIMENTOS_REPLANEJAR``.
+
+    The one reading of the rule (30/09/2026) — the screen grid, the JSON API, the CLI and
+    ``muda_status`` all ask here, so the order (issue first: an OP with both is reported for
+    it) and the fail-closed reading of an unknown quantity cannot drift apart.
+    """
+    if saida_lancada(op):
+        return "saida_lancada"
+    if entrada_lancada(op):
+        return "entrada_lancada"
+    return None
+
+
+def rotulo_impedimento(op: dict, codigo: str) -> str:
+    """Short label of an impediment; an unknown quantity says so instead of guessing."""
+    if codigo == "saida_lancada" and op.get("baixada") is None:
+        return "não foi possível conferir o insumo"
+    if codigo == "entrada_lancada" and op.get("apontada") is None:
+        return "não foi possível conferir o produto apontado"
+    return IMPEDIMENTOS_REPLANEJAR[codigo][0]
+
+
 def classifica_encerramento(status: str, planejada: float, apontada: float) -> tuple[str, bool]:
     """What closing does to one OP: ``(label shown in the plan, whether it is processed)``.
 
@@ -302,8 +333,7 @@ def acoes_possiveis(
     acoes = []
     if status == "P":
         acoes.append("liberar")
-    if (status == "R" and not saida_lancada({"baixada": baixada})
-            and not entrada_lancada({"apontada": apontada})):
+    if status == "R" and impedimento_replanejar({"baixada": baixada, "apontada": apontada}) is None:
         acoes.append("replanejar")
     if classifica_encerramento(status, planejada, apontada)[1]:
         acoes.append("encerrar")
@@ -360,29 +390,12 @@ async def muda_status(sl: ServiceLayerClient, ops: list[dict], status: str) -> d
             ignoradas.append({**op, "motivo": motivo})
             logger.info("  %s", motivo)
             continue
-        # Back to Planejada only with nothing issued (29/09/2026). The callers refuse the
-        # whole batch before this point; this is the last guard, for anyone calling the
-        # service directly — and it refuses when the issued quantity is unknown.
-        if status == "p" and saida_lancada(op):
-            motivo = (
-                f"OP {op['doc_num']} já tem saída de insumo lançada — cancele a saída no SAP "
-                "antes de replanejar."
-                if op.get("baixada") is not None else
-                f"OP {op['doc_num']}: não foi possível saber se há saída de insumo lançada — "
-                "não replanejada."
-            )
-            ignoradas.append({**op, "motivo": motivo})
-            logger.info("  %s", motivo)
-            continue
-        # Nor with product already received (D6, 29/09/2026) — same guard, same reason.
-        if status == "p" and entrada_lancada(op):
-            motivo = (
-                f"OP {op['doc_num']} já tem produto apontado (entrada lançada) — cancele a "
-                "entrada no SAP antes de replanejar."
-                if op.get("apontada") is not None else
-                f"OP {op['doc_num']}: não foi possível saber se há produto apontado — "
-                "não replanejada."
-            )
+        # Back to Planejada only with nothing issued and nothing received (F6/D6,
+        # 29/09/2026). The callers refuse the whole batch before this point; this is the
+        # last guard, for anyone calling the service directly — unknown also refuses.
+        impedimento = impedimento_replanejar(op) if status == "p" else None
+        if impedimento:
+            motivo = _motivo_nao_replanejada(op, impedimento)
             ignoradas.append({**op, "motivo": motivo})
             logger.info("  %s", motivo)
             continue
@@ -400,6 +413,19 @@ async def muda_status(sl: ServiceLayerClient, ops: list[dict], status: str) -> d
 
     return {"alteradas": alteradas, "com_erro": com_erro, "ignoradas": ignoradas,
             "destino": transicao}
+
+
+def _motivo_nao_replanejada(op: dict, impedimento: str) -> str:
+    """The per-OP sentence of `muda_status` for an OP kept out of Replanejar."""
+    numero = op["doc_num"]
+    if impedimento == "saida_lancada":
+        if op.get("baixada") is None:
+            return f"OP {numero}: não foi possível saber se há saída de insumo lançada — não replanejada."
+        return f"OP {numero} já tem saída de insumo lançada — cancele a saída no SAP antes de replanejar."
+    if op.get("apontada") is None:
+        return f"OP {numero}: não foi possível saber se há produto apontado — não replanejada."
+    return (f"OP {numero} já tem produto apontado (entrada lançada) — cancele a entrada no SAP "
+            "antes de replanejar.")
 
 
 # Tipo de objeto da Ordem de Produção no SAP B1 (`oProductionOrders`). A DI API inferia o

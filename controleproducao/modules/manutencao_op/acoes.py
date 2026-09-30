@@ -156,7 +156,10 @@ def prepara_mudanca_status(leitor: HanaDirectReader, numeros: list[str], acao: s
         )
 
     if acao == "p":
-        com_saida = [op for op in ops if op["status"] == "R" and service.saida_lancada(op)]
+        impedimentos = {
+            op["doc_num"]: service.impedimento_replanejar(op) for op in ops if op["status"] == "R"
+        }
+        com_saida = [op for op in ops if impedimentos.get(op["doc_num"]) == "saida_lancada"]
         if com_saida:
             raise Recusa(
                 "saida_lancada",
@@ -168,7 +171,7 @@ def prepara_mudanca_status(leitor: HanaDirectReader, numeros: list[str], acao: s
                           for o in com_saida],
                 colunas=["OP", "Item", "Baixado"],
             )
-        com_entrada = [op for op in ops if op["status"] == "R" and service.entrada_lancada(op)]
+        com_entrada = [op for op in ops if impedimentos.get(op["doc_num"]) == "entrada_lancada"]
         if com_entrada:
             raise Recusa(
                 "entrada_lancada",

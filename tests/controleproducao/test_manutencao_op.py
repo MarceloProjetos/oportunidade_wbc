@@ -95,7 +95,7 @@ def test_replanejar_recusa_op_com_saida_de_insumo_lancada():
     assert [chave for _e, chave, _f in escritas] == [102]
     # The test terminal is 80 columns wide and Rich wraps the cell: read it as one text.
     lido = " ".join(re.sub(r"[│─┌┐└┘├┤┬┴┼]", " ", resultado.output).split())
-    assert "saída de insumo lançada — cancele a saída no SAP antes" in lido
+    assert "insumo baixado — cancele a saída no SAP antes" in lido
 
 
 def test_replanejar_recusa_op_com_produto_apontado():
@@ -380,3 +380,17 @@ def test_op_encerrada_ou_cancelada_nao_muda_de_status():
     # E a Service Layer nem foi chamada para elas — a recusa é local.
     assert [c.args[1] for c in sl.update_entity.await_args_list] == [101]
     assert "Encerrada" in resultado["ignoradas"][0]["motivo"]
+
+
+@pytest.mark.parametrize("op,codigo,rotulo", [
+    ({"baixada": 0, "apontada": 0}, None, None),
+    ({"baixada": 3.5, "apontada": 2}, "saida_lancada", "insumo baixado"),       # issue first
+    ({"baixada": 0, "apontada": 2}, "entrada_lancada", "produto apontado"),
+    ({"baixada": None, "apontada": 0}, "saida_lancada", "não foi possível conferir o insumo"),
+    ({"baixada": 0, "apontada": None}, "entrada_lancada", "não foi possível conferir o produto apontado"),
+])
+def test_impedimento_replanejar_e_a_regra_unica(op, codigo, rotulo):
+    """30/09/2026: the screen, the API, the CLI and `muda_status` read the rule here."""
+    assert svc.impedimento_replanejar(op) == codigo
+    if codigo:
+        assert svc.rotulo_impedimento(op, codigo) == rotulo

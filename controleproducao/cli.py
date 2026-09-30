@@ -1035,11 +1035,11 @@ def _muda_status_de_ops(
         # movement on a planned OP. Same rule, same order, as the JSON API.
         if status != "p" or op["status"] != "R":
             return None
-        if manutencao_op_service.saida_lancada(op):
-            return "saída de insumo lançada — cancele a saída no SAP antes"
-        if manutencao_op_service.entrada_lancada(op):
-            return "produto apontado — cancele a entrada no SAP antes"
-        return None
+        codigo = manutencao_op_service.impedimento_replanejar(op)
+        if codigo is None:
+            return None
+        rotulo = manutencao_op_service.rotulo_impedimento(op, codigo)
+        return f"{rotulo} — {manutencao_op_service.IMPEDIMENTOS_REPLANEJAR[codigo][1]}"
 
     ops = _levantar()
 

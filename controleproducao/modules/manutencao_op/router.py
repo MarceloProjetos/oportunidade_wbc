@@ -126,15 +126,10 @@ def _replanejar_por_op(leitor, doc_num: str, ops: list[dict]) -> dict[str, str |
     motivos: dict[str, str | None] = {}
     for op in liberadas:
         numero = int(op["Número OP"])
-        baixada = baixadas.get(numero) if baixadas is not None else None
-        if baixada is None:
-            motivos[str(numero)] = "não foi possível conferir o insumo"
-        elif service.saida_lancada({"baixada": baixada}):
-            motivos[str(numero)] = "insumo baixado"
-        elif service.entrada_lancada({"apontada": op.get("Qtde. Apontada")}):
-            motivos[str(numero)] = "produto apontado"
-        else:
-            motivos[str(numero)] = None
+        dados = {"baixada": baixadas.get(numero) if baixadas is not None else None,
+                 "apontada": op.get("Qtde. Apontada")}
+        codigo = service.impedimento_replanejar(dados)
+        motivos[str(numero)] = service.rotulo_impedimento(dados, codigo) if codigo else None
     return motivos
 
 
