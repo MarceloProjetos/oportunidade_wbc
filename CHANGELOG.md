@@ -6,6 +6,20 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-30] — Controle de Produção: botões coloridos em navegador antigo
+
+Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); só aparência. `style.css?v=11`.
+
+Num PC com Windows 10 mais antigo os botões (Buscar, Processar, Conferir) saíam **sem fundo** —
+foto do Marcelo. O CSS pinta tudo com `color-mix()`, que só existe a partir do Chrome/Edge 111
+(2023); numa declaração com `var()` a função desconhecida não cai numa regra anterior, o fundo vira
+transparente (e a borda da pílula vira a cor cheia — o "00124882" laranja da foto). Agora um bloco
+`@supports not (color: color-mix(...))` repinta botões, fantasmas, item ativo do menu, zebra da
+tabela, pílulas e avisos com cores simples. Navegador atual não lê o bloco: nada muda para ele.
+Conferido simulando o navegador antigo (a mesma folha com `color-mix` desconhecido): antes
+transparente, depois laranja/vermelho com relevo. Vale atualizar o Chrome/Edge daquele PC mesmo
+assim — outras telas da casa usam o mesmo recurso.
+
 ## [2026-09-30] — Controle de Produção: link de volta ao OrçaView
 
 Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem SQL, sem mudança de API.

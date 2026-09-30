@@ -484,3 +484,37 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--ov-accent); }
 
 .ov-lista { list-style: none; padding: 0; display: grid; gap: var(--space-2); max-width: 560px; }
 .ov-lista a { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-md); }
+
+/* ── Navegador sem color-mix() (Chrome/Edge < 111) ─────────────────────────── */
+/* Found 30/09/2026 on an older Windows 10 PC: the buttons came out with NO fill. A
+   declaration that uses var() is only checked when computed, so an unknown color-mix()
+   there does not fall back to an earlier rule — it becomes transparent (and a border
+   becomes currentColor at full strength, the orange pill in the owner's photo). Only a
+   browser that fails this test reads the block below; a current one never sees it.
+   Plain rgb() on purpose — it is the one place rule 10 (color-mix only) cannot hold. */
+@supports not (color: color-mix(in srgb, red 50%, white)) {
+  body {
+    --ov-a08: rgb(218 119 86 / .08); --ov-a13: rgb(218 119 86 / .13);
+    --ov-a20: rgb(218 119 86 / .20); --ov-a40: rgb(218 119 86 / .40);
+  }
+  :root[data-theme="light"] body {
+    --ov-a08: rgb(196 90 58 / .08); --ov-a13: rgb(196 90 58 / .13);
+    --ov-a20: rgb(196 90 58 / .20); --ov-a40: rgb(196 90 58 / .40);
+  }
+  /* The same three-stop relief, as light/shade layers over the solid color. */
+  .ov-btn {
+    background:
+      linear-gradient(180deg, rgb(255 255 255 / .22) 0%, rgb(255 255 255 / 0) 40%, rgb(0 0 0 / .18) 100%),
+      var(--ov-btn-cor, var(--ov-accent));
+    box-shadow: 0 3px 8px rgb(0 0 0 / .25), inset 0 1px 0 rgb(255 255 255 / .25);
+  }
+  .ov-btn:hover { box-shadow: 0 5px 15px rgb(0 0 0 / .30), inset 0 1px 0 rgb(255 255 255 / .30); }
+  .ov-btn-ghost {
+    background:
+      linear-gradient(180deg, rgb(255 255 255 / .06) 0%, rgb(255 255 255 / 0) 40%, rgb(0 0 0 / .06) 100%),
+      var(--ov-card);
+  }
+  .ov-table tbody tr:nth-child(even) { background: rgb(127 127 127 / .08); }
+  .ov-pill, .ov-alerta { background: rgb(127 127 127 / .10); }
+  .ov-confirmacao { border-color: rgb(220 53 69 / .45); }
+}
