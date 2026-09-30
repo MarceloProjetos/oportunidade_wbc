@@ -30,6 +30,7 @@ from controleproducao.main import app
 from controleproducao.modules.pedidos_wbc import router as r_wbc_mod
 from controleproducao.modules.pedidos_wbc.schemas import PedidoParaIntegrar
 
+SVC_OP = "controleproducao.modules.manutencao_op.service"
 
 # ---------------------------------------------------------------------------
 # Andaimes
@@ -120,6 +121,24 @@ def _token(html: str) -> str:
     achado = re.search(r'name="token" value="([^"]+)"', html)
     assert achado, "a tela de confirmação não trouxe token"
     return achado.group(1)
+
+
+def _tela_ops(*extras, execucao: bool = False):
+    """The Manutenção de OP screen with what it touches outside the process doubled —
+    settings, the write gate's settings and the HANA reader — plus the test's own patches.
+    ``execucao=True`` also doubles what a background run touches (settings and Service
+    Layer of `acoes`). The same idea as `_patches` for Pedidos WBC (30/09/2026)."""
+    base = [
+        patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()),
+        patch("controleproducao.core.web.get_settings", return_value=_settings()),
+        patch("controleproducao.modules.manutencao_op.router.HanaDirectReader", MagicMock()),
+    ]
+    if execucao:
+        base += [
+            patch("controleproducao.modules.manutencao_op.acoes.get_settings", return_value=_settings()),
+            patch("controleproducao.modules.manutencao_op.acoes.ServiceLayerClient", MagicMock()),
+        ]
+    return _Ligado([*base, *extras])
 
 
 def _espera_terminar(cliente, tarefa_id: str, teto: int = 50) -> dict:
@@ -348,14 +367,13 @@ def test_ciclo_de_dependencia_recusa_o_encerramento(cliente):
         {"doc_entry": 2, "doc_num": 102, "status": "P", "item_code": "B",
          "planejada": 1.0, "apontada": 0.0, "pedido": 84245},
     ]
-    with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
-         patch("controleproducao.core.web.get_settings", return_value=_settings()), \
-         patch("controleproducao.modules.manutencao_op.router.HanaDirectReader", MagicMock()), \
-         patch("controleproducao.modules.manutencao_op.service.levanta_ops", return_value=ops), \
-         patch("controleproducao.modules.manutencao_op.service._componentes_por_op", return_value={}), \
-         patch("controleproducao.modules.manutencao_op.service.ordena_por_dependencia",
-               return_value=([], ops)), \
-         patch("controleproducao.modules.manutencao_op.service.finalizar_ops", AsyncMock()) as finalizar:
+    finalizar = AsyncMock()
+    with _tela_ops(
+        patch(f"{SVC_OP}.levanta_ops", return_value=ops),
+        patch(f"{SVC_OP}._componentes_por_op", return_value={}),
+        patch(f"{SVC_OP}.ordena_por_dependencia", return_value=([], ops)),
+        patch(f"{SVC_OP}.finalizar_ops", finalizar),
+    ):
         resposta = cliente.post("/manutencao-op/encerrar/conferir", data={"pedido": "84245"})
 
     assert resposta.status_code == 400
@@ -660,10 +678,7 @@ def test_tela_nao_oferece_caixa_para_op_terminal(cliente):
     """Oferecer uma ação que só levaria a uma recusa é pior que não oferecer."""
     import re as _re
 
-    with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
-         patch("controleproducao.core.web.get_settings", return_value=_settings()), \
-         patch("controleproducao.modules.manutencao_op.router.HanaDirectReader", MagicMock()), \
-         patch("controleproducao.modules.manutencao_op.service.buscar_ops", return_value=_ops_com_terminais()):
+    with _tela_ops(patch(f"{SVC_OP}.buscar_ops", return_value=_ops_com_terminais())):
         resposta = cliente.post("/manutencao-op/buscar", data={"doc_num": "84376"})
 
     selecionaveis = _re.findall(r'name="op_docnums" value="(\d+)"', resposta.text)
@@ -687,11 +702,8 @@ def test_post_com_op_terminal_barra_o_lote_inteiro(cliente):
         {"doc_entry": 2, "doc_num": 155746, "status": "L", "item_code": "B",
          "planejada": 1.0, "apontada": 1.0, "pedido": 84376},
     ]
-    with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
-         patch("controleproducao.core.web.get_settings", return_value=_settings()), \
-         patch("controleproducao.modules.manutencao_op.router.HanaDirectReader", MagicMock()), \
-         patch("controleproducao.modules.manutencao_op.service.levanta_ops", return_value=ops), \
-         patch("controleproducao.modules.manutencao_op.service.muda_status", AsyncMock()) as mudar:
+    mudar = AsyncMock()
+    with _tela_ops(patch(f"{SVC_OP}.levanta_ops", return_value=ops), patch(f"{SVC_OP}.muda_status", mudar)):
         resposta = cliente.post(
             "/manutencao-op/status",
             data={"op_docnums": ["155747", "155746"], "acao": "l"},
@@ -770,10 +782,7 @@ def _busca_para_replanejar(cliente, baixadas):
         if op["Número OP"] in baixadas:
             op = {**op, "Baixada": baixadas[op["Número OP"]]}
         linhas.append(op)
-    with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
-         patch("controleproducao.core.web.get_settings", return_value=_settings()), \
-         patch("controleproducao.modules.manutencao_op.router.HanaDirectReader", MagicMock()), \
-         patch("controleproducao.modules.manutencao_op.service.buscar_ops", return_value=linhas):
+    with _tela_ops(patch(f"{SVC_OP}.buscar_ops", return_value=linhas)):
         return cliente.post("/manutencao-op/buscar", data={"doc_num": "84376"}).text
 
 
@@ -804,13 +813,11 @@ def test_replanejar_pela_tela_devolve_para_planejada(cliente):
     ops = [{"doc_entry": 1, "doc_num": 155744, "status": "R", "item_code": "A",
             "planejada": 1.0, "apontada": 0.0, "pedido": 84376, "baixada": 0.0}]
     mudar = AsyncMock(return_value={"alteradas": ops, "com_erro": [], "ignoradas": []})
-    with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
-         patch("controleproducao.core.web.get_settings", return_value=_settings()), \
-         patch("controleproducao.modules.manutencao_op.router.HanaDirectReader", MagicMock()), \
-         patch("controleproducao.modules.manutencao_op.acoes.get_settings", return_value=_settings()), \
-         patch("controleproducao.modules.manutencao_op.acoes.ServiceLayerClient", MagicMock()), \
-         patch("controleproducao.modules.manutencao_op.service.levanta_ops", return_value=ops), \
-         patch("controleproducao.modules.manutencao_op.service.muda_status", mudar):
+    with _tela_ops(
+        patch(f"{SVC_OP}.levanta_ops", return_value=ops),
+        patch(f"{SVC_OP}.muda_status", mudar),
+        execucao=True,
+    ):
         resposta = cliente.post(
             "/manutencao-op/status", data={"op_docnums": ["155744"], "acao": "p"},
             follow_redirects=False,
@@ -830,11 +837,8 @@ def test_replanejar_pela_tela_recusa_op_com_insumo_baixado(cliente):
         {"doc_entry": 2, "doc_num": 155743, "status": "R", "item_code": "B",
          "planejada": 1.0, "apontada": 0.0, "pedido": 84376, "baixada": 3.5},
     ]
-    with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
-         patch("controleproducao.core.web.get_settings", return_value=_settings()), \
-         patch("controleproducao.modules.manutencao_op.router.HanaDirectReader", MagicMock()), \
-         patch("controleproducao.modules.manutencao_op.service.levanta_ops", return_value=ops), \
-         patch("controleproducao.modules.manutencao_op.service.muda_status", AsyncMock()) as mudar:
+    mudar = AsyncMock()
+    with _tela_ops(patch(f"{SVC_OP}.levanta_ops", return_value=ops), patch(f"{SVC_OP}.muda_status", mudar)):
         resposta = cliente.post(
             "/manutencao-op/status", data={"op_docnums": ["155744", "155743"], "acao": "p"},
         )
@@ -847,9 +851,8 @@ def test_replanejar_pela_tela_recusa_op_com_insumo_baixado(cliente):
 
 
 def test_acao_desconhecida_pela_tela_e_recusada(cliente):
-    with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
-         patch("controleproducao.core.web.get_settings", return_value=_settings()), \
-         patch("controleproducao.modules.manutencao_op.service.levanta_ops") as levanta:
+    levanta = MagicMock()
+    with _tela_ops(patch(f"{SVC_OP}.levanta_ops", levanta)):
         resposta = cliente.post("/manutencao-op/status", data={"op_docnums": ["155747"], "acao": "c"})
     assert resposta.status_code == 400
     assert "use liberar ou replanejar" in resposta.text
@@ -1154,10 +1157,7 @@ def test_dica_do_processar_acompanha_a_situacao(cliente):
 
 
 def test_liberar_e_encerrar_so_com_op_marcada(cliente):
-    with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
-         patch("controleproducao.core.web.get_settings", return_value=_settings()), \
-         patch("controleproducao.modules.manutencao_op.router.HanaDirectReader", MagicMock()), \
-         patch("controleproducao.modules.manutencao_op.service.buscar_ops", return_value=_ops_com_terminais()):
+    with _tela_ops(patch(f"{SVC_OP}.buscar_ops", return_value=_ops_com_terminais())):
         html = cliente.post("/manutencao-op/buscar", data={"doc_num": "84376"}).text
         inicial = cliente.get("/manutencao-op").text
 
@@ -1184,9 +1184,7 @@ def test_conferir_so_com_numero_digitado(cliente):
 
 def test_encerrar_pedido_com_letras_e_erro_de_tela_e_nao_500(cliente):
     """"84a" used to escape `levanta_ops` as a ValueError → HTTP 500."""
-    with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
-         patch("controleproducao.core.web.get_settings", return_value=_settings()), \
-         patch("controleproducao.modules.manutencao_op.router.HanaDirectReader", MagicMock()):
+    with _tela_ops():
         resposta = cliente.post("/manutencao-op/encerrar/conferir", data={"pedido": "84a"})
     assert resposta.status_code == 400
     assert "esperado um número" in _texto(resposta.text)
@@ -1267,11 +1265,10 @@ def test_tela_com_modulo_ocupado_nao_gasta_o_token_do_encerrar(cliente):
     em andamento" AND had to check the plan again. Now the plan survives the refusal."""
     ops = [{"doc_entry": 1, "doc_num": 101, "status": "P", "item_code": "A",
             "planejada": 1.0, "apontada": 0.0, "pedido": 84245}]
-    with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
-         patch("controleproducao.core.web.get_settings", return_value=_settings()), \
-         patch("controleproducao.modules.manutencao_op.router.HanaDirectReader", MagicMock()), \
-         patch("controleproducao.modules.manutencao_op.service.levanta_ops", return_value=ops), \
-         patch("controleproducao.modules.manutencao_op.service._componentes_por_op", return_value={}):
+    with _tela_ops(
+        patch(f"{SVC_OP}.levanta_ops", return_value=ops),
+        patch(f"{SVC_OP}._componentes_por_op", return_value={}),
+    ):
         token = _token(cliente.post("/manutencao-op/encerrar/conferir", data={"pedido": "84245"}).text)
         with patch("controleproducao.core.tarefas.RegistroDeTarefas.confere_livre",
                    side_effect=RuntimeError("O módulo 'manutencao_op' já tem uma execução em andamento")):
@@ -1284,9 +1281,7 @@ def test_tela_com_modulo_ocupado_nao_gasta_o_token_do_encerrar(cliente):
 
 def test_numero_de_op_com_letra_no_liberar_e_erro_de_tela_e_nao_500(cliente):
     """`levanta_ops` refuses "12a" with a ValueError; the screen let it escape as a 500."""
-    with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
-         patch("controleproducao.core.web.get_settings", return_value=_settings()), \
-         patch("controleproducao.modules.manutencao_op.router.HanaDirectReader", MagicMock()):
+    with _tela_ops():
         resposta = cliente.post("/manutencao-op/status", data={"op_docnums": ["12a"], "acao": "l"})
     assert resposta.status_code == 400
     assert "Número da OP inválido" in _texto(resposta.text)
