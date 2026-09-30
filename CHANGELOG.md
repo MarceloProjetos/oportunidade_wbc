@@ -6,6 +6,25 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-30] — Quatro simplificações no Controle de Produção
+
+Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem SQL, sem mudança de tela nem
+de contrato da API.
+
+1. **A regra do Replanejar num lugar só** (`2a3ae74`): tela, API, CLI e `muda_status` liam
+   "insumo baixado ou produto apontado, nessa ordem" cada um do seu jeito (cinco lugares).
+   Agora todos perguntam a `service.impedimento_replanejar` / `rotulo_impedimento`. Mensagens
+   da API iguais; na CLI "saída de insumo lançada" vira "insumo baixado", o texto da tela.
+2. **Busca de OPs numa consulta só** (`6840bdf`): a tela e a API liam a grade e, à parte, o
+   insumo baixado (+48% de tempo num pedido de 784 OPs: 149 ms + 71 ms). "Baixada" vem agora na
+   própria grade (`OPS_MANUTENCAO`), e a tela esconde a coluna. Conferido em PROD, só leitura:
+   mesmos valores da consulta antiga, inclusive num pedido com 24 OPs com insumo baixado.
+3. **Testes da tela Manutenção de OP** (`0484f42`): os 11 blocos de simulação repetidos viram
+   `_tela_ops(...)`, como o `_patches` de Pedidos WBC — 5 linhas a menos; o ganho é teste novo
+   não esquecer uma simulação.
+4. **Formato de número único**: o log de pesos usa o `core.formato.numero_br` da tela em vez de
+   um `_kg` próprio — peso acima de mil sai "22.913,87 kg".
+
 ## [2026-09-30] — Controle de Produção maior e mais largo; Pedidos WBC abre já com a lista; confirmação mais limpa
 
 Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem SQL. `style.css?v=9`.

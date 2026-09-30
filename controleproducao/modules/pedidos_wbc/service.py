@@ -25,6 +25,7 @@ import logging
 from datetime import datetime, timedelta
 
 from controleproducao.core.audit_log import preenche_log
+from controleproducao.core.formato import numero_br
 from controleproducao.core.hana_reader import HanaDirectReader
 from controleproducao.core.service_layer_client import ServiceLayerClient
 from controleproducao.core.sql_ligado import ligar
@@ -701,11 +702,6 @@ async def _update_tab_pedido_cong(
         raise
 
 
-def _kg(valor: float) -> str:
-    """`226.43` → `226,43`, como a pessoa lê na tela do SAP."""
-    return f"{valor:.2f}".replace(".", ",")
-
-
 def _loga_pesos(hana_reader: HanaDirectReader, orc_num: str, doc_entry, estrutura) -> None:
     """One log line per order line: the SAP ``Weight1`` next to what it should be.
 
@@ -736,8 +732,8 @@ def _loga_pesos(hana_reader: HanaDirectReader, orc_num: str, doc_entry, estrutur
         esperado = peso_da_linha(Decimal(str(arvore))) if arvore is not None else None
         texto = (
             f"Pedido {orc_num}: peso da linha {linha.get('LineNum')} (item {linha.get('ItemCode')}, "
-            f"OrcItm {orc_itm or '—'}, qtd {float(linha.get('Quantity') or 0):g}): SAP {_kg(sap)} kg"
-            + (f" · esperado {_kg(float(esperado))} kg (árvore do WBC {_kg(arvore)} kg + 10%)"
+            f"OrcItm {orc_itm or '—'}, qtd {float(linha.get('Quantity') or 0):g}): SAP {numero_br(sap)} kg"
+            + (f" · esperado {numero_br(esperado)} kg (árvore do WBC {numero_br(arvore)} kg + 10%)"
                if esperado is not None else " · árvore do WBC sem peso")
         )
         if esperado is not None and abs(sap - float(esperado)) > float(esperado) * 0.01:

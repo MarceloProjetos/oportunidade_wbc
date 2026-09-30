@@ -67,3 +67,12 @@ def test_linha_sem_arvore_e_leitura_que_falha_nao_param_o_processamento(caplog):
         service._loga_pesos(quebrado, "00125817", 20243, [])
     assert "árvore do WBC sem peso." in caplog.text
     assert "não foi possível comparar os pesos: HANA fora" in caplog.text
+
+
+def test_peso_acima_de_mil_sai_com_separador_de_milhar(caplog):
+    """The log uses the screen's own number format (`core.formato.numero_br`, 30/09/2026)."""
+    leitor = _leitor({"LineNum": 0, "ItemCode": "I000003", "Quantity": 167, "Weight1": 22913.87,
+                      "U_INO_ORCITM": "1"})
+    with caplog.at_level(logging.INFO, logger=service.__name__):
+        service._loga_pesos(leitor, "00124853", 1, [_arvore(1, 1, 20830.79)])
+    assert "SAP 22.913,87 kg · esperado 22.913,87 kg (árvore do WBC 20.830,79 kg + 10%)." in caplog.text
