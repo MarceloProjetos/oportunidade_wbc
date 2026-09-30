@@ -7,12 +7,27 @@ The only thing still formatted in is `{marcadores}` of the two `IN` lists, and i
 receives `?, ?, ...` built by `service._marcadores` — never a value.
 """
 
-OPS_MANUTENCAO = """
+# How much of the OP's components has already been issued (29/09/2026, F6 of
+# docs/PLANO_API_MANUTENCAO_OP.md): more than zero = a goods issue (OIGE) was posted, and the
+# OP must not go back to Planejada until that issue is cancelled in the SAP. Checked in PROD on
+# 29/09: this sum and "a non-cancelled IGE1 line based on the OP" select the same 63,183 OPs.
+# No goods issue of an OP had ever been cancelled, so whether the sum drops back after a
+# cancellation is unverified — if it does not, Replanejar refuses too much (the safe side).
+def _baixada(alias: str) -> str:
+    """The issued-quantity column for the OWOR alias of each query."""
+    return (f'(SELECT IFNULL(SUM(L."IssuedQty"), 0) FROM WOR1 L '
+            f'WHERE L."DocEntry" = {alias}."DocEntry") "Baixada"')
+
+
+# "Baixada" rides with the grid since 30/09/2026: the screen and the API read it in the same
+# query instead of a second, pedido-wide one (+48% of search time on an order of 784 OPs).
+# The screen hides the column (it lists every key the grid returns).
+OPS_MANUTENCAO = f"""
 SELECT 'N' "Selecionar", T1."DocNum" "Número OP", T1."Status", T1."ItemCode" "Cód. Produto",
        T2."ItemName" "Produto", T1."PlannedQty" "Qtde. Planejada", T1."CmpltQty" "Qtde. Apontada",
        T1."PlannedQty" - T1."CmpltQty" "Qtde. Restante", T1."PostDate" "Data Pedido",
        T1."StartDate" "Data inicio", T1."DueDate" "Data Vencimento", T1."CardCode" "Cod. Cliente",
-       T3."CardName" "Cliente"
+       T3."CardName" "Cliente", {_baixada("T1")}
 FROM "ORDR" T0
   LEFT OUTER JOIN OWOR T1 ON T0."CardCode" = T1."CardCode" AND T0."DocNum" = T1."OriginNum"
   LEFT OUTER JOIN "OITM" T2 ON T1."ItemCode" = T2."ItemCode"
@@ -36,19 +51,11 @@ WHERE T0."DocNum" = ? AND T1."Status" != 'C'
 # todas as de um pedido. Daí estas duas.
 
 # OPs por número (DocNum), para quando o usuário informa as OPs explicitamente.
-# How much of the OP's components has already been issued (29/09/2026, F6 of
-# docs/PLANO_API_MANUTENCAO_OP.md): more than zero = a goods issue (OIGE) was posted, and the
-# OP must not go back to Planejada until that issue is cancelled in the SAP. Checked in PROD on
-# 29/09: this sum and "a non-cancelled IGE1 line based on the OP" select the same 63,183 OPs.
-# No goods issue of an OP had ever been cancelled, so whether the sum drops back after a
-# cancellation is unverified — if it does not, Replanejar refuses too much (the safe side).
-_BAIXADA = (
-    '(SELECT IFNULL(SUM(L."IssuedQty"), 0) FROM WOR1 L WHERE L."DocEntry" = T0."DocEntry") "Baixada"'
-)
+
 
 OPS_POR_DOCNUM = f"""
 SELECT T0."DocEntry", T0."DocNum", T0."Status", T0."ItemCode", T0."PlannedQty",
-       T0."CmpltQty", T0."OriginNum", {_BAIXADA}
+       T0."CmpltQty", T0."OriginNum", {_baixada("T0")}
 FROM OWOR T0
 WHERE T0."DocNum" IN ({{marcadores}})
 ORDER BY T0."DocNum"
@@ -58,20 +65,11 @@ ORDER BY T0."DocNum"
 # uma OP cancelada não é candidata a manutenção — o SAP não a libera nem replaneja.
 OPS_POR_PEDIDO = f"""
 SELECT T0."DocEntry", T0."DocNum", T0."Status", T0."ItemCode", T0."PlannedQty",
-       T0."CmpltQty", T0."OriginNum", {_BAIXADA}
+       T0."CmpltQty", T0."OriginNum", {_baixada("T0")}
 FROM OWOR T0
 WHERE T0."OriginNum" = ? AND T0."Status" != 'C'
 ORDER BY T0."DocNum"
 """.strip()
-
-# The issued quantity of every OP of one sales order, by DocNum — for the API's search, which
-# reads the screen's grid (`OPS_MANUTENCAO`) and must not add a column to it.
-BAIXADA_DAS_OPS_DO_PEDIDO = f"""
-SELECT T0."DocNum", {_BAIXADA}
-FROM OWOR T0
-WHERE T0."OriginNum" = ?
-""".strip()
-
 
 # --- Adicionadas em 17/09/2026 ao concluir o módulo 3 -----------------------------
 # Linhas de componente de uma OP com a quantidade ainda não baixada.

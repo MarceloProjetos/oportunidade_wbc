@@ -189,7 +189,9 @@ def buscar_ops(
     # na CLI, onde a seleção é o próprio argumento do comando.
     return [
         {**{coluna: linha.get(coluna) for coluna in COLUNAS_BUSCA},
-         "Status (descrição)": STATUS_OP.get(str(linha.get("Status") or ""), linha.get("Status"))}
+         "Status (descrição)": STATUS_OP.get(str(linha.get("Status") or ""), linha.get("Status")),
+         # Issued quantity (the Replanejar rule); None when the row lacks it = unknown.
+         "Baixada": float(linha["Baixada"] or 0) if "Baixada" in linha else None}
         for linha in linhas
     ]
 
@@ -229,14 +231,6 @@ def levanta_ops(
         }
         for row in rows
     ]
-
-
-def baixada_das_ops_do_pedido(hana_reader: HanaDirectReader, doc_num_pedido: str) -> dict[int, float]:
-    """``{OP DocNum: issued quantity}`` for every OP of one sales order. Read only."""
-    linhas = hana_reader.fetch_all(
-        q.BAIXADA_DAS_OPS_DO_PEDIDO, (_inteiro(doc_num_pedido, "Número do pedido"),)
-    )
-    return {int(linha["DocNum"]): float(linha["Baixada"] or 0) for linha in linhas}
 
 
 def saida_lancada(op: dict) -> bool:

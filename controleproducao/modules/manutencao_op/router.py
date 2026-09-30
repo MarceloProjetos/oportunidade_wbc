@@ -87,7 +87,7 @@ def buscar(
             leitor, doc_num, op_de or None, op_ate or None,
             status_de or None, status_ate or None,
         )
-        replanejar = _replanejar_por_op(leitor, doc_num, ops)
+        replanejar = _replanejar_por_op(ops)
     except ValueError as exc:
         # `_monta_filtro` recusa intervalo invertido e limite superior sozinho, com a
         # mensagem já escrita para o usuário — mostrá-la é melhor que uma tabela vazia,
@@ -106,30 +106,20 @@ def buscar(
     )
 
 
-def _replanejar_por_op(leitor, doc_num: str, ops: list[dict]) -> dict[str, str | None]:
+def _replanejar_por_op(ops: list[dict]) -> dict[str, str | None]:
     """``{OP number: None}`` for a Liberada that can go back to Planejada, or the reason it
     cannot ("insumo baixado", "produto apontado"). Planejada and terminal OPs are absent.
 
-    Same rule as the action (`service.saida_lancada`/`entrada_lancada`), so the grid never
-    offers what the POST refuses. The issued quantity comes from its own pedido-wide query
-    (the grid's query feeds the table columns); if it fails the grid still shows, and every
-    Liberada reads "não foi possível conferir o insumo" — the action refuses those too.
+    Same rule as the action (`service.impedimento_replanejar`), so the grid never offers
+    what the POST refuses. The issued quantity rides with the grid query ("Baixada").
     """
-    liberadas = [op for op in ops if op.get("Status") == "R"]
-    if not liberadas:
-        return {}
-    try:
-        baixadas: dict[int, float] | None = service.baixada_das_ops_do_pedido(leitor, doc_num)
-    except Exception as exc:  # noqa: BLE001 - the grid must show even without this detail
-        logger.warning("Manutenção de OP: insumo baixado do pedido %s não lido: %s", doc_num, exc)
-        baixadas = None
     motivos: dict[str, str | None] = {}
-    for op in liberadas:
-        numero = int(op["Número OP"])
-        dados = {"baixada": baixadas.get(numero) if baixadas is not None else None,
-                 "apontada": op.get("Qtde. Apontada")}
+    for op in ops:
+        if op.get("Status") != "R":
+            continue
+        dados = {"baixada": op.get("Baixada"), "apontada": op.get("Qtde. Apontada")}
         codigo = service.impedimento_replanejar(dados)
-        motivos[str(numero)] = service.rotulo_impedimento(dados, codigo) if codigo else None
+        motivos[str(op["Número OP"])] = service.rotulo_impedimento(dados, codigo) if codigo else None
     return motivos
 
 

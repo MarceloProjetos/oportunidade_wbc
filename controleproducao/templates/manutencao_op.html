@@ -82,7 +82,7 @@
                 "Status (descrição)" some: mostrar `P` e `Planejada` em duas colunas é a
                 mesma informação duas vezes, e era ela que empurrava as datas para fora
                 da tela. #}
-            {% for coluna in (ops[0].keys() if ops else []) if coluna != 'Status (descrição)' %}
+            {% for coluna in (ops[0].keys() if ops else []) if coluna not in ('Status (descrição)', 'Baixada') %}
             <th{% if coluna.startswith('Qtde') or coluna == 'Número OP' %} class="num"{% endif %}>{{ coluna }}</th>
             {% endfor %}
           </tr>
@@ -107,7 +107,7 @@
                      aria-label="Selecionar a OP {{ op['Número OP'] }}">
               {% endif %}
             </td>
-            {% for coluna, valor in op.items() if coluna != 'Status (descrição)' %}
+            {% for coluna, valor in op.items() if coluna not in ('Status (descrição)', 'Baixada') %}
               {% if coluna.startswith('Data') %}
             {# Datas vêm do HANA como "AAAA-MM-DD 00:00:00": a hora é sempre zero,
                ocupa espaço e empurrava o dia para a linha de baixo. #}

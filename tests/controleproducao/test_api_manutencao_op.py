@@ -203,8 +203,7 @@ def test_pagina_de_outra_origem_pode_chamar_a_api(c, ambiente):
         **origem, "Access-Control-Request-Method": "POST",
         "Access-Control-Request-Headers": "x-api-key, content-type",
     })
-    with patch(f"{SVC}.buscar_ops", return_value=[]), \
-         patch(f"{SVC}.baixada_das_ops_do_pedido", return_value={}):
+    with patch(f"{SVC}.buscar_ops", return_value=[]):
         leitura = c.get(f"{API}/pedidos/84245/ops", headers={**origem, **CABECALHO})
     sem_chave = c.get(f"{API}/pedidos/84245/ops", headers=origem)
 
@@ -264,26 +263,26 @@ def test_erros_da_propria_api_saem_no_mesmo_formato(c, ambiente):
 # ---------------------------------------------------------------------------
 # 2. Search
 # ---------------------------------------------------------------------------
-def _linha(numero: int, status: str, planejada, apontada) -> dict:
+def _linha(numero: int, status: str, planejada, apontada, baixada=0.0) -> dict:
+    """One row of `service.buscar_ops` — "Baixada" rides with the grid since 30/09/2026."""
     return {
         "Número OP": numero, "Status": status, "Cód. Produto": "PAR000", "Produto": "CONJ PARAFUSO",
         "Qtde. Planejada": planejada, "Qtde. Apontada": apontada,
         "Qtde. Restante": planejada - apontada, "Data Pedido": datetime(2026, 9, 22),
         "Data inicio": "2026-09-23 00:00:00", "Data Vencimento": None,
         "Cod. Cliente": "C0001", "Cliente": "CLIENTE TESTE", "Status (descrição)": "x",
+        "Baixada": baixada,
     }
 
 
 def test_busca_devolve_as_ops_com_as_acoes_possiveis(c, ambiente):
     linhas = [
         _linha(155747, "P", Decimal("20"), Decimal("0")),
-        _linha(155744, "R", Decimal("20"), Decimal("5.5")),
-        _linha(155746, "L", Decimal("20"), Decimal("20")),
+        _linha(155744, "R", Decimal("20"), Decimal("5.5"), baixada=12.5),
+        _linha(155746, "L", Decimal("20"), Decimal("20"), baixada=30.0),
         _linha(155743, "R", Decimal("20"), Decimal("0")),
     ]
-    baixadas = {155747: 0.0, 155744: 12.5, 155746: 30.0, 155743: 0.0}
-    with patch(f"{SVC}.buscar_ops", return_value=linhas) as buscar, \
-         patch(f"{SVC}.baixada_das_ops_do_pedido", return_value=baixadas):
+    with patch(f"{SVC}.buscar_ops", return_value=linhas) as buscar:
         resposta = c.get(f"{API}/pedidos/84245/ops?status_de=L&status_ate=R", headers=CABECALHO)
 
     assert resposta.status_code == 200

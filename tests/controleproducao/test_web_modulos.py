@@ -763,20 +763,24 @@ def _ops_para_replanejar():
 
 
 def _busca_para_replanejar(cliente, baixadas):
+    """`baixadas`: OP → issued quantity, put in the grid rows ("Baixada", since 30/09/2026);
+    an OP left out gets no "Baixada" at all — the row without it reads as unknown."""
+    linhas = []
+    for op in _ops_para_replanejar():
+        if op["Número OP"] in baixadas:
+            op = {**op, "Baixada": baixadas[op["Número OP"]]}
+        linhas.append(op)
     with patch("controleproducao.modules.manutencao_op.router.get_settings", return_value=_settings()), \
          patch("controleproducao.core.web.get_settings", return_value=_settings()), \
          patch("controleproducao.modules.manutencao_op.router.HanaDirectReader", MagicMock()), \
-         patch("controleproducao.modules.manutencao_op.service.buscar_ops", return_value=_ops_para_replanejar()), \
-         patch("controleproducao.modules.manutencao_op.service.baixada_das_ops_do_pedido", **baixadas):
+         patch("controleproducao.modules.manutencao_op.service.buscar_ops", return_value=linhas):
         return cliente.post("/manutencao-op/buscar", data={"doc_num": "84376"}).text
 
 
 def test_a_grade_diz_quais_ops_podem_voltar_e_por_que_nao(cliente):
     """D4 (29/09/2026): the reason sits next to the status, and each box carries whether the
     OP can go back — so the button knows before the POST (same rule as the action)."""
-    html = _busca_para_replanejar(
-        cliente, {"return_value": {155744: 0.0, 155743: 3.5, 155742: 0.0, 155747: 0.0}}
-    )
+    html = _busca_para_replanejar(cliente, {155744: 0.0, 155743: 3.5, 155742: 0.0, 155747: 0.0})
     marcas = dict(re.findall(r'name="op_docnums" value="(\d+)"\s+data-replanejar="(\w+)"', html))
     assert marcas == {"155747": "na", "155744": "sim", "155743": "nao", "155742": "nao"}
     texto = _texto(html)
@@ -786,9 +790,10 @@ def test_a_grade_diz_quais_ops_podem_voltar_e_por_que_nao(cliente):
 
 
 def test_sem_o_insumo_baixado_nenhuma_liberada_e_oferecida(cliente):
-    """Fail-closed: if the issued quantity cannot be read, the grid still shows and no
-    Liberada is offered for Replanejar (the action would refuse it too)."""
-    html = _busca_para_replanejar(cliente, {"side_effect": RuntimeError("HANA fora")})
+    """Fail-closed: a row without the issued quantity offers no Replanejar (the action would
+    refuse it too), and the grid never shows "Baixada" as a column of its own."""
+    html = _busca_para_replanejar(cliente, {})
+    assert ">Baixada<" not in html
     marcas = dict(re.findall(r'name="op_docnums" value="(\d+)"\s+data-replanejar="(\w+)"', html))
     assert marcas == {"155747": "na", "155744": "nao", "155743": "nao", "155742": "nao"}
     assert "não foi possível conferir o insumo" in _texto(html)

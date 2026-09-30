@@ -180,17 +180,12 @@ def _data(valor: Any) -> str | None:
     return str(valor)[:10]
 
 
-def _op_da_busca(linha: dict, baixadas: dict[int, float]) -> dict:
-    """One row of `service.buscar_ops` (the screen's grid) in the API's words.
-
-    ``baixadas`` (issued quantity by OP) comes from a second, pedido-wide query: the grid's
-    query feeds the screen's table, and a new column there would show up on the screen.
-    """
+def _op_da_busca(linha: dict) -> dict:
+    """One row of `service.buscar_ops` (the screen's grid) in the API's words."""
     status = str(linha.get("Status") or "")
     planejada = float(linha.get("Qtde. Planejada") or 0)
     apontada = float(linha.get("Qtde. Apontada") or 0)
-    numero = linha.get("Número OP")
-    baixada = baixadas.get(int(numero)) if numero is not None else None
+    baixada = linha.get("Baixada")
     return {
         "op": _numero(linha.get("Número OP")),
         "status": status,
@@ -276,7 +271,6 @@ def buscar_ops(
         linhas = service.buscar_ops(
             leitor, pedido, op_de or None, op_ate or None, status_de or None, status_ate or None
         )
-        baixadas = service.baixada_das_ops_do_pedido(leitor, pedido) if linhas else {}
     except ValueError as exc:
         return _falha("invalido", str(exc), 400)
     except Exception as exc:  # noqa: BLE001 - a read that failed is a 502, never a 500
@@ -284,7 +278,7 @@ def buscar_ops(
     finally:
         leitor.close()
 
-    ops = [_op_da_busca(linha, baixadas) for linha in linhas]
+    ops = [_op_da_busca(linha) for linha in linhas]
     return {"ok": True, "pedido": int(pedido.strip()), "total": len(ops), "ops": ops}
 
 
