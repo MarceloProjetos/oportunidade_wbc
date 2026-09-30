@@ -175,10 +175,18 @@ code {
 }
 
 /* ── Casca e cabeçalho (§5.2) ─────────────────────────────────────────────── */
-/* zoom NA CASCA, jamais no body: no body ele encolhe os position:fixed */
+/* zoom NA CASCA, jamais no body: no body ele encolhe os position:fixed.
+   30/09/2026 (owner): the screens read "muito encolhido", mostly on notebooks — 25% larger
+   (.9 → 1.125) and wider (1400 → 1600px), the top bar along. Phones keep the old scale:
+   their layout was tuned with it. */
 .ov-shell {
-  max-width: 1400px; margin: 0 auto;
-  padding: var(--space-6) var(--space-4) var(--space-12); zoom: .9;
+  max-width: 1600px; margin: 0 auto;
+  padding: var(--space-6) var(--space-4) var(--space-12); zoom: 1.125;
+}
+.ov-nav { zoom: 1.125; }
+@media (max-width: 760px) {
+  .ov-shell { zoom: .9; }
+  .ov-nav { zoom: 1; }
 }
 .ov-topbar {
   display: flex; align-items: center; gap: var(--space-4);

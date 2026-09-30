@@ -26,7 +26,9 @@ def test_modulo_removido_nao_responde_mais():
 
 
 def test_modulos_respondem():
-    for path in ["/pedidos-wbc", "/manutencao-op", "/romaneio"]:
+    # `?buscar=0`: since 30/09/2026 opening Pedidos WBC searches the SAP by itself, and this
+    # smoke test has no SAP double (the conftest locks the drivers).
+    for path in ["/pedidos-wbc?buscar=0", "/manutencao-op", "/romaneio"]:
         resp = client.get(path)
         assert resp.status_code == 200
 
@@ -81,7 +83,7 @@ def test_app_sobe_de_qualquer_diretorio_de_trabalho():
 def test_romaneio_fora_do_menu():
     """24/09/2026 — a pedido do Anderson, o Romaneio saiu do menu e da página inicial.
     O módulo (esqueleto) e a rota continuam no código; só não são mais oferecidos."""
-    for pagina in ["/", "/pedidos-wbc", "/manutencao-op"]:
+    for pagina in ["/", "/pedidos-wbc?buscar=0", "/manutencao-op"]:
         html = client.get(pagina).text
         assert 'href="/romaneio"' not in html, pagina
 

@@ -70,7 +70,7 @@ POR_PAGINA = 15
 async def pagina_inicial(
     request: Request,
     modo: str = "novos",
-    buscar: int = 0,
+    buscar: int | None = None,
     pagina: int = 1,
 ):
     """Lista e paginação viajam na URL, de propósito.
@@ -78,13 +78,26 @@ async def pagina_inicial(
     A busca era um POST, e com isso o F5 numa página de resultado pedia reenvio do
     formulário e "página 2" não tinha endereço. Sendo GET, cada página é um link comum:
     dá para voltar, recarregar e favoritar. É leitura pura — nada aqui grava.
+
+    Opening the page with no parameters already searches "Pedidos novos" (asked by the
+    owner, 30/09/2026): it is what the operator wants first, one click less. ``?buscar=0``
+    still opens the empty page. If that automatic read fails the page opens anyway, with a
+    notice to use "Buscar" — a click the operator chose may fail loudly, the page itself not.
     """
     integrados = modo == "integrados"
+    automatica = buscar is None and not integrados
     pedidos: list = []
-    if buscar:
-        # Closed on the way out: hdbcli connections are released only by close() or GC.
-        with HanaDirectReader(get_settings()) as hana_reader:
-            pedidos = await service.buscar_pedidos_para_integrar(hana_reader, integrados=integrados)
+    erro_busca = None
+    if buscar or automatica:
+        try:
+            # Closed on the way out: hdbcli connections are released only by close() or GC.
+            with HanaDirectReader(get_settings()) as hana_reader:
+                pedidos = await service.buscar_pedidos_para_integrar(hana_reader, integrados=integrados)
+        except Exception as exc:  # noqa: BLE001 - only the automatic search is softened
+            if not automatica:
+                raise
+            logger.warning("Pedidos WBC: busca automática ao abrir falhou: %s", exc)
+            erro_busca = "Não foi possível carregar os pedidos novos agora — clique em Buscar para tentar de novo."
 
     total = len(pedidos)
     paginas = max(1, -(-total // POR_PAGINA))  # divisão para cima
@@ -98,7 +111,8 @@ async def pagina_inicial(
         {
             "modo": "integrados" if integrados else "novos",
             "pedidos": pedidos[inicio:inicio + POR_PAGINA],
-            "buscou": bool(buscar),
+            "buscou": bool(buscar or automatica) and erro_busca is None,
+            "erro_busca": erro_busca,
             "total": total,
             "pagina": pagina,
             "paginas": paginas,
@@ -122,8 +136,9 @@ async def conferir_processar(
         request, opp_ids, integrados=False, force=bool(force),
         operacao="Processar pedidos novos",
         acao="/pedidos-wbc/processar/executar",
-        aviso="Cria Ordens de Produção, itens e recursos no SAP, e marca o pedido como "
-              "processado. Não há desfazer automático.",
+        destaque="Cria Ordens de Produção",
+        aviso=", itens e recursos no SAP, e marca o pedido como processado. Não há desfazer "
+              "automático.",
     )
 
 
@@ -153,7 +168,7 @@ async def conferir_reprocessar(request: Request, opp_ids: list[str] = Form(defau
 
 async def _confere_pedidos(
     request: Request, opp_ids: list[str], integrados: bool, force: bool,
-    operacao: str, acao: str, aviso: str,
+    operacao: str, acao: str, aviso: str, destaque: str = "",
 ):
     if not opp_ids:
         return _erro(request, "Nenhum pedido selecionado.")
@@ -191,7 +206,8 @@ async def _confere_pedidos(
     return templates.TemplateResponse(
         request, "confirmar.html",
         {"plano": _plano_visivel(plano), "colunas": COLUNAS_PEDIDO,
-         "acao": acao, "aviso_operacao": aviso, "voltar": "/pedidos-wbc"},
+         "acao": acao, "aviso_destaque": destaque, "aviso_operacao": aviso,
+         "voltar": "/pedidos-wbc"},
     )
 
 

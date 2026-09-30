@@ -19,6 +19,10 @@
     mesmos pedidos e OPs.</span></div>
 {% endif %}
 
+{% if erro_busca %}
+<div class="ov-alerta is-warn">{{ icone('alerta', 16) }}<span>{{ erro_busca }}</span></div>
+{% endif %}
+
 {# Search and numbers on one line (29/09/2026). Search first: it is what is used first and
    the only card before the first search, so it keeps its place when the numbers appear. #}
 <div class="ov-linha-topo">

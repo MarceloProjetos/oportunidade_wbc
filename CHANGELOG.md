@@ -6,6 +6,22 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-30] — Controle de Produção maior e mais largo; Pedidos WBC abre já com a lista; confirmação mais limpa
+
+Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem SQL. `style.css?v=9`.
+
+- **Todas as telas 25% maiores e mais largas** (pedido do Marcelo: "muito encolhido", sobretudo
+  em notebook): a casca passa de `zoom: .9` para `1.125` e de 1400 para 1600 px; a barra do topo
+  cresce junto. No celular, a escala antiga (a disposição foi ajustada com ela). Conferido em
+  1366×768 (sem rolagem lateral; tabela de 12 para 15 px) e em 375 px.
+- **Pedidos WBC abre já com os "Pedidos novos"** — abrir a página faz a busca; "Pedidos
+  integrados" continua pelo clique, e `?buscar=0` abre vazia. Se a leitura automática do SAP
+  falhar, a página abre mesmo assim, com um aviso para clicar em Buscar.
+- **Cartão de confirmação** (Processar, Reprocessar, Cancelar OPs, Encerrar): sem o prefixo
+  "Operação irreversível." (cada texto já diz o que não tem volta); no Processar, "**Cria Ordens
+  de Produção**" em negrito; sem a faixa "Esta gravação é em PRODUÇÃO"; "Confirmar e executar"
+  verde e "Cancelar" vermelho, texto branco, o mesmo relevo.
+
 ## [2026-09-29] — Replanejar de volta à tela Manutenção de OP (D4)
 
 Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem SQL. `style.css?v=8`.

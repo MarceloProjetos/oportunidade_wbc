@@ -249,7 +249,11 @@ def test_em_producao_a_conferencia_nao_pede_digitacao(cliente, como_a_11):
     """
     with _Ligado(_patches(producao=True)):
         conferir = cliente.post("/pedidos-wbc/processar/conferir", data={"opp_ids": ["4321"]})
-        assert "PRODUÇÃO" in conferir.text            # o alvo continua anunciado...
+        # 30/09/2026: no production notice on the card any more (owner); the notice starts
+        # with the bold "Cria Ordens de Produção", without "Operação irreversível.".
+        assert "Esta gravação é em" not in conferir.text
+        assert "<strong>Cria Ordens de Produção</strong>, itens e recursos no SAP" in conferir.text
+        assert "Operação irreversível." not in conferir.text
         assert 'name="confirmacao"' not in conferir.text   # ...mas não há o que digitar
         token = _token(conferir.text)
 
@@ -426,12 +430,34 @@ def test_pagina_fora_do_intervalo_cai_na_ultima(cliente):
     assert "página 3 de 3" in _texto(resposta.text)
 
 
-def test_sem_buscar_nao_consulta_o_banco(cliente):
+def test_buscar_0_nao_consulta_o_banco(cliente):
     with _Ligado(_patches()):
         with patch("controleproducao.modules.pedidos_wbc.service.buscar_pedidos_para_integrar",
                    AsyncMock()) as busca:
-            cliente.get("/pedidos-wbc")
+            cliente.get("/pedidos-wbc?buscar=0")
+            cliente.get("/pedidos-wbc?modo=integrados")          # integrados: only on click
     busca.assert_not_called()
+
+
+def test_abrir_a_pagina_ja_busca_os_pedidos_novos(cliente):
+    """30/09/2026 (owner): the page opens with "Pedidos novos" loaded — no click."""
+    with _Ligado(_patches(pedidos=_pedidos(2))):
+        with patch("controleproducao.modules.pedidos_wbc.service.buscar_pedidos_para_integrar",
+                   AsyncMock(return_value=_pedidos(2))) as busca:
+            html = cliente.get("/pedidos-wbc").text
+    assert busca.await_args.kwargs == {"integrados": False}
+    assert html.count('name="opp_ids"') == 2
+    assert 'class="ov-kpi"' in _linha_topo(html)
+
+
+def test_busca_automatica_que_falha_abre_a_pagina_com_aviso(cliente):
+    with _Ligado(_patches()):
+        with patch("controleproducao.modules.pedidos_wbc.service.buscar_pedidos_para_integrar",
+                   AsyncMock(side_effect=RuntimeError("HANA fora"))):
+            resposta = cliente.get("/pedidos-wbc")
+    assert resposta.status_code == 200
+    assert "Não foi possível carregar os pedidos novos agora" in _texto(resposta.text)
+    assert "Busque os pedidos para selecionar." in _texto(resposta.text)
 
 
 # ---------------------------------------------------------------------------
@@ -1089,7 +1115,7 @@ def _linha_topo(html: str) -> str:
 
 def test_busca_e_numeros_na_mesma_linha_com_a_busca_primeiro(cliente):
     with _Ligado(_patches(pedidos=_pedidos(3))):
-        antes = cliente.get("/pedidos-wbc").text
+        antes = cliente.get("/pedidos-wbc?buscar=0").text
         depois = cliente.get("/pedidos-wbc?buscar=1").text
 
     linha = _linha_topo(depois)
@@ -1116,7 +1142,7 @@ def test_processar_nasce_desabilitado_e_so_liga_com_pedido_marcado(cliente):
 
 def test_dica_do_processar_acompanha_a_situacao(cliente):
     with _Ligado(_patches(pedidos=[])):
-        antes = _texto(cliente.get("/pedidos-wbc").text)
+        antes = _texto(cliente.get("/pedidos-wbc?buscar=0").text)
         vazio = _texto(cliente.get("/pedidos-wbc?buscar=1").text)
     assert "Busque os pedidos para selecionar." in antes
     assert "Nenhum pedido para processar." in vazio
@@ -1183,7 +1209,7 @@ def test_css_da_linha_do_topo_e_da_barra_no_celular():
     assert re.search(r"@media \(max-width: 760px\) \{\s*\.ov-nav \{\s*height: auto; flex-wrap: wrap;", css)
     assert ".ov-opcao:has(input:disabled)" in css
     base = (_RAIZ_SIS / "controleproducao/templates/base.html").read_text(encoding="utf-8")
-    assert "style.css?v=8" in base
+    assert "style.css?v=9" in base
     # 29/09/2026: the mode choice of the search card is larger than the other options.
     assert re.search(r"\.ov-linha-topo \.ov-opcao input\[type=\"radio\"\] \{\s*width: 20px; height: 20px;", css)
 
