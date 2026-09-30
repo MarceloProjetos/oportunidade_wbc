@@ -94,8 +94,13 @@ class TestComChave:
         assert fechado.get("/orcaview", follow_redirects=False).headers["location"] == "http://localhost:8000/"
 
     def test_link_para_o_orcaview_na_barra(self, fechado: TestClient) -> None:
-        # Even the key prompt shows it: that is exactly where one gets stuck.
-        assert 'href="/orcaview"' in fechado.get("/entrar").text
+        # Even the key prompt shows it: that is exactly where one gets stuck. Right after the
+        # "Controle de Produção" brand, with a green arrow (owner's calls, 30/09/2026).
+        html = fechado.get("/entrar").text
+        assert html.index("Controle de Produção</span>") < html.index('href="/orcaview"')
+        assert 'class="item voltar" href="/orcaview"' in html
+        css = fechado.get("/static/style.css").text
+        assert ".ov-nav a.item.voltar .icone { color: var(--color-success); }" in css
 
     def test_docs_fechados(self, logado: TestClient) -> None:
         for caminho in ("/docs", "/redoc", "/openapi.json"):

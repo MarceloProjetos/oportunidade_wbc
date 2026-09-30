@@ -117,23 +117,28 @@ code {
 
 /* ── Barra de navegação ───────────────────────────────────────────────────── */
 /* Divergência (b): aqui a barra É o menu — o app não tem o drawer do menu.js. */
+/* Wraps (a second row) wherever it does not fit, and no label ever breaks mid-word: with the
+   "OrçaView" link (30/09/2026) the labels broke in two between ~760 and ~1050px. */
 .ov-nav {
   display: flex; align-items: center; gap: var(--space-1);
-  padding: 0 var(--space-5); height: 56px;
+  flex-wrap: wrap; row-gap: var(--space-1);
+  padding: 0 var(--space-5); min-height: 56px;
   background: var(--ov-panel); border-bottom: 1px solid var(--ov-border);
   position: sticky; top: 0; z-index: var(--z-sticky);
 }
 .ov-nav .marca {
   display: flex; align-items: center; gap: var(--space-2);
   font-weight: 700; margin-right: var(--space-5); color: var(--ov-text);
-  font-size: var(--fs-base);
+  font-size: var(--fs-base); white-space: nowrap;
 }
 .ov-nav .marca .icone { color: var(--ov-accent-text); }
+/* The arrow of the way back to the OrçaView is green (owner's call, 30/09/2026). */
+.ov-nav a.item.voltar .icone { color: var(--color-success); }
 .ov-nav a.item {
   display: flex; align-items: center; gap: var(--space-1);
   padding: var(--space-1) var(--space-3); border-radius: var(--ov-r-item);
   color: var(--ov-text-2); font-weight: 600; font-size: var(--fs-sm);
-  transition: var(--relief-transition);
+  transition: var(--relief-transition); white-space: nowrap;
 }
 .ov-nav a.item:hover { background: var(--ov-a08); color: var(--ov-accent-text); text-decoration: none; }
 .ov-nav a.item.ativo {

@@ -26,15 +26,15 @@
       }
     })();
   </script>
-  <link rel="stylesheet" href="/static/style.css?v=9">
+  <link rel="stylesheet" href="/static/style.css?v=10">
 </head>
 <body>
   <nav class="ov-nav">
+    <span class="marca">{{ icone('fabrica', 20) }} Controle de Produção</span>
     {# The way back: this screen opens in a new tab from the OrçaView card, and without this
        link the only exit was the browser (owner's report, 30/09/2026). #}
-    <a class="item" href="/orcaview" title="Voltar à página inicial do OrçaView">
+    <a class="item voltar" href="/orcaview" title="Voltar à página inicial do OrçaView">
       {{ icone('voltar') }} OrçaView</a>
-    <span class="marca">{{ icone('fabrica', 20) }} Controle de Produção</span>
     <a class="item {% if ativo == 'pedidos' %}ativo{% endif %}" href="/pedidos-wbc">
       {{ icone('pedidos') }} Pedidos WBC</a>
     <a class="item {% if ativo == 'ops' %}ativo{% endif %}" href="/manutencao-op">

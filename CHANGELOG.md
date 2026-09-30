@@ -15,6 +15,10 @@ Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem SQL, sem mudan
   V118.404), e quem chegava por ali só saía pelo navegador (relato do Marcelo). O link passa pela
   rota aberta `/orcaview` — mesmo desenho do `/painel-wbc` —, que redireciona para `ORCAVIEW_URL`
   (padrão `http://192.168.0.90:8000/`; a variável só serve para uma cópia de desenvolvimento).
+- **Ajuste do mesmo dia (pedido dele):** o link vem **depois** de "Controle de Produção" e a seta é
+  verde (`--color-success`). Com um item a mais, os rótulos da barra quebravam no meio entre ~760 e
+  ~1050 px; agora a barra desce para uma segunda fileira onde não cabe e nenhum rótulo parte
+  (`white-space: nowrap`). Em tela larga continua uma linha de 56 px. `style.css?v=10`.
 
 ## [2026-09-30] — Quatro simplificações no Controle de Produção
 
