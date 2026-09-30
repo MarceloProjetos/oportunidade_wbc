@@ -6,6 +6,16 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-09-30] — Controle de Produção: link de volta ao OrçaView
+
+Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem SQL, sem mudança de API.
+
+- **"← OrçaView" no começo da barra de cima**, em todas as telas (inclusive na de pedir a chave). A
+  tela Pedidos WBC agora abre em nova aba pelo card "Integração de Pedidos WBC" do OrçaView (web
+  V118.404), e quem chegava por ali só saía pelo navegador (relato do Marcelo). O link passa pela
+  rota aberta `/orcaview` — mesmo desenho do `/painel-wbc` —, que redireciona para `ORCAVIEW_URL`
+  (padrão `http://192.168.0.90:8000/`; a variável só serve para uma cópia de desenvolvimento).
+
 ## [2026-09-30] — Quatro simplificações no Controle de Produção
 
 Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); sem SQL, sem mudança de tela nem

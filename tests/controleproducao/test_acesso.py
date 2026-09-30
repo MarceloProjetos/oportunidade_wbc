@@ -82,6 +82,21 @@ class TestComChave:
         get_settings.cache_clear()
         assert fechado.get("/painel-wbc", follow_redirects=False).headers["location"] == "http://192.168.7.11:8079/"
 
+    def test_orcaview_redireciona_sem_chave(self, fechado: TestClient) -> None:
+        # The way back to the OrçaView home must work for someone who has no key.
+        resposta = fechado.get("/orcaview", follow_redirects=False)
+        assert resposta.status_code == 302
+        assert resposta.headers["location"] == "http://192.168.0.90:8000/"
+
+    def test_orcaview_url_configurada_ganha(self, fechado: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ORCAVIEW_URL", "http://localhost:8000/")
+        get_settings.cache_clear()
+        assert fechado.get("/orcaview", follow_redirects=False).headers["location"] == "http://localhost:8000/"
+
+    def test_link_para_o_orcaview_na_barra(self, fechado: TestClient) -> None:
+        # Even the key prompt shows it: that is exactly where one gets stuck.
+        assert 'href="/orcaview"' in fechado.get("/entrar").text
+
     def test_docs_fechados(self, logado: TestClient) -> None:
         for caminho in ("/docs", "/redoc", "/openapi.json"):
             assert logado.get(caminho).status_code == 404

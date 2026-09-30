@@ -105,6 +105,10 @@ class Settings(BaseSettings):
     # itself reads PAINEL_PORTA from `wbcpython/config.py`.
     painel_porta: int = 8079
     wbc_painel_url: str = ""
+    # The way back to the OrçaView home (the "OrçaView" link in the top bar): this screen is
+    # opened in a new tab from the OrçaView card "Integração de Pedidos WBC" (web V118.404).
+    # The .90 address is the default; ORCAVIEW_URL only for a dev copy.
+    orcaview_url: str = "http://192.168.0.90:8000/"
 
     # -- Supabase: history of the Execuções screen (core/historico.py) -----------------
     # The SIS names, read as they are (the API and the ETLs use the same two lines). Only the

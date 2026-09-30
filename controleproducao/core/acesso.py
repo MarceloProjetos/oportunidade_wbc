@@ -6,7 +6,8 @@ port, so whoever entered the painel is already in here — and vice versa. Each 
 own ``/entrar`` because the painel's login page only redirects to paths of its own port.
 
 Open without the key: ``/entrar``, ``/sair``, ``/favicon.ico``, ``/health*`` (the SIS
-``/status`` probe and the deploy guard), ``/painel-wbc`` (a redirect) and ``/static/*``.
+``/status`` probe and the deploy guard), ``/painel-wbc`` and ``/orcaview`` (redirects) and
+``/static/*``.
 Everything else — pages, the task JSON the browser polls and ``POST /tarefas/{id}/cancelar``
 — needs the cookie or ``X-API-Key``. With no ``OS_API_KEY`` configured the screen is open for
 READING, like the painel; writes are refused by ``core.web.avisa_escrita`` (503).
@@ -42,7 +43,9 @@ from controleproducao.core.tarefas import TAREFAS
 from controleproducao.core.templates import templates
 from wbcpython.dashboard import acesso as painel
 
-ROTAS_ABERTAS = frozenset({"/entrar", "/sair", "/favicon.ico", "/health", "/health/ocupado", "/painel-wbc"})
+ROTAS_ABERTAS = frozenset(
+    {"/entrar", "/sair", "/favicon.ico", "/health", "/health/ocupado", "/painel-wbc", "/orcaview"}
+)
 
 PREFIXO_API = "/api/"
 
@@ -234,3 +237,9 @@ def instalar(app: FastAPI) -> None:
         s = get_settings()
         destino = s.wbc_painel_url.strip() or f"{request.url.scheme}://{request.url.hostname}:{s.painel_porta}/"
         return RedirectResponse(destino, status_code=302)
+
+    @app.get("/orcaview")
+    def orcaview() -> RedirectResponse:
+        """The way back to the OrçaView home (``ORCAVIEW_URL``). Open: it only redirects, and
+        someone who gave up on the key must still be able to leave."""
+        return RedirectResponse(get_settings().orcaview_url, status_code=302)
