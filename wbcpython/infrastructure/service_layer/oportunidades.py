@@ -20,7 +20,6 @@ Campos relevantes, extraídos da consulta `GetDocNumOportunidades` do legado:
 from __future__ import annotations
 
 import logging
-from datetime import date
 from typing import Any, Protocol
 
 from wbcpython.infrastructure.service_layer.client import ServiceLayerClient
@@ -71,17 +70,9 @@ OBJ_TYPE = {TipoDocumento.COTACAO: 23, TipoDocumento.PEDIDO: 17}
 
 
 class RepositorioOportunidades(Protocol):
-    def pendentes_de_integracao(self, *, desde: date | None = None) -> list[dict[str, Any]]: ...
-
-    def por_orcamento(self, orcamento: str) -> dict[str, Any] | None: ...
-
     def atualizar_status(self, oppr_id: int, sitcode: int) -> None: ...
 
     def encerrar(self, oppr_id: int, sitcode: int) -> None: ...
-
-
-def _escapar(valor: str) -> str:
-    return valor.replace("'", "''")
 
 
 class RepositorioOportunidadesServiceLayer:
@@ -91,54 +82,8 @@ class RepositorioOportunidadesServiceLayer:
         self._cliente = cliente
 
     # -------------------------------------------------------------- leitura
-
-    def pendentes_de_integracao(
-        self,
-        *,
-        desde: date | None = None,
-        limite: int = 100,
-        orcamento: str | None = None,
-    ) -> list[dict[str, Any]]:
-        """Oportunidades que a integração deve avaliar.
-
-        Reproduz os critérios do `GetDocNumOportunidades` legado: participa da
-        integração (`U_INO_IntegrouWBC = 'Y'`), tem número de orçamento, e o
-        número "mascarado" coincide com o do WBC.
-
-        Duas diferenças deliberadas em relação ao legado:
-
-        * **Sem filtro fixo de orçamento.** O legado tinha
-          `and U_ORCNUM_WBC = '00121819'` gravado na consulta, restringindo a
-          integração inteira a um único orçamento. Aqui `orcamento` é um
-          parâmetro opcional, para reprocessar um caso específico sob demanda.
-        * **Janela de data explícita.** O legado montava a data misturando -6
-          meses para o ano e -9 para o mês, o que produzia um corte
-          imprevisível. Aqui a data vem pronta de quem chama.
-        """
-        condicoes = [
-            f"{UDF_INTEGROU} eq 'Y'",
-            f"{UDF_ORCAMENTO} ne ''",
-        ]
-        if desde:
-            condicoes.append(f"StartDate ge '{desde.isoformat()}'")
-        if orcamento:
-            condicoes.append(f"{UDF_ORCAMENTO} eq '{_escapar(orcamento)}'")
-
-        return self._cliente.listar(
-            ENTIDADE,
-            filtro=" and ".join(condicoes),
-            ordenar_por=CAMPO_CHAVE + " desc",
-            top=limite,
-        )
-
-    def por_orcamento(self, orcamento: str) -> dict[str, Any] | None:
-        registros = self._cliente.listar(
-            ENTIDADE,
-            filtro=f"{UDF_ORCAMENTO} eq '{_escapar(orcamento)}'",
-            ordenar_por=CAMPO_CHAVE + " desc",
-            top=1,
-        )
-        return registros[0] if registros else None
+    # The cycle reads the opportunities from HANA only (`infrastructure/hana`, see
+    # `host/worker.py`); the Service Layer readers it once had were removed on 01/10/2026.
 
     def por_id(self, oppr_id: int) -> dict[str, Any]:
         return self._cliente.get_json(f"{ENTIDADE}({oppr_id})")

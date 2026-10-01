@@ -1251,28 +1251,14 @@ def manutencao_op_encerrar(
 
     a_processar = []
     for indice, op in enumerate(ops, start=1):
-        completa = float(op["apontada"]) >= float(op["planejada"])
-        if op["status"] == "L":
-            acao = "[dim]já encerrada[/dim]"
-        elif op["status"] == "C":
-            # OP cancelada não pode ser liberada, e `corrigeOP` é o primeiro passo — então
-            # a cadeia falharia no início, com uma mensagem obscura do SAP. A grade do
-            # legado nunca mostrava canceladas (`OPS_MANUTENCAO` filtra `Status != 'C'`);
-            # aqui a OP aparece, porque o usuário digitou esse número e merece saber por
-            # que ela não entra, em vez de vê-la desaparecer da lista.
-            acao = "[red]cancelada — não pode ser encerrada[/red]"
-        elif completa:
-            acao = "[dim]ignorada (apontada = planejada)[/dim]"
-        elif op["status"] == "R":
-            # Já liberada: o apontamento pode acontecer direto.
-            acao = "[yellow]saída + entrada + encerrar[/yellow]"
-            a_processar.append(op)
-        else:
-            # Planejada: precisa ser LIBERADA antes, porque uma OP só pode ser apontada
-            # estando liberada (regra de negócio, seção 7.32 do guia). O passo aparece na
-            # tabela em vez de ficar escondido dentro do `corrigeOP` — é o estado que sobra
-            # se a cadeia falhar depois dele.
-            acao = "[yellow]liberar + saída + entrada + encerrar[/yellow]"
+        # The same reading as the screen and the API (`service.classifica_encerramento`, "the
+        # one reading"); the CLI kept its own copy of the rules until 01/10/2026.
+        rotulo, processar = manutencao_op_service.classifica_encerramento(
+            op["status"], op["planejada"], op["apontada"]
+        )
+        cor = "yellow" if processar else "red" if str(op["status"]).upper() == "C" else "dim"
+        acao = f"[{cor}]{rotulo.lower()}[/{cor}]"
+        if processar:
             a_processar.append(op)
         tabela.add_row(
             str(indice), str(op["doc_num"]), op["item_code"],

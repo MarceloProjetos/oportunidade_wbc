@@ -18,10 +18,8 @@ from typing import Any
 from wbcpython.tracking import (
     Acompanhamento,
     Execucao,
-    RepositorioTracking,
     StatusExecucao,
     StatusIntegracao,
-    TipoEvento,
 )
 
 #: Situações que provam que o ciclo **fez** alguma coisa com o orçamento.
@@ -252,20 +250,3 @@ def resumo_de_execucao(execucao: Execucao) -> dict[str, Any]:
         # anterior à coluna — e "—" diz isso melhor do que um 6 inventado.
         "Janela": f"{execucao.meses_da_janela} meses" if execucao.meses_da_janela else "—",
     }
-
-
-def registrar_reprocessamento(
-    tracking: RepositorioTracking, orcnum: str, *, solicitante: str
-) -> None:
-    """Marca um pedido manual de reprocessamento.
-
-    Auditoria não é opcional aqui: uma ação manual que resulta em documentos
-    criados no SAP precisa deixar rastro de **quem** pediu e **quando** — é o
-    tipo de pergunta que aparece semanas depois.
-    """
-    tracking.registrar_evento(
-        orcnum,
-        tipo=TipoEvento.REPROCESSAMENTO,
-        mensagem=f"Reprocessamento solicitado manualmente por {solicitante}.",
-        detalhes={"solicitante": solicitante},
-    )

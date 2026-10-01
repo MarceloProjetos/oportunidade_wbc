@@ -70,13 +70,11 @@ class Campo:
     marcado: bool = False
     #: The form does not go without it (checked again by the route, not only by the browser).
     obrigatorio: bool = False
-    #: Nome longo da opção na CLI. Vazio significa "é um valor posicional
-    #: passado como `--<nome>`", que é o caso de todos hoje.
-    opcao: str = ""
 
     @property
     def bandeira(self) -> str:
-        return self.opcao or f"--{self.nome.replace('_', '-')}"
+        """The CLI option: always `--<nome>` (an override field nobody ever set was removed)."""
+        return f"--{self.nome.replace('_', '-')}"
 
 
 @dataclass(frozen=True, slots=True)

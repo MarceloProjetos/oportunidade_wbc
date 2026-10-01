@@ -333,6 +333,51 @@ def _scheduled_task_signal() -> dict[str, Any]:
 
 _WBC_TABELAS = ('acompanhamento', 'eventos', 'execucoes', 'travas')
 _WBC_COLUNAS_EXECUCAO = ('id', 'inicio', 'fim', 'status', 'processados', 'sucessos', 'erros', 'detalhe')
+_WBC_COLUNAS_ORCAMENTO = (
+    'orcnum', 'oppr_id', 'cliente', 'vendedor', 'municipio', 'uf', 'data_abertura',
+    'sitcode_wbc', 'revisao_wbc', 'sitcode_sap', 'status', 'regra_aplicada',
+    'cotacao_docentry', 'cotacao_docnum', 'cotacao_valor',
+    'pedido_docentry', 'pedido_docnum', 'pedido_valor', 'ultima_verificacao', 'ultimo_erro',
+)
+
+
+class AcompanhamentoIndisponivel(RuntimeError):
+    """The WBC tracking DB cannot be read here (not a SQLite file, missing, or unreadable)."""
+
+
+def wbc_orcamento(orcnum: str, *, eventos: int = 15) -> dict[str, Any] | None:
+    """One quote as the WBC worker last saw it — ``None`` if the worker never evaluated it.
+
+    Read-only (``mode=ro``) on the same tracking SQLite the ``wbc_worker`` check reads: the
+    row of ``acompanhamento`` (what the worker decided, which documents it holds, the last
+    error) and the latest ``eventos``. 01/10/2026: the painel (8079) answers this in HTML
+    only, so neither the MCP nor the .90 could ask "what happened to quote X?".
+    """
+    caminho = _wbc_tracking_db_path()
+    if caminho is None or not os.path.exists(caminho):
+        raise AcompanhamentoIndisponivel('banco de acompanhamento do WBC indisponível nesta máquina')
+    try:
+        con = sqlite3.connect(f'file:{caminho}?mode=ro', uri=True, timeout=2)
+        try:
+            row = con.execute(
+                f"SELECT {', '.join(_WBC_COLUNAS_ORCAMENTO)} FROM acompanhamento WHERE orcnum = ?",
+                (orcnum,),
+            ).fetchone()
+            if row is None:
+                return None
+            historico = con.execute(
+                'SELECT momento, tipo, regra, mensagem FROM eventos WHERE orcnum = ? '
+                'ORDER BY id DESC LIMIT ?',
+                (orcnum, max(1, min(int(eventos), 100))),
+            ).fetchall()
+        finally:
+            con.close()
+    except sqlite3.Error as exc:
+        raise AcompanhamentoIndisponivel(f'falha ao ler o acompanhamento: {exc}') from exc
+    return {
+        'orcamento': dict(zip(_WBC_COLUNAS_ORCAMENTO, row)),
+        'eventos': [dict(zip(('momento', 'tipo', 'regra', 'mensagem'), e)) for e in historico],
+    }
 
 
 def _wbc_tracking_db_path() -> str | None:

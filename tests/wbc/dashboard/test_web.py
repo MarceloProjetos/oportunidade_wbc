@@ -375,30 +375,34 @@ class TestFocoDaBusca:
         assert 'hx-select-oob="#contagem-oportunidades"' in formulario
 
 
-class TestReprocessamento:
-    def test_registra_quem_pediu(self, cliente: TestClient, repo: RepositorioTracking) -> None:
-        """Uma ação manual que termina em documento criado no SAP precisa dizer
-        quem pediu: é a pergunta que aparece semanas depois."""
-        repo.registrar_verificacao("00000001", status=StatusIntegracao.SEM_ACAO)
+class TestProcessarAPartirDoDetalhe:
+    """01/10/2026: "Solicitar reprocessamento" only wrote an event nobody read. The Detalhe
+    now links to the per-quote cycle of the Executar tab, filled in."""
 
-        resposta = cliente.post(
-            "/fragmentos/reprocessar",
-            data={"orcnum": "00000001", "solicitante": "anderson"},
-        )
-        assert resposta.status_code == 200
-        assert "anderson" in resposta.text
+    def test_detalhe_leva_ao_ciclo_do_orcamento(
+        self, cliente: TestClient, repo: RepositorioTracking
+    ) -> None:
+        repo.registrar_verificacao("00123304", status=StatusIntegracao.SEM_ACAO)
+        texto = cliente.get("/fragmentos/detalhe", params={"orcnum": "00123304"}).text
+        assert 'href="/?aba=comandos&orcamento=00123304"' in texto
+        assert "Solicitar reprocessamento" not in texto
 
-        eventos = repo.eventos("00000001")
-        assert any("anderson" in e.mensagem for e in eventos)
+    def test_a_pagina_repassa_o_orcamento_a_aba(self, cliente: TestClient) -> None:
+        texto = cliente.get("/", params={"aba": "comandos", "orcamento": "123304"}).text
+        assert "/fragmentos/comandos?recorte=" in texto and "orcamento=00123304" in texto
 
-    def test_sem_solicitante_recusa(self, cliente: TestClient, repo: RepositorioTracking) -> None:
-        repo.registrar_verificacao("00000001", status=StatusIntegracao.SEM_ACAO)
+    def test_a_aba_executar_vem_preenchida(self, cliente: TestClient) -> None:
+        texto = cliente.get("/fragmentos/comandos", params={"orcamento": "00123304"}).text
+        assert texto.count('value="00123304"') == 2  # Verificar pendentes + Processar
 
-        resposta = cliente.post(
-            "/fragmentos/reprocessar", data={"orcnum": "00000001", "solicitante": "   "}
-        )
-        assert "auditável" in resposta.text
-        assert repo.eventos("00000001") == []
+    def test_numero_estranho_nao_preenche_nada(self, cliente: TestClient) -> None:
+        texto = cliente.get("/fragmentos/comandos", params={"orcamento": '1"><script>'}).text
+        assert "<script>" not in texto
+        assert 'name="orcamento" placeholder' in texto
+
+    def test_a_rota_antiga_saiu(self, cliente: TestClient) -> None:
+        resposta = cliente.post("/fragmentos/reprocessar", data={"orcnum": "1", "solicitante": "a"})
+        assert resposta.status_code in (404, 405)
 
 
 class TestExecucoes:

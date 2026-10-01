@@ -104,7 +104,7 @@ from extract_ordens_servico_engenharia import (
 )
 from extract_sap_to_supabase import main as sync_oportunidades
 from extract_vendas_bi import main as sync_vendas_bi
-from monitoring import SELECTABLE_CHECKS, collect_status
+from monitoring import SELECTABLE_CHECKS, AcompanhamentoIndisponivel, collect_status, wbc_orcamento
 from pipeline_core import (
     FileLockTimeout,
     coerce_positive_int,
@@ -1372,6 +1372,32 @@ def op_detalhe(numero: str):
         return jsonify(ok=False, tipo='erro',
                        motivo='Nao foi possivel consultar a ordem de producao.'), 502
     return jsonify(ok=True, op=op)
+
+
+@app.get('/wbc/orcamentos/<orcnum>')
+@requer_chave
+def wbc_orcamento_rota(orcnum: str):
+    """What the WBC worker knows about ONE quote. Requires X-API-Key. Read-only.
+
+    From the worker's tracking DB (no SAP, no WBC): status, the rule it applied, the
+    quotation and order it holds, the last error and the latest events. ``404`` with
+    ``motivo: "fora_do_acompanhamento"`` = the worker never evaluated this quote — usually
+    because it is older than the worker's window, not because it does not exist.
+    """
+    numero = (orcnum or '').strip()
+    if not numero.isdigit() or len(numero) > 8:
+        return jsonify(ok=False, error='orcamento deve ter so numeros (ate 8 digitos)'), 400
+    numero = numero.zfill(8)
+    try:
+        dados = wbc_orcamento(numero, eventos=request.args.get('eventos', 15, type=int))
+    except AcompanhamentoIndisponivel as exc:
+        return jsonify(ok=False, error=str(exc)), 503
+    if dados is None:
+        return jsonify(
+            ok=False, orcamento=numero, motivo='fora_do_acompanhamento',
+            error='O worker nunca avaliou este orcamento (em geral: mais antigo que a janela dele).',
+        ), 404
+    return jsonify(ok=True, **dados)
 
 
 @app.post('/ordens-producao/<numero>/status')

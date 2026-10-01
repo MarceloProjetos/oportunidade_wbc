@@ -1665,3 +1665,56 @@ def test_usuarios_ativos_devolve_502_quando_o_supabase_falha(client, monkeypatch
     resposta = client.get('/usuarios-ativos')
     assert resposta.status_code == 502
     assert resposta.get_json()['ok'] is False
+
+
+# ── GET /wbc/orcamentos/<orcnum>: one quote as the worker knows it (01/10/2026) ──
+
+@pytest.fixture
+def acompanhamento(monkeypatch, tmp_path):
+    """A real tracking DB (the worker's own schema) with one evaluated quote."""
+    from wbcpython.tracking import RepositorioTracking, StatusIntegracao
+
+    caminho = tmp_path / 'wbc_tracking.db'
+    repo = RepositorioTracking.a_partir_da_url(f'sqlite:///{caminho}')
+    repo.registrar_verificacao('00123304', status=StatusIntegracao.COTACAO_CRIADA,
+                               cliente='HM DIVERSOES LTDA', sitcode_wbc=30,
+                               regra='emitido_apos_revisao_no_sap')
+    repo.registrar_evento('00123304', regra='emitido_apos_revisao_no_sap',
+                          mensagem='Ações executadas: cancelar_e_recriar_cotacao')
+    repo._engine.dispose()
+    monkeypatch.setenv('TRACKING_DB_URL', f'sqlite:///{caminho}')
+    reset_settings()
+    return caminho
+
+
+def test_orcamento_wbc_devolve_o_que_o_worker_sabe(client, monkeypatch, acompanhamento):
+    _com_chave(monkeypatch)
+    r = client.get('/wbc/orcamentos/123304', headers={'X-API-Key': 'segredo'})
+    assert r.status_code == 200
+    corpo = r.get_json()
+    assert corpo['orcamento']['orcnum'] == '00123304'
+    assert corpo['orcamento']['status'] == 'cotacao_criada'
+    assert corpo['orcamento']['cliente'] == 'HM DIVERSOES LTDA'
+    assert corpo['eventos'][0]['mensagem'].startswith('Ações executadas')
+
+
+def test_orcamento_wbc_fora_do_acompanhamento_e_404_explicado(client, monkeypatch, acompanhamento):
+    _com_chave(monkeypatch)
+    r = client.get('/wbc/orcamentos/00000001', headers={'X-API-Key': 'segredo'})
+    assert r.status_code == 404
+    assert r.get_json()['motivo'] == 'fora_do_acompanhamento'
+
+
+def test_orcamento_wbc_exige_chave_e_numero(client, monkeypatch, acompanhamento):
+    _com_chave(monkeypatch)
+    assert client.get('/wbc/orcamentos/00123304').status_code == 401
+    r = client.get('/wbc/orcamentos/12a', headers={'X-API-Key': 'segredo'})
+    assert r.status_code == 400
+
+
+def test_orcamento_wbc_sem_banco_e_503(client, monkeypatch, tmp_path):
+    _com_chave(monkeypatch)
+    monkeypatch.setenv('TRACKING_DB_URL', f'sqlite:///{tmp_path}/nao_existe.db')
+    reset_settings()
+    r = client.get('/wbc/orcamentos/00123304', headers={'X-API-Key': 'segredo'})
+    assert r.status_code == 503

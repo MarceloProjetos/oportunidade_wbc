@@ -440,3 +440,31 @@ def test_bloqueados_sem_corte_devolve_igual(fachada, monkeypatch):
     corpo = {'ok': True, 'pedidos': [{'pedido': 1}]}
     monkeypatch.setattr(fachada, '_get', lambda *_a, **_k: corpo)
     assert fachada.pedidos_bloqueados() == corpo
+
+
+# --- 01/10/2026: situacao_op and estado_orcamento_wbc ----------------------------------------
+
+def test_situacao_op_por_docnum_e_docentry(fachada, chamadas):
+    fachada.situacao_op(129850)
+    fachada.situacao_op(126599, chave=' DocEntry ')
+    assert chamadas == [('/ordens-producao/129850', None),
+                        ('/ordens-producao/126599', {'chave': 'docentry'})]
+
+
+def test_estado_orcamento_normaliza_o_numero(fachada, chamadas):
+    fachada.estado_orcamento_wbc('00123304')
+    fachada.estado_orcamento_wbc('123304', eventos=500)
+    assert chamadas[0] == ('/wbc/orcamentos/00123304', {'eventos': 15})
+    assert chamadas[1] == ('/wbc/orcamentos/123304', {'eventos': 100})
+
+
+def test_as_novas_sao_leitura_e_explicam_o_404(fachada):
+    tools = {t.name: t for t in asyncio.run(fachada.mcp.list_tools())}
+    for nome in ('situacao_op', 'estado_orcamento_wbc'):
+        assert tools[nome].annotations.readOnlyHint is True, nome
+    assert 'fora_do_acompanhamento' in tools['estado_orcamento_wbc'].description
+    assert 'não existe' in tools['estado_orcamento_wbc'].description
+
+
+def test_op_tem_o_tempo_das_leituras_do_sap(fachada):
+    assert fachada._tempo_limite('GET', '/ordens-producao/1') >= 45

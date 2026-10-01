@@ -15,7 +15,6 @@ from wbcpython.dashboard.dados import (
     calcular_kpis,
     linha_para_tabela,
     recorte,
-    registrar_reprocessamento,
     resumo_de_execucao,
 )
 from wbcpython.dashboard.previsao import (
@@ -36,6 +35,5 @@ __all__ = [
     "carregar_previsao",
     "linha_para_tabela",
     "recorte",
-    "registrar_reprocessamento",
     "resumo_de_execucao",
 ]

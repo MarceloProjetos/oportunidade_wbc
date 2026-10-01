@@ -6,6 +6,25 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-01] — Simplificações da revisão: Detalhe, código morto e duas ferramentas no MCP
+
+Entra pelo `deploy_update.bat` (painel WBC, API 8077, Controle de Produção e MCP).
+
+- **Detalhe do orçamento: "Solicitar reprocessamento" virou "Processar este orçamento…"**. O botão
+  antigo só gravava um evento que ninguém lia e prometia reavaliar "no próximo ciclo" — falso
+  para orçamento fora da janela do worker. O novo abre a aba Executar com o número já preenchido
+  em "Verificar pendentes" e em "Processar um orçamento", e rola até ele. Nada roda sem o clique
+  lá. A rota `POST /fragmentos/reprocessar` saiu.
+- **Código morto removido:** as leituras de oportunidade pelo Service Layer
+  (`pendentes_de_integracao`/`por_orcamento`; o ciclo lê só pelo HANA), o campo `opcao` dos
+  comandos do painel (nunca preenchido), e a CLI do Encerrar passou a usar
+  `service.classifica_encerramento` em vez da cópia própria das regras.
+- **MCP: duas ferramentas novas, só leitura.** `situacao_op` (status de uma OP e as transições
+  permitidas, sobre a rota que já existia) e `estado_orcamento_wbc` — o que o worker sabe de um
+  orçamento (status, regra, documentos, último erro, eventos), pela rota nova
+  **`GET /wbc/orcamentos/<orcnum>`** da API (lê o acompanhamento em somente leitura; `404
+  fora_do_acompanhamento` = o worker nunca o avaliou).
+
 ## [2026-10-01] — Worker: snapshot só antes de gravar documento; vínculo que falha não refaz a cotação
 
 Entra pelo `deploy_update.bat` (worker e painel). Decisão em `docs/wbc/DECISOES.md`.

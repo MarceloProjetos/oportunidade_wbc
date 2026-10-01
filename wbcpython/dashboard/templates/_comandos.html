@@ -55,6 +55,7 @@
             <label class="campo">
               <span>{{ campo.rotulo }}</span>
               <input type="text" name="{{ campo.nome }}" placeholder="{{ campo.ajuda }}"
+                     {% if campo.nome == "orcamento" and orcamento_preenchido and c.id in de_um_orcamento %}value="{{ orcamento_preenchido }}"{% endif %}
                      {% if campo.obrigatorio %}required inputmode="numeric" autocomplete="off"{% endif %} />
             </label>
           {% endif %}
@@ -165,7 +166,7 @@
 </div>
 
 {% if dirigidos %}
-<div class="bloco">
+<div class="bloco" id="processar-um-orcamento">
   <header>
     <h2>Processar um orçamento</h2>
     <span class="etiqueta perigo">escreve no SAP</span>
@@ -217,3 +218,12 @@
     {% for c in escrita %}{{ formulario(c, pode_escrever, ritmo) }}{% endfor %}
   </div>
 </div>
+{% if orcamento_preenchido %}
+  {# Came from the Detalhe's "Processar este orçamento…": show the per-quote form, not the top. #}
+  <script>
+    (function () {
+      var alvo = document.getElementById("processar-um-orcamento");
+      if (alvo) alvo.scrollIntoView({ block: "start" });
+    })();
+  </script>
+{% endif %}

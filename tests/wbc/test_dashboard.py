@@ -9,10 +9,9 @@ import pytest
 from wbcpython.dashboard import (
     calcular_kpis,
     linha_para_tabela,
-    registrar_reprocessamento,
     resumo_de_execucao,
 )
-from wbcpython.tracking import RepositorioTracking, StatusIntegracao, TipoEvento
+from wbcpython.tracking import RepositorioTracking, StatusIntegracao
 
 
 @pytest.fixture
@@ -119,16 +118,6 @@ class TestExecucoes:
     def test_em_andamento(self, repo: RepositorioTracking) -> None:
         repo.iniciar_execucao()
         assert resumo_de_execucao(repo.ultimas_execucoes()[0])["Duração"] == "em andamento"
-
-
-class TestReprocessamento:
-    def test_registra_quem_pediu(self, repo: RepositorioTracking) -> None:
-        """Ação manual que gera documento no SAP precisa deixar rastro."""
-        registrar_reprocessamento(repo, "00123316", solicitante="anderson")
-        eventos = repo.eventos("00123316")
-        assert eventos[0].tipo is TipoEvento.REPROCESSAMENTO
-        assert "anderson" in eventos[0].mensagem
-        assert "anderson" in eventos[0].detalhes
 
 
 class TestAvaliadoVersusComAcao:

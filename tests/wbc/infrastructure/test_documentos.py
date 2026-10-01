@@ -531,34 +531,6 @@ class TestOportunidades:
         assert not hasattr(RepositorioOportunidadesServiceLayer, "limpar_marca_de_troca_de_pn")
 
 
-class TestSelecaoDeOportunidades:
-    def test_nao_tem_filtro_fixo_de_orcamento(self) -> None:
-        """O defeito nº 1 do legado não pode reaparecer aqui."""
-        g = Gravador([LOGIN, httpx.Response(200, json={"value": []})])
-        _oport(g).pendentes_de_integracao()
-
-        filtro = dict(g.requisicoes[-1].url.params)["$filter"]
-        assert "00121819" not in filtro
-        assert "U_INO_IntegrouWBC eq 'Y'" in filtro
-
-    def test_filtro_por_orcamento_e_opcional(self) -> None:
-        g = Gravador([LOGIN, httpx.Response(200, json={"value": []})])
-        _oport(g).pendentes_de_integracao(orcamento="00123316")
-        assert "U_ORCNUM_WBC eq '00123316'" in dict(g.requisicoes[-1].url.params)["$filter"]
-
-    def test_janela_de_data_e_explicita(self) -> None:
-        from datetime import date
-
-        g = Gravador([LOGIN, httpx.Response(200, json={"value": []})])
-        _oport(g).pendentes_de_integracao(desde=date(2026, 1, 1))
-        assert "StartDate ge '2026-01-01'" in dict(g.requisicoes[-1].url.params)["$filter"]
-
-    def test_sem_data_nao_filtra_por_data(self) -> None:
-        g = Gravador([LOGIN, httpx.Response(200, json={"value": []})])
-        _oport(g).pendentes_de_integracao()
-        assert "StartDate" not in dict(g.requisicoes[-1].url.params)["$filter"]
-
-
 class TestParceiros:
     """`ChecaPN`: o parceiro corrigido existe no SAP?"""
 

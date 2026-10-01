@@ -75,7 +75,7 @@
 
       <div
         id="conteudo"
-        hx-get="/fragmentos/{{ aba_ativa }}?recorte={{ recorte }}{{ '&tudo=1' if tudo else '' }}"
+        hx-get="/fragmentos/{{ aba_ativa }}?recorte={{ recorte }}{{ '&tudo=1' if tudo else '' }}{{ '&orcamento=' ~ orcamento if orcamento else '' }}"
         hx-trigger="load"
         hx-swap="innerHTML"
       >

@@ -125,31 +125,20 @@
   </div>
 
   {#
-    Reprocessamento manual — autenticado e auditado.
-
-    Não dispara a integração: registra a solicitação, e o worker a executa no
-    próximo ciclo. Se o painel escrevesse no SAP, contornaria a trava de
-    execução única, que é o que impede dois ciclos criando o mesmo documento.
+    01/10/2026: this used to be "Solicitar reprocessamento", which only wrote an event that
+    nothing read, promising a re-evaluation "in the next cycle" — false for a quote outside
+    the worker's window. The real thing exists now: the per-quote cycle of the Executar tab
+    (one quote, under the worker's lock, name in the history). This opens it filled in.
   #}
   <div class="bloco">
-    <header><h2>Reprocessar</h2></header>
+    <header><h2>Processar agora</h2></header>
     <div class="corpo">
-      <div id="resultado-reprocessamento"></div>
-      <form
-        class="filtros"
-        hx-post="/fragmentos/reprocessar"
-        hx-target="#resultado-reprocessamento"
-      >
-        <input type="hidden" name="orcnum" value="{{ registro.orcnum }}" />
-        <label class="campo">
-          <span>Seu nome ou usuário</span>
-          <input type="text" name="solicitante" placeholder="fica registrado no histórico" />
-        </label>
-        <button class="acao" type="submit">Solicitar reprocessamento</button>
-      </form>
+      <p>
+        <a class="acao" href="/?aba=comandos&orcamento={{ registro.orcnum }}">Processar este orçamento…</a>
+      </p>
       <p class="nota">
-        O painel não escreve no SAP. A solicitação fica no histórico e o worker a executa no
-        próximo ciclo.
+        Abre a aba Executar com o {{ registro.orcnum }} já preenchido em "Verificar pendentes" (só
+        leitura) e em "Processar um orçamento". Nada roda sem você clicar lá.
       </p>
     </div>
   </div>

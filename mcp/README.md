@@ -20,6 +20,8 @@ operar/consultar o servidor de integração **em linguagem natural**.
 | `estado_tarefa_wbc()` | `GET /status?checks=scheduled_task` — tarefa LEGADA, desativada em 2026-09-08: vem `retired=true` (não é falha); use `estado_integracao_wbc` | sim | 1 |
 | `estado_integracao_wbc()` | `GET /status?checks=wbc_worker` (worker da Integração WBC → SAP; não alarma antes do 1º ciclo na máquina) | sim | WBC F3 |
 | `ultimos_erros(limit?)` | `GET /historico` (filtra falhas) | sim | 1 |
+| `estado_orcamento_wbc(orcamento, eventos?)` | `GET /wbc/orcamentos/<orcnum>` — o acompanhamento do worker para UM orçamento (status, regra, documentos, último erro, eventos); `404 fora_do_acompanhamento` = o worker nunca o avaliou | sim | 01/10/2026 |
+| `situacao_op(op, chave?)` | `GET /ordens-producao/<n>` — status de UMA OP e as transições permitidas (só leitura) | sim | 01/10/2026 |
 | `estado_windows_update()` | `GET /status?checks=windows_update` (updates pendentes, último patch, reboot) | sim | — |
 | `listar_colaboradores(empresa?, setor?, somente_ativos?, limite?)` | `GET /rh/colaboradores` (espelho do Kairos) | sim | F5 |
 | `resumo_colaboradores(empresa?, somente_ativos?)` | `GET /rh/colaboradores` (contagens) | sim | F5 |

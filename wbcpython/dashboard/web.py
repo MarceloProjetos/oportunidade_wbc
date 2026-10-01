@@ -48,7 +48,6 @@ from wbcpython.dashboard import previsao as prev
 from wbcpython.dashboard.dados import (
     calcular_kpis,
     linha_para_tabela,
-    registrar_reprocessamento,
     resumo_de_execucao,
 )
 from wbcpython.domain import janela as jn
@@ -158,6 +157,16 @@ SELO_DO_STATUS = {
 CLASSE_DA_SITUACAO = {s.rotulo: SELO_DO_STATUS.get(s, "ok") for s in StatusIntegracao}
 
 #: As abas, na ordem em que aparecem. O `id` é a rota do fragmento.
+def _orcamento_valido(valor: str) -> str:
+    """A quote number from the URL, normalized to 8 digits — or "" for anything else."""
+    numero = (valor or "").strip()
+    return numero.zfill(8) if numero.isdigit() and len(numero) <= 8 else ""
+
+
+#: Forms of the Executar tab that take ONE quote and are pre-filled from the Detalhe.
+COMANDOS_DE_UM_ORCAMENTO = frozenset({"pendentes", "ciclo"})
+
+
 ABAS = (
     ("oportunidades", "Oportunidades"),
     ("ciclo", "Próximo ciclo"),
@@ -352,7 +361,11 @@ def criar_app(
 
     @app.get("/", response_class=HTMLResponse)
     def pagina(
-        request: Request, aba: str = "oportunidades", tudo: int = 0, recorte: str = ""
+        request: Request,
+        aba: str = "oportunidades",
+        tudo: int = 0,
+        recorte: str = "",
+        orcamento: str = "",
     ) -> HTMLResponse:
         """A página inteira. Daqui em diante o HTMX só troca pedaços.
 
@@ -376,6 +389,7 @@ def criar_app(
             company_db=config.service_layer.company_db,
             ritmo_numeros=RITMO_DOS_NUMEROS,
             exige_chave=config.painel_exige_chave,
+            orcamento=_orcamento_valido(orcamento),
         )
 
     # ------------------------------------------------------------- fragmentos
@@ -574,43 +588,6 @@ def criar_app(
             eventos=repo.eventos(alvo) if registro else [],
         )
 
-    @app.post("/fragmentos/reprocessar", response_class=HTMLResponse)
-    async def reprocessar(request: Request) -> HTMLResponse:
-        """Registra a solicitação — **não** dispara a integração.
-
-        O processo do painel nunca escreve no SAP: além de quebrar a separação
-        de responsabilidades, contornaria a trava de execução única do worker,
-        que é o que impede dois ciclos criando o mesmo documento. Quem executa
-        é o worker, no ciclo seguinte.
-
-        O nome de quem pediu é obrigatório porque a solicitação termina em
-        documento financeiro criado, e "quem mandou reprocessar isso?" é uma
-        pergunta que aparece semanas depois.
-        """
-        form = await request.form()
-        orcnum = str(form.get("orcnum") or "").strip()
-        solicitante = str(form.get("solicitante") or "").strip()
-        if not orcnum:
-            return render(request, "_aviso.html", tipo="erro", texto="Informe o orçamento.")
-        if not solicitante:
-            return render(
-                request,
-                "_aviso.html",
-                tipo="erro",
-                texto="Informe quem está solicitando — a ação precisa ser auditável.",
-            )
-        registrar_reprocessamento(repo, orcnum, solicitante=solicitante)
-        return render(
-            request,
-            "_aviso.html",
-            tipo="ok",
-            texto=(
-                f"Solicitação registrada por {solicitante}. O orçamento {orcnum} será "
-                "reavaliado no próximo ciclo do worker."
-            ),
-            comando=f"python -m wbcpython ciclo --orcamento {orcnum}",
-        )
-
     @app.get("/fragmentos/execucoes", response_class=HTMLResponse)
     def fragmento_execucoes(request: Request) -> HTMLResponse:
         return render(
@@ -666,7 +643,9 @@ def criar_app(
     # -------------------------------------------------------------- comandos
 
     @app.get("/fragmentos/comandos", response_class=HTMLResponse)
-    def fragmento_comandos(request: Request, escolhido: str = "") -> HTMLResponse:
+    def fragmento_comandos(
+        request: Request, escolhido: str = "", orcamento: str = ""
+    ) -> HTMLResponse:
         """A aba "Executar": os comandos da CLI, com o que cada um faz.
 
         Quem escreve no SAP aparece separado e com aviso. Misturar "testar a
@@ -689,6 +668,10 @@ def criar_app(
             company_db=config.service_layer.company_db,
             meses_dirigida=config.meses_de_janela_dirigida,
             ritmo=RITMO_DA_EXECUCAO,
+            # From the Detalhe's "Processar este orçamento…" (01/10/2026): the per-quote
+            # forms open filled in. Only a well-formed number gets through.
+            orcamento_preenchido=_orcamento_valido(orcamento),
+            de_um_orcamento=COMANDOS_DE_UM_ORCAMENTO,
         )
 
     def _meses_em_vigor() -> int:

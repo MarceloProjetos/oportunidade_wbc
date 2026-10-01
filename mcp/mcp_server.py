@@ -53,7 +53,8 @@ quadro de colaboradores das 3 empresas (Altamira, Tecnequip, Proalta).
 
 A Integração WBC → SAP (cotações e pedidos criados no SAP a partir dos orçamentos do
 WBC; worker + painel na porta 8079) roda nesta mesma máquina: `estado_integracao_wbc`
-diz se o worker está ciclando. A "tarefa WBC" de `estado_tarefa_wbc` é a tarefa agendada
+diz se o worker está ciclando, e `estado_orcamento_wbc` o que ele sabe de um orçamento. A
+"tarefa WBC" de `estado_tarefa_wbc` é a tarefa agendada
 LEGADA do Windows, desativada em 2026-09-08: vem `retired=true`, e isso não é falha.
 Também roda aqui, desde 2026-09-28, o Controle de Produção (Pedidos WBC → Ordens de
 Produção e Manutenção de OP; tela na porta 8080, serviço `OrcaView-ControleProducao`):
@@ -130,7 +131,7 @@ def _tempo_limite(metodo: str, path: str) -> float:
                    else _TEMPO_SYNC_OS if path.startswith("/ordens-servico/") else HTTP_TIMEOUT)
     elif path == "/status":
         proprio = _TEMPO_STATUS
-    elif path.startswith(("/pedidos/", "/ordens-servico/")):
+    elif path.startswith(("/pedidos/", "/ordens-servico/", "/ordens-producao/")):
         proprio = _TEMPO_LEITURA_HANA
     else:
         proprio = HTTP_TIMEOUT
@@ -444,6 +445,51 @@ def ultimos_erros(limit: int = 10) -> dict[str, Any]:
 # coisa que funciona, e fica para quando houver motivo.
 
 _ANOTACAO_LEITURA = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
+
+
+@mcp.tool(annotations=_ANOTACAO_LEITURA)
+def situacao_op(op: int, chave: str = "docnum") -> dict[str, Any]:
+    """Status e identificação de UMA Ordem de Produção no SAP. Requer a SIS_API_KEY. Só leitura.
+
+    Use para "a OP 129850 está liberada?", "de que pedido é a OP 157630?", "o que dá para
+    fazer com essa OP?". Traz item, quantidade planejada, status (``status_desc`` legível),
+    origem (o pedido de venda) e ``transicoes_permitidas`` — o que a API aceitaria mudar
+    agora. Mudar status de OP é na tela do Controle de Produção (Manutenção de OP), não aqui.
+
+    ``op`` é o **número que aparece na tela** (DocNum). O DocEntry é outro número: só passe
+    ``chave="docentry"`` se souber que o número em mãos é esse.
+
+    Args:
+        op: número da OP (ex.: 129850).
+        chave: ``docnum`` (default) ou ``docentry``.
+    """
+    params = {"chave": "docentry"} if str(chave).strip().lower() == "docentry" else None
+    return _get(f"/ordens-producao/{int(op)}", params)
+
+
+@mcp.tool(annotations=_ANOTACAO_LEITURA)
+def estado_orcamento_wbc(orcamento: str, eventos: int = 15) -> dict[str, Any]:
+    """O que a Integração WBC → SAP sabe de UM orçamento. Requer a SIS_API_KEY. Só leitura.
+
+    Use para "o que aconteceu com o orçamento 00123304?", "o worker já criou a cotação do
+    00125640?", "por que o 00125572 está com erro?". Vem do acompanhamento do worker (não
+    consulta o SAP nem o WBC): ``orcamento.status`` (ex.: ``cotacao_criada``,
+    ``pedido_criado``, ``sem_acao``, ``erro``), a ``regra_aplicada``, a cotação e o pedido que
+    ele tem (DocEntry/DocNum/valor), ``ultimo_erro`` e ``ultima_verificacao``; e os
+    ``eventos`` mais recentes (o histórico do orçamento, mais novo primeiro).
+
+    **404 com ``motivo: "fora_do_acompanhamento"``** quer dizer que o worker nunca avaliou o
+    orçamento — em geral porque ele é mais antigo que a janela do worker. **Não** quer dizer
+    que o orçamento não existe; diga isso. Processar um orçamento fora da janela é no painel
+    WBC (aba Executar → "Processar um orçamento"), por uma pessoa.
+
+    Args:
+        orcamento: número do orçamento WBC (ex.: ``00123304`` ou ``123304``).
+        eventos: quantos eventos do histórico trazer (1–100). Default 15.
+    """
+    numero = "".join(ch for ch in str(orcamento) if ch.isdigit())
+    return _get(f"/wbc/orcamentos/{numero or '0'}",
+                {"eventos": max(1, min(int(eventos), 100))})
 
 
 @mcp.tool(annotations=_ANOTACAO_LEITURA)
