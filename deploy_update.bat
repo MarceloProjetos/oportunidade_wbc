@@ -150,6 +150,18 @@ REM     dependencia nova (foi assim que o painel WBC subiu sem fastapi em 08/09/
 REM     venv\ se existir; senao, o Python do sistema (e o caso da .11: Python314, sem venv).
 set "PYEXE=python"
 if exist "venv\Scripts\python.exe" set "PYEXE=venv\Scripts\python.exe"
+REM The worker runs the python.exe written into its NSSM service at install time; the other
+REM services take "python" from the PATH. If they differ, pip below installs into the PATH
+REM one only and the worker may start without a new dependency (14/09/2026). Warn - the
+REM reg query output is ANSI, unlike nssm's UTF-16.
+set "PY_WORKER="
+for /f "tokens=2,*" %%a in ('reg query "HKLM\SYSTEM\CurrentControlSet\Services\OrcaView-WBC-Worker\Parameters" /v Application 2^>nul ^| findstr /i "Application"') do set "PY_WORKER=%%b"
+set "PY_PATH="
+for /f "delims=" %%w in ('where python 2^>nul') do if not defined PY_PATH set "PY_PATH=%%w"
+if defined PY_WORKER if defined PY_PATH if /i not "!PY_WORKER!"=="!PY_PATH!" (
+  echo [pip] AVISO: o worker roda "!PY_WORKER!", mas o pip usa "!PY_PATH!".
+  echo       Dependencia nova instalada aqui NAO chega ao worker. Ver CLAUDE.md, "O worker chama o python.exe por caminho absoluto".
+)
 set "REQHASH="
 for /f "usebackq delims=" %%h in (`%PYEXE% -c "import hashlib;print(hashlib.sha256(open('requirements.txt','rb').read()+open('mcp/requirements.txt','rb').read()).hexdigest())" 2^>nul`) do set "REQHASH=%%h"
 set "INSTALADO="
@@ -165,7 +177,7 @@ if not defined REQHASH (
 if defined REQCHANGED (
   where %PYEXE% >nul 2>&1 || (echo ERRO: python nao encontrado no PATH. & goto :fail)
   echo [pip] dependencias diferentes das instaladas; instalando com %PYEXE% ...
-  %PYEXE% -m pip install -r requirements.txt -r mcp\requirements.txt || goto :fail
+  %PYEXE% -m pip install -r requirements.txt -r mcp\requirements.txt || goto :pipfail
   if not exist "state" mkdir "state"
   if defined REQHASH >"state\deps.sha256" echo !REQHASH!
   echo [pip] instalado; marca gravada em state\deps.sha256
@@ -192,17 +204,18 @@ if defined WORKER_ATIVO (
   echo [nssm] OrcaView-WBC-Worker segue parado ^(virada = nssm start OrcaView-WBC-Worker^).
 )
 
-REM --- validacao rapida ---
+REM --- validacao: o veredito final depende destas tres respostas (01/10/2026: antes o
+REM     "DEPLOY OK" saia sempre, mesmo com a API fora do ar) ---
 set "PAINEL_PORTA=8079"
 for /f "usebackq tokens=2 delims== " %%p in (`findstr /b /i "PAINEL_PORTA=" .env 2^>nul`) do set "PAINEL_PORTA=%%p"
+set "API_PORTA=8077"
+for /f "usebackq tokens=2 delims== " %%p in (`findstr /b /i "OS_API_PORT=" .env 2^>nul`) do set "API_PORTA=%%p"
 echo [health] aguardando a API e o painel subirem...
 timeout /t 4 >nul
-curl -s http://127.0.0.1:8077/health
-echo.
-curl -s -o nul -w "[painel WBC] http://127.0.0.1:%PAINEL_PORTA%/entrar -> HTTP %%{http_code}" http://127.0.0.1:%PAINEL_PORTA%/entrar
-echo.
-curl -s -m 5 -o nul -w "[controle producao] http://127.0.0.1:%CP_PORTA%/health -> HTTP %%{http_code}" http://127.0.0.1:%CP_PORTA%/health
-echo.
+set "FALHOU="
+call :conferir "API 8077" http://127.0.0.1:%API_PORTA%/health 200
+call :conferir "painel WBC" http://127.0.0.1:%PAINEL_PORTA%/entrar 200
+call :conferir "controle producao" http://127.0.0.1:%CP_PORTA%/health 200
 nssm status OrcaView-OS-API
 nssm status OrcaView-MCP
 nssm status OrcaView-Scheduler
@@ -211,9 +224,26 @@ nssm status OrcaView-ControleProducao
 nssm status OrcaView-WBC-Worker
 
 echo.
+if defined FALHOU (
+  echo ===== DEPLOY TERMINOU COM AVISOS: !FALHOU!nao respondeu como esperado =====
+  echo       O codigo novo esta no lugar. Veja logs\ e "nssm status" acima antes de seguir.
+  pause
+  exit /b 2
+)
 echo ===== DEPLOY OK =====
 pause
 exit /b 0
+
+:pipfail
+echo.
+echo ERRO: o pip falhou. Voltando o codigo para o commit anterior ^(!BEFORE!^) para os
+echo       servicos nao subirem com codigo novo e dependencias velhas...
+if defined BEFORE (
+  git reset --hard !BEFORE! && echo [git] codigo de volta em !BEFORE!. Corrija o pip e rode o deploy de novo.
+) else (
+  echo [git] AVISO: sem commit anterior conhecido ^(1a execucao^); o codigo novo fica.
+)
+goto :religar
 
 :pullfail
 echo.
@@ -242,6 +272,20 @@ if defined WORKER_ATIVO (
 )
 pause
 exit /b 1
+
+REM --- confere que a URL %2 responde HTTP %3; senao, acrescenta %1 em FALHOU (ate 3 tentativas,
+REM     o servico pode estar terminando de subir) ---
+:conferir
+set "_COD="
+for /l %%t in (1,1,3) do (
+  if not "!_COD!"=="%3" (
+    for /f "usebackq delims=" %%c in (`curl -s -L -m 10 -o nul -w "%%{http_code}" %2 2^>nul`) do set "_COD=%%c"
+    if not "!_COD!"=="%3" timeout /t 3 /nobreak >nul
+  )
+)
+echo [health] %~1: %2 -^> HTTP !_COD!
+if not "!_COD!"=="%3" set "FALHOU=!FALHOU!%~1; "
+goto :eof
 
 REM --- espera o servico %1 chegar a STOPPED, no maximo %2 segundos (sc query e ANSI) ---
 :esperar_parar

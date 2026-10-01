@@ -282,7 +282,8 @@ def _cmd_worker(
     # Mesmo log da prévia: tela e arquivo, e o arquivo é o que o painel mostra.
     # Para o worker isso é o essencial da coisa — ele roda sem ninguém olhando o
     # terminal, e sem arquivo a execução de madrugada não deixa rastro nenhum.
-    arquivo = _preparar_log(settings)
+    # Only the continuous worker rotates the file (one rotating process; see logs.configurar).
+    arquivo = _preparar_log(settings, rotacionar=not um_ciclo)
     if arquivo:
         print(f"Log desta execução: {arquivo} (visível também no painel, aba 'Log').")
 
@@ -1065,15 +1066,19 @@ def _pesos_das_linhas(
     return mudancas, iguais, sem_peso
 
 
-def _preparar_log(settings: Settings) -> Path | None:
+def _preparar_log(settings: Settings, *, rotacionar: bool = False) -> Path | None:
     """Liga a tela e o arquivo para este comando.
 
     Vive aqui, e não em cada comando, para que "o que aparece na tela" e "o que
     o painel lê" nunca sejam configurados de dois jeitos diferentes.
+
+    ``rotacionar`` only for the continuous worker — see `logs.configurar`.
     """
     from wbcpython import logs
 
-    return logs.configurar(nivel=settings.log_level, arquivo=settings.caminho_do_log)
+    return logs.configurar(
+        nivel=settings.log_level, arquivo=settings.caminho_do_log, rotacionar=rotacionar
+    )
 
 
 def _inteiro(valor: object) -> int | None:

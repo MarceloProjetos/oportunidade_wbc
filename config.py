@@ -137,11 +137,6 @@ ORCAVIEW_URL_DEFAULT = 'http://192.168.0.90:8000/'
 # on the two real servers, not from an estimate.
 WU_ENABLED_DEFAULT = True
 
-# Gravação da última execução das rotinas na tabela `rotinas_execucao` do Supabase.
-# Default FALSE de propósito: a tabela tem UMA linha por rotina, e a máquina de dev roda
-# o mesmo pipeline — ligada aqui, ela sobrescreveria a linha de produção com uma execução
-# de teste. Ligar SÓ no servidor. Mesma trava que o `.90` usa (V117.735-738).
-ROTINAS_ESTADO_SUPABASE_DEFAULT = False
 # The thread sleeps this long before collecting: it gives boot time to settle (.11 comes
 # up around 06:12) and the process's 1st search is the expensive one (30s cold) — better
 # to pay for it with nobody waiting.
@@ -340,7 +335,6 @@ class Settings:
 
     # Windows Update (expensive collection, in the background — see windows_update.py)
     wu_enabled: bool           # WU_ENABLED — turns the collection thread off
-    rotinas_estado_supabase: bool  # ROTINAS_ESTADO_SUPABASE — grava em `rotinas_execucao`
     wu_delay_start_s: float    # WU_DELAY_START_S — thread wait after the API starts
     wu_varredura_max_d: float  # WU_VARREDURA_MAX_D — max scan age for publishing the count
     wu_coleta_timeout_s: float  # WU_COLETA_TIMEOUT_S — ceiling for the collection powershell
@@ -428,9 +422,6 @@ class Settings:
             cp_log_file=(os.getenv('CP_LOG_FILE') or '').strip() or CP_LOG_FILE_DEFAULT,
             orcaview_url=(os.getenv('ORCAVIEW_URL') or '').strip() or ORCAVIEW_URL_DEFAULT,
             wu_enabled=_env_bool('WU_ENABLED', WU_ENABLED_DEFAULT),
-            rotinas_estado_supabase=_env_bool(
-                'ROTINAS_ESTADO_SUPABASE', ROTINAS_ESTADO_SUPABASE_DEFAULT
-            ),
             wu_delay_start_s=_env_float('WU_DELAY_START_S', WU_DELAY_START_S_DEFAULT),
             wu_varredura_max_d=_env_float('WU_VARREDURA_MAX_D', WU_VARREDURA_MAX_D_DEFAULT),
             wu_coleta_timeout_s=_env_float('WU_COLETA_TIMEOUT_S', WU_COLETA_TIMEOUT_S_DEFAULT),
@@ -463,6 +454,19 @@ class Settings:
     def op_sl_timeout(self) -> tuple[float, float]:
         """``(connect, read)`` for every Service Layer call."""
         return (self.op_sl_timeout_connect_s, self.op_sl_timeout_read_s)
+
+    @property
+    def rotinas_estado_supabase(self) -> bool:
+        """Write the routines' last run to Supabase `rotinas_execucao` — on the .11 only.
+
+        The table holds ONE row per routine and a dev box runs the same pipelines: on there
+        it would overwrite production's row with a test run. It used to be the
+        ``ROTINAS_ESTADO_SUPABASE`` switch in `.env` (default off), missing from
+        `.env.example`: a `.env` rebuilt from it silently stopped the record. Production
+        functions follow the machine, never a `.env` flag (01/10/2026 review, the same rule
+        as ``op_sl_enabled`` and the `.90`'s V118.28). Checked on every read, like that one.
+        """
+        return is_production_machine()
 
     @property
     def op_sl_enabled(self) -> bool:

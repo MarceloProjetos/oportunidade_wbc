@@ -102,6 +102,17 @@ def _ambiente_sem_producao(request: pytest.FixtureRequest, monkeypatch: pytest.M
 
 
 @pytest.fixture(autouse=True)
+def _disjuntor_do_hana_fechado():
+    """The HANA breaker (``sap_connection``) is process state: one test's failed connection
+    would make the next test's HANA call fail at once."""
+    import sap_connection
+
+    sap_connection._fechar_disjuntor()
+    yield
+    sap_connection._fechar_disjuntor()
+
+
+@pytest.fixture(autouse=True)
 def _reset_config_cache(_ambiente_sem_producao):
     """Garante que cada teste relê o ambiente do zero."""
     reset_settings()

@@ -19,6 +19,7 @@ import logging
 import signal
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from types import FrameType
@@ -211,11 +212,12 @@ class WorkerIntegracao:
         avisou = False
         while True:
             try:
-                with self._tracking.trava_de_execucao():
+                with self._tracking.trava_de_execucao() as renovar:
                     return self._ciclo(
                         orcamento=orcamento,
                         apenas_sitcode=apenas_sitcode,
                         somente_leitura=somente_leitura,
+                        renovar_trava=renovar,
                     )
             except TravaNaoObtida as exc:
                 if self.parada_solicitada():
@@ -372,6 +374,7 @@ class WorkerIntegracao:
         orcamento: str | None,
         apenas_sitcode: int | None = None,
         somente_leitura: bool = False,
+        renovar_trava: Callable[[], None] | None = None,
     ) -> ResultadoExecucao:
         execucao_id = self._tracking.iniciar_execucao()
         processados = sucessos = erros = escritas = com_acao = 0
@@ -471,6 +474,8 @@ class WorkerIntegracao:
                     if self.parada_solicitada():
                         logger.info("Parada solicitada — ciclo interrompido.")
                         break
+                    if renovar_trava is not None:
+                        renovar_trava()
                     if escritas >= janela.teto:
                         # O teto é de escrita, não de leitura: a avaliação da
                         # janela inteira é barata, criar documentos no SAP não é.

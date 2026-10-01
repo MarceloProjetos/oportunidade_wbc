@@ -26,6 +26,7 @@ import logging
 import logging.handlers
 import re
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -65,11 +66,67 @@ class _SoORelatorio(logging.Filter):
         return not record.name.startswith(RUIDOSAS)
 
 
+#: After a failed rotation (another process had the file open at that instant), wait this
+#: long before trying again — and keep writing to the current file meanwhile.
+ESPERA_APOS_ROTACAO_FALHA = 60.0
+
+
+class _ArquivoQueRoda(logging.handlers.RotatingFileHandler):
+    """The rotating file of the ONE process that rotates (the continuous worker).
+
+    On Windows the rename of a rotation fails while any other process has the file open.
+    The stock handler then drops the record, and tries again on the next one, and the next…
+    — every line lost for as long as the other process keeps it (01/10/2026 review). Here a
+    failed rotation keeps writing to the current file and retries after a pause.
+    """
+
+    _proxima_tentativa = 0.0
+
+    def shouldRollover(self, record: logging.LogRecord) -> bool:  # noqa: N802 - stdlib name
+        if time.monotonic() < self._proxima_tentativa:
+            return False
+        return bool(super().shouldRollover(record))
+
+    def doRollover(self) -> None:  # noqa: N802 - stdlib name
+        try:
+            super().doRollover()
+        except OSError:
+            self._proxima_tentativa = time.monotonic() + ESPERA_APOS_ROTACAO_FALHA
+            if self.stream is None:
+                self.stream = self._open()
+
+
+class _ArquivoCompartilhado(logging.Handler):
+    """Appends to the shared log file, opening and closing it on every record.
+
+    For every process but the continuous worker (the painel, the commands it starts, a CLI
+    run): holding the file open for hours is what made the worker's rotation fail. One open
+    per line is nothing at this volume.
+    """
+
+    terminator = "\n"
+
+    def __init__(self, arquivo: Path) -> None:
+        super().__init__()
+        self.arquivo = arquivo
+        with open(arquivo, "a", encoding="utf-8"):
+            pass  # fail here (unwritable path), where `configurar` reports it, not per record
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            texto = self.format(record)
+            with open(self.arquivo, "a", encoding="utf-8") as saida:
+                saida.write(texto + self.terminator)
+        except Exception:  # noqa: BLE001 - the stdlib contract: report, never raise
+            self.handleError(record)
+
+
 def configurar(
     *,
     nivel: str = "INFO",
     arquivo: Path | str | None = None,
     tela: bool = True,
+    rotacionar: bool = False,
 ) -> Path | None:
     """Instala os handlers e devolve o arquivo em uso (ou `None`).
 
@@ -85,6 +142,10 @@ def configurar(
     Se o arquivo não puder ser aberto (diretório somente leitura, por exemplo), a
     tela continua funcionando e um aviso é registrado. Um comando de leitura não
     pode falhar por causa do log.
+
+    ``rotacionar``: only the continuous worker rotates the file; everyone else appends
+    without holding it open (see `_ArquivoCompartilhado`). Several processes rotating one
+    file on Windows lose lines.
     """
     raiz = logging.getLogger()
     raiz.setLevel(getattr(logging, nivel.upper(), logging.INFO))
@@ -109,8 +170,12 @@ def configurar(
     destino = Path(arquivo)
     try:
         destino.parent.mkdir(parents=True, exist_ok=True)
-        em_arquivo = logging.handlers.RotatingFileHandler(
-            destino, maxBytes=TAMANHO_MAXIMO, backupCount=ARQUIVOS_MANTIDOS, encoding="utf-8"
+        em_arquivo: logging.Handler = (
+            _ArquivoQueRoda(
+                destino, maxBytes=TAMANHO_MAXIMO, backupCount=ARQUIVOS_MANTIDOS, encoding="utf-8"
+            )
+            if rotacionar
+            else _ArquivoCompartilhado(destino)
         )
     except OSError as exc:
         logging.getLogger(__name__).warning("Sem log em arquivo (%s): %s", destino, exc)

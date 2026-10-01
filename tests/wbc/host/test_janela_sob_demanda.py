@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 import pytest
+from sqlalchemy import text
 
 from wbcpython.application.processar import ResultadoProcessamento
 from wbcpython.config import Settings
@@ -367,3 +368,76 @@ class TestCicloDeUmOrcamentoEsperaATrava:
 
         assert resultado.ignorado and "interrompido antes de começar" in resultado.ignorado
         assert not HanaEspiao.cortes
+
+
+class TestTravaRenovada:
+    """01/10/2026 review: the 30 min lock was never renewed; a long cycle could outlive it and
+    another process (now also the painel's per-quote cycle, which waits) would take it over."""
+
+    @pytest.fixture
+    def relogio(self, monkeypatch: pytest.MonkeyPatch):
+        """`datetime.now()` of the repository advancing one second per call."""
+        from datetime import datetime as _dt
+        from datetime import timedelta as _td
+
+        from wbcpython.tracking import repositorio as repo_mod
+
+        passo = [0]
+
+        class Relogio(_dt):
+            @classmethod
+            def now(cls, tz=None):
+                passo[0] += 1
+                return _dt(2026, 10, 1, 10, 0) + _td(seconds=passo[0])
+
+        monkeypatch.setattr(repo_mod, "datetime", Relogio)
+        return repo_mod
+
+    def test_o_ciclo_renova_a_trava_entre_orcamentos(
+        self, ambiente, tracking, relogio, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from wbcpython.tracking.modelos import Trava
+
+        monkeypatch.setattr(relogio, "INTERVALO_DE_RENOVACAO_DA_TRAVA", 0.0)
+        vistas: list = []
+        original = ProcessadorQueEscreve.processar
+
+        def processar(self, oportunidade, situacao=None):
+            with tracking.sessao() as s:
+                vistas.append(s.get(Trava, relogio.TRAVA_WORKER).expira_em)
+            return original(self, oportunidade, situacao)
+
+        monkeypatch.setattr(ProcessadorQueEscreve, "processar", processar)
+        _worker(tracking).executar_ciclo()
+
+        assert len(vistas) == 3
+        assert vistas[0] < vistas[1] < vistas[2], "expira_em moves forward quote by quote"
+
+    def test_renovar_respeita_o_intervalo(self, tracking, relogio) -> None:
+        from wbcpython.tracking.modelos import Trava
+
+        with tracking.trava_de_execucao() as renovar:
+            with tracking.sessao() as s:
+                antes = s.get(Trava, relogio.TRAVA_WORKER).expira_em
+            renovar()  # less than a minute since it was taken: no UPDATE
+            with tracking.sessao() as s:
+                assert s.get(Trava, relogio.TRAVA_WORKER).expira_em == antes
+
+
+class TestAcompanhamentoEmWal:
+    def test_o_banco_do_acompanhamento_abre_em_wal(self, tracking) -> None:
+        """01/10/2026: rollback journal cost 8.4 s per 1,880-quote cycle; WAL, 3.1 s."""
+        with tracking.sessao() as s:
+            assert s.execute(text("PRAGMA journal_mode")).scalar() == "wal"
+            assert s.execute(text("PRAGMA busy_timeout")).scalar() == 5000
+
+    def test_o_status_le_em_modo_somente_leitura(self, tracking, tmp_path) -> None:
+        """monitoring.py opens this DB with `mode=ro`; WAL must not break it."""
+        import sqlite3
+
+        tracking.registrar_verificacao("00000001", sitcode_wbc=30)
+        con = sqlite3.connect(f"file:{tmp_path}/t.db?mode=ro", uri=True, timeout=2)
+        try:
+            assert con.execute("select count(*) from acompanhamento").fetchone()[0] == 1
+        finally:
+            con.close()

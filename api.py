@@ -179,6 +179,9 @@ _op_lock = threading.Lock()
 # runaway/loop without getting in the way of normal use (a person's ordinary use stays
 # far below). Configurable by env: RATE_SYNC_OS_MAX (OS syncs/min) and
 # RATE_FORCE_OPORT_MAX (full loads/min).
+#: waitress worker threads (its default is 4) — see `main`.
+API_THREADS = 8
+
 _RATE_WINDOW_S = 60.0
 _RATE_SYNC_OS_MAX = int(os.getenv('RATE_SYNC_OS_MAX', '60'))
 _RATE_FORCE_OPORT_MAX = int(os.getenv('RATE_FORCE_OPORT_MAX', '6'))
@@ -1977,7 +1980,9 @@ def main() -> None:
     try:
         from waitress import serve
         logger.info("Servindo via waitress em http://%s:%s", host, port)
-        serve(app, host=host, port=port)
+        # 8 threads, not waitress's 4 (01/10/2026 review): a few slow HANA reads must not take
+        # every thread and leave /health without an answer for the .90 watchdog.
+        serve(app, host=host, port=port, threads=API_THREADS)
     except ImportError:
         logger.warning("waitress não instalado — usando o servidor de DEV do Flask.")
         app.run(host=host, port=port)

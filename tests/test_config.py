@@ -203,3 +203,17 @@ def test_op_sl_enabled_acompanha_o_ip_sem_reiniciar(monkeypatch):
     assert s.op_sl_enabled is False
     monkeypatch.setattr(safety, "PRODUCTION_MACHINE_IP", "127.0.0.1")
     assert s.op_sl_enabled is True            # same cached Settings object
+
+
+# ── rotinas_execucao record: follows the machine, not .env (01/10/2026 review) ──
+
+def test_registro_das_rotinas_so_na_11(monkeypatch):
+    from config import get_settings, reset_settings
+    from wbcpython import safety
+
+    monkeypatch.setenv('ROTINAS_ESTADO_SUPABASE', 'true')   # the old switch: ignored now
+    reset_settings()
+    assert get_settings().rotinas_estado_supabase is False   # conftest: never the .11
+
+    monkeypatch.setattr(safety, 'PRODUCTION_MACHINE_IP', '127.0.0.1')   # plays the .11
+    assert get_settings().rotinas_estado_supabase is True

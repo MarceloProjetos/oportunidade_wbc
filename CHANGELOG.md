@@ -6,7 +6,38 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
-## [2026-10-01] — Revisão geral, lote 3: cargas, monitoramento e MCP
+## [2026-10-01] — Revisão geral, lote 4: robustez da API, do worker e do deploy
+
+Entra pelo `deploy_update.bat` (todos os serviços). Achados da revisão geral de 01/10/2026.
+
+- **HANA fora do ar não derruba mais a API inteira.** Cada conexão que falhava levava ~51 s (3
+  tentativas de 15 s), presa numa das 4 threads do waitress: quatro leituras ao mesmo tempo (o
+  .90, o MCP, um lote de sincronização) tomavam todas, e até o `/health` parava de responder —
+  o vigia do .90 via a API toda fora. Agora há um **disjuntor** em `sap_connection`: depois de
+  uma falha de conexão, as chamadas dos 30 s seguintes falham na hora com "HANA indisponível há
+  instantes" (`HanaIndisponivel`, um `ConnectionError`). E o waitress sobe com **8** threads.
+- **A trava do worker é renovada entre orçamentos** (no máximo uma vez por minuto). Ela valia
+  30 min fixos: um ciclo longo (janela estendida) podia passar disso, e outro processo — agora
+  também o ciclo de um orçamento do painel, que espera a trava — assumiria a trava "vencida" no
+  meio e os dois rodariam juntos.
+- **Acompanhamento em WAL** (SQLite): o registro dos 1.880 orçamentos de cada ciclo caiu de 8,4 s
+  para 3,1 s (medido), e as leituras do painel e do `/status` não bloqueiam mais o worker.
+  `synchronous` continua FULL (o NORMAL ganhava só 0,1 s e podia perder o último registro numa
+  queda de energia). A leitura somente-leitura do `/status` foi testada em WAL.
+- **Log do WBC com vários processos:** só o worker contínuo rotaciona o `logs\wbcpython.log`; o
+  painel, os comandos que ele dispara e a CLI acrescentam sem segurar o arquivo aberto. No
+  Windows a rotação falha com o arquivo aberto em outro processo, e o handler padrão perdia
+  **toda** linha enquanto isso durasse. Se a rotação falhar mesmo assim, o worker segue
+  escrevendo no arquivo atual e tenta de novo em 1 min.
+- **`ROTINAS_ESTADO_SUPABASE` saiu do `.env`:** o registro das rotinas em `rotinas_execucao`
+  liga pelo IP da máquina (só na .11), como as outras funções de produção. A linha no `.env`, se
+  existir, passa a ser ignorada.
+- **`deploy_update.bat`:** se o `pip` falhar, o código volta ao commit anterior antes de religar
+  (antes subia código novo com dependências velhas); "DEPLOY OK" só sai se a API, o painel e o
+  Controle de Produção responderem 200 (senão, "DEPLOY TERMINOU COM AVISOS" e saída 2); a porta
+  da API vem do `.env`; e avisa quando o Python do worker (NSSM) não é o mesmo do `pip`.
+
+
 
 Entra pelo `deploy_update.bat` (API 8077, agendador e `OrcaView-MCP`). Achados da revisão geral
 de 01/10/2026, conferidos no código antes de corrigir.

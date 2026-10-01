@@ -12,13 +12,14 @@ import json
 import logging
 import os
 import socket
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Engine, create_engine, delete, func, inspect, select, text
+from sqlalchemy import Engine, create_engine, delete, event, func, inspect, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -66,6 +67,30 @@ def _minutos(pedido: PedidoDeJanela) -> str:
     return f"{minutos} min"
 
 
+#: Seconds between two renewals of the execution lock (see `trava_de_execucao`).
+INTERVALO_DE_RENOVACAO_DA_TRAVA = 60.0
+
+
+def _sqlite_em_wal(conexao: Any, _registro: Any) -> None:
+    """WAL + a busy timeout on every SQLite connection of the tracking DB.
+
+    01/10/2026 review: two transactions per quote in rollback-journal mode cost 8.4 s of the
+    ~18 s cycle (1,880 quotes, measured); WAL brings it to 3.1 s, and readers (painel, the
+    /status check in ``mode=ro`` — tested) no longer block the writer. ``synchronous`` stays
+    FULL (the default): NORMAL gained 0.1 s and could lose the last commit on a power cut, and
+    this DB is part of what keeps a quote from getting a duplicate document. The mode is
+    persistent in the file; if switching fails (DB busy), the worker still starts.
+    """
+    cursor = conexao.cursor()
+    try:
+        cursor.execute("PRAGMA busy_timeout = 5000")
+        cursor.execute("PRAGMA journal_mode = WAL")
+    except Exception as exc:  # noqa: BLE001 - a journal mode must never stop the worker
+        logger.warning("Acompanhamento: não consegui ligar o WAL no SQLite (%s); segue no modo atual.", exc)
+    finally:
+        cursor.close()
+
+
 class TravaNaoObtida(RuntimeError):
     """Outra execução do worker já está em andamento."""
 
@@ -89,6 +114,8 @@ class RepositorioTracking:
     @classmethod
     def a_partir_da_url(cls, url: str, *, criar_tabelas: bool = True) -> RepositorioTracking:
         engine = create_engine(url, pool_pre_ping=True)
+        if engine.dialect.name == "sqlite":
+            event.listen(engine, "connect", _sqlite_em_wal)
         repo = cls(engine)
         if criar_tabelas:
             repo.criar_tabelas()
@@ -621,17 +648,36 @@ class RepositorioTracking:
     @contextmanager
     def trava_de_execucao(
         self, *, validade: timedelta = timedelta(minutes=30), nome: str = TRAVA_WORKER
-    ) -> Iterator[None]:
+    ) -> Iterator[Callable[[], None]]:
         """Garante execução única do worker.
 
         A trava tem validade: se um processo morrer sem liberá-la, ela expira
         sozinha e a próxima execução assume. Sem isso, um worker que caísse
         deixaria a integração parada para sempre.
+
+        Yields ``renovar``: called between quotes, it pushes ``expira_em`` forward (at most
+        once a minute — one cheap UPDATE). 01/10/2026 review: the lock was never renewed, so a
+        long cycle (an extended window allows 1,800 writes) could outlive its 30 min, and the
+        next process — now also the painel's per-quote cycle, which waits for the lock — would
+        take the "expired" lock and run over the same snapshot at the same time.
         """
         dono = identidade_do_processo()
         self._adquirir_trava(nome, dono, validade)
+        ultima = [time.monotonic()]
+
+        def renovar() -> None:
+            if time.monotonic() - ultima[0] < INTERVALO_DE_RENOVACAO_DA_TRAVA:
+                return
+            with self._sessao() as s, s.begin():
+                s.execute(
+                    update(Trava)
+                    .where(Trava.nome == nome, Trava.dono == dono)
+                    .values(expira_em=datetime.now() + validade)
+                )
+            ultima[0] = time.monotonic()
+
         try:
-            yield
+            yield renovar
         finally:
             with self._sessao() as s, s.begin():
                 s.execute(delete(Trava).where(Trava.nome == nome, Trava.dono == dono))

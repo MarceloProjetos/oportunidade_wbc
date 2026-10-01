@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
+import time
 from collections.abc import Callable, Sequence
 from typing import Any
 
@@ -74,6 +76,40 @@ def _build_connect_args(
     return args
 
 
+#: After a failed connection, how long every other caller in this process fails at once.
+#: 01/10/2026 review: with HANA down, each connection costs ~51 s (3 attempts of the 15 s
+#: connect timeout + backoff), and the API runs on a handful of waitress threads — four
+#: requests reading HANA (the .90, the MCP, a sync batch) took every thread and /health and
+#: /status stopped answering, so the .90 watchdog saw the whole API as down. Short on purpose:
+#: a recovered HANA is back for everyone within this many seconds.
+DISJUNTOR_SEGUNDOS = 30.0
+
+_disjuntor_lock = threading.Lock()
+_disjuntor: dict[str, Any] = {'aberto_ate': 0.0, 'motivo': ''}
+
+
+class HanaIndisponivel(ConnectionError):
+    """HANA failed to connect moments ago; this call did not even try (see the breaker)."""
+
+
+def _disjuntor_aberto() -> str | None:
+    with _disjuntor_lock:
+        restante = _disjuntor['aberto_ate'] - time.monotonic()
+        return f"{_disjuntor['motivo']} (nova tentativa em {restante:.0f} s)" if restante > 0 else None
+
+
+def _abrir_disjuntor(exc: BaseException) -> None:
+    with _disjuntor_lock:
+        _disjuntor['aberto_ate'] = time.monotonic() + DISJUNTOR_SEGUNDOS
+        _disjuntor['motivo'] = str(exc)[:200]
+
+
+def _fechar_disjuntor() -> None:
+    with _disjuntor_lock:
+        _disjuntor['aberto_ate'] = 0.0
+        _disjuntor['motivo'] = ''
+
+
 def connect_sap_hana(
     host: str,
     port: int,
@@ -84,7 +120,27 @@ def connect_sap_hana(
     with_timeouts: bool = True,
     with_retry: bool = True,
 ) -> Any:
-    """Connect to SAP HANA; retries transient errors; falls back without databaseName on tenant error."""
+    """Connect to SAP HANA; retries transient errors; falls back without databaseName on tenant error.
+
+    Fails at once with ``HanaIndisponivel`` while the breaker is open — a connection failed in
+    this process less than ``DISJUNTOR_SEGUNDOS`` ago."""
+    aberto = _disjuntor_aberto()
+    if aberto:
+        raise HanaIndisponivel(f'SAP HANA indisponível há instantes: {aberto}')
+    try:
+        conn = _conectar_hana(host, port, user, password, database,
+                              with_timeouts=with_timeouts, with_retry=with_retry)
+    except Exception as exc:
+        _abrir_disjuntor(exc)
+        raise
+    _fechar_disjuntor()
+    return conn
+
+
+def _conectar_hana(
+    host: str, port: int, user: str, password: str, database: str | None, *,
+    with_timeouts: bool, with_retry: bool,
+) -> Any:
     connect_args = _build_connect_args(host, port, user, password, database, with_timeouts=with_timeouts)
 
     def _connect(args: dict[str, Any]) -> Any:

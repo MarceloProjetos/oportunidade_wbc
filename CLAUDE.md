@@ -190,6 +190,14 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   faz **login preguiçoso** (na 1ª requisição; entrar no `with` não autentica) e `Logout` na
   saída. Não "corrija" o `__enter__` para logar cedo.
 - `config.get_settings()` é cacheado — testes usam `reset_settings()` após mexer em env.
+- **HANA fora: disjuntor de 30 s em `sap_connection.connect_sap_hana`** (01/10/2026): depois de
+  uma falha de conexão, o processo inteiro falha na hora com `HanaIndisponivel` por 30 s, em
+  vez de cada chamada esperar ~51 s numa thread da API. Estado de processo: o `tests/conftest.py`
+  o fecha antes de cada teste. O waitress sobe com `API_THREADS` (8).
+- **Log do WBC: só o worker contínuo rotaciona** `logs/wbcpython.log` (`logs.configurar(rotacionar=True)`);
+  todo o resto acrescenta sem segurar o arquivo. Dois processos rotacionando no Windows perdem linhas.
+- **Acompanhamento (SQLite) em WAL** desde 01/10/2026 (`repositorio._sqlite_em_wal`); `synchronous`
+  fica FULL de propósito. Os arquivos `-wal`/`-shm` ao lado do `.db` são normais.
 - **Windows Update: `pendentes` só sai quando a varredura do agente é recente** — senão
   `None` + motivo. **Nunca troque `None` por `0`** ("0 pendentes" mente sem varredura). O
   bloco **nunca gera alerta** (decisão do Marcelo; há teste). `AUOptions=4` desta máquina

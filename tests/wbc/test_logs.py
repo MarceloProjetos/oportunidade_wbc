@@ -218,3 +218,51 @@ class TestTema:
         assert lida.tema == "porta-paletes"
         assert lida.nivel == "WARNING"
         assert lida.texto.startswith("00125535: ")
+
+
+class TestVariosProcessosNoMesmoArquivo:
+    """01/10/2026 review: worker, painel and the painel's commands all ROTATED the same file.
+    On Windows a rename fails while another process has the file open, and the stock handler
+    then drops every record until that process lets go — hours, for a service."""
+
+    def test_quem_nao_rotaciona_nao_segura_o_arquivo(self, tmp_path: Path) -> None:
+        destino = tmp_path / "wbcpython.log"
+        logs.configurar(arquivo=destino, tela=False)
+        logging.getLogger("wbcpython.teste").info("primeira")
+
+        # What the worker's rotation does: rename the file. It used to fail on Windows
+        # with the painel holding it open.
+        destino.rename(tmp_path / "wbcpython.log.1")
+        logging.getLogger("wbcpython.teste").info("segunda")
+
+        assert "primeira" in (tmp_path / "wbcpython.log.1").read_text(encoding="utf-8")
+        assert "segunda" in destino.read_text(encoding="utf-8")
+
+    def test_rotacao_que_falha_nao_perde_a_linha(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        destino = tmp_path / "wbcpython.log"
+        monkeypatch.setattr(logs, "TAMANHO_MAXIMO", 10)
+        logs.configurar(arquivo=destino, tela=False, rotacionar=True)
+
+        def rename_ocupado(self, *_a, **_k):
+            raise PermissionError(32, "being used by another process")
+
+        monkeypatch.setattr(logs.logging.handlers.RotatingFileHandler, "rotate", rename_ocupado)
+        log = logging.getLogger("wbcpython.teste")
+        for i in range(5):
+            log.info("linha %d com bastante texto", i)
+
+        texto = destino.read_text(encoding="utf-8")
+        assert all(f"linha {i}" in texto for i in range(5)), "no line lost"
+
+    def test_rotacao_normal_continua_funcionando(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        destino = tmp_path / "wbcpython.log"
+        monkeypatch.setattr(logs, "TAMANHO_MAXIMO", 200)
+        logs.configurar(arquivo=destino, tela=False, rotacionar=True)
+        log = logging.getLogger("wbcpython.teste")
+        for i in range(20):
+            log.info("linha %d com bastante texto para encher o arquivo", i)
+        assert (tmp_path / "wbcpython.log.1").exists()
