@@ -39,6 +39,7 @@ Ache a seção pela busca do título (o arquivo é longo; não leia inteiro).
 - Horário de trabalho do worker (06:30–19:00) e janela dirigida
 - A busca da lista troca a lista, e não o bloco que contém o campo
 - Ciclo do painel: um orçamento por vez, sem senha, também em produção (01/10/2026)
+- Snapshot só antes de gravar documento; vínculo que falha não refaz a cotação (01/10/2026)
 - Encerramento não se repete: a guarda olhava a cotação sem motivo
 - `U_INO_Update = 'Y'` antes de existir pedido: ele nasce no `PN_Correc`
 - Janela sob demanda: o teto escalonado, e a pergunta quando nem ele basta
@@ -2183,3 +2184,28 @@ ciclo agendado tinha tomado a trava às 10:07:32. O ciclo do painel foi ignorado
   ter de adivinhar. O ciclo agendado continua sem esperar (o próximo vem em minutos).
 - Se mesmo assim não rodar, o resumo diz **"Ciclo NÃO rodou: …"** e a CLI sai com código 1 (a tela
   mostra falha, não "ok").
+
+## Snapshot só antes de gravar documento; vínculo que falha não refaz a cotação (01/10/2026)
+
+Pedido do Marcelo, a partir da revisão geral de 01/10/2026. Os dois mexem no que o worker grava em
+produção; nenhum dos dois estava acontecendo no dia (0 erros), mas os dois eram laços prontos.
+
+**Snapshot (`@INO_ORCAM`).** Era gravado antes de **qualquer** ação da decisão. Um orçamento sem
+itens ou a preço zero (`DocumentoSemValor`), uma decisão só de status (SitCode 61, por exemplo), um
+parceiro corrigido que não existe ou um `ATUALIZAR_*` sem documento no SAP gravavam um registro novo
+a cada ciclo de 3 minutos, sem nenhum documento apontando para ele. Agora o snapshot é gravado **uma
+vez, logo antes do primeiro documento enviado ao SAP** (`_SnapshotSobDemanda`), e o `DocEntry` dele
+vai no `U_INO_ORCAMENTO` como antes — a ordem "snapshot antes do documento" continua valendo. O
+payload é montado sem ele para a checagem de valor e de parceiro, que não precisam escrever nada.
+Ficou de fora, de propósito: um documento que o SAP recusa todo ciclo (ex.: o `-1116` no
+cancelamento) ainda grava o snapshot antes da tentativa — evitar isso exigiria gravar o documento
+primeiro e corrigir o UDF depois, uma escrita a mais em todo documento.
+
+**Vínculo da cotação/pedido com a oportunidade.** A exceção do `vincular_documento` saía do
+`_executar` antes do espelhamento de status. Na regra `emitido_apos_revisao_no_sap` (WBC voltou a
+30, SAP em 40/55) só o espelhamento (`U_INO_StatusWBC` → 30) encerra a regra: com o vínculo falhando
+sempre, a cotação seria cancelada e recriada a cada ciclo. O documento em si é achado no ciclo
+seguinte pelo `U_INO_COTWBC` gravado nele (a leitura do HANA não usa o vínculo), então seguir é
+seguro: a falha vira aviso no log e evento `ERRO` no histórico do orçamento (`_vincular`), e o
+espelhamento roda. O que se perde é só a linha de estágio na oportunidade — o mesmo tratamento do
+`_cancelar_cotacao_no_encerramento`.

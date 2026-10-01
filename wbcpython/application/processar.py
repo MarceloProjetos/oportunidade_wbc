@@ -120,6 +120,28 @@ class DocumentoSemValor(Exception):
     """
 
 
+class _SnapshotSobDemanda:
+    """The OrcDetalhe snapshot of one quote, written once, on first use.
+
+    `no_payload(dados)` writes it (the first time) and stamps its `DocEntry` into
+    `U_INO_ORCAMENTO` — the same field `venda_comum` used to fill when the snapshot came in
+    up front. Called only by a path that is about to send the document to the SAP.
+    """
+
+    def __init__(self, gravar: Any) -> None:
+        self._gravar = gravar
+        self._feito = False
+        self._doc_entry: int | None = None
+
+    def no_payload(self, dados: dict[str, Any]) -> dict[str, Any]:
+        if not self._feito:
+            self._doc_entry = self._gravar()
+            self._feito = True
+        if self._doc_entry:
+            return {**dados, "U_INO_ORCAMENTO": self._doc_entry}
+        return dados
+
+
 def total_do_payload(dados: dict[str, Any]) -> Decimal:
     """Soma `LineTotal` das linhas do payload.
 
@@ -375,8 +397,13 @@ class ProcessadorDeOrcamento:
 
         # O snapshot vem **antes** dos documentos porque o seu `DocEntry` é o
         # que alimenta o UDF `U_INO_ORCAMENTO` da cotação/pedido. Ver
-        # `_gravar_snapshot_orcdetalhe`.
-        snapshot_id = self._gravar_snapshot_orcdetalhe(orcamento) if self._gravar_snapshot else None
+        # `_gravar_snapshot_orcdetalhe`. Lazily, once, right before the first document
+        # write (01/10/2026 review): it used to be written before ANY action — a quote with
+        # no items (DocumentoSemValor), a status-only change or a missing partner wrote a
+        # new @INO_ORCAM row every 3-minute cycle with no document to point at it.
+        snapshot = _SnapshotSobDemanda(
+            lambda: self._gravar_snapshot_orcdetalhe(orcamento) if self._gravar_snapshot else None
+        )
 
         for acao in decisao.acoes:
             if acao is Acao.VINCULAR_DOCUMENTO_A_OPORTUNIDADE:
@@ -386,13 +413,9 @@ class ProcessadorDeOrcamento:
                     # DocEntry, não DocNum — ver `vincular_documento`.
                     doc_entry = _inteiro(ultimo_documento.get("DocEntry"))
                     total = _decimal(ultimo_documento.get("DocTotal"))
-                    if doc_entry:
-                        self._oportunidades.vincular_documento(
-                            oppr_id,
-                            tipo_ultimo,
-                            doc_entry,
-                            float(total) if total else None,
-                        )
+                    if doc_entry and self._vincular(
+                        orcnum, oppr_id, tipo_ultimo, doc_entry, float(total) if total else None
+                    ):
                         executadas.append(acao)
                 continue
 
@@ -415,7 +438,7 @@ class ProcessadorDeOrcamento:
 
             try:
                 documento, tipo = self._executar_documento(
-                    acao, estado, orcamento, oportunidade, snapshot_id
+                    acao, estado, orcamento, oportunidade, snapshot
                 )
             except DocumentoSemValor:
                 # A ação **não** entra em `executadas`: nada foi escrito, e
@@ -452,6 +475,37 @@ class ProcessadorDeOrcamento:
             mensagem="Ações executadas: " + ", ".join(a.value for a in executadas),
         )
         return tuple(executadas)
+
+    def _vincular(
+        self,
+        orcnum: str,
+        oppr_id: int,
+        tipo: TipoDocumento,
+        doc_entry: int,
+        total: float | None,
+    ) -> bool:
+        """Link the new document to the opportunity; a failure is a warning, not an error.
+
+        01/10/2026 review: the exception used to leave `_executar` before
+        `_espelhar_status_apos_documento`. On `emitido_apos_revisao_no_sap` only the mirror
+        (`U_INO_StatusWBC` back to 30) ends the rule, so a link failing every time cancelled
+        and recreated the quotation every 3-minute cycle. The document itself is still found
+        next cycle — by `U_INO_COTWBC` on the document, not by this link — so going on is safe;
+        what is lost is the opportunity's stage line, recorded here as an ERRO event for the
+        painel. Same treatment as `_cancelar_cotacao_no_encerramento`.
+        """
+        try:
+            self._oportunidades.vincular_documento(oppr_id, tipo, doc_entry, total)
+        except Exception as exc:  # noqa: BLE001 - see the docstring
+            aviso = (
+                f"{tipo.rotulo.capitalize()} {doc_entry} criada, mas o vínculo com a "
+                f"oportunidade {oppr_id} falhou ({type(exc).__name__}: {exc}). O documento "
+                f"vale e é achado pelo orçamento; falta só a linha de estágio na oportunidade."
+            )
+            logger.warning("Orçamento %s: %s", orcnum, aviso)
+            self._tracking.registrar_evento(orcnum, tipo=TipoEvento.ERRO, mensagem=aviso)
+            return False
+        return True
 
     def _cancelar_cotacao_no_encerramento(
         self,
@@ -531,7 +585,7 @@ class ProcessadorDeOrcamento:
         estado: EstadoIntegracao,
         orcamento: OrcamentoWbc,
         oportunidade: dict[str, Any],
-        snapshot_id: int | None = None,
+        snapshot: _SnapshotSobDemanda | None = None,
     ) -> tuple[dict[str, Any] | None, TipoDocumento | None]:
         """Encaminha a ação para o procedimento do documento correspondente.
 
@@ -541,10 +595,11 @@ class ProcessadorDeOrcamento:
         fácil mandar campo de um no outro; o `U_INO_Composicao` chegou a sair em
         cotação, onde aparece na impressão do cliente.
         """
+        snapshot = snapshot or _SnapshotSobDemanda(lambda: None)
         if acao in ACOES_DE_COTACAO:
-            return self._executar_cotacao(acao, estado, orcamento, oportunidade, snapshot_id)
+            return self._executar_cotacao(acao, estado, orcamento, oportunidade, snapshot)
         if acao in ACOES_DE_PEDIDO:
-            return self._executar_pedido(acao, estado, orcamento, oportunidade, snapshot_id)
+            return self._executar_pedido(acao, estado, orcamento, oportunidade, snapshot)
         return None, None
 
     def _parceiro_existe(self, estado: EstadoIntegracao, orcnum: str) -> bool:
@@ -612,23 +667,27 @@ class ProcessadorDeOrcamento:
         estado: EstadoIntegracao,
         orcamento: OrcamentoWbc,
         oportunidade: dict[str, Any],
-        snapshot_id: int | None,
+        snapshot: _SnapshotSobDemanda,
     ) -> tuple[dict[str, Any] | None, TipoDocumento | None]:
         """Criação e manutenção da **cotação**."""
-        dados = self._payload_cotacao(orcamento, estado, oportunidade, snapshot_id)
+        # Built without the snapshot first: the value check needs no SAP write.
+        dados = self._payload_cotacao(orcamento, estado, oportunidade, None)
         tipo = TipoDocumento.COTACAO
         self._exigir_valor(tipo, orcamento.orcnum, dados)
 
         if acao is Acao.CRIAR_COTACAO:
-            return self._documentos.criar(tipo, dados), tipo
+            return self._documentos.criar(tipo, snapshot.no_payload(dados)), tipo
         if acao is Acao.CANCELAR_E_RECRIAR_COTACAO:
             return (
-                self._documentos.cancelar_e_recriar(tipo, orcamento.orcnum, dados),
+                self._documentos.cancelar_e_recriar(
+                    tipo, orcamento.orcnum, snapshot.no_payload(dados)
+                ),
                 tipo,
             )
         if acao is Acao.ATUALIZAR_COTACAO:
             doc_entry = self._documentos.doc_entry(tipo, orcamento.orcnum)
             if doc_entry is not None:
+                dados = snapshot.no_payload(dados)
                 self._documentos.atualizar(tipo, doc_entry, dados)
                 return self._conferir_cotacao(orcamento.orcnum, doc_entry, dados)
             return None, None
@@ -729,10 +788,11 @@ class ProcessadorDeOrcamento:
         estado: EstadoIntegracao,
         orcamento: OrcamentoWbc,
         oportunidade: dict[str, Any],
-        snapshot_id: int | None,
+        snapshot: _SnapshotSobDemanda,
     ) -> tuple[dict[str, Any] | None, TipoDocumento | None]:
         """Criação e manutenção do **pedido de venda**."""
-        dados = self._payload_pedido(orcamento, estado, oportunidade, snapshot_id)
+        # Built without the snapshot first: the value and partner checks need no SAP write.
+        dados = self._payload_pedido(orcamento, estado, oportunidade, None)
         tipo = TipoDocumento.PEDIDO
         self._exigir_valor(tipo, orcamento.orcnum, dados)
 
@@ -742,7 +802,7 @@ class ProcessadorDeOrcamento:
             # caso `_parceiro_existe` devolve True sem ir à rede.
             if not self._parceiro_existe(estado, orcamento.orcnum):
                 return None, None
-            return self._documentos.criar(tipo, dados), tipo
+            return self._documentos.criar(tipo, snapshot.no_payload(dados)), tipo
         if acao is Acao.CANCELAR_E_RECRIAR_PEDIDO:
             # `cancelar_e_recriar` cancela **antes** de criar. Se o parceiro
             # corrigido não existir no SAP, o orçamento fica sem pedido nenhum
@@ -752,14 +812,18 @@ class ProcessadorDeOrcamento:
                 return None, None
             # O payload já prioriza o PN novo quando há troca de parceiro.
             return (
-                self._documentos.cancelar_e_recriar(tipo, orcamento.orcnum, dados),
+                self._documentos.cancelar_e_recriar(
+                    tipo, orcamento.orcnum, snapshot.no_payload(dados)
+                ),
                 tipo,
             )
         if acao is Acao.ATUALIZAR_PEDIDO:
             doc_entry = self._documentos.doc_entry(tipo, orcamento.orcnum)
             if doc_entry is not None:
                 self._documentos.atualizar(
-                    tipo, doc_entry, self._respeitar_congelamento(orcamento.orcnum, dados)
+                    tipo,
+                    doc_entry,
+                    self._respeitar_congelamento(orcamento.orcnum, snapshot.no_payload(dados)),
                 )
             return None, None
         return None, None

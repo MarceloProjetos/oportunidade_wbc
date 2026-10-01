@@ -6,6 +6,19 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-01] — Worker: snapshot só antes de gravar documento; vínculo que falha não refaz a cotação
+
+Entra pelo `deploy_update.bat` (worker e painel). Decisão em `docs/wbc/DECISOES.md`.
+
+- **Snapshot `@INO_ORCAM` só quando um documento vai ser gravado**, uma vez por orçamento, logo antes
+  do primeiro envio ao SAP. Antes saía em toda decisão com ação — um orçamento sem itens ou a preço
+  zero, ou uma mudança só de status, gravava um registro novo a cada 3 minutos sem documento
+  nenhum apontando para ele. O `U_INO_ORCAMENTO` do documento continua levando o `DocEntry` dele.
+- **Vínculo com a oportunidade que falha vira aviso**, e o status da oportunidade é espelhado do
+  mesmo jeito. Antes a falha interrompia o orçamento antes do espelhamento, e na regra
+  `emitido_apos_revisao_no_sap` isso cancelaria e recriaria a cotação a cada ciclo. O documento
+  continua achado pelo orçamento; a falha fica no log e no histórico do orçamento como erro.
+
 ## [2026-10-01] — Revisão geral, lote 4: robustez da API, do worker e do deploy
 
 Entra pelo `deploy_update.bat` (todos os serviços). Achados da revisão geral de 01/10/2026.

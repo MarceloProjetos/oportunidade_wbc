@@ -1838,3 +1838,70 @@ class TestConferenciaDaCotacaoAtualizada:
 
         assert resultado.sucesso
         assert not any(c[0] == "cancelar_e_recriar" for c in docs.chamadas)
+
+
+class TestSnapshotSoAntesDeGravarDocumento:
+    """01/10/2026 review: the snapshot was written before ANY action. A quote with no value,
+    a status-only change or a missing partner wrote a new @INO_ORCAM row every 3-minute
+    cycle, with no document pointing at it. Now it is written once, right before the first
+    document is sent to the SAP — still before it, as `U_INO_ORCAMENTO` needs its DocEntry."""
+
+    def test_orcamento_sem_valor_nao_grava_snapshot(self, tracking) -> None:
+        docs, orcdet = DocumentosFalso(), OrcDetalheFalso()
+        _processador(
+            tracking, WbcFalso(_orcamento(sitcode=30, itens=())), docs, OportunidadesFalso(), orcdet
+        ).processar(_oportunidade())
+
+        assert not [c for c in docs.chamadas if c[0] == "criar"]
+        assert orcdet.snapshots == []
+
+    def test_mudanca_so_de_status_nao_grava_snapshot(self, tracking) -> None:
+        docs, oport, orcdet = DocumentosFalso(tem_cotacao=True), OportunidadesFalso(), OrcDetalheFalso()
+        # SitCode 61 has no branch of its own: the decision is the status mirror alone.
+        resultado = _processador(
+            tracking, WbcFalso(_orcamento(sitcode=61)), docs, oport, orcdet
+        ).processar(_oportunidade(U_INO_StatusWBC="0"))
+
+        assert resultado.decisao.regra == "espelha_status"
+        assert ("status", (77, 61)) in oport.chamadas
+        assert orcdet.snapshots == []
+
+    def test_documento_criado_continua_com_o_snapshot(self, tracking) -> None:
+        docs, orcdet = DocumentosFalso(), OrcDetalheFalso()
+        _processador(
+            tracking, WbcFalso(_orcamento(sitcode=30)), docs, OportunidadesFalso(), orcdet
+        ).processar(_oportunidade())
+
+        criados = [c for c in docs.chamadas if c[0] == "criar"]
+        assert len(orcdet.snapshots) == 1
+        assert criados[0][2]["U_INO_ORCAMENTO"] == 513888
+
+
+class TestVinculoQueFalha:
+    """01/10/2026 review: a failed link left `_executar` before the status mirror. On
+    `emitido_apos_revisao_no_sap` only the mirror (U_INO_StatusWBC back to 30) ends the rule,
+    so a link failing every time cancelled and recreated the quotation every cycle."""
+
+    class OportunidadesQueNaoVinculam(OportunidadesFalso):
+        def vincular_documento(self, oppr_id, tipo, doc_entry, total=None):
+            raise RuntimeError("SAP -1029 recusou o estágio")
+
+    def test_cotacao_recriada_espelha_o_status_mesmo_sem_vinculo(self, tracking) -> None:
+        docs = DocumentosFalso(tem_cotacao=True)
+        oport = self.OportunidadesQueNaoVinculam()
+        resultado = _processador(
+            tracking, WbcFalso(_orcamento(sitcode=30)), docs, oport, OrcDetalheFalso()
+        ).processar(_oportunidade(U_INO_StatusWBC="40"))
+
+        assert resultado.decisao.regra == "emitido_apos_revisao_no_sap"
+        assert ("status", (77, 30)) in oport.chamadas, "the mirror ends the rule next cycle"
+        erros = [e for e in tracking.eventos("00123316") if e.tipo.value == "erro"]
+        assert any("vínculo com a oportunidade" in e.mensagem for e in erros)
+
+    def test_o_ciclo_seguinte_nao_recria(self, tracking) -> None:
+        """With the mirror done, the next read says SAP 30: nothing to do."""
+        docs = DocumentosFalso(tem_cotacao=True)
+        resultado = _processador(
+            tracking, WbcFalso(_orcamento(sitcode=30)), docs, OportunidadesFalso(), OrcDetalheFalso()
+        ).processar(_oportunidade(U_INO_StatusWBC="30"))
+        assert resultado.decisao.regra == "emitido_ja_sincronizado"
