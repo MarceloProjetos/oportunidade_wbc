@@ -875,7 +875,7 @@ a nota "A seleção vale só para esta página — mudar de página a perde."
   original põe em negrito "**Reprocessar**", "**planejadas**" e "**não recria**".
 
 **Execução em andamento** (`execucao_em_andamento` não-nulo), acima da tabela, faixa laranja com
-ícone de relógio: "Há uma execução em andamento neste módulo: [`nome`](link para a Tela 3). Uma
+ícone de relógio: "Há uma execução em andamento neste módulo: `nome` (um link que abre a Tela 3 dessa execução). Uma
 nova só é aceita depois que ela terminar — duas ao mesmo tempo disputariam os mesmos pedidos e OPs."
 
 **A lista não carregou** (`502`): faixa amarela "Não foi possível carregar os pedidos agora —
