@@ -253,8 +253,14 @@ def criar_app(
     @app.middleware("http")
     async def exigir_chave(request: Request, call_next: Any) -> Any:
         caminho = request.url.path
-        if caminho in ROTAS_ABERTAS or caminho.startswith(("/static/", "/casa/")) or _autenticado(request):
+        if caminho in ROTAS_ABERTAS or caminho.startswith(("/static/", "/casa/")):
             return await call_next(request)
+        if _autenticado(request):
+            if acesso.escrita_permitida(request, chave):
+                return await call_next(request)
+            return Response(
+                "Recusado: o pedido não veio desta tela (origem diferente).", status_code=403
+            )
         if request.headers.get("hx-request"):
             # Um fragmento pedido pelo HTMX com o cookie vencido: devolver a tela
             # de entrada dentro de um bloco da página seria uma tela quebrada.
@@ -491,7 +497,6 @@ def criar_app(
     @app.get("/fragmentos/ciclo", response_class=HTMLResponse)
     def fragmento_ciclo(
         request: Request,
-        arquivo: str = "",
         busca: str = "",
         status: str = "",
         sitcode: str = "",
@@ -504,7 +509,10 @@ def criar_app(
         `dashboard/previsao` para o porquê — em resumo, abrir a página passaria
         a custar uma varredura no HANA e no SQL Server.
         """
-        caminho = Path(arquivo) if arquivo.strip() else prev.ARQUIVO_PADRAO
+        # Never a path from the URL: `?arquivo=` used to be accepted here and in the log tab,
+        # and the log tab printed ANY file of the server (the .env with every password) to
+        # whoever had the key (review of 01/10/2026). The path is fixed by the painel.
+        caminho = prev.ARQUIVO_PADRAO
         try:
             previsao = prev.carregar(caminho)
         except prev.RetratoAusente:
@@ -616,7 +624,6 @@ def criar_app(
     @app.get("/fragmentos/log", response_class=HTMLResponse)
     def fragmento_log(
         request: Request,
-        arquivo: str = "",
         busca: str = "",
         nivel: str = "",
         limite: int = 300,
@@ -629,7 +636,8 @@ def criar_app(
         mesmo texto que apareceria para quem estivesse olhando. Ver
         `wbcpython.logs`, "uma fonte, duas telas".
         """
-        caminho = arquivo.strip() or str(config.caminho_do_log or "")
+        # Only the configured log — see `fragmento_ciclo` for why the URL no longer picks it.
+        caminho = str(config.caminho_do_log or "")
         linhas = (
             logs.ler(
                 caminho,

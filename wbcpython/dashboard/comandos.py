@@ -283,6 +283,11 @@ class PreviaObrigatoria(RuntimeError):
     """`pesos` só aplica depois de uma prévia do mesmo alvo."""
 
 
+#: Commands that stop through the stop file instead of being terminated: the cycle writes to
+#: SAP and checks the file between quotes. See `Executor.interromper`.
+PARADA_ENTRE_ORCAMENTOS = frozenset({"ciclo"})
+
+
 @dataclass
 class Execucao:
     """Uma execução disparada pelo painel."""
@@ -297,6 +302,10 @@ class Execucao:
     fim: datetime | None = None
     codigo: int | None = None
     interrompida: bool = False
+    #: The child's own stop file (``WORKER_ARQUIVO_DE_PARADA`` in its environment). The cycle
+    #: reads it between quotes, so "Interromper" never cuts a write in the middle.
+    parada: Path | None = None
+    parada_pedida: bool = False
     _processo: subprocess.Popen[bytes] | None = field(default=None, repr=False)
 
     @property
@@ -430,6 +439,9 @@ class Executor:
                 ).name
             )
             saida = destino.open("wb")
+            parada = destino.with_suffix(".stop")
+            ambiente = self._ambiente()
+            ambiente["WORKER_ARQUIVO_DE_PARADA"] = str(parada)
             # `python -m wbcpython` e não o script `wbcpython`: assim usa
             # exatamente o interpretador do painel, sem depender de PATH.
             # Sem shell e com a lista de argumentos montada só a partir do
@@ -439,7 +451,7 @@ class Executor:
                 stdout=saida,
                 stderr=subprocess.STDOUT,
                 stdin=subprocess.DEVNULL,
-                env=self._ambiente(),
+                env=ambiente,
             )
             saida.close()
 
@@ -451,6 +463,7 @@ class Executor:
                 solicitante=solicitante,
                 inicio=_agora(),
                 arquivo=destino,
+                parada=parada,
                 _processo=processo,
             )
             self._proximo_id += 1
@@ -458,11 +471,15 @@ class Executor:
             return execucao
 
     def interromper(self) -> Execucao | None:
-        """Encerra o que está rodando.
+        """Pede para parar o que está rodando.
 
-        `terminate` e não `kill`: o ciclo trata o sinal e libera a trava de
-        execução única ao sair. Um `kill` deixaria a trava presa até expirar, e
-        o worker ficaria 30 minutos sem rodar por causa de um clique.
+        The cycle is asked through its stop file and stops between quotes: it finishes the
+        quote in progress, releases the execution lock, closes the execution row and logs out
+        of the Service Layer. ``terminate`` used to be called here on the assumption that "the
+        cycle handles the signal" — on Windows it is ``TerminateProcess``, which runs no
+        handler: the lock stayed held for 30 min, the execution stayed "em andamento" forever,
+        and a kill between the POST and the link left a quotation unlinked (01/10/2026 review).
+        Read-only commands have nothing to protect and are still terminated.
         """
         with self._trava:
             self._colher()
@@ -470,6 +487,11 @@ class Executor:
             if execucao is None or execucao._processo is None:
                 return None
             execucao.interrompida = True
+            if execucao.comando in PARADA_ENTRE_ORCAMENTOS and execucao.parada is not None:
+                if not execucao.parada_pedida:
+                    execucao.parada.write_text("interrompido pelo painel", encoding="utf-8")
+                    execucao.parada_pedida = True
+                return execucao
             execucao._processo.terminate()
             return execucao
 
@@ -529,6 +551,8 @@ class Executor:
         execucao.codigo = codigo
         execucao.fim = _agora()
         execucao._processo = None
+        if execucao.parada is not None:
+            execucao.parada.unlink(missing_ok=True)
         if execucao.comando == "pesos" and codigo == 0 and "--simular" in execucao.linha:
             self._previa_de_peso = self._alvo_da_linha(execucao.linha)
         self._historico.append(execucao)

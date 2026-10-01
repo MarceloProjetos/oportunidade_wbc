@@ -72,9 +72,13 @@
       <h2>{{ atual.rotulo }}</h2>
       <span class="selo atencao">rodando há {{ '%.0f'|format(atual.duracao) }}s</span>
       <span class="carimbo"><span class="pulso"></span>{{ atualizado }}</span>
-      <form hx-post="/fragmentos/comandos/interromper" hx-target="#console">
-        <button class="acao discreta" type="submit">Interromper</button>
-      </form>
+      {% if atual.parada_pedida %}
+        <span class="selo atencao">interrupção pedida: termina o orçamento em curso e para</span>
+      {% else %}
+        <form hx-post="/fragmentos/comandos/interromper" hx-target="#console">
+          <button class="acao discreta" type="submit">Interromper</button>
+        </form>
+      {% endif %}
     </header>
     <div class="corpo">
       <p class="nota">

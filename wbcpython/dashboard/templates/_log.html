@@ -32,9 +32,10 @@
     {% endif %}
 
     <form class="filtros" id="log-filtros" hx-get="/fragmentos/log" hx-target="#conteudo">
+      {# Read-only and unnamed: the painel reads only LOG_FILE (01/10/2026 review). #}
       <label class="campo">
         <span>Arquivo</span>
-        <input type="text" class="largo" name="arquivo" value="{{ arquivo }}" />
+        <input type="text" class="largo" value="{{ arquivo }}" readonly tabindex="-1" />
       </label>
       <label class="campo">
         <span>Filtrar por texto</span>

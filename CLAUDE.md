@@ -225,7 +225,8 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   (o MESMO cookie `wbc_painel`, HMAC em `casa/acesso.py` desde 01/10/2026 — `wbcpython/dashboard/acesso.py`
   só reexporta; o navegador não separa cookie por porta, então uma entrada vale para as **três**
   telas, inclusive a Sincronização da 8077). Na 8077, `_autorizado()` aceita a chave OU o cookie;
-  escrita só por cookie exige `Origin`/`Referer` do mesmo host:porta (CSRF). Trocar a chave derruba os
+  escrita só por cookie exige `Origin`/`Referer` do mesmo host:porta (CSRF) — nas **três** telas desde
+  01/10/2026 (o painel: `acesso.escrita_permitida`, mesmo sem chave configurada). Trocar a chave derruba os
   cookies de todo mundo — é o desenho. Sem ela, painel e API ficam abertos e o Controle de
   Produção fica **só leitura** (rotas de escrita → 503, fail-closed como a rota de OP).
 - **Controle de Produção — o que morde** (detalhe em `docs/PLANO_CONTROLE_PRODUCAO_11.md`):

@@ -170,10 +170,58 @@ class TestDestinoLocal:
             ("http://outro-host/", "/"),
             ("/\\\\outro", "/"),
             ("relativo", "/"),
+            # The browser drops tab/CR/LF, so these land on //outro (01/10/2026 review).
+            ("/\t/outro", "/"),
+            ("/\n/outro", "/"),
+            ("/\r\n/outro", "/"),
         ],
     )
     def test_so_caminhos_desta_pagina(self, proximo: str, esperado: str) -> None:
         assert _destino_local(proximo) == esperado
+
+
+class TestEscritaSoDaPropriaTela:
+    """01/10/2026 review: the painel's POSTs did not check the origin (the 8077 and the
+    Controle de Produção did). SameSite ignores ports, so a page on another port of the .11
+    could fire the per-quote cycle — which writes to SAP with no password — with the
+    operator's cookie."""
+
+    ALVO = "/fragmentos/janela/limpar"
+
+    def _entrar(self, cliente: TestClient) -> None:
+        cliente.post("/entrar", data={"chave": CHAVE}, follow_redirects=False)
+
+    def test_post_de_outra_porta_e_recusado(self, fechado: TestClient) -> None:
+        self._entrar(fechado)
+        resposta = fechado.post(self.ALVO, headers={"Origin": "http://testserver:8077"})
+        assert resposta.status_code == 403
+
+    def test_post_sem_origem_e_recusado(self, fechado: TestClient) -> None:
+        self._entrar(fechado)
+        assert fechado.post(self.ALVO, headers={"Origin": ""}).status_code == 403
+
+    def test_post_da_propria_tela_passa(self, fechado: TestClient) -> None:
+        self._entrar(fechado)
+        assert fechado.post(self.ALVO).status_code != 403
+
+    def test_referer_da_propria_tela_basta(self, fechado: TestClient) -> None:
+        self._entrar(fechado)
+        resposta = fechado.post(
+            self.ALVO, headers={"Origin": "", "Referer": "http://testserver/?aba=comandos"}
+        )
+        assert resposta.status_code != 403
+
+    def test_script_com_a_chave_nao_precisa_de_origem(self, fechado: TestClient) -> None:
+        resposta = fechado.post(self.ALVO, headers={"Origin": "", "X-API-Key": CHAVE})
+        assert resposta.status_code != 403
+
+    def test_sem_chave_configurada_a_origem_continua_valendo(self, aberto: TestClient) -> None:
+        assert aberto.post(self.ALVO, headers={"Origin": "http://outro:1"}).status_code == 403
+        assert aberto.post(self.ALVO).status_code != 403
+
+    def test_leitura_nao_pede_origem(self, fechado: TestClient) -> None:
+        self._entrar(fechado)
+        assert fechado.get("/fragmentos/kpis", headers={"Origin": "http://outro:1"}).status_code == 200
 
 
 class TestCaminhoParaASincronizacao:

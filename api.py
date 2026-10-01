@@ -1290,6 +1290,23 @@ def _chave_docentry() -> bool:
     return (request.args.get('chave') or '').strip().lower() in ('docentry', 'entry', 'absentry')
 
 
+_PARAMETROS_SECRETOS = frozenset({'key', 'api_key'})
+
+
+def _caminho_sem_chave() -> str:
+    """The path and query for the log, with ``?key=`` / ``?api_key=`` masked.
+
+    ``_credencial_enviada`` accepts the key in the query string; logging ``full_path`` wrote
+    the SAP-writing key in plain text to ``api.log`` (01/10/2026 review)."""
+    if not request.query_string:
+        return request.path
+    partes = [
+        f"{nome}=***" if nome.lower() in _PARAMETROS_SECRETOS else f"{nome}={valor}"
+        for nome, valor in request.args.items(multi=True)
+    ]
+    return f"{request.path}?{'&'.join(partes)}"
+
+
 @app.after_request
 def _registra_chamada_de_op(resposta: Response) -> Response:
     """One INFO line per call to the OP routes: who called, what was asked, what came back.
@@ -1309,7 +1326,7 @@ def _registra_chamada_de_op(resposta: Response) -> Response:
         tipo = devolvido.get('tipo') if isinstance(devolvido, dict) else None
         logger.info(
             'Rota de OP: %s %s -> %s | origem %s | agente %s | status pedido %s | status_atual %s | tipo %s',
-            request.method, request.full_path.rstrip('?'), resposta.status_code,
+            request.method, _caminho_sem_chave(), resposta.status_code,
             request.remote_addr or '-', (request.user_agent.string or '-')[:120],
             corpo.get('status', '-'), corpo.get('status_atual', '-'), tipo or '-',
         )

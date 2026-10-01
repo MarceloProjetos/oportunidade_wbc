@@ -216,8 +216,16 @@ class TestOportunidades:
 
 
 class TestProximoCiclo:
+    @pytest.fixture(autouse=True)
+    def _retrato_no_tmp(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The route no longer takes `?arquivo=` (01/10/2026 review): the fixed path moves."""
+        from wbcpython.dashboard import previsao as prev
+
+        monkeypatch.setattr(prev, "ARQUIVO_PADRAO", tmp_path / "previsao.json")
+
     def test_renderiza_os_numeros_do_retrato(self, cliente: TestClient, tmp_path: Path) -> None:
-        texto = cliente.get("/fragmentos/ciclo", params={"arquivo": str(_retrato(tmp_path))}).text
+        _retrato(tmp_path)
+        texto = cliente.get("/fragmentos/ciclo").text
         assert "Na janela" in texto
         assert "O ciclo agiria" in texto
         assert "Criar cotação" in texto
@@ -225,30 +233,26 @@ class TestProximoCiclo:
     def test_mostra_a_procedencia_do_retrato(self, cliente: TestClient, tmp_path: Path) -> None:
         """Um retrato de produção aberto achando que é homologação é o erro mais
         caro que esta tela poderia induzir."""
-        texto = cliente.get("/fragmentos/ciclo", params={"arquivo": str(_retrato(tmp_path))}).text
+        _retrato(tmp_path)
+        texto = cliente.get("/fragmentos/ciclo").text
         assert "SBOALTAMIRAHOMOLOG" in texto
         assert "01/09/2026" in texto
 
     def test_sem_retrato_ensina_a_gerar_um(self, cliente: TestClient, tmp_path: Path) -> None:
         """ "Nada a fazer" e "ninguém gerou o retrato" não podem se parecer."""
-        texto = cliente.get(
-            "/fragmentos/ciclo", params={"arquivo": str(tmp_path / "nao_existe.json")}
-        ).text
+        texto = cliente.get("/fragmentos/ciclo").text
         assert "--exportar" in texto
         assert "Na janela" not in texto
 
     def test_retrato_corrompido_diz_o_que_houve(self, cliente: TestClient, tmp_path: Path) -> None:
-        ruim = tmp_path / "ruim.json"
-        ruim.write_text("{isso não é json", encoding="utf-8")
-        resposta = cliente.get("/fragmentos/ciclo", params={"arquivo": str(ruim)})
+        (tmp_path / "previsao.json").write_text("{isso não é json", encoding="utf-8")
+        resposta = cliente.get("/fragmentos/ciclo")
         assert resposta.status_code == 200
         assert "Não foi possível ler o retrato" in resposta.text
 
     def test_filtra_por_sitcode(self, cliente: TestClient, tmp_path: Path) -> None:
-        texto = cliente.get(
-            "/fragmentos/ciclo",
-            params={"arquivo": str(_retrato(tmp_path)), "sitcode": "60"},
-        ).text
+        _retrato(tmp_path)
+        texto = cliente.get("/fragmentos/ciclo", params={"sitcode": "60"}).text
         assert "00000002" in texto
         assert "00000003" not in texto
 
@@ -257,7 +261,8 @@ class TestProximoCiclo:
     ) -> None:
         """A macro existe porque `{% with %}` não propaga escopo para dentro de
         um `include`: os dois gráficos saíam com os dados do primeiro."""
-        texto = cliente.get("/fragmentos/ciclo", params={"arquivo": str(_retrato(tmp_path))}).text
+        _retrato(tmp_path)
+        texto = cliente.get("/fragmentos/ciclo").text
         assert "Criar cotação" in texto  # gráfico de ações
         assert "Vendida" in texto  # gráfico de status da oportunidade
 
@@ -404,13 +409,18 @@ class TestExecucoes:
 class TestLog:
     """A aba que faz do painel um monitor: mostra o log do worker."""
 
+    @pytest.fixture
+    def config(self, config: Settings, tmp_path: Path) -> Settings:
+        """Only LOG_FILE is read since the 01/10/2026 review (no `?arquivo=`)."""
+        return config.model_copy(update={"log_file": str(tmp_path / "wbcpython.log")})
+
     def test_mostra_as_linhas_do_arquivo(self, cliente: TestClient, tmp_path: Path) -> None:
         log = tmp_path / "wbcpython.log"
         log.write_text(
             "2026-09-01 10:00:00 | INFO     | wbcpython.host.worker | ciclo concluído\n",
             encoding="utf-8",
         )
-        texto = cliente.get("/fragmentos/log", params={"arquivo": str(log)}).text
+        texto = cliente.get("/fragmentos/log").text
         assert "ciclo concluído" in texto
         assert "1 linha(s)" in texto
 
@@ -422,7 +432,7 @@ class TestLog:
             "2026-09-01 10:00:00 | ERROR    | wbcpython.host.worker | estourou\n",
             encoding="utf-8",
         )
-        texto = cliente.get("/fragmentos/log", params={"arquivo": str(log)}).text
+        texto = cliente.get("/fragmentos/log").text
         assert "1 linha(s) de erro" in texto
         assert 'class="log-linha ERROR"' in texto
 
@@ -437,7 +447,7 @@ class TestLog:
             "2026-09-15 10:00:01 | INFO     | wbcpython.host.worker | ciclo concluído\n",
             encoding="utf-8",
         )
-        texto = cliente.get("/fragmentos/log", params={"arquivo": str(log)}).text
+        texto = cliente.get("/fragmentos/log").text
         assert 'class="log-linha INFO tema"' in texto
         assert 'class="selo-tema" data-tema="porta-paletes"' in texto
         assert "272 módulos lidos do texto" in texto
@@ -453,7 +463,7 @@ class TestLog:
             encoding="utf-8",
         )
         texto = cliente.get(
-            "/fragmentos/log", params={"arquivo": str(log), "busca": "[porta-paletes]"}
+            "/fragmentos/log", params={"busca": "[porta-paletes]"}
         ).text
         assert "lido" in texto
         assert "ciclo concluído" not in texto
@@ -465,12 +475,9 @@ class TestLog:
             "2026-09-01 10:00:01 | ERROR    | w | estourou\n",
             encoding="utf-8",
         )
-        texto = cliente.get("/fragmentos/log", params={"arquivo": str(log), "nivel": "ERROR"}).text
+        texto = cliente.get("/fragmentos/log", params={"nivel": "ERROR"}).text
         assert "estourou" in texto
         assert "rotina" not in texto
-
-    def test_sem_log_configurado_explica_como_ligar(self, cliente: TestClient) -> None:
-        assert "LOG_FILE" in cliente.get("/fragmentos/log").text
 
     def test_a_lista_se_repinta_sozinha_e_o_formulario_nao(
         self, cliente: TestClient, tmp_path: Path
@@ -479,9 +486,26 @@ class TestLog:
         embaixo de quem estivesse digitando."""
         log = tmp_path / "wbcpython.log"
         log.write_text("2026-09-01 10:00:00 | INFO | w | ok\n", encoding="utf-8")
-        texto = cliente.get("/fragmentos/log", params={"arquivo": str(log)}).text
+        texto = cliente.get("/fragmentos/log").text
         assert 'hx-select="#log-lista"' in texto
         assert 'id="log-filtros"' in texto
+
+
+class TestLogDesligado:
+    def test_sem_log_configurado_explica_como_ligar(self, cliente: TestClient) -> None:
+        assert "LOG_FILE" in cliente.get("/fragmentos/log").text
+
+    def test_o_caminho_nao_vem_da_url(self, cliente: TestClient, tmp_path: Path) -> None:
+        """01/10/2026: `?arquivo=.env` printed the .env (every password) to anyone with the
+        key. The parameter is ignored now, for the log and for the snapshot."""
+        segredo = tmp_path / "segredo.env"
+        segredo.write_text("SL_PASSWORD=nao-pode-aparecer\n", encoding="utf-8")
+        assert "nao-pode-aparecer" not in cliente.get(
+            "/fragmentos/log", params={"arquivo": str(segredo)}
+        ).text
+        assert "nao-pode-aparecer" not in cliente.get(
+            "/fragmentos/ciclo", params={"arquivo": str(segredo)}
+        ).text
 
 
 class TestRecortes:

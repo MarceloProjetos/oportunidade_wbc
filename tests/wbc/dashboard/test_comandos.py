@@ -382,12 +382,42 @@ class TestExecutor:
         assert "ainda está rodando" in str(erro.value)
         assert "pedido por a" in str(erro.value)
 
-    def test_interromper_encerra_e_vai_para_o_historico(
+    def test_interromper_o_ciclo_pede_parada_e_nao_mata(
+        self, executor: cmd.Executor, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """01/10/2026 review: `terminate` on Windows is TerminateProcess — no handler runs, the
+        lock stays held for 30 min and a kill between POST and link leaves a quotation
+        unlinked. The cycle is asked through its own stop file and stops between quotes."""
+        falso = _ProcessoFalso()
+        ambientes: list[dict[str, str]] = []
+
+        def popen(*_a: object, **k: object) -> _ProcessoFalso:
+            ambientes.append(k["env"])  # type: ignore[arg-type]
+            return falso
+
+        monkeypatch.setattr(cmd.subprocess, "Popen", popen)
+        execucao = executor.iniciar(
+            cmd.POR_ID["ciclo"], {"orcamento": "00000001"}, solicitante="a"
+        )
+        assert ambientes[0]["WORKER_ARQUIVO_DE_PARADA"] == str(execucao.parada)
+
+        alvo = executor.interromper()
+        assert alvo is not None and alvo.interrompida and alvo.parada_pedida
+        assert falso.terminado is False
+        assert execucao.parada is not None and execucao.parada.exists()
+        assert executor.atual() is execucao, "keeps running until the cycle stops by itself"
+
+        falso.codigo = 1  # the cycle saw the file and left
+        assert executor.atual() is None
+        assert executor.historico()[0].situacao == "interrompida"
+        assert not execucao.parada.exists(), "the stop file is cleaned when the process ends"
+
+    def test_interromper_leitura_encerra_na_hora(
         self, executor: cmd.Executor, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         falso = _ProcessoFalso()
         monkeypatch.setattr(cmd.subprocess, "Popen", lambda *a, **k: falso)
-        executor.iniciar(cmd.POR_ID["ciclo"], {"orcamento": "00000001"}, solicitante="a")
+        executor.iniciar(cmd.POR_ID["pendentes"], {"orcamento": "00000001"}, solicitante="a")
 
         alvo = executor.interromper()
         assert alvo is not None and alvo.interrompida is True

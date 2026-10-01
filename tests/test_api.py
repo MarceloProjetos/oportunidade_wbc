@@ -135,6 +135,15 @@ def test_entrar_confere_a_chave_e_grava_o_mesmo_cookie(client, monkeypatch):
     assert client.post('/sair').headers['Location'] == '/entrar'
 
 
+@pytest.mark.parametrize('proximo', ['/\t/fora.com', '/\n/fora.com', '/\r\n/fora.com'])
+def test_entrar_nao_redireciona_para_fora_com_caractere_de_controle(client, monkeypatch, proximo):
+    """01/10/2026 review: Flask sent ``Location: /\\t/fora.com`` and the browser, which drops
+    tab/CR/LF from a URL, went to //fora.com after the key was typed."""
+    _com_chave(monkeypatch)
+    certa = client.post('/entrar', data={'chave': 'segredo', 'proximo': proximo})
+    assert certa.status_code == 303 and certa.headers['Location'] == '/'
+
+
 def test_escrita_por_cookie_so_da_mesma_origem(client, monkeypatch):
     """CSRF: the cookie rides along on a request any page fires at this host; a write
     authenticated only by it must come from this origin. The key header stays exempt."""
@@ -1305,6 +1314,21 @@ def test_rota_de_op_registra_quem_chamou_inclusive_a_recusa(op_client, monkeypat
                    'status_atual liberada', 'tipo status_invalido'):
         assert trecho in linhas[0], trecho
     assert 'GET /ordens-producao/129850 -> 401' in linhas[1]
+
+
+def test_rota_de_op_nao_grava_a_chave_no_log(op_client, caplog):
+    """01/10/2026 review: ``?key=`` is accepted, and logging ``full_path`` wrote the
+    SAP-writing key in plain text to api.log."""
+    chave = op_client._auth['X-API-Key']
+    with caplog.at_level(logging.INFO, logger=apimod.__name__):
+        op_client.get(f'/ordens-producao/129850?chave=docnum&key={chave}')
+        op_client.get(f'/ordens-producao/129850?api_key={chave}')
+
+    linhas = [m for m in caplog.messages if m.startswith('Rota de OP:')]
+    assert len(linhas) == 2
+    assert all(chave not in linha for linha in linhas)
+    assert 'GET /ordens-producao/129850?chave=docnum&key=*** ->' in linhas[0]
+    assert 'api_key=***' in linhas[1]
 
 
 def test_outras_rotas_nao_entram_no_registro_de_op(client, caplog):

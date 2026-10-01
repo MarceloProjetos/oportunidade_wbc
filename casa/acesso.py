@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+from urllib.parse import urlsplit
 
 #: Cookie that proves the key was already checked in this browser (an HMAC token). The name
 #: is historical (the painel issued it first) and stays: renaming it logs everybody out.
@@ -34,4 +35,19 @@ def destino_local(proximo: str) -> str:
     proximo = (proximo or "").strip()
     if not proximo.startswith("/") or proximo.startswith("//") or "\\" in proximo:
         return "/"
+    # Browsers drop tab/CR/LF from a URL, so "/%09/evil.com" lands on "//evil.com" (seen on the
+    # 8077 in the 01/10/2026 review). Any control character, or anything urlsplit reads as a
+    # host, is refused.
+    if any(ord(c) < 0x20 or ord(c) == 0x7F for c in proximo) or urlsplit(proximo).netloc:
+        return "/"
     return proximo
+
+
+def mesma_origem(origem: str, netloc: str) -> bool:
+    """``origem`` (the ``Origin`` header, else ``Referer``) points at ``netloc`` (host:port).
+
+    The cookie rides along on any request the browser makes to this host — also one fired by
+    a page on another port of the same IP, since ``SameSite`` ignores ports. A write
+    authenticated only by the cookie must prove it came from the screen itself (CSRF)."""
+    alvo = urlsplit(origem or "").netloc
+    return bool(alvo) and alvo == netloc

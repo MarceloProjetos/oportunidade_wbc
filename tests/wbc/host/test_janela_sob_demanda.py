@@ -352,3 +352,18 @@ class TestCicloDeUmOrcamentoEsperaATrava:
         assert resultado.resumo.startswith("Ciclo NÃO rodou: Já existe uma execução")
         assert "nenhum erro" not in resultado.resumo
         assert not HanaEspiao.cortes
+
+    def test_interromper_durante_a_espera_encerra_sem_rodar(
+        self, ambiente, tracking, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        """The painel's "Interromper" writes the child's stop file; waiting for the lock must
+        notice it instead of sitting there for 3 minutes."""
+        parada = tmp_path / "painel.stop"
+        monkeypatch.setattr(mod_worker.time, "sleep", lambda s: parada.write_text("x"))
+        with tracking.trava_de_execucao():
+            resultado = _worker(tracking, worker_arquivo_de_parada=parada).executar_ciclo(
+                orcamento="00123304"
+            )
+
+        assert resultado.ignorado and "interrompido antes de começar" in resultado.ignorado
+        assert not HanaEspiao.cortes

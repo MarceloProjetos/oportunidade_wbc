@@ -6,6 +6,33 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-01] — Revisão geral, lote 1: segurança do painel e "Interromper"
+
+Entra pelo `deploy_update.bat` (painel WBC e API 8077). Achados da revisão geral de 01/10/2026,
+conferidos no código antes de corrigir.
+
+- **A aba Log do painel lia qualquer arquivo do servidor:** `/fragmentos/log?arquivo=.env`
+  mostrava o `.env` com todas as senhas a quem tivesse a chave. O painel agora lê só o `LOG_FILE`
+  (o campo "Arquivo" virou só leitura), e o "Próximo ciclo" só o retrato padrão
+  (`state/wbc_previsao.json`). O parâmetro `?arquivo=` é ignorado.
+- **Os POST do painel não conferiam a origem** (a 8077 e o Controle de Produção conferiam). Desde
+  hoje um deles é o ciclo que escreve no SAP sem senha, e o `SameSite` não separa portas: uma
+  página em outra porta da .11 podia dispará-lo com o cookie de quem estivesse logado. Agora
+  escrita só com `Origin`/`Referer` do próprio painel, ou com a chave (`X-API-Key`), mesmo sem
+  chave configurada.
+- **"Interromper" do ciclo não mata mais o processo.** O `terminate` era `TerminateProcess` no
+  Windows: nenhum tratador rodava, a trava ficava presa 30 min, a execução ficava "em andamento"
+  e, se caísse entre a gravação e o vínculo, sobrava cotação sem vínculo. Agora o painel grava o
+  arquivo de parada **do próprio comando** (`WORKER_ARQUIVO_DE_PARADA` no ambiente dele): o ciclo
+  termina o orçamento em curso, libera a trava e sai. Se ainda estiver esperando a trava do
+  worker, desiste na hora. A tela mostra "interrupção pedida". Comandos só de leitura continuam
+  encerrados na hora.
+- **Redirecionamento aberto no login da 8077:** `/entrar?proximo=/%09/site` levava para fora do
+  servidor depois da chave (o navegador descarta tab/quebra de linha da URL). `destino_local`
+  (`casa/acesso.py`, das três telas) recusa caractere de controle e qualquer coisa com host.
+- **A chave ia para o `api.log`** quando passada em `?key=` nas rotas de OP: o registro de
+  chamadas agora mascara `key`/`api_key`.
+
 ## [2026-10-01] — Ciclo de um orçamento: 24 meses e espera pelo worker
 
 Entra pelo `deploy_update.bat` (worker e painel). Decisão em `docs/wbc/DECISOES.md` ("Ciclo do

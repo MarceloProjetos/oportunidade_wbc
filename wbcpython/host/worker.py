@@ -218,6 +218,9 @@ class WorkerIntegracao:
                         somente_leitura=somente_leitura,
                     )
             except TravaNaoObtida as exc:
+                if self.parada_solicitada():
+                    logger.warning("Ciclo interrompido antes de começar: %s", exc)
+                    return ResultadoExecucao(ignorado=f"interrompido antes de começar. {exc}")
                 if time.monotonic() + INTERVALO_DE_TENTATIVA_DA_TRAVA > limite:
                     logger.warning("Ciclo ignorado: %s", exc)
                     return ResultadoExecucao(ignorado=str(exc))
