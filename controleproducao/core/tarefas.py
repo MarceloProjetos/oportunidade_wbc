@@ -155,14 +155,20 @@ class Tarefa:
         marca = f"{MARCA_PROBLEMA} " if problema else ""
         self.linhas.append(f"{datetime.now():%H:%M:%S}  {marca}{linha}")
 
-    def avanca(self, passo: str, feitos: int | None = None, total: int | None = None) -> None:
-        """Atualiza o passo atual e, opcionalmente, o progresso."""
+    def avanca(
+        self, passo: str, feitos: int | None = None, total: int | None = None, *, problema: bool = False
+    ) -> None:
+        """Atualiza o passo atual e, opcionalmente, o progresso.
+
+        ``problema`` marks the log line like ``anota`` does (01/10/2026): a pedido's "ERRO" or
+        "ATENÇÃO" step is also the step shown, and it used to reach the log without the mark.
+        """
         self.passo = passo
         if feitos is not None:
             self.passos_feitos = feitos
         if total is not None:
             self.passos_total = total
-        self.anota(passo)
+        self.anota(passo, problema=problema)
 
     def para_json(self) -> dict:
         return {

@@ -308,7 +308,7 @@ async def _roda_pedidos_com(tarefa, alvos, modo, force, settings, hana_reader, w
             # A failed pedido is not "concluído": saying both in a row made the log look like
             # the failure had been worked around.
             if erros:
-                tarefa.avanca(f"{rotulo}: ERRO — {erros[0].get('motivo')}", i)
+                tarefa.avanca(f"{rotulo}: ERRO — {erros[0].get('motivo')}", i, problema=True)
             elif sem_op or sem_rateio:
                 ressalvas = []
                 if sem_op:
@@ -321,7 +321,7 @@ async def _roda_pedidos_com(tarefa, alvos, modo, force, settings, hana_reader, w
                         f"{len(sem_rateio)} OP(s) sem a linha de rateio: "
                         + "; ".join(f"{g.get('item')} — {g.get('motivo')}" for g in sem_rateio)
                     )
-                tarefa.avanca(f"{rotulo}: ATENÇÃO — " + " | ".join(ressalvas), i)
+                tarefa.avanca(f"{rotulo}: ATENÇÃO — " + " | ".join(ressalvas), i, problema=True)
             elif modo == "reprocessar":
                 tarefa.avanca(
                     f"{rotulo}: reprocessado — OPs planejadas canceladas; processe de novo "

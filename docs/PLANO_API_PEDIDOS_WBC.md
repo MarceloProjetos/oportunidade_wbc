@@ -1,10 +1,11 @@
 # Plano — API JSON dos Pedidos WBC (Controle de Produção, porta 8080)
 
-> **Status (01/10/2026): plano aprovado ("pode fazer, sem o forçar e com o reprocessar");
-> F1–F5 em andamento nesta sessão.** Nada no ar ainda. Entrega final: o guia
-> `API_PEDIDOS_WBC.md` (raiz) e uma página de referência pronta
-> (`docs/exemplos/pedidos_wbc_clone.html`) que o outro grupo copia e só troca o endereço e a
-> chave.
+> **Status (01/10/2026, fim da tarde): F1–F5 codadas e conferidas localmente; falta F6 (deploy
+> e conferência na .11).** A API `/api/pedidos-wbc` existe, com 41 testes de paridade com a
+> tela; o guia `API_PEDIDOS_WBC.md` e a página pronta `docs/exemplos/pedidos_wbc_clone.html`
+> foram conferidos contra a API de verdade com o SAP simulado — lista, paginação, conferência,
+> execução concluída e com falha, tema claro e escuro, celular — e os exemplos de JavaScript,
+> Python e PowerShell 5.1 do guia rodaram até o fim. **Nunca rodou contra o SAP.**
 
 ## Objetivo
 
@@ -53,7 +54,7 @@ A tela tem 3 telas na prática: **lista** (novos/integrados, 15 por página, KPI
 (pílula, barra, passo, log com linhas ⚠ em vermelho, Interromper, Resultado). O precedente é a
 API da Manutenção de OP (`acoes.py` + `api_router.py` + `API_MANUTENCAO_OP.md`, 29/09).
 
-### F1 — Uma regra só para tela e API
+### F1 — Uma regra só para tela e API — concluída (`9f6d33c`)
 *Quando fechar: a tela e a API chamam as mesmas funções; os textos não têm como divergir.*
 - `controleproducao/modules/pedidos_wbc/acoes.py`: paginação, plano de Processar/Reprocessar
   (relê a lista elegível e recusa o que saiu dela), consumo do token, corpo da execução
@@ -63,7 +64,7 @@ API da Manutenção de OP (`acoes.py` + `api_router.py` + `API_MANUTENCAO_OP.md`
 - A tela vira adaptador. **Comportamento da tela idêntico** — os testes atuais passam sem
   mudar o que verificam.
 
-### F2 — A API `/api/pedidos-wbc`
+### F2 — A API `/api/pedidos-wbc` — concluída (`9f6d33c`)
 *Quando fechar: um programa com a chave lista, confere, executa e acompanha, igual à tela.*
 
 | Tela | API |
@@ -83,14 +84,14 @@ API da Manutenção de OP (`acoes.py` + `api_router.py` + `API_MANUTENCAO_OP.md`
 - As respostas trazem os **textos da tela** que o servidor decide: aviso da conferência,
   rótulo do KPI, mensagem de lista vazia, recusas.
 
-### F3 — Testes de paridade
+### F3 — Testes de paridade — concluída (41 testes)
 *Quando fechar: um teste quebra se a API e a tela passarem a dizer coisas diferentes.*
 - Mesma lista e mesma paginação (tela × API) sobre o mesmo HANA falso; mesmo plano; mesmas
   recusas (vazia, fora da lista, ocupado, token de outra operação, token usado).
 - O token da conferência da tela não executa pela API com outro `tipo`, e vice-versa.
 - `force` recusado; execução da API aparece como `origem: api` com o solicitante.
 
-### F4 — Guia `API_PEDIDOS_WBC.md` (a documentação final)
+### F4 — Guia `API_PEDIDOS_WBC.md` (a documentação final) — concluída
 *Quando fechar: o outro grupo constrói a página só com o guia.*
 - Primeiros passos, conceitos (pedido × oportunidade × orçamento WBC; novos × integrados; o
   que Processar e Reprocessar gravam de fato; token; uma execução por vez), receitas com
@@ -102,11 +103,14 @@ API da Manutenção de OP (`acoes.py` + `api_router.py` + `API_MANUTENCAO_OP.md`
   raios, sombras, pílulas, barra de progresso, os ícones SVG usados.
 - Exemplos em JavaScript, Python e PowerShell que pedem confirmação antes de gravar.
 
-### F5 — Página de referência pronta
+### F5 — Página de referência pronta — concluída
 *Quando fechar: copiar um arquivo HTML e trocar endereço + chave já dá a tela funcionando.*
 - `docs/exemplos/pedidos_wbc_clone.html`: um arquivo só, sem dependência, com as três telas,
   o tema claro/escuro e os mesmos textos, chamando só a API.
 - Conferida contra uma API falsa local (lista, conferência, execução, erros), claro e escuro.
+- **O que mordeu:** `replaceChildren(..., null)` escreve "null" na tela (só o `el()` filtrava);
+  e a linha "ERRO" de um pedido chegava ao log **sem** a marca ⚠ — na tela original também.
+  Corrigido na origem (`Tarefa.avanca(..., problema=True)`): vale para a tela e para a API.
 
 ### F6 — No ar (Marcelo) e conferência
 - `deploy_update.bat` na .11 (reinicia o Controle de Produção).

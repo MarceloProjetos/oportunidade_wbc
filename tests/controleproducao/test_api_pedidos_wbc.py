@@ -390,7 +390,8 @@ def test_erro_do_servico_termina_com_falhas(c, ambiente, execucao_falsa):
                           headers=CABECALHO)
         estado = _espera(c, resposta.json()["execucao"]["id"])
     assert (estado["situacao"], estado["desfecho"], estado["com_falhas"]) == ("concluída", "falhas", True)
-    assert "ERRO — sem pedido vinculado" in "\n".join(estado["linhas"])
+    # Marked ⚠ (painted red on both screens) — it used to reach the log unmarked.
+    assert any("⚠" in linha and "ERRO — sem pedido vinculado" in linha for linha in estado["linhas"])
 
 
 def test_token_de_processar_nao_executa_reprocessar_e_continua_valendo(c, ambiente, execucao_falsa):
@@ -474,7 +475,33 @@ def test_tela_e_api_dividem_a_trava_do_modulo(c, ambiente, execucao_falsa):
 
 
 # ---------------------------------------------------------------------------
-# 5. Following and interrupting
+# 5. The guide and the reference page cannot drift from the routes
+# ---------------------------------------------------------------------------
+def test_guia_e_pagina_pronta_so_citam_rotas_que_existem():
+    """API_PEDIDOS_WBC.md and docs/exemplos/pedidos_wbc_clone.html are what the other team
+    copies: a route renamed here and not there would break their clone in silence."""
+    from pathlib import Path
+
+    from controleproducao.modules.pedidos_wbc import api_router
+
+    raiz = Path(__file__).resolve().parents[2]
+    padroes = [re.compile("^" + re.sub(r"\{[^}]+\}", "[^/]+", r.path) + "$") for r in api_router.router.routes]
+    for arquivo in ("API_PEDIDOS_WBC.md", "docs/exemplos/pedidos_wbc_clone.html"):
+        texto = (raiz / arquivo).read_text(encoding="utf-8")
+        citadas = {re.sub(r"\?.*$", "", c).rstrip(".,:;`)")
+                   for c in re.findall(r"/api/pedidos-wbc/[\w\-/{}$]+(?:\?[\w=&]*)?", texto)}
+        citadas = {re.sub(r"\$\{[^}]*\}|\{id\}", "x", c) for c in citadas}
+        assert citadas, arquivo
+        sobrando = sorted(c for c in citadas if not any(p.match(c) for p in padroes))
+        assert not sobrando, f"{arquivo} cita rota que não existe: {sobrando}"
+    pagina = (raiz / "docs/exemplos/pedidos_wbc_clone.html").read_text(encoding="utf-8")
+    assert 'const API_BASE = "http://192.168.7.11:8080";' in pagina
+    assert "X-API-Key" in pagina and "sessionStorage" in pagina
+    assert not re.search(r"\.innerHTML\s*[+]?=", pagina), "texto da API vai por textContent"
+
+
+# ---------------------------------------------------------------------------
+# 6. Following and interrupting
 # ---------------------------------------------------------------------------
 def _terminada_de(modulo: str) -> Tarefa:
     tarefa = Tarefa(id=f"t-{modulo}", nome="n", descricao="d", criada_em=datetime.now() - timedelta(minutes=1),

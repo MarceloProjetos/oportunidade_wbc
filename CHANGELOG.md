@@ -6,6 +6,24 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-01] — API JSON dos Pedidos WBC, para outro grupo clonar a tela
+
+Entra pelo `deploy_update.bat` (reinicia o Controle de Produção). Plano:
+`docs/PLANO_API_PEDIDOS_WBC.md`. Guia para quem consome: **`API_PEDIDOS_WBC.md`**.
+
+- **`/api/pedidos-wbc`** (porta 8080, `X-API-Key`): lista "Pedidos novos"/"integrados" (15 por
+  página, como a tela), confere e executa **Processar** e **Reprocessar** (mesmo plano e token de
+  10 minutos da tela), acompanha e interrompe. **Sem "forçar"** (decisão de 01/10): `force` no
+  corpo é recusado com 400. `solicitante` obrigatório ao gravar.
+- **Uma regra só:** a lógica da tela foi para `pedidos_wbc/acoes.py`, e a tela e a API chamam as
+  mesmas funções — as respostas trazem os textos da tela (rótulos, avisos, recusas). Uma execução
+  da API bloqueia a da tela e aparece em Execuções, com quem pediu.
+- **Página pronta** `docs/exemplos/pedidos_wbc_clone.html`: o clone completo da tela (lista,
+  conferência, execução, tema claro/escuro), num arquivo só, que usa só a API. Conferida contra a
+  API com o SAP simulado.
+- **Execução (tela e API):** a linha "ERRO" ou "ATENÇÃO" de um pedido agora sai marcada com ⚠ e
+  em vermelho no acompanhamento — antes ia sem a marca.
+
 ## [2026-10-01] — Textos mais curtos no painel WBC, nos Pedidos WBC e na Sincronização
 
 Só texto; entra pelo `deploy_update.bat` (painel WBC, Controle de Produção e API 8077).
