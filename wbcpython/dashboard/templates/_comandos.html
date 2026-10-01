@@ -27,7 +27,7 @@
     hx-post="/fragmentos/comandos/executar"
     hx-target="#console"
     hx-disabled-elt="find button"
-    {% if c.protegido %}
+    {% if c.protegido or c.dirigido %}
       hx-confirm="{{ c.rotulo }}: confirma a execução? {{ c.aviso }}"
     {% endif %}
   >
@@ -54,7 +54,8 @@
           {% else %}
             <label class="campo">
               <span>{{ campo.rotulo }}</span>
-              <input type="text" name="{{ campo.nome }}" placeholder="{{ campo.ajuda }}" />
+              <input type="text" name="{{ campo.nome }}" placeholder="{{ campo.ajuda }}"
+                     {% if campo.obrigatorio %}required inputmode="numeric" autocomplete="off"{% endif %} />
             </label>
           {% endif %}
         {% endfor %}
@@ -97,6 +98,16 @@
             Executar
           </button>
         {% endif %}
+      </div>
+    {% elif c.dirigido %}
+      {# One quote, no password (owner, 01/10/2026): the name stays — it is the audit trail
+         of who sent a write to the SAP, not a key. #}
+      <div class="filtros">
+        <label class="campo">
+          <span>Seu nome</span>
+          <input type="text" name="solicitante" placeholder="fica no histórico" required />
+        </label>
+        <button class="acao perigosa" type="submit">Processar este orçamento</button>
       </div>
     {% elif c.alternativo %}
       {# Dois comandos dividem o cartão, empilhados — cada um com seu título,
@@ -152,6 +163,27 @@
     {% endfor %}
   </div>
 </div>
+
+{% if dirigidos %}
+<div class="bloco">
+  <header>
+    <h2>Processar um orçamento</h2>
+    <span class="etiqueta perigo">escreve no SAP</span>
+  </header>
+  <div class="corpo">
+    <div class="aviso info">
+      <div>
+        Roda o ciclo <strong>só para o orçamento informado</strong>, em <strong>{{ company_db }}</strong>
+        — o resto da janela continua com o worker. Uma execução por vez, sob a mesma trava do
+        worker. Não pede senha; pede o seu nome, que fica no histórico do orçamento.
+      </div>
+    </div>
+  </div>
+  <div class="corpo grade-comandos">
+    {% for c in dirigidos %}{{ formulario(c, true, ritmo) }}{% endfor %}
+  </div>
+</div>
+{% endif %}
 
 <div class="bloco">
   <header>

@@ -38,6 +38,7 @@ Ache a seção pela busca do título (o arquivo é longo; não leia inteiro).
 - `204 No Content` não prova que as linhas mudaram
 - Horário de trabalho do worker (06:30–19:00) e janela dirigida
 - A busca da lista troca a lista, e não o bloco que contém o campo
+- Ciclo do painel: um orçamento por vez, sem senha, também em produção (01/10/2026)
 - Encerramento não se repete: a guarda olhava a cotação sem motivo
 - `U_INO_Update = 'Y'` antes de existir pedido: ele nasce no `PN_Correc`
 - Janela sob demanda: o teto escalonado, e a pergunta quando nem ele basta
@@ -2145,3 +2146,24 @@ tocada às 13:56 pelo código antigo) apareceu na varredura seguinte; ao reparar
 autorizado), o worker já a tinha recriado (78292, 14:17, código novo). Varredura final: **zero**
 documentos vigentes com desconto fantasma. O worker da .11 roda o código corrigido desde o
 restart das 14:11:50 (commit af8e9be é das 13:47).
+
+## Ciclo do painel: um orçamento por vez, sem senha, também em produção (01/10/2026)
+
+Pedido do Marcelo: tirar a senha do "Ciclo de integração" da aba Executar, e o ciclo só pode
+atualizar o orçamento que o operador escolher. "Simular um ciclo" saiu da tela no mesmo dia (a
+CLI mantém `ciclo --simular`).
+
+**Por que a senha e o bloqueio de produção podiam sair deste botão, e só dele.** As duas guardas
+existiam contra um clique que dispara a **janela inteira**: o primeiro ciclo em produção cancelaria
+27 cotações e criaria 4 pedidos (`RISCOS_PRODUCAO.md`); o ensaio de 13 meses mostrou 144 escritas
+(foi o que trouxe a senha de volta em 14/09). O botão novo não alcança isso: o orçamento é
+**obrigatório**, e com `--orcamento` a leitura do HANA traz só aquele orçamento
+(`pendentes_de_integracao(orcamento=…)`). O que ele escreve é o que o worker — que já roda sozinho
+em produção — escreveria para aquele orçamento no próximo ciclo.
+
+**O que ficou:** o **nome** de quem executa é obrigatório (é a auditoria, não uma chave: vai para o
+histórico do orçamento); o orçamento é conferido na rota (só números, completado para 8 dígitos)
+e de novo no executor — sem ele, o executor recusa, porque a CLI rodaria a janela inteira; o
+aviso de irreversibilidade e a confirmação no clique. `Comando.dirigido` é a marca; só o `ciclo`
+a tem (teste). "Recalcular pesos" e "Preencher datas de abertura" seguem com senha e bloqueados em
+produção.

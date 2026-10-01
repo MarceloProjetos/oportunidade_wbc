@@ -6,6 +6,21 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-01] — Painel WBC: ciclo de um orçamento, sem senha; "Simular" sai da tela
+
+Entra pelo `deploy_update.bat` (`OrcaView-WBC-Painel`). Decisão em `docs/wbc/DECISOES.md`
+("Ciclo do painel: um orçamento por vez…").
+
+- **"Ciclo de integração" processa só o orçamento informado** (pedido do Marcelo): o campo
+  Orçamento é obrigatório — conferido na tela, na rota (só números; `123566` vira `00123566`) e
+  no executor. Sem ele nada roda: a janela inteira continua sendo trabalho do worker.
+- **Sem senha e liberado em produção**, numa seção própria, "Processar um orçamento", com o botão
+  "Processar este orçamento". O **nome** de quem executa continua obrigatório e vai para o
+  histórico do orçamento. A confirmação e o aviso de irreversibilidade ficam.
+- **"Simular um ciclo" saiu do painel** (a CLI mantém `ciclo --simular`).
+- "Recalcular pesos" e "Preencher datas de abertura" seguem como estavam: senha, e indisponíveis
+  em produção.
+
 ## [2026-10-01] — Central Integração SAP, F5: a página inicial com o estado
 
 Entra pelo `deploy_update.bat` (os três serviços de tela). Só leitura. `casa.css?v=4`.

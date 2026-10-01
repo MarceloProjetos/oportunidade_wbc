@@ -128,7 +128,7 @@ class TestGuardaDeSenha:
         chamadas = _sem_disparar(monkeypatch)
         resposta = cliente.post(
             "/fragmentos/comandos/executar",
-            data={"comando": "ciclo", "solicitante": "anderson"},
+            data={"comando": "datas-de-abertura", "solicitante": "anderson"},
         )
         assert "Senha incorreta" in resposta.text
         assert chamadas == []
@@ -139,7 +139,7 @@ class TestGuardaDeSenha:
         chamadas = _sem_disparar(monkeypatch)
         resposta = cliente.post(
             "/fragmentos/comandos/executar",
-            data={"comando": "ciclo", "solicitante": "anderson", "senha": "chute"},
+            data={"comando": "datas-de-abertura", "solicitante": "anderson", "senha": "chute"},
         )
         assert "Senha incorreta" in resposta.text
         assert chamadas == []
@@ -152,7 +152,7 @@ class TestGuardaDeSenha:
         chamadas = _sem_disparar(monkeypatch)
         resposta = cliente.post(
             "/fragmentos/comandos/executar",
-            data={"comando": "ciclo", "solicitante": "  ", "senha": SENHA},
+            data={"comando": "datas-de-abertura", "solicitante": "  ", "senha": SENHA},
         )
         assert "auditável" in resposta.text
         assert chamadas == []
@@ -163,10 +163,10 @@ class TestGuardaDeSenha:
         chamadas = _sem_disparar(monkeypatch)
         resposta = cliente.post(
             "/fragmentos/comandos/executar",
-            data={"comando": "ciclo", "solicitante": "anderson", "senha": SENHA},
+            data={"comando": "datas-de-abertura", "solicitante": "anderson", "senha": SENHA},
         )
         assert resposta.status_code == 200
-        assert chamadas and chamadas[0][0] == "ciclo"
+        assert chamadas and chamadas[0][0] == "datas-de-abertura"
         assert chamadas[0][2] == "anderson"
 
     def test_comando_de_leitura_nao_pede_senha(
@@ -186,12 +186,7 @@ class TestGuardaDeSenha:
         _sem_disparar(monkeypatch)
         cliente.post(
             "/fragmentos/comandos/executar",
-            data={
-                "comando": "ciclo",
-                "orcamento": "00125533",
-                "solicitante": "anderson",
-                "senha": SENHA,
-            },
+            data={"comando": "ciclo", "orcamento": "00125533", "solicitante": "anderson"},
         )
         eventos = repo.eventos("00125533")
         assert any("anderson" in e.mensagem for e in eventos)
@@ -212,7 +207,7 @@ class TestGuardaDeSenhaAusente:
 
         resposta = cliente.post(
             "/fragmentos/comandos/executar",
-            data={"comando": "ciclo", "solicitante": "anderson", "senha": ""},
+            data={"comando": "pesos", "pedido": "84000", "solicitante": "anderson", "senha": ""},
         )
         assert "PAINEL_SENHA" in resposta.text
 
@@ -243,7 +238,7 @@ class TestGuardaDeProducao:
         assert config.painel_pode_escrever is False
         resposta = cliente.post(
             "/fragmentos/comandos/executar",
-            data={"comando": "ciclo", "solicitante": "anderson", "senha": SENHA},
+            data={"comando": "pesos", "pedido": "84000", "solicitante": "anderson", "senha": SENHA},
         )
         assert "produção" in resposta.text
         assert "terminal" in resposta.text
@@ -380,10 +375,10 @@ class TestExecutor:
         """Dois cliques não podem virar dois ciclos. A garantia entre processos
         é a trava no banco de acompanhamento; esta é a da tela."""
         monkeypatch.setattr(cmd.subprocess, "Popen", lambda *a, **k: _ProcessoFalso())
-        executor.iniciar(cmd.POR_ID["ciclo"], {}, solicitante="a")
+        executor.iniciar(cmd.POR_ID["ciclo"], {"orcamento": "00000001"}, solicitante="a")
 
         with pytest.raises(cmd.JaEmExecucao) as erro:
-            executor.iniciar(cmd.POR_ID["ciclo"], {}, solicitante="b")
+            executor.iniciar(cmd.POR_ID["ciclo"], {"orcamento": "00000001"}, solicitante="b")
         assert "ainda está rodando" in str(erro.value)
         assert "pedido por a" in str(erro.value)
 
@@ -392,7 +387,7 @@ class TestExecutor:
     ) -> None:
         falso = _ProcessoFalso()
         monkeypatch.setattr(cmd.subprocess, "Popen", lambda *a, **k: falso)
-        executor.iniciar(cmd.POR_ID["ciclo"], {}, solicitante="a")
+        executor.iniciar(cmd.POR_ID["ciclo"], {"orcamento": "00000001"}, solicitante="a")
 
         alvo = executor.interromper()
         assert alvo is not None and alvo.interrompida is True
@@ -408,11 +403,11 @@ class TestExecutor:
     ) -> None:
         falso = _ProcessoFalso()
         monkeypatch.setattr(cmd.subprocess, "Popen", lambda *a, **k: falso)
-        executor.iniciar(cmd.POR_ID["ciclo"], {}, solicitante="a")
+        executor.iniciar(cmd.POR_ID["ciclo"], {"orcamento": "00000001"}, solicitante="a")
         falso.codigo = 0
 
         assert executor.atual() is None
-        executor.iniciar(cmd.POR_ID["ciclo"], {}, solicitante="b")
+        executor.iniciar(cmd.POR_ID["ciclo"], {"orcamento": "00000001"}, solicitante="b")
 
     def test_a_senha_nao_vai_para_o_subprocesso(
         self, executor: cmd.Executor, monkeypatch: pytest.MonkeyPatch
@@ -457,59 +452,89 @@ class TestTelaDeComandos:
         assert "não está mais na memória" in resposta.text
 
 
-class TestCicloSimulado:
-    """O ensaio é o único comando de ciclo que a tela oferece em produção.
+class TestCicloDeUmOrcamento:
+    """The painel's "Ciclo de integração" (owner, 01/10/2026): one quote typed by the operator,
+    no password, also in production — and NEVER the whole window. Skipping the password is only
+    safe because the quote is mandatory; these tests nail that side of the bargain."""
 
-    Ele preenche o painel e não toca no SAP, então não passa pela senha — que
-    protege escrita no SAP e fica indisponível quando o alvo é produção. Se ele
-    fosse protegido, seria um botão permanentemente inútil justamente onde
-    existe para servir.
-    """
+    def test_e_dirigido_e_nao_protegido(self) -> None:
+        ciclo = cmd.POR_ID["ciclo"]
+        assert ciclo.escreve and ciclo.dirigido and not ciclo.protegido
+        assert next(c for c in ciclo.campos if c.nome == "orcamento").obrigatorio
 
-    def _comando(self) -> cmd.Comando:
-        return next(c for c in cmd.CATALOGO if c.id == "ciclo-simulado")
+    def test_o_simulado_saiu_do_painel(self) -> None:
+        assert "ciclo-simulado" not in cmd.POR_ID
+        assert all("--simular" not in c.argv for c in cmd.CATALOGO)
 
-    def test_nao_e_protegido(self) -> None:
-        assert not self._comando().protegido
+    def test_so_o_ciclo_e_dirigido(self) -> None:
+        """The exception does not leak: the weights keep the password and the production block."""
+        assert [c.id for c in cmd.CATALOGO if c.dirigido] == ["ciclo"]
+        assert cmd.POR_ID["pesos"].protegido and cmd.POR_ID["datas-de-abertura"].protegido
 
-    def test_diz_na_tela_que_grava_no_acompanhamento(self) -> None:
-        """Ele não é "só leitura": preenche o painel. O selo tem de dizer isso,
-        senão a tela promete uma coisa e faz outra."""
-        assert self._comando().escreve_tracking
+    def test_sem_orcamento_recusa_e_nao_dispara(
+        self, cliente: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        chamadas = _sem_disparar(monkeypatch)
+        resposta = cliente.post(
+            "/fragmentos/comandos/executar",
+            data={"comando": "ciclo", "orcamento": "  ", "solicitante": "anderson"},
+        )
+        assert "age só sobre ele" in resposta.text
+        assert chamadas == []
 
-    def test_a_dispensa_de_senha_e_so_dele(self) -> None:
-        """A exceção protege o ensaio, e não abre uma porta para o resto."""
-        dispensados = [c.id for c in cmd.CATALOGO if c.dispensa_senha]
-        assert dispensados == ["ciclo-simulado"]
+    def test_sem_nome_recusa(self, cliente: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+        chamadas = _sem_disparar(monkeypatch)
+        resposta = cliente.post(
+            "/fragmentos/comandos/executar", data={"comando": "ciclo", "orcamento": "00123566"}
+        )
+        assert "auditável" in resposta.text
+        assert chamadas == []
 
-    def test_nenhum_comando_que_escreve_no_sap_dispensa_senha(self) -> None:
-        assert all(not c.dispensa_senha for c in cmd.CATALOGO if c.escreve)
+    @pytest.mark.parametrize("ruim", ["1234567890", "0012356a", "123; rm -rf /"])
+    def test_orcamento_que_nao_e_numero_recusa(
+        self, cliente: TestClient, monkeypatch: pytest.MonkeyPatch, ruim: str
+    ) -> None:
+        chamadas = _sem_disparar(monkeypatch)
+        resposta = cliente.post(
+            "/fragmentos/comandos/executar",
+            data={"comando": "ciclo", "orcamento": ruim, "solicitante": "anderson"},
+        )
+        assert "Orçamento inválido" in resposta.text
+        assert chamadas == []
 
-    def test_a_bandeira_e_do_comando_e_nao_um_campo(self) -> None:
-        """Campo é coisa que se desmarca. `--simular` não pode ser desmarcável:
-        um botão que escreve no SAP quando alguém tira uma marca de uma caixa é
-        o oposto do que este comando existe para ser.
-        """
-        comando = self._comando()
-        assert comando.argv == ("ciclo", "--simular")
-        assert all(c.nome != "simular" for c in comando.campos)
+    def test_sem_senha_dispara_so_o_orcamento_e_completa_os_zeros(
+        self, cliente: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        chamadas = _sem_disparar(monkeypatch)
+        cliente.post(
+            "/fragmentos/comandos/executar",
+            data={"comando": "ciclo", "orcamento": "123566", "solicitante": "anderson"},
+        )
+        assert chamadas and chamadas[0][0] == "ciclo"
+        assert chamadas[0][1]["orcamento"] == "00123566"
+        assert cmd.montar_argv(cmd.POR_ID["ciclo"], chamadas[0][1]) == [
+            "ciclo", "--orcamento", "00123566"]
 
-    def test_a_bandeira_sobrevive_ao_formulario_vazio(self) -> None:
-        assert cmd.montar_argv(self._comando(), {}) == ["ciclo", "--simular"]
+    def test_roda_em_producao_sem_senha(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo: RepositorioTracking
+    ) -> None:
+        config = _ambiente(monkeypatch, tmp_path, SL_COMPANY_DB="SBOALTAMIRAPROD", PAINEL_SENHA="")
+        cliente = TestClient(criar_app(settings=config, tracking=repo))
+        chamadas = _sem_disparar(monkeypatch)
+        cliente.post(
+            "/fragmentos/comandos/executar",
+            data={"comando": "ciclo", "orcamento": "00123566", "solicitante": "anderson"},
+        )
+        assert chamadas and chamadas[0][1]["orcamento"] == "00123566"
+        tela = cliente.get("/fragmentos/comandos").text
+        assert "Processar um orçamento" in tela and "Processar este orçamento" in tela
+        assert "Simular um ciclo" not in tela
 
-    def test_orcamento_entra_depois_da_bandeira(self) -> None:
-        assert cmd.montar_argv(self._comando(), {"orcamento": "00124047"}) == [
-            "ciclo",
-            "--simular",
-            "--orcamento",
-            "00124047",
-        ]
+    def test_o_executor_tambem_recusa_sem_orcamento(self, executor: cmd.Executor) -> None:
+        """Second lock: even called directly, the per-quote cycle never runs the window."""
+        with pytest.raises(ValueError, match="só roda com o orçamento"):
+            executor.iniciar(cmd.POR_ID["ciclo"], {"orcamento": ""}, solicitante="x")
 
-    def test_o_ciclo_de_verdade_continua_protegido(self) -> None:
-        """A existência do ensaio não pode afrouxar o comando que escreve."""
-        real = next(c for c in cmd.CATALOGO if c.id == "ciclo")
-        assert real.escreve and real.protegido
-        assert "--simular" not in real.argv
 
 class TestCartaoCompartilhado:
     """SAP e HANA dividem um cartao; cada metade tem o seu botao.

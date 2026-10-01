@@ -68,6 +68,8 @@ class Campo:
     ajuda: str = ""
     tipo: str = "text"
     marcado: bool = False
+    #: The form does not go without it (checked again by the route, not only by the browser).
+    obrigatorio: bool = False
     #: Nome longo da opção na CLI. Vazio significa "é um valor posicional
     #: passado como `--<nome>`", que é o caso de todos hoje.
     opcao: str = ""
@@ -82,7 +84,8 @@ class Comando:
     """Um comando exposto na tela.
 
     `escreve` marca os que tocam o SAP: são os que exigem senha e ficam
-    indisponíveis quando o painel está apontado para produção. `escreve_tracking`
+    indisponíveis quando o painel está apontado para produção — exceto os
+    `dirigido` (one quote typed by the operator; see the field). `escreve_tracking`
     marca quem só mexe no banco de acompanhamento — pede senha, mas não tem o
     mesmo peso: nada disso chega ao SAP.
     """
@@ -110,21 +113,22 @@ class Comando:
     #: Continua em `POR_ID`, porque é ele que o executor dispara.
     oculto: bool = False
 
-    #: Exceção deliberada à senha, e a única: o ensaio.
+    #: Acts on ONE quote the operator types — never on the window (owner, 01/10/2026).
     #:
-    #: A senha protege o SAP. Exigi-la de um comando que não o toca custaria
-    #: exatamente o que ele existe para dar: comando protegido fica
-    #: **indisponível** quando o painel aponta para produção, e produção antes
-    #: do primeiro ciclo é justamente onde o ensaio serve para alguma coisa.
-    #:
-    #: O que ele escreve é o acompanhamento, que a própria leitura do ciclo
-    #: reescreve na passada seguinte. Não vale para nada que chegue ao SAP —
-    #: por isso a bandeira é explícita, e não derivada.
-    dispensa_senha: bool = False
+    #: The password and the production block exist because a click used to fire a FULL
+    #: cycle: the first one in production would cancel 27 quotes and create 4 orders, the
+    #: 13-month rehearsal showed 144 writes (RISCOS_PRODUCAO.md, DECISOES 14/09/2026). A
+    #: directed command cannot reach that: the quote number is mandatory and the HANA read
+    #: brings only that quote (`pendentes_de_integracao(orcamento=…)`). What it writes is
+    #: what the worker — already running in production every few minutes — would write for
+    #: that quote anyway. So: no password, allowed in production, and the operator's NAME
+    #: is still required — it is the audit trail, not a key.
+    dirigido: bool = False
 
     @property
     def protegido(self) -> bool:
-        return (self.escreve or self.escreve_tracking) and not self.dispensa_senha
+        """Behind the password and blocked when the painel points at production."""
+        return (self.escreve or self.escreve_tracking) and not self.dirigido
 
 
 CATALOGO: tuple[Comando, ...] = (
@@ -204,54 +208,37 @@ CATALOGO: tuple[Comando, ...] = (
         demora="alguns segundos",
         oculto=True,
     ),
+    # The full-window cycle is the worker's job; from the painel, only one quote at a time
+    # (owner, 01/10/2026). "Simular um ciclo" left the screen the same day — the CLI keeps
+    # `ciclo --simular`.
     Comando(
         id="ciclo",
         rotulo="Ciclo de integração",
         resumo=(
-            "Executa um ciclo e sai. Cria e atualiza cotações e pedidos no SAP, "
-            "espelha status e encerra oportunidades."
+            "Processa só o orçamento informado e sai: cria ou atualiza a cotação e o pedido "
+            "dele no SAP, espelha o status e encerra a oportunidade, se for o caso. O resto "
+            "da janela continua com o worker."
         ),
         argv=("ciclo",),
         escreve=True,
-        demora="de segundos a minutos, conforme a janela",
+        dirigido=True,
+        demora="alguns segundos",
         aviso=(
-            "Cancelamento de cotação e criação de pedido não se desfazem. "
-            "Rode “Verificar pendentes” antes e confira o que ele faria."
+            "Cancelamento de cotação e criação de pedido não se desfazem. Confira antes em "
+            "“Verificar pendentes”, com o mesmo orçamento."
         ),
         campos=(
             Campo(
                 nome="orcamento",
-                rotulo="Orçamento (opcional)",
-                ajuda="Processa só este. Em branco, a janela inteira.",
+                rotulo="Orçamento",
+                ajuda="Ex.: 00123566",
+                obrigatorio=True,
             ),
             Campo(
                 nome="cancelados",
-                rotulo="Só os cancelados no WBC (SitCode 99)",
-                ajuda="Confina o efeito a um tipo de mudança.",
+                rotulo="Só se estiver cancelado no WBC (SitCode 99)",
+                ajuda="Só age se o orçamento estiver cancelado no WBC.",
                 tipo="checkbox",
-            ),
-        ),
-    ),
-    Comando(
-        id="ciclo-simulado",
-        rotulo="Simular um ciclo",
-        resumo=(
-            "Percorre a janela inteira, decide tudo e preenche o painel — sem criar, "
-            "alterar ou cancelar nada no SAP. É como o painel ganha números antes "
-            "do primeiro ciclo de verdade."
-        ),
-        # `--simular` é parte do comando, não um campo do formulário: campo é
-        # coisa que se desmarca. Um botão que escreve no SAP quando alguém
-        # desmarca uma caixa é o contrário do que este comando existe para ser.
-        argv=("ciclo", "--simular"),
-        escreve_tracking=True,
-        dispensa_senha=True,
-        demora="de segundos a minutos, conforme a janela",
-        campos=(
-            Campo(
-                nome="orcamento",
-                rotulo="Orçamento (opcional)",
-                ajuda="Simula só este. Em branco, a janela inteira.",
             ),
         ),
     ),
@@ -417,6 +404,12 @@ class Executor:
         aplicar_pesos: bool = False,
     ) -> Execucao:
         """Dispara o comando. `JaEmExecucao` se outro ainda estiver rodando."""
+        if comando.dirigido and any(
+            c.obrigatorio and not (valores.get(c.nome) or "").strip() for c in comando.campos
+        ):
+            # Second lock behind the route's check: without the quote the CLI would run the
+            # whole window — exactly what skipping the password relies on never happening.
+            raise ValueError(f"“{comando.rotulo}” só roda com o orçamento informado.")
         argv = montar_argv(comando, valores)
         argv = _ajustar_exportar(comando, argv, self._arquivo_do_retrato)
 

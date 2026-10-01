@@ -247,14 +247,15 @@ class TestEmProducao:
         """A dispensa é só do armar, e não pode vazar.
 
         O worker já roda sozinho em produção, e armar só muda quanto ele alcança
-        para trás. "Executar ciclo agora" é o clique que o `RISCOS_PRODUCAO.md`
-        barrou, e ele continua barrado — com senha e tudo.
+        para trás. Os comandos protegidos do catálogo seguem barrados em produção —
+        com senha e tudo. (Since 01/10/2026 the painel's cycle is per quote and outside
+        this rule — see `Comando.dirigido`; the whole-window click no longer exists.)
         """
         cliente = TestClient(criar_app(settings=producao, tracking=repo))
 
         resposta = cliente.post(
             "/fragmentos/comandos/executar",
-            data={"comando": "ciclo", "solicitante": "joana", "senha": SENHA},
+            data={"comando": "pesos", "pedido": "84000", "solicitante": "joana", "senha": SENHA},
         )
 
         assert "apontado para produção" in resposta.text
@@ -300,7 +301,7 @@ class TestSemSenhaNoEnv:
 
         resposta = cliente.post(
             "/fragmentos/comandos/executar",
-            data={"comando": "ciclo", "solicitante": "joana", "senha": ""},
+            data={"comando": "pesos", "pedido": "84000", "solicitante": "joana", "senha": ""},
         )
 
         assert "PAINEL_SENHA" in resposta.text

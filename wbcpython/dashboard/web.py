@@ -668,7 +668,10 @@ def criar_app(
         return render(
             request,
             "_comandos.html",
-            leitura=[c for c in cmd.CATALOGO if not c.protegido and not c.oculto],
+            leitura=[c for c in cmd.CATALOGO
+                     if not (c.escreve or c.escreve_tracking) and not c.oculto],
+            # One quote at a time, no password, also in production (owner, 01/10/2026).
+            dirigidos=[c for c in cmd.CATALOGO if c.dirigido and not c.oculto],
             escrita=[c for c in cmd.CATALOGO if c.protegido and not c.oculto],
             por_id=cmd.POR_ID,
             escolhido=escolhido,
@@ -819,6 +822,10 @@ def criar_app(
             negativa = _autorizar(config, form, comando.rotulo)
             if negativa:
                 return render(request, "_aviso.html", tipo="erro", texto=negativa)
+        if comando.dirigido:
+            negativa = _conferir_dirigido(comando, valores, form)
+            if negativa:
+                return render(request, "_aviso.html", tipo="erro", texto=negativa)
         if comando.id == "pesos":
             problema = _conferir_alvo_do_peso(valores)
             if problema:
@@ -841,7 +848,7 @@ def criar_app(
                 request, "_aviso.html", tipo="erro", texto=f"Não foi possível iniciar: {exc}"
             )
 
-        if comando.protegido:
+        if comando.protegido or comando.dirigido:
             # O painel não escreve no SAP; o comando escreve. Mas quem mandou
             # rodar precisa ficar registrado onde o histórico é lido — e o
             # histórico em memória do painel morre junto com o processo.
@@ -912,8 +919,8 @@ def _por_que_nao_escreve(config: Settings) -> str:
     if config.targets_production:
         return (
             f"O painel está apontado para produção ({config.service_layer.company_db}). "
-            "Execução que escreve, ali, é pelo terminal, com alguém responsável na "
-            "frente — ver RISCOS_PRODUCAO.md."
+            "Estes comandos, ali, são pelo terminal, com alguém responsável na "
+            "frente — ver RISCOS_PRODUCAO.md. O ciclo de um orçamento, acima, roda daqui."
         )
     if not config.painel_senha.get_secret_value():
         return FALTA_SENHA
@@ -955,6 +962,30 @@ def _autorizar(
     # há uma rede interna inteira.
     if not secrets.compare_digest(informada, config.painel_senha.get_secret_value()):
         return f"Senha incorreta. “{rotulo}” não foi executado."
+    return ""
+
+
+def _conferir_dirigido(comando: cmd.Comando, valores: dict[str, str], form: Any) -> str:
+    """The gate of a one-quote command: the quote (digits; normalized to the WBC's 8) and
+    the operator's name. Empty when it may run.
+
+    The quote is what makes skipping the password safe (see ``Comando.dirigido``): without
+    it the CLI would run the whole window, so its absence is refused here, not left to the
+    browser's ``required``. ``valores`` is normalized in place so the CLI gets ``00123566``
+    even when ``123566`` was typed — the HANA filter compares the text.
+    """
+    for campo in comando.campos:
+        if not campo.obrigatorio:
+            continue
+        bruto = valores.get(campo.nome, "").strip()
+        if not bruto:
+            return f"Informe o {campo.rotulo.lower()}: este comando age só sobre ele."
+        if campo.nome == "orcamento":
+            if not bruto.isdigit() or len(bruto) > 8:
+                return f"Orçamento inválido: “{bruto}”. Use só os números (ex.: 00123566)."
+            valores[campo.nome] = bruto.zfill(8)
+    if not str(form.get("solicitante") or "").strip():
+        return "Informe quem está executando — a ação precisa ser auditável."
     return ""
 
 
