@@ -214,12 +214,13 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   `.env` do cwd (pydantic-settings) e resolve `state/wbc_tracking.db`, `logs/wbcpython.log` e
   `state/wbc_previsao.json` relativos ao cwd (painel: `run_wbc_painel.bat`; worker: o
   `AppDirectory` do NSSM). Não há `pip install -e`, hatchling nem uv.
-- **Defaults do worker existem em dois configs** (`config.py` da raiz relê `TRACKING_DB_URL`,
-  `WORKER_*`, `PAINEL_PORTA` para o check `wbc_worker`); `CP_PORTA` em **três** (raiz,
-  `wbcpython/config.py`, `controleproducao/config.py`) e `CP_LOG_FILE` em dois (raiz e
-  `controleproducao/config.py`); `OS_API_PORT` também em três (raiz = o que a API escuta;
-  painel e `controleproducao` = o link "Sincronização SAP → Supabase"). Mudou um, mude os outros — `tests/test_config_paridade_wbc.py`
-  cobra. `SL_BASE_URL`/`SL_VERIFY_SSL` têm defaults DIFERENTES no worker e no pacote: na .11
+- **Defaults compartilhados moram em `wbcpython/padroes.py`** (desde 01/10/2026): banco de
+  acompanhamento, `WORKER_*`, `PAINEL_PORTA`, `OS_API_PORT`, `CP_PORTA`, `CP_LOG_FILE`, `ORCAVIEW_URL`.
+  Os três `config.py` (raiz, `wbcpython/`, `controleproducao/`) leem dali — mudou um padrão, mude
+  só lá. `tests/test_config_paridade_wbc.py` barra valor fixado de volta num `config.py`. O
+  `deploy_update.bat` tem fallbacks próprios das portas (lê o `.env` antes); mudou porta, mude lá
+  também.
+- `SL_BASE_URL`/`SL_VERIFY_SSL` têm defaults DIFERENTES no worker e no pacote: na .11
   o `.env` define os dois, e é isso que vale.
 - **`controleproducao` roda como módulo, com cwd na raiz**, igual ao `wbcpython`: `python -m
   controleproducao web|pedidos-wbc|manutencao-op|conexoes|diag`. `config.py` acha o `.env` por

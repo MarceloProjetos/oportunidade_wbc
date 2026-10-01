@@ -16,6 +16,7 @@ from typing import Any, ClassVar, Literal
 from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from wbcpython import padroes
 from wbcpython.safety import is_production, is_production_machine
 
 # Uma senha por sistema (decisão do Marcelo, 09/09/2026). O `.env` do ServidorIntegracaoSAP
@@ -101,7 +102,7 @@ class TrackingSettings(BaseSettings):
         env_prefix="TRACKING_", env_file=".env", extra="ignore", case_sensitive=False
     )
 
-    db_url: SecretStr = SecretStr("sqlite:///./state/wbc_tracking.db")
+    db_url: SecretStr = SecretStr(padroes.TRACKING_DB_URL)
     """URL do banco de tracking.
 
     O default é o MESMO de `config.WBC_TRACKING_DB_URL_DEFAULT` (a raiz), que o check
@@ -237,7 +238,7 @@ class Settings(BaseSettings):
     #: trabalho, e o que importa de um orçamento (as ações) não passa por aqui.
     eventos_retencao_dias: int = Field(default=6, ge=0, alias="EVENTOS_RETENCAO_DIAS")
 
-    worker_interval_seconds: int = Field(default=300, alias="WORKER_INTERVAL_SECONDS")
+    worker_interval_seconds: int = Field(default=padroes.WORKER_INTERVAL_S, alias="WORKER_INTERVAL_SECONDS")
 
     #: Horário em que o worker trabalha. Fora dele, o ciclo agendado não roda.
     #:
@@ -249,8 +250,10 @@ class Settings(BaseSettings):
     #: (ex.: 19:00 → 06:30). Não é o caso de hoje, mas o contrário — recusar
     #: calado, ou pior, nunca rodar — seria uma armadilha silenciosa para quem
     #: configurasse assim um dia.
-    worker_horario_inicio: time = Field(default=time(6, 30), alias="WORKER_HORARIO_INICIO")
-    worker_horario_fim: time = Field(default=time(19, 0), alias="WORKER_HORARIO_FIM")
+    worker_horario_inicio: time = Field(
+        default=padroes.WORKER_HORARIO_INICIO, alias="WORKER_HORARIO_INICIO"
+    )
+    worker_horario_fim: time = Field(default=padroes.WORKER_HORARIO_FIM, alias="WORKER_HORARIO_FIM")
 
     def dentro_do_horario_do_worker(self, agora: time) -> bool:
         """O relógio está dentro da janela de trabalho?
@@ -279,7 +282,7 @@ class Settings(BaseSettings):
     #: `SettingsError` na partida, e só ao ler o `.env` de verdade. Os testes
     #: não pegaram porque construíam `Settings(...)` com o valor já pronto, sem
     #: passar pela fonte do `.env`; quem pegou foi rodar no ambiente real.
-    worker_dias_de_trabalho: str = Field(default="1,2,3,4,5", alias="WORKER_DIAS_DE_TRABALHO")
+    worker_dias_de_trabalho: str = Field(default=padroes.WORKER_DIAS, alias="WORKER_DIAS_DE_TRABALHO")
     #: Arquivo cuja existência pede ao worker que termine o que está fazendo e
     #: saia. O `deploy_update.bat` o grava antes do `nssm stop`; o worker o
     #: remove na partida. Relativo ao cwd (a raiz do projeto), como o resto de
@@ -412,7 +415,7 @@ class Settings(BaseSettings):
     #: primeiro reinício, e ninguém descobre até alguém reclamar que a tela não
     #: abre. O padrão continua sendo o fechado.
     painel_host: str = Field(default="127.0.0.1", alias="PAINEL_HOST")
-    painel_porta: int = Field(default=8079, alias="PAINEL_PORTA")
+    painel_porta: int = Field(default=padroes.PAINEL_PORTA, alias="PAINEL_PORTA")
 
     #: Chave de acesso do painel — a MESMA `OS_API_KEY` da API 8077 do
     #: ServidorIntegracaoSAP, de propósito: quem opera as duas telas tem uma chave
@@ -424,17 +427,17 @@ class Settings(BaseSettings):
     #: da requisição, na porta da API (`OS_API_PORT`) — o caso da .11, onde as
     #: duas telas moram na mesma máquina.
     sis_painel_url: str = Field(default="", alias="SIS_PAINEL_URL")
-    os_api_port: int = Field(default=8077, alias="OS_API_PORT")
+    os_api_port: int = Field(default=padroes.OS_API_PORT, alias="OS_API_PORT")
 
     #: Where the "Controle de Produção" link goes: ``CP_URL`` verbatim, or the same host on
     #: ``CP_PORTA`` (the .11 case). The default port lives in three configs (root,
     #: here and ``controleproducao``) — ``tests/test_config_paridade_wbc.py`` keeps them equal.
     cp_url: str = Field(default="", alias="CP_URL")
-    cp_porta: int = Field(default=8080, alias="CP_PORTA")
+    cp_porta: int = Field(default=padroes.CP_PORTA, alias="CP_PORTA")
 
     #: The "← OrçaView" link of the shared top bar (casa/, 01/10/2026): the .90 home. Same
     #: default as ``controleproducao`` (parity test); ``ORCAVIEW_URL`` only for a dev copy.
-    orcaview_url: str = Field(default="http://192.168.0.90:8000/", alias="ORCAVIEW_URL")
+    orcaview_url: str = Field(default=padroes.ORCAVIEW_URL, alias="ORCAVIEW_URL")
 
     @property
     def painel_exige_chave(self) -> bool:

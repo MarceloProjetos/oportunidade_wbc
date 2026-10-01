@@ -6,6 +6,16 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-01] — Configuração: um lugar só para os padrões das três telas
+
+Sem efeito em produção (os valores são os mesmos); entra no próximo `deploy_update.bat`.
+
+- Banco de acompanhamento, expediente e intervalo do worker, portas da API (8077), do painel
+  (8079) e do Controle de Produção (8080), o log do Controle de Produção e o endereço do OrçaView
+  estavam copiados em três `config.py`, com um teste comparando cópia por cópia. Agora moram em
+  **`wbcpython/padroes.py`** e os três leem dali. O teste de paridade virou um teste de que todos
+  leem do mesmo lugar e de que ninguém volta a fixar um valor num `config.py`.
+
 ## [2026-10-01] — Simplificações da revisão: Detalhe, código morto e duas ferramentas no MCP
 
 Entra pelo `deploy_update.bat` (painel WBC, API 8077, Controle de Produção e MCP).

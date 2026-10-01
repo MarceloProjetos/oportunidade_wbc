@@ -14,7 +14,7 @@ from pathlib import Path
 from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from wbcpython import safety
+from wbcpython import padroes, safety
 
 # Absolute path so `python -m controleproducao` and the service work from any cwd. The package
 # sits at `<SIS>/controleproducao/`, so `parent.parent` is the SIS root: this is the same
@@ -95,24 +95,24 @@ class Settings(BaseSettings):
 
     # -- Serviço web do Controle de Produção (uvicorn) -------------------------
     cp_host: str = "127.0.0.1"
-    cp_porta: int = 8080
-    cp_log_file: str = "logs/controleproducao.log"
+    cp_porta: int = padroes.CP_PORTA
+    cp_log_file: str = padroes.CP_LOG_FILE
     # Progress of the CLI's write commands (cli._grava_tambem_em_arquivo), relative to the cwd.
     cp_cli_log_file: str = "logs/controleproducao_cli.log"
     # Shared with the API 8077 and the WBC panel (see the SIS CLAUDE.md, "OS_API_KEY").
     os_api_key: SecretStr = Field(default=SecretStr(""), validation_alias=AliasChoices("OS_API_KEY"))
     # Only for the link back to the WBC panel (`python -m wbcpython dashboard`); the panel
     # itself reads PAINEL_PORTA from `wbcpython/config.py`.
-    painel_porta: int = 8079
+    painel_porta: int = padroes.PAINEL_PORTA
     wbc_painel_url: str = ""
     # The "Sincronização SAP → Supabase" link (API 8077, `/sincronizar`): SIS_PAINEL_URL
     # verbatim, or this host on OS_API_PORT — same pair the WBC panel reads.
-    os_api_port: int = 8077
+    os_api_port: int = padroes.OS_API_PORT
     sis_painel_url: str = ""
     # The way back to the OrçaView home (the "OrçaView" link in the top bar): this screen is
     # opened in a new tab from the OrçaView card "Integração de Pedidos WBC" (web V118.404).
     # The .90 address is the default; ORCAVIEW_URL only for a dev copy.
-    orcaview_url: str = "http://192.168.0.90:8000/"
+    orcaview_url: str = padroes.ORCAVIEW_URL
 
     # -- Supabase: history of the Execuções screen (core/historico.py) -----------------
     # The SIS names, read as they are (the API and the ETLs use the same two lines). Only the

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
+from wbcpython import padroes
 from wbcpython.safety import is_production_machine
 
 load_dotenv()
@@ -63,7 +64,7 @@ OS_SYNC_LOG_MAX_REGISTROS = 100
 
 # HTTP API that triggers the OS sync (api.py)
 OS_API_HOST_DEFAULT = '0.0.0.0'
-OS_API_PORT_DEFAULT = 8077
+OS_API_PORT_DEFAULT = padroes.OS_API_PORT
 
 # Ordem de Produção — status writes through the SAP B1 Service Layer
 # (``ordens_producao_sl.py``). Points straight at PRODUCTION (``SBOALTAMIRAPROD``). On only
@@ -114,23 +115,22 @@ WBC_TASK_MONITOR_DEFAULT = False
 # schedule to know when silence is a problem. Same env names as ``wbcpython.config``
 # on purpose: one ``.env``, one truth — the monitor cannot disagree with the worker
 # about what "business hours" means.
-WBC_TRACKING_DB_URL_DEFAULT = 'sqlite:///./state/wbc_tracking.db'
-WBC_WORKER_INTERVAL_S_DEFAULT = 300
-WBC_WORKER_HORARIO_INICIO_DEFAULT = '06:30'
-WBC_WORKER_HORARIO_FIM_DEFAULT = '19:00'
-WBC_WORKER_DIAS_DEFAULT = '1,2,3,4,5'
-WBC_PAINEL_PORTA_DEFAULT = 8079
+# The values live in ``wbcpython/padroes.py`` (one definition for the three configs).
+WBC_TRACKING_DB_URL_DEFAULT = padroes.TRACKING_DB_URL
+WBC_WORKER_INTERVAL_S_DEFAULT = padroes.WORKER_INTERVAL_S
+WBC_WORKER_HORARIO_INICIO_DEFAULT = padroes.WORKER_HORARIO_INICIO.strftime('%H:%M')
+WBC_WORKER_HORARIO_FIM_DEFAULT = padroes.WORKER_HORARIO_FIM.strftime('%H:%M')
+WBC_WORKER_DIAS_DEFAULT = padroes.WORKER_DIAS
+WBC_PAINEL_PORTA_DEFAULT = padroes.PAINEL_PORTA
 
 # Controle de Produção (``controleproducao/``: Pedidos WBC → OPs, Manutenção de OP), a
 # separate FastAPI process (``OrcaView-ControleProducao``). The ``/status`` check probes
 # ``127.0.0.1:CP_PORTA/health``; the log file is the "it has run here" marker (no alert
-# before the first start — same idea as the worker's tracking DB). Same defaults as
-# ``controleproducao.config`` and ``wbcpython.config`` (paridade test).
-CP_PORTA_DEFAULT = 8080
-CP_LOG_FILE_DEFAULT = 'logs/controleproducao.log'
-# The "← OrçaView" link of the shared top bar (casa/): the .90 home. Same default as the
-# painel and the Controle de Produção (tests/test_config_paridade_wbc.py).
-ORCAVIEW_URL_DEFAULT = 'http://192.168.0.90:8000/'
+# before the first start — same idea as the worker's tracking DB). Values: wbcpython/padroes.py.
+CP_PORTA_DEFAULT = padroes.CP_PORTA
+CP_LOG_FILE_DEFAULT = padroes.CP_LOG_FILE
+# The "← OrçaView" link of the shared top bar (casa/): the .90 home.
+ORCAVIEW_URL_DEFAULT = padroes.ORCAVIEW_URL
 
 # Windows Update / pending reboot (``windows_update.py``; full plan in
 # ``../SAP_RDP/docs/PLANO_WINDOWS_UPDATE.md``). Every number here comes from MEASUREMENT
