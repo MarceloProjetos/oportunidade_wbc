@@ -39,6 +39,7 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 import casa
+from casa import destinos
 from wbcpython import logs
 from wbcpython.config import Settings, get_settings
 from wbcpython.dashboard import acesso, dados, usuarios
@@ -330,9 +331,9 @@ def criar_app(
         Another process on CP_PORTA, same key: the browser sends this painel's cookie
         there too (cookies ignore the port), so no second login.
         """
-        base = _url_do_controle_producao(config, request).rstrip("/")
         caminho = TELAS_DO_CONTROLE_DE_PRODUCAO.get(tela, "")
-        return RedirectResponse(f"{base}/{caminho}", status_code=302)
+        return RedirectResponse(destinos.na_tela(_url_do_controle_producao(config, request), caminho),
+                                status_code=302)
 
     # ------------------------------------------------------------------ casca
 
@@ -1009,18 +1010,13 @@ def _numero(valor: Any) -> str:
 
 def _url_do_controle_producao(config: Settings, request: Request) -> str:
     """Where the Controle de Produção screen lives: ``CP_URL`` verbatim, or the same host
-    on ``CP_PORTA`` — the .11 case, all screens on one machine."""
-    configurado = config.cp_url.strip()
-    if configurado:
-        return configurado
-    return f"{request.url.scheme}://{request.url.hostname}:{config.cp_porta}/"
+    on ``CP_PORTA`` — the .11 case, all screens on one machine (``casa/destinos.py``)."""
+    return destinos.endereco(config.cp_url, request.url.scheme, request.url.hostname, config.cp_porta)
 
 
 def _url_da_sincronizacao(config: Settings, request: Request) -> str:
-    """Endereço do Painel de Sincronização: o configurado, ou o mesmo host na porta da
-    API, em `/sincronizar` — a raiz da API leva de volta para cá (este painel é a
-    entrada), e apontar o botão para ela seria um vaivém."""
-    configurado = config.sis_painel_url.strip()
-    if configurado:
-        return configurado
-    return f"{request.url.scheme}://{request.url.hostname}:{config.os_api_port}/sincronizar"
+    """The Painel de Sincronização: ``SIS_PAINEL_URL``, or the same host on the API port at
+    ``/sincronizar`` — the API root bounces back here (this painel is the entrance), so
+    pointing the link at it would be a round trip."""
+    return destinos.endereco(config.sis_painel_url, request.url.scheme, request.url.hostname,
+                             config.os_api_port, "/sincronizar")

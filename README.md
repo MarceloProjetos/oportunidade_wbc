@@ -560,10 +560,10 @@ Desde 2026-09-08 este repositório também é a **Integração WBC → SAP** (ex
 WBCPython, reescrita Python do `WBCServConsole`): o worker lê os orçamentos do WBC (SQL
 Server, **só leitura**), decide pela máquina de estados do `SitCode` e cria/atualiza/cancela
 **cotação e pedido no SAP** pelo Service Layer, espelha o status na oportunidade e grava o
-`OrcDetalhe`. O painel (FastAPI + HTMX, porta `PAINEL_PORTA`, 8079) é a **porta de entrada**
-das outras duas telas: de lá um botão leva ao Painel de Sincronização (8077) e dois ao Controle
-de Produção (8080); de cá o link
-`⇄ Integração WBC` (`GET /painel-wbc`) volta.
+`OrcDetalhe`. O painel (FastAPI + HTMX, porta `PAINEL_PORTA`, 8079) é a **porta de entrada**. Desde
+01/10/2026 as três telas (painel, Controle de Produção 8080 e Sincronização 8077) dividem a mesma
+casca, a **"Central Integração SAP"** (`casa/`): mesma barra com as cinco telas, mesmo tema
+(cookie `casa_tema`) e o mesmo login (cookie `wbc_painel`).
 
 | Peça | Comando (na raiz) | Serviço NSSM |
 | --- | --- | --- |
@@ -615,12 +615,11 @@ módulo 3 (*Manutenção de OP*) libera, replaneja e **encerra com movimentaçã
   Server do WBC é lido por `pymssql` desde 29/09/2026 (o mesmo driver do worker) — sem ODBC;
   `WBC_SQL_DRIVER` ficou sem efeito. O serviço lê o `.env` na subida: linha nova = `nssm
   restart OrcaView-ControleProducao`.
-- **Links:** o painel WBC (8079) tem dois botões no topo, "Pedidos WBC → OPs"
-  (`/controle-producao/pedidos` → `/pedidos-wbc`) e "Manutenção de OP"
-  (`/controle-producao/ops` → `/manutencao-op`), montados com `CP_URL` ou o host da
-  requisição na `CP_PORTA`; a tela tem "Painel WBC"; a API 8077 redireciona em
-  `GET /controle-producao`. Uma entrada com a `OS_API_KEY` vale para as três telas (cookie
-  compartilhado, `wbcpython/dashboard/acesso.py`).
+- **Links:** a barra comum (`casa/`) liga as telas: no painel e na 8077,
+  `/controle-producao/<pedidos|ops|tarefas>` → `/pedidos-wbc`, `/manutencao-op`, `/tarefas` da
+  8080 (com `CP_URL` ou o host da requisição na `CP_PORTA`, regra única em `casa/destinos.py`).
+  Uma entrada com a `OS_API_KEY` vale para as três telas (cookie compartilhado,
+  `casa/acesso.py`).
 - **Rede (F6, 28/09/2026):** `CP_HOST=0.0.0.0` no `.env` da .11 + regra de firewall da 8080
   **só para a LAN** (mesmo alcance da regra da 8079) + `nssm restart OrcaView-ControleProducao`.
   Com `CP_HOST=127.0.0.1` (default do código) o serviço só escuta em loopback: de fora a 8080
@@ -754,9 +753,10 @@ instalador próprio — `install_mcp_service.bat`):
 | **Controle de Produção** | Pedidos WBC → OPs e Manutenção de OP em `:8080` (`CP_PORTA`; escuta em `CP_HOST`) — **escreve em produção** (OPs, itens, recursos, estoque), só pelo IP da .11 | `run_controleproducao.bat` | `OrcaView-ControleProducao` |
 
 **Entrada única:** abrir `http://192.168.7.11:8077` leva ao painel WBC (ou, se o serviço dele
-estiver parado, mostra o aviso e o botão para o Painel de Sincronização). O Painel de
-Sincronização vive em `http://192.168.7.11:8077/sincronizar`. Os botões "Pedidos WBC → OPs" e
-"Manutenção de OP" do painel só alcançam a tela do Controle de Produção pelo IP com
+estiver parado, mostra o aviso e os caminhos para as outras telas). A Sincronização vive em
+`http://192.168.7.11:8077/sincronizar` e, com `OS_API_KEY`, pede a mesma chave das outras telas
+(`/entrar` na 8077) — quem já entrou no painel abre direto. Os links "Pedidos WBC",
+"Manutenção de OP" e "Execuções" da barra só alcançam o Controle de Produção pelo IP com
 `CP_HOST=0.0.0.0` + regra de firewall da 8080 (F6); com `127.0.0.1`, só na própria .11 e
 abrindo o painel por `http://localhost:8079/`.
 

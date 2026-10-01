@@ -70,7 +70,6 @@ Example call::
 from __future__ import annotations
 
 import hmac
-import html as _html
 import json
 import logging
 import os
@@ -92,6 +91,7 @@ import situacao_pedidos as sit_ped
 import situacao_pedidos_hana as sit_ped_hana
 import windows_update
 from casa import acesso as casa_acesso
+from casa import destinos
 from config import get_settings
 from extract_ordens_servico_engenharia import (
     consultar_status_pedido,
@@ -650,11 +650,15 @@ def _sincronizar(npeds: list[int]) -> tuple[Any, int]:
     return jsonify(payload), http
 
 
+def _host_sem_porta() -> str:
+    return request.host.rsplit(':', 1)[0]
+
+
 def _url_painel_wbc() -> str:
     """Where the WBC integration painel lives: ``WBC_PAINEL_URL`` (verbatim) or this host
-    on ``PAINEL_PORTA`` (the .11 case, both pages on one machine)."""
+    on ``PAINEL_PORTA`` (the .11 case, all screens on one machine — ``casa/destinos.py``)."""
     s = get_settings()
-    return s.wbc_painel_url or f"{request.scheme}://{request.host.rsplit(':', 1)[0]}:{s.wbc_painel_porta}/"
+    return destinos.endereco(s.wbc_painel_url, request.scheme, _host_sem_porta(), s.wbc_painel_porta)
 
 
 @app.get('/')
@@ -669,13 +673,10 @@ def ui():
     and the button to ``/sincronizar``. The Painel de Sincronização itself moved to
     ``GET /sincronizar`` — its JS uses absolute paths, so nothing else changed.
     """
-    with open(os.path.join(_WEB_DIR, 'entrada.html'), encoding='utf-8') as fh:
-        pagina = fh.read()
     url = _url_painel_wbc()
-    pagina = (pagina
-              .replace('__PAINEL_WBC_JSON__', json.dumps(url))
-              .replace('__PAINEL_WBC__', _html.escape(url, quote=True)))
-    return Response(pagina, mimetype='text/html', headers={'Cache-Control': 'no-store'})
+    # The JSON goes into the script as is (`| safe`): it comes from the .env, not from a
+    # visitor; the href copies are autoescaped by the template.
+    return _pagina('entrada.html', painel_url=url, painel_json=json.dumps(url))
 
 
 def _ambiente_da_pagina() -> dict:
@@ -784,7 +785,7 @@ def _url_controle_producao() -> str:
     """Where the Controle de Produção screen lives: ``CP_URL`` (verbatim) or this host on
     ``CP_PORTA`` — the same rule as the painel."""
     s = get_settings()
-    return s.cp_url or f"{request.scheme}://{request.host.rsplit(':', 1)[0]}:{s.cp_porta}/"
+    return destinos.endereco(s.cp_url, request.scheme, _host_sem_porta(), s.cp_porta)
 
 
 @app.get('/controle-producao')
@@ -801,7 +802,7 @@ def controle_producao_tela(tela: str):
     """The shared bar's links to one Controle de Produção screen: ``pedidos``, ``ops`` and
     ``tarefas``; anything else lands on its home. Open, like the root redirect."""
     caminho = _TELAS_DO_CONTROLE_DE_PRODUCAO.get(tela, '')
-    return redirect(f"{_url_controle_producao().rstrip('/')}/{caminho}", code=302)
+    return redirect(destinos.na_tela(_url_controle_producao(), caminho), code=302)
 
 
 @app.get('/health')

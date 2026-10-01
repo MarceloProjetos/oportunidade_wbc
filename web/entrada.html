@@ -1,97 +1,97 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+{#
+  GET / of the API 8077: the entrance of the .11. The painel WBC is the main screen (owner,
+  2026-09-08), so this page probes it and hands over; when it does not answer, it stays and
+  shows the way to the other screens and the name of the stopped service. Since 01/10/2026 it
+  wears the shared shell (PLANO_CASA_COMUM_11, F4): the bar is already the one the painel will
+  show, so the hand-over does not flash a different site.
+#}
+<html lang="pt-BR" data-theme="{{ 'light' if casa_tema(request.cookies) == 'claro' else 'dark' }}">
+{% import "casa/_casa.html" as casa_ui %}
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ServidorIntegracaoSAP</title>
+  <title>Central Integração SAP</title>
+  {{ casa_ui.cabeca() }}
   <style>
-    :root {
-      --bg: #eef2f7; --card: #fff; --ink: #1f2933; --muted: #6b7280; --line: #e3e8ef;
-      --brand: #1565c0; --brand-d: #0d47a1; --warn: #9a6700; --warn-bg: #fff4e0;
-      --shadow: 0 10px 30px rgba(16,42,76,.12);
-    }
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink);
-      font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-      display: flex; justify-content: center; padding: 32px 16px; }
-    .wrap { width: 100%; max-width: 640px; }
-    header.top { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-    .logo { width: 40px; height: 40px; border-radius: 10px; flex: none;
-      background: linear-gradient(135deg, var(--brand), var(--brand-d)); color: #fff;
-      font-weight: 700; font-size: 18px; display: grid; place-items: center; box-shadow: var(--shadow); }
-    header.top h1 { font-size: 19px; margin: 0; }
-    header.top p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
-    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px;
-      box-shadow: var(--shadow); padding: 20px; }
-    .card[hidden] { display: none; }
-    .aviso { background: var(--warn-bg); color: var(--warn); border-radius: 10px; padding: 10px 12px;
-      font-size: 13.5px; margin: 0 0 14px; }
-    .aviso code { font: 12.5px/1 ui-monospace, Consolas, monospace; }
-    .btns { display: flex; gap: 10px; flex-wrap: wrap; }
-    a.go { flex: 1; min-width: 200px; padding: 12px; border-radius: 11px; text-align: center;
-      text-decoration: none; font-weight: 700; font-size: 15px; color: #fff;
-      background: linear-gradient(135deg, var(--brand), var(--brand-d)); }
-    a.go.ghost { background: #fff; color: var(--brand); border: 1px solid var(--line); }
-    .note { color: var(--muted); font-size: 12.5px; margin: 12px 0 0; }
-    .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(21,101,192,.35);
-      border-top-color: var(--brand); border-radius: 50%; animation: r .7s linear infinite; vertical-align: -2px; margin-right: 6px; }
-    @keyframes r { to { transform: rotate(360deg); } }
-    @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+    body { margin: 0; background: var(--casa-pagina); color: var(--casa-texto);
+      font: 400 15px/1.5 var(--casa-fonte); -webkit-font-smoothing: antialiased; }
+    main { max-width: 1800px; margin: 0 auto; padding: 24px 20px 56px; }
+    main > .casa-titulo { zoom: 1.125; }
+    .giro { display: inline-block; width: 13px; height: 13px; margin-right: 8px; vertical-align: -1px;
+      border: 2px solid var(--casa-a40); border-top-color: var(--casa-acento-texto); border-radius: 50%;
+      animation: giro .7s linear infinite; }
+    @keyframes giro { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .giro { animation-duration: 2s; } }
+    .cartao { max-width: 60rem; padding: 22px 24px; background: var(--casa-cartao);
+      border: 1px solid var(--casa-borda); border-radius: 14px; }
+    .aviso { margin: 0 0 16px; padding: 11px 13px; border-radius: 10px; font-size: .9375rem;
+      color: var(--casa-perigo); background: var(--casa-perigo-fundo); border: 1px solid var(--casa-perigo-borda); }
+    .aviso a { color: inherit; }
+    code { font-family: ui-monospace, Consolas, monospace; font-size: .8125rem; }
+    .botoes { display: flex; gap: 10px; flex-wrap: wrap; }
+    .botoes a { flex: 1; min-width: 220px; padding: 11px 14px; border-radius: 10px; text-align: center; white-space: nowrap;
+      text-decoration: none; font-weight: 600; color: var(--casa-texto); background: var(--casa-cartao);
+      border: 1px solid var(--casa-borda); }
+    .botoes a:hover { color: var(--casa-acento-texto); border-color: var(--casa-acento); background: var(--casa-a08); }
+    .botoes a.principal { color: #fff; border-color: #b04e30; background: linear-gradient(to bottom, #e08060, #c45a3a); }
+    .nota { margin: 14px 0 0; color: var(--casa-texto-2); font-size: .8125rem; }
+    :focus-visible { outline: 2px solid var(--casa-acento-texto); outline-offset: 2px; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <header class="top">
-      <div class="logo">OS</div>
-      <div>
-        <h1>ServidorIntegracaoSAP</h1>
-        <p id="estado"><span class="spin"></span>Abrindo o painel da Integração WBC × SAP…</p>
+  {{ casa_ui.barra(casa_itens(CASA_HREFS, none), "/orcaview", ambiente, mostrar_sair=exige_chave) }}
+  <main>
+    <header class="casa-titulo">
+      <span class="casa-titulo__simbolo">{{ casa_ui.icone('marca', 26) }}</span>
+      <div class="casa-titulo__texto">
+        <h1>Central Integração SAP</h1>
+        <p id="estado"><span class="giro"></span>Abrindo a Integração WBC × SAP…</p>
       </div>
     </header>
 
-    <!-- Aparece só se o painel WBC não responder: em vez da página de erro do navegador,
-         quem chegou aqui ganha o caminho para a outra tela e o nome do serviço parado. -->
-    <div class="card" id="fallback" hidden>
-      <p class="aviso">O painel da Integração WBC não respondeu em
-        <a id="urlPainel" href="__PAINEL_WBC__">__PAINEL_WBC__</a> — o serviço
-        <code>OrcaView-WBC-Painel</code> pode estar parado.</p>
-      <div class="btns">
-        <a class="go" href="/sincronizar">Painel de Sincronização (OS · Oportunidades)</a>
-        <a class="go ghost" href="/controle-producao">Controle de Produção (Pedidos WBC → OPs)</a>
-        <a class="go ghost" href="__PAINEL_WBC__">Tentar o painel WBC de novo</a>
+    {# Only when the painel WBC does not answer: instead of the browser's error page, the way
+       to the other screens and the name of the stopped service. #}
+    <section class="cartao" id="fallback" hidden>
+      <p class="aviso">A Integração WBC não respondeu em <a href="{{ painel_url }}">{{ painel_url }}</a> —
+        o serviço <code>OrcaView-WBC-Painel</code> pode estar parado.</p>
+      <div class="botoes">
+        <a class="principal" href="/sincronizar">Sincronização SAP → Supabase</a>
+        <a href="/controle-producao/pedidos">Controle de Produção</a>
+        <a href="{{ painel_url }}">Tentar a Integração WBC de novo</a>
       </div>
-      <p class="note">Esta é a raiz da API 8077. O painel WBC é outro processo, na porta
-        <code>PAINEL_PORTA</code> do <code>.env</code>; o Controle de Produção é outro, na
-        <code>CP_PORTA</code>; o Painel de Sincronização vive em <code>/sincronizar</code>.</p>
-    </div>
+      <p class="nota">Esta é a raiz da API 8077. A Integração WBC é outro processo, na porta
+        <code>PAINEL_PORTA</code> do <code>.env</code>; o Controle de Produção, na <code>CP_PORTA</code>.</p>
+    </section>
 
     <noscript>
-      <div class="card">
-        <div class="btns">
-          <a class="go" href="__PAINEL_WBC__">Painel da Integração WBC</a>
-          <a class="go ghost" href="/sincronizar">Painel de Sincronização</a>
-          <a class="go ghost" href="/controle-producao">Controle de Produção</a>
+      <section class="cartao">
+        <div class="botoes">
+          <a class="principal" href="{{ painel_url }}">Integração WBC</a>
+          <a href="/sincronizar">Sincronização SAP → Supabase</a>
+          <a href="/controle-producao">Controle de Produção</a>
         </div>
-      </div>
+      </section>
     </noscript>
-  </div>
+  </main>
 
   <script>
-    // O endereço vem da API (WBC_PAINEL_URL ou host:PAINEL_PORTA), não fica fixo aqui.
-    const PAINEL = __PAINEL_WBC_JSON__;
+    // The address comes from the API (WBC_PAINEL_URL or host:PAINEL_PORTA), not fixed here.
+    const PAINEL = {{ painel_json | safe }};
     const fallback = document.getElementById('fallback');
     const estado = document.getElementById('estado');
 
     function mostrarFallback() {
-      estado.textContent = 'O painel da Integração WBC não respondeu.';
+      estado.textContent = 'A Integração WBC não respondeu.';
       fallback.hidden = false;
     }
 
-    // `no-cors`: outra origem/porta; resposta opaca = a porta respondeu, e basta.
-    // Conexão recusada ou 3 s sem resposta = serviço parado -> fica nesta página.
+    // `no-cors`: another origin/port; an opaque answer = the port answered, enough.
+    // Refused connection or 3 s without an answer = stopped service -> stay on this page.
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 3000);
-    // `new URL('entrar', PAINEL)` resolve contra a base configurada, com ou sem barra final.
+    // `new URL('entrar', PAINEL)` resolves against the configured base, with or without the slash.
     fetch(new URL('entrar', PAINEL).href, { mode: 'no-cors', cache: 'no-store', signal: ctrl.signal })
       .then(() => { clearTimeout(timer); location.replace(PAINEL); })
       .catch(() => { clearTimeout(timer); mostrarFallback(); });

@@ -102,8 +102,11 @@ vivo), **Execuções** (do worker) e **Log** (o arquivo `LOG_FILE`, filtrável, 
 Cada bloco se repinta no seu ritmo (log a cada 5 s, números a cada 30 s). Sem CDN: o
 `htmx.min.js` é servido do próprio pacote.
 
-**Visual e lista (29–30/09/2026).** O visual é o do OrçaView: escuro por padrão, claro pelo
-botão redondo de sol/lua (guardado por navegador, em `localStorage`). A lista de oportunidades
+**Visual e lista (29–30/09/2026; casca comum desde 01/10/2026).** O painel usa a casca da
+"Central Integração SAP" (`casa/`, `docs/PLANO_CASA_COMUM_11.md`): a mesma barra, título e paleta do
+Controle de Produção e da Sincronização; escuro por padrão, claro pelo botão de sol/lua — guardado no
+cookie `casa_tema`, que vale nas três telas (o `localStorage` antigo, `wbc-tema`, é migrado uma vez).
+A aba que mostra os ciclos do worker se chama **Ciclos** (era "Execuções"; `/?aba=execucoes` segue valendo). A lista de oportunidades
 vai ao navegador **300 linhas por vez**, do orçamento mais novo para o mais antigo; a próxima
 página é pedida quando a última linha aparece dentro da caixa da tabela (ou por clique/Enter) e
 continua **depois do último nº de orçamento mostrado** — não por posição, porque o worker
@@ -115,11 +118,11 @@ derivado dela (HMAC) — nunca a chave. Trocar a chave invalida todos os cookies
 `curl` usam `X-API-Key` ou `?key=`, como na API. **Sem `OS_API_KEY` o painel fica aberto**,
 igual à API (e o `dashboard` avisa no arranque se estiver exposto na rede).
 
-**Botão "Sincronização SAP → Supabase"** (topo) → `GET /sincronizacao` → o Painel de
-Sincronização: `SIS_PAINEL_URL` se configurada; senão o mesmo host da requisição, na porta
-`OS_API_PORT` (8077). Do outro lado, `⇄ Integração WBC` (`GET /painel-wbc` da API) volta
-para cá. **Botões "Pedidos WBC → OPs" e "Manutenção de OP"** → as duas telas do Controle de
-Produção (8080; `CP_URL` se configurada, senão o mesmo host na `CP_PORTA`), com o mesmo cookie.
+**A barra do topo** (a mesma nas três telas): ← OrçaView (`/orcaview`, `ORCAVIEW_URL`) ·
+Integração WBC (aqui) · Pedidos WBC · Manutenção de OP · Execuções (`/controle-producao/<tela>`
+→ 8080; `CP_URL` se configurada, senão o mesmo host na `CP_PORTA`) · Sincronização
+(`/sincronizacao` → 8077: `SIS_PAINEL_URL`, senão o mesmo host na `OS_API_PORT`). A regra
+"configurado ou mesmo host na porta" é uma só, `casa/destinos.py`. Mesmo cookie de login nas três.
 
 **Aba Executar.** Leitura e diagnóstico (`pendentes`, `env`, `doctor`, `check-sap`,
 `check-hana`) sem proteção extra. Escrita (`ciclo`, `pesos`, `datas-de-abertura`) exige

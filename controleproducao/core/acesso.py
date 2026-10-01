@@ -39,6 +39,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from casa import destinos
 from controleproducao.config import get_settings
 from controleproducao.core.tarefas import TAREFAS
 from controleproducao.core.templates import templates
@@ -235,9 +236,9 @@ def instalar(app: FastAPI) -> None:
     @app.get("/painel-wbc")
     def painel_wbc(request: Request) -> RedirectResponse:
         """The way back to the painel WBC: ``WBC_PAINEL_URL`` verbatim, or this host on
-        ``PAINEL_PORTA`` (the .11 case)."""
+        ``PAINEL_PORTA`` (the .11 case — ``casa/destinos.py``)."""
         s = get_settings()
-        destino = s.wbc_painel_url.strip() or f"{request.url.scheme}://{request.url.hostname}:{s.painel_porta}/"
+        destino = destinos.endereco(s.wbc_painel_url, request.url.scheme, request.url.hostname, s.painel_porta)
         return RedirectResponse(destino, status_code=302)
 
     @app.get("/sincronizacao")
@@ -245,9 +246,8 @@ def instalar(app: FastAPI) -> None:
         """The Painel de Sincronização of the API 8077: ``SIS_PAINEL_URL`` verbatim, or this
         host on ``OS_API_PORT`` at ``/sincronizar`` (the API root bounces to the painel WBC)."""
         s = get_settings()
-        destino = s.sis_painel_url.strip() or (
-            f"{request.url.scheme}://{request.url.hostname}:{s.os_api_port}/sincronizar"
-        )
+        destino = destinos.endereco(s.sis_painel_url, request.url.scheme, request.url.hostname,
+                                    s.os_api_port, "/sincronizar")
         return RedirectResponse(destino, status_code=302)
 
     @app.get("/orcaview")

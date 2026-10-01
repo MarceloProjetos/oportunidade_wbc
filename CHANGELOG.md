@@ -6,6 +6,21 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-01] — Central Integração SAP, F4: acabamento
+
+Entra pelo `deploy_update.bat` (os três serviços de tela). Nenhum comportamento muda.
+
+- **Uma regra só para "onde mora a outra tela"**: `casa/destinos.py` (o `.env` se configurado,
+  senão o mesmo host na porta da tela). Eram seis cópias em `api.py`, `wbcpython/dashboard/web.py`
+  e `controleproducao/core/acesso.py`.
+- **A entrada da 8077 (`GET /`) também na casca:** enquanto passa para o painel, já mostra a barra
+  que o painel vai mostrar; se o painel não responde, o aviso e os caminhos para as outras telas
+  saem no visual da casa (era azul e branco). O comportamento (sonda de 3 s, `location.replace`)
+  é o mesmo.
+- Docs: `README` (entrada e links), `docs/wbc/README.md` (visual, barra, aba Ciclos),
+  `docs/controleproducao/GUIA_OPERADOR.md` (como navegar; "Cancelar as OPs" na Manutenção de OP)
+  e `docs/controleproducao/README.md`.
+
 ## [2026-10-01] — Central Integração SAP, F3: a Sincronização entra na casa
 
 Entra pelo `deploy_update.bat` (`OrcaView-OS-API`). As cargas, as rotas JSON e o `X-API-Key`

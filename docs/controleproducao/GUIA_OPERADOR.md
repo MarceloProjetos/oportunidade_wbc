@@ -6,8 +6,11 @@
 ## Entrar
 
 1. `http://192.168.7.11:8079/` (painel WBC) → entre com a chave (a mesma da API).
-2. Botão **Pedidos WBC → OPs** ou **Manutenção de OP** no topo. Não pede a chave de novo.
-3. "⇄ Painel WBC" volta. "Sair" desloga das duas telas.
+2. Na barra do topo — a mesma nas três telas da **Central Integração SAP** — clique em
+   **Pedidos WBC** ou **Manutenção de OP**. Não pede a chave de novo.
+3. "Integração WBC" e "Sincronização" levam às outras telas; "Sair" desloga das três. O botão
+   redondo troca o tema (escuro/claro) e a escolha vale nas três.
+4. **Cancelar as OPs de um pedido** fica na **Manutenção de OP**, abaixo de "Encerrar todas as OPs".
 
 ## Pedidos WBC → OPs (criar as OPs de um pedido)
 

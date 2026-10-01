@@ -114,8 +114,8 @@ web`, cwd na raiz, stdout em `logs\controleproducao_service.log` zerado a cada s
 do Python é `logs/controleproducao.log` (5 MB × 3) — é também a marca "já subiu" do check
 `controle_producao` do `/status` (`/status?checks=cp` com `X-API-Key` ou `STATUS_ID`; sem
 credencial vem a visão pública, `restrito:true`, e o bloco `controle_producao` não sai). O
-painel WBC (8079) tem os botões "Pedidos WBC → OPs" e "Manutenção de OP"; a tela tem "Painel
-WBC"; a API 8077 responde `GET /controle-producao`.
+barra do topo é a casca comum da "Central Integração SAP" (`casa/`, desde 01/10/2026): as cinco
+telas em todas as três; a API 8077 e o painel respondem `GET /controle-producao[/<tela>]`.
 
 **Rede (F6, 28/09/2026):** na .11 `CP_HOST=0.0.0.0` + regra de firewall da 8080 **só para a
 LAN** (molde: a regra da 8079; receita no README, seção "Controle de Produção") +
