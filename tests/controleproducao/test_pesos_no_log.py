@@ -42,7 +42,7 @@ def test_peso_diferente_sai_como_aviso(caplog):
         "Pedido 00125817: peso da linha 0 (item I000003, OrcItm 1, qtd 1): SAP 124,50 kg · "
         "esperado 249,07 kg (árvore do WBC 226,43 kg + 10%) — DIFERENTE."
     )
-    sql, _params = leitor.fetch_all.call_args.args
+    sql, _params = leitor.fetch_all.call_args_list[0].args   # [1] is the change log (no change here)
     assert 'FROM RDR1 T0' in sql and "?" in sql       # bound, never pasted into the text
 
 
@@ -67,6 +67,64 @@ def test_linha_sem_arvore_e_leitura_que_falha_nao_param_o_processamento(caplog):
         service._loga_pesos(quebrado, "00125817", 20243, [])
     assert "árvore do WBC sem peso." in caplog.text
     assert "não foi possível comparar os pesos: HANA fora" in caplog.text
+
+
+def _versao(quantidade, peso, quem="Adriano Fonseca", hora=140006) -> dict:
+    """One row of `HISTORICO_DA_LINHA_DO_PEDIDO` (ADO1 + ADOC + OUSR)."""
+    from datetime import datetime
+
+    return {"Quantity": quantidade, "Weight1": peso, "UpdateDate": datetime(2026, 10, 1),
+            "UpdateTS": hora, "U_NAME": quem, "USER_CODE": "x"}
+
+
+def test_peso_diferente_diz_quem_mudou_a_quantidade_no_sap(caplog):
+    """Pedido 84453 (01/10/2026): created with 2 × 176,90 kg; a person set quantity 1 in the
+    SAP and it rescaled the weight to 88,45. The log must say so — it read as a bug."""
+    leitor = MagicMock()
+    leitor.fetch_all.side_effect = [
+        [{"LineNum": 0, "ItemCode": "I000003", "Quantity": 1, "Weight1": 88.45, "U_INO_ORCITM": "1"}],
+        [_versao(2, 176.9, quem="orcaview", hora=115109), _versao(1, 88.45), _versao(1, 88.45, hora=143657)],
+    ]
+    with caplog.at_level(logging.INFO, logger=service.__name__):
+        service._loga_pesos(leitor, "00125348", 20300, [_arvore(1, 1, 160.82)])
+
+    assert caplog.records[-1].levelno == logging.WARNING
+    assert caplog.records[-1].getMessage() == (
+        "Pedido 00125348: CAUSA: Adriano Fonseca mudou a quantidade da linha 0 de 2 para 1 no SAP "
+        "em 01/10/2026 às 14:00, e o SAP refez o peso na mesma proporção (176,90 → 88,45 kg). "
+        "A integração tinha gravado o peso certo (176,90 kg) ao criar o pedido."
+    )
+    sql, params = leitor.fetch_all.call_args.args
+    assert "FROM ADO1 T0" in sql and "?" in sql and list(params) == [20300, 0]
+
+
+def test_peso_mudado_a_mao_sem_mudar_a_quantidade(caplog):
+    leitor = MagicMock()
+    leitor.fetch_all.side_effect = [
+        [{"LineNum": 0, "ItemCode": "I000003", "Quantity": 2, "Weight1": 100, "U_INO_ORCITM": "1"}],
+        [_versao(2, 176.9, quem="orcaview"), _versao(2, 100, quem="vendas01", hora=90512)],
+    ]
+    with caplog.at_level(logging.INFO, logger=service.__name__):
+        service._loga_pesos(leitor, "00125348", 20300, [_arvore(1, 1, 160.82)])
+    assert caplog.records[-1].getMessage().startswith(
+        "Pedido 00125348: CAUSA: vendas01 mudou o peso da linha 0 no SAP em 01/10/2026 às 09:05 "
+        "(176,90 → 100,00 kg)."
+    )
+
+
+def test_sem_historico_fica_so_o_diferente(caplog):
+    """No change in the SAP log (or the log cannot be read): no cause is invented."""
+    for historico in ([_versao(1, 88.45)], RuntimeError("ADOC fora")):
+        leitor = MagicMock()
+        leitor.fetch_all.side_effect = [
+            [{"LineNum": 0, "ItemCode": "I000003", "Quantity": 1, "Weight1": 88.45, "U_INO_ORCITM": "1"}],
+            historico,
+        ]
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger=service.__name__):
+            service._loga_pesos(leitor, "00125348", 20300, [_arvore(1, 1, 160.82)])
+        assert "CAUSA" not in caplog.text
+        assert "DIFERENTE" in caplog.text
 
 
 def test_peso_acima_de_mil_sai_com_separador_de_milhar(caplog):

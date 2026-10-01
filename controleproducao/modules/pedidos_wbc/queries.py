@@ -256,6 +256,19 @@ WHERE T0."DocEntry" = {doc_entry}
 ORDER BY T0."LineNum"
 """.strip()
 
+# Change log of one order line (ADOC = header versions, ADO1 = their lines; ObjType 17 =
+# sales order), oldest first, with who saved each version — `service._causa_do_peso`.
+HISTORICO_DA_LINHA_DO_PEDIDO = """
+SELECT T0."LogInstanc", T0."Quantity", T0."Weight1", T1."UpdateDate", T1."UpdateTS",
+       T2."U_NAME", T2."USER_CODE"
+FROM ADO1 T0
+INNER JOIN ADOC T1 ON T1."ObjType" = T0."ObjType" AND T1."DocEntry" = T0."DocEntry"
+                  AND T1."LogInstanc" = T0."LogInstanc"
+LEFT JOIN OUSR T2 ON T2."USERID" = T1."UserSign2"
+WHERE T0."ObjType" = '17' AND T0."DocEntry" = {doc_entry} AND T0."LineNum" = {line_num}
+ORDER BY T0."LogInstanc"
+""".strip()
+
 LINHAS_PEDIDO_POR_ORCITM = """
 SELECT T0."LineNum", T0."U_INO_ORCITM" FROM RDR1 T0
 WHERE T0."DocEntry" = {doc_entry} AND T0."U_INO_ORCITM" IN ({orc_itens})

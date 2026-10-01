@@ -711,7 +711,8 @@ def _loga_pesos(hana_reader: HanaDirectReader, orc_num: str, doc_entry, estrutur
     processing: this step does not write the weight (the worker does, when it creates the
     order). It exists because the weight went wrong on quote 00125817 (29/09/2026) with
     nothing about it in this log. More than 1% away from the expected value (hand-typed
-    weights are round numbers: 248 for 249.07) comes out as a WARNING.
+    weights are round numbers: 248 for 249.07) comes out as a WARNING — followed, since
+    01/10/2026, by WHO changed the line in the SAP (`_causa_do_peso`).
     """
     from decimal import Decimal
 
@@ -739,8 +740,67 @@ def _loga_pesos(hana_reader: HanaDirectReader, orc_num: str, doc_entry, estrutur
         )
         if esperado is not None and abs(sap - float(esperado)) > float(esperado) * 0.01:
             logger.warning("%s — DIFERENTE.", texto)
+            causa = _causa_do_peso(hana_reader, doc_entry, linha.get("LineNum"), float(esperado))
+            if causa:
+                logger.warning("Pedido %s: %s", orc_num, causa)
         else:
             logger.info("%s.", texto)
+
+
+def _causa_do_peso(hana_reader: HanaDirectReader, doc_entry, line_num, esperado: float) -> str | None:
+    """Who changed the order line in the SAP, from its change log (ADOC/ADO1) — or ``None``.
+
+    Orders 84444 (29/09/2026) and 84453 (01/10/2026) were created by the worker with the right
+    weight; then a person changed the line quantity from 2 to 1 in the SAP, and the SAP rescales
+    ``Weight1`` with the quantity (176,90 → 88,45 kg). The log said "DIFERENTE" and nothing
+    else, so it read as an integration bug. Now it names the change: who, when, from what to
+    what. Read-only; any failure just leaves the cause out.
+    """
+    if line_num is None:
+        return None
+    try:
+        versoes = hana_reader.fetch_all(
+            *ligar(q.HISTORICO_DA_LINHA_DO_PEDIDO, doc_entry=int(doc_entry), line_num=int(line_num))
+        )
+    except Exception as exc:  # noqa: BLE001 - the cause is a bonus, never a failure
+        logger.info("  (histórico de alterações do pedido indisponível: %s)", exc)
+        return None
+    for antes, depois in reversed(list(zip(versoes, versoes[1:], strict=False))):
+        q0, q1 = float(antes.get("Quantity") or 0), float(depois.get("Quantity") or 0)
+        w0, w1 = float(antes.get("Weight1") or 0), float(depois.get("Weight1") or 0)
+        if abs(w0 - w1) < 0.005:
+            continue
+        quem = str(depois.get("U_NAME") or depois.get("USER_CODE") or "usuário não identificado").strip()
+        quando = _momento_do_sap(depois.get("UpdateDate"), depois.get("UpdateTS"))
+        criado_certo = abs(float(versoes[0].get("Weight1") or 0) - esperado) <= esperado * 0.01
+        fecho = (
+            f" A integração tinha gravado o peso certo ({numero_br(float(versoes[0].get('Weight1') or 0))} kg) "
+            "ao criar o pedido."
+            if criado_certo else ""
+        )
+        if abs(q0 - q1) > 1e-9:
+            return (
+                f"CAUSA: {quem} mudou a quantidade da linha {line_num} de {q0:g} para {q1:g} no SAP"
+                f"{quando}, e o SAP refez o peso na mesma proporção ({numero_br(w0)} → "
+                f"{numero_br(w1)} kg).{fecho}"
+            )
+        return (
+            f"CAUSA: {quem} mudou o peso da linha {line_num} no SAP{quando} "
+            f"({numero_br(w0)} → {numero_br(w1)} kg).{fecho}"
+        )
+    return None
+
+
+def _momento_do_sap(data, hora) -> str:
+    """`UpdateDate` (date) + `UpdateTS` (HHMMSS as an int) → " em 01/10/2026 às 14:00"."""
+    texto = ""
+    if data is not None and hasattr(data, "strftime"):
+        texto = f" em {data:%d/%m/%Y}"
+    try:
+        hhmmss = int(hora)
+    except (TypeError, ValueError):
+        return texto
+    return f"{texto} às {hhmmss // 10000:02d}:{hhmmss // 100 % 100:02d}"
 
 
 _LINHA_MANUAL_VAZIA = Linha(ped_cliente="", item_cliente="0", nf="", cor="")

@@ -6,6 +6,22 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-01] — Peso diferente no Processar: o log diz quem mudou a linha no SAP
+
+Entra pelo `deploy_update.bat` (Controle de Produção). Só leitura.
+
+- Pedido 84453 (orçamento 00125348): a integração criou a linha com quantidade 2 e 176,90 kg (árvore
+  do WBC 160,82 kg + 10%) às 11:51; às 14:00 um usuário mudou a quantidade para 1 no SAP e o **SAP
+  reescalou o peso** para 88,45 kg. O mesmo aconteceu no 84444 em 29/09. O "Processar pedidos novos"
+  dizia só "DIFERENTE", e parecia defeito da integração.
+- Agora, quando o peso está diferente, a linha seguinte do acompanhamento diz a **causa**, lida do
+  histórico de alterações do SAP (ADOC/ADO1): "Fulano mudou a quantidade da linha 0 de 2 para 1 no
+  SAP em 01/10/2026 às 14:00, e o SAP refez o peso na mesma proporção (176,90 → 88,45 kg). A
+  integração tinha gravado o peso certo (176,90 kg) ao criar o pedido." Conferido contra o SAP de
+  produção (84453). Sem histórico legível, fica só o "DIFERENTE", como antes.
+- O peso **não** é corrigido sozinho: para acertar um pedido, `python -m wbcpython pesos --pedido N`
+  (com `--simular` antes), no terminal da .11.
+
 ## [2026-10-01] — API JSON dos Pedidos WBC, para outro grupo clonar a tela
 
 Entra pelo `deploy_update.bat` (reinicia o Controle de Produção). Plano:
