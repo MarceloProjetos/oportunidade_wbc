@@ -1186,11 +1186,16 @@ def test_conferir_so_com_numero_digitado(cliente):
         pedidos = cliente.get("/pedidos-wbc").text
     ops = cliente.get("/manutencao-op").text
 
-    for html, campos in ((pedidos, 2), (ops, 1)):
-        form = re.search(r"<form[^>]*data-exige-numero>.*?</form>", html, re.S).group(0)
-        assert form.count("data-numero") == campos
+    # Both number forms live on Manutenção de OP since 01/10/2026: Encerrar (pedido) first,
+    # then Cancelar as OPs (pedido ou orçamento), which still posts to the Pedidos WBC route.
+    forms = re.findall(r"<form[^>]*data-exige-numero>.*?</form>", ops, re.S)
+    assert [f.count("data-numero") for f in forms] == [1, 2]
+    assert 'action="/pedidos-wbc/cancelar-ops/conferir"' in forms[1]
+    for form in forms:
         assert re.search(r'<button type="submit" class="ov-btn ov-btn--perigo" disabled', form)
         assert "(só números)" in form
+    assert not re.search(r"<form[^>]*data-exige-numero", pedidos)
+    assert "Cancelar as OPs de um pedido" not in pedidos
     # The shared rule in base.html: digits only, after trimming.
     assert r"/^\d+$/.test(c.value.trim())" in ops
 
@@ -1212,6 +1217,7 @@ def test_cancelar_ops_limpa_os_espacos_do_numero(cliente):
         colado = cliente.post("/pedidos-wbc/cancelar-ops/conferir", data={"doc_num": " 84439 "})
 
     assert "Informe o nº do pedido ou o nº do orçamento." in _texto(so_espacos.text)
+    assert 'href="/manutencao-op"' in so_espacos.text      # back to where the form lives
     assert levanta.await_count == 1
     assert levanta.await_args.kwargs["doc_num"] == "84439"
     assert "Pedido não encontrado." in _texto(colado.text)

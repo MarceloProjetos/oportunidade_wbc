@@ -186,6 +186,22 @@
     mãe, porque a saída de insumo da mãe consome o item que a filha produz.</p>
 </form>
 
+<h2>Cancelar as OPs de um pedido</h2>
+{# Moved here from Pedidos WBC (owner, 01/10/2026). It still posts to the Pedidos WBC route:
+   the operation, its task lock and its CLI twin belong to that module. #}
+<form method="post" action="/pedidos-wbc/cancelar-ops/conferir" class="ov-filtros" data-exige-numero>
+  <div class="ov-field"><label for="c-doc">Nº Pedido</label>
+    <input class="ov-input" id="c-doc" type="text" name="doc_num" inputmode="numeric"
+           autocomplete="off" data-numero></div>
+  <span class="ov-ou">ou</span>
+  <div class="ov-field"><label for="c-orc">Nº Orçamento</label>
+    <input class="ov-input" id="c-orc" type="text" name="orc_num" inputmode="numeric"
+           autocomplete="off" data-numero></div>
+  <button type="submit" class="ov-btn ov-btn--perigo" disabled aria-describedby="dica-cancelar"
+          title="Informe o nº do pedido ou do orçamento">{{ icone('escudo') }} Conferir…</button>
+  <p class="ov-nota" id="dica-cancelar" data-dica aria-live="polite">Informe o nº do pedido ou do orçamento (só números).</p>
+</form>
+
 <script>
 (function () {
   // Marcar/desmarcar tudo de uma vez. O botão alterna e diz quantas estão marcadas —

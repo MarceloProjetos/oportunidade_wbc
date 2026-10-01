@@ -157,21 +157,8 @@
   {% endif %}
 </form>
 
-<h2>Cancelar as OPs de um pedido</h2>
-{# `data-exige-numero` (script in base.html): Conferir… only with a number typed in one of
-   the fields — until then there is nothing to check. #}
-<form method="post" action="/pedidos-wbc/cancelar-ops/conferir" class="ov-filtros" data-exige-numero>
-  <div class="ov-field"><label for="c-doc">Nº Pedido</label>
-    <input class="ov-input" id="c-doc" type="text" name="doc_num" inputmode="numeric"
-           autocomplete="off" data-numero></div>
-  <span class="ov-ou">ou</span>
-  <div class="ov-field"><label for="c-orc">Nº Orçamento</label>
-    <input class="ov-input" id="c-orc" type="text" name="orc_num" inputmode="numeric"
-           autocomplete="off" data-numero></div>
-  <button type="submit" class="ov-btn ov-btn--perigo" disabled aria-describedby="dica-cancelar"
-          title="Informe o nº do pedido ou do orçamento">{{ icone('escudo') }} Conferir…</button>
-  <p class="ov-nota" id="dica-cancelar" data-dica aria-live="polite">Informe o nº do pedido ou do orçamento (só números).</p>
-</form>
+{# "Cancelar as OPs de um pedido" moved to Manutenção de OP (owner, 01/10/2026); the route
+   stays /pedidos-wbc/cancelar-ops/* — it is still this module's operation and task lock. #}
 
 <script>
 (function () {

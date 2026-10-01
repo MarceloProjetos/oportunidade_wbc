@@ -39,13 +39,15 @@
       {{ icone('pedidos') }} Pedidos WBC</a>
     <a class="item {% if ativo == 'ops' %}ativo{% endif %}" href="/manutencao-op">
       {{ icone('ops') }} Manutenção de OP</a>
+    {# Painel WBC and Execuções sit with the other screen links (owner, 01/10/2026); only
+       Sair and the theme toggle stay on the right. #}
+    {# O painel da Integração WBC × SAP: outro processo desta máquina (PAINEL_PORTA), mesma
+       chave — o cookie vale para as duas telas, então não pede a chave de novo. #}
+    <a class="item" href="/painel-wbc" title="Painel da Integração WBC × SAP (cotações e pedidos)">
+      ⇄ Painel WBC</a>
+    <a class="item {% if ativo == 'tarefas' %}ativo{% endif %}" href="/tarefas">
+      {{ icone('execucoes') }} Execuções</a>
     <span class="direita">
-      {# O painel da Integração WBC × SAP: outro processo desta máquina (PAINEL_PORTA), mesma
-         chave — o cookie vale para as duas telas, então não pede a chave de novo. #}
-      <a class="item" href="/painel-wbc" title="Painel da Integração WBC × SAP (cotações e pedidos)">
-        ⇄ Painel WBC</a>
-      <a class="item {% if ativo == 'tarefas' %}ativo{% endif %}" href="/tarefas">
-        {{ icone('execucoes') }} Execuções</a>
       {% if exige_chave() %}
       <form method="post" action="/sair" class="sair" style="display:inline">
         <button class="item" type="submit" title="Esquecer a chave neste navegador">Sair</button>

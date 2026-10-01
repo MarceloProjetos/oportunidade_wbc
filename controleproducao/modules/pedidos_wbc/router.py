@@ -228,17 +228,19 @@ async def conferir_cancelar_ops(
     doc_num: str = Form(default=""),
     orc_num: str = Form(default=""),
 ):
+    # The form lives on the Manutenção de OP page since 01/10/2026: "Voltar" goes there.
+    voltar = "/manutencao-op"
     # Stripped: a pasted " 84439" is text-compared in the SQL and would read as "not found".
     doc_num, orc_num = doc_num.strip(), orc_num.strip()
     if not (doc_num or orc_num):
-        return _erro(request, "Informe o nº do pedido ou o nº do orçamento.")
+        return _erro(request, "Informe o nº do pedido ou o nº do orçamento.", voltar=voltar)
 
     with HanaDirectReader(get_settings()) as hana_reader:
         levantamento = await service.levanta_ops_para_cancelamento(
             hana_reader, doc_num=doc_num or None, orc_num=orc_num or None
         )
     if not levantamento["pedido"]:
-        return _erro(request, "Pedido não encontrado.")
+        return _erro(request, "Pedido não encontrado.", voltar=voltar)
 
     # Mesma regra da CLI: havendo qualquer OP fora dos status que permitem cancelar,
     # NADA é cancelado — nem as planejadas. Cancelar metade deixa o pedido num estado
@@ -249,10 +251,10 @@ async def conferir_cancelar_ops(
             f"{len(levantamento['bloqueantes'])} OP(s) deste pedido estão em status que "
             "não permite cancelamento. Nenhuma OP será cancelada.",
             titulo="Cancelamento bloqueado",
-            detalhes=levantamento["bloqueantes"], colunas=COLUNAS_OP,
+            detalhes=levantamento["bloqueantes"], colunas=COLUNAS_OP, voltar=voltar,
         )
     if not levantamento["a_cancelar"]:
-        return _erro(request, "Não há OP planejada a cancelar neste pedido.")
+        return _erro(request, "Não há OP planejada a cancelar neste pedido.", voltar=voltar)
 
     pedido = levantamento["pedido"]
     plano = PLANOS.criar(
@@ -270,7 +272,7 @@ async def conferir_cancelar_ops(
          "acao": "/pedidos-wbc/cancelar-ops/executar",
          "aviso_operacao": "Cancela as Ordens de Produção listadas. Uma OP cancelada não "
                            "volta atrás — só recriando.",
-         "voltar": "/pedidos-wbc"},
+         "voltar": voltar},
     )
 
 
