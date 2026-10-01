@@ -68,9 +68,11 @@ def test_app_sobe_de_qualquer_diretorio_de_trabalho():
 
     # O teste roda com o cwd da suíte; afirmar sobre o caminho é mais honesto do que
     # mudar de diretório no meio do processo (que afetaria os outros testes).
-    diretorio_templates = Path(templates.env.loader.searchpath[0])
-    assert diretorio_templates.is_absolute(), diretorio_templates
-    assert diretorio_templates.is_dir()
+    # Since 01/10/2026 the loader is a ChoiceLoader: the app's templates, then casa/'s.
+    for carregador in templates.env.loader.loaders:
+        diretorio_templates = Path(carregador.searchpath[0])
+        assert diretorio_templates.is_absolute(), diretorio_templates
+        assert diretorio_templates.is_dir()
 
     montagens = [r for r in aplicacao.routes if isinstance(getattr(r, "app", None), StaticFiles)]
     assert montagens, "a montagem de /static sumiu"

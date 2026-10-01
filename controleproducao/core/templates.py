@@ -18,6 +18,7 @@ from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
 
+import casa
 from controleproducao.config import get_settings
 from controleproducao.core.formato import numero_br, quantidade_br
 from controleproducao.core.tarefas import CLASSE_DA_BARRA, CLASSE_DA_PILULA
@@ -31,6 +32,20 @@ from controleproducao.core.web import contexto_do_ambiente
 _RAIZ_DO_APP = Path(__file__).resolve().parent.parent
 
 templates = Jinja2Templates(directory=_RAIZ_DO_APP / "templates")
+
+# The shared shell of the .11 screens (top bar, palette, theme cookie): `casa/...` templates
+# and the globals its macros read. The app's own templates keep priority.
+casa.instalar(templates.env)
+
+# Where each screen of the shared bar lives, seen from this app: its own pages, and the
+# redirect routes of core/acesso.py for the other two processes (they resolve host/port).
+templates.env.globals["CASA_HREFS"] = {
+    "integracao": "/painel-wbc",
+    "pedidos": "/pedidos-wbc",
+    "ops": "/manutencao-op",
+    "sincronizacao": "/sincronizacao",
+    "tarefas": "/tarefas",
+}
 
 # Nome distinto da chave `ambiente` que o próprio dicionário carrega: registrado como
 # `ambiente`, um contexto de rota com essa chave sombreava a função e o template quebrava

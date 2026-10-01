@@ -7,8 +7,8 @@ own ``/entrar`` because the painel's login page only redirects to paths of its o
 
 Open without the key: ``/entrar``, ``/sair``, ``/favicon.ico``, ``/health*`` (the SIS
 ``/status`` probe and the deploy guard), ``/painel-wbc``, ``/sincronizacao`` and ``/orcaview``
-(redirects) and
-``/static/*``.
+(redirects), ``/static/*`` and ``/casa/*`` (the shared shell's CSS/JS — the key prompt wears
+it too).
 Everything else — pages, the task JSON the browser polls and ``POST /tarefas/{id}/cancelar``
 — needs the cookie or ``X-API-Key``. With no ``OS_API_KEY`` configured the screen is open for
 READING, like the painel; writes are refused by ``core.web.avisa_escrita`` (503).
@@ -137,7 +137,7 @@ def instalar(app: FastAPI) -> None:
     @app.middleware("http")
     async def exigir_chave(request: Request, call_next: Any) -> Any:
         caminho = request.url.path
-        if caminho in ROTAS_ABERTAS or caminho.startswith("/static/"):
+        if caminho in ROTAS_ABERTAS or caminho.startswith(("/static/", "/casa/")):
             return await call_next(request)
         chave, token = _chave_e_token()
         if caminho.startswith(PREFIXO_API):

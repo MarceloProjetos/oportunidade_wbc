@@ -2,9 +2,9 @@
 {% from "_icones.html" import icone %}
 {% block title %}Confirmar — {{ plano.operacao }}{% endblock %}
 {% block content %}
-<header class="ov-topbar">
-  <span class="simbolo" style="color:var(--color-danger)">{{ icone('escudo', 30) }}</span>
-  <div>
+<header class="casa-titulo">
+  <span class="casa-titulo__simbolo casa-titulo__simbolo--perigo">{{ icone('escudo', 26) }}</span>
+  <div class="casa-titulo__texto">
     <h1>Confirmar: {{ plano.operacao }}</h1>
     <p>Nada foi gravado ainda — confira e confirme</p>
   </div>

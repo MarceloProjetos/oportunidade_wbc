@@ -503,7 +503,7 @@ def test_detalhe_inexistente_mostra_a_pagina_de_erro_e_nao_json(cliente):
     assert resposta.status_code == 404
     assert "text/html" in resposta.headers["content-type"]
     assert "Execução não encontrada" in resposta.text
-    assert 'class="item ativo" href="/tarefas"' in resposta.text   # menu still on Execuções
+    assert re.search(r'href="/tarefas"[^>]*aria-current="page"', resposta.text)   # menu still on Execuções
     assert cliente.get("/tarefas/0123456789ab/estado").status_code == 404
 
 

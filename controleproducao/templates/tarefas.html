@@ -3,9 +3,9 @@
 {% set ativo = 'tarefas' %}
 {% block title %}Execuções{% endblock %}
 {% block content %}
-<header class="ov-topbar">
-  <span class="simbolo">{{ icone('execucoes', 30) }}</span>
-  <div>
+<header class="casa-titulo">
+  <span class="casa-titulo__simbolo">{{ icone('execucoes', 26) }}</span>
+  <div class="casa-titulo__texto">
     <h1>Execuções</h1>
     {% if guardado %}
     <p>As {{ maximo }} execuções mais recentes, guardadas no Supabase — reiniciar o serviço

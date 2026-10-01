@@ -1,8 +1,8 @@
 # Plano — Casa comum das telas da .11
 
-> **Status (01/10/2026): proposta, nada codado.** Decididas 1 (nome "Central Integração SAP"),
-> 5 (escuro padrão, com troca para claro) e 6 (mesmo login, as três exigem a chave). Abertas:
-> 2 (ordem do menu — trava a F1), 3 (faixa de produção), 4 (as duas "Execuções"). Página publicada:
+> **Status (01/10/2026): F1 codada e conferida na prévia — falta o deploy dele na .11.** As 6
+> decisões estão fechadas. O Controle de Produção já usa a casca comum (`casa/`); o painel WBC
+> (F2) e a Sincronização (F3) ainda têm o cabeçalho antigo. Página publicada:
 > https://claude.ai/artifact/Qim4SmTbstoyzgcoWG4UdQ (mesma url a cada atualização).
 
 ## O problema
@@ -71,21 +71,31 @@ flowchart LR
 
 ## Fases
 
-### F0 — Decisões (dele)
-Nome da casa, ordem do menu, faixa de produção, as duas "Execuções" (§4). Nada começa sem
-o nome e a ordem do menu: eles são o desenho da barra.
+### F0 — Decisões (dele) — ✅ concluída 01/10/2026
+As 6 decisões da seção Decisões, todas fechadas no mesmo dia.
 
-### F1 — As peças comuns, estreando no Controle de Produção
+### F1 — As peças comuns, estreando no Controle de Produção — ✅ codada 01/10/2026 (deploy pendente)
 **O que passa a existir:** a barra e o tema compartilhados, na tela que já está mais perto.
-- `casa/` com barra, CSS, tema e destinos; `StaticFiles` em `/casa` no 8080.
-- `base.html` do Controle de Produção troca a barra própria pela macro.
-- Teste: a barra lista as mesmas telas, na mesma ordem, com a ativa marcada.
+- `casa/__init__.py` (`TELAS` = ordem e rótulos, `MARCA`, `tema()`, `instalar(env)`),
+  `casa/templates/casa/_casa.html` (macros `cabeca()` e `barra()`), `casa/static/casa.css` e
+  `casa.js`. `StaticFiles` em `/casa` no 8080 (aberto sem chave, como `/static`).
+- `base.html` do Controle de Produção usa as macros; `style.css` aponta a paleta `--ov-*` para os
+  tokens `--casa-*` (uma definição só); os 8 títulos de página viraram `.casa-titulo`.
+- Testes: `tests/test_casa.py` (ordem do menu, tema do cookie, CSS sem `color-mix`, os dois temas
+  com os mesmos tokens) e a barra/tema no `test_acesso.py`.
+- Conferido na prévia com o CSS real: escuro e claro, produção e homologação, 1700/1366/1280 px e
+  celular (375 px, sem rolagem lateral).
+- **O que mordeu:** o script que migra o tema antigo forçava escuro quando não havia nada
+  a migrar e sobrescrevia o `data-theme` do servidor — agora só mexe quando acha um "claro" antigo.
+- `destinos.py` ficou para a F4: no Controle de Produção os links para as outras telas continuam
+  pelas rotas de redirecionamento que já existiam (`/painel-wbc`, `/sincronizacao`).
 
 ### F2 — Painel WBC entra na casa
 **O que passa a existir:** sair do painel para o Controle de Produção não muda o cabeçalho.
 - `pagina.html`: a barra comum em cima; título "Integração WBC × SAP Business One" vira o
   título de página (mesmo bloco do Controle de Produção); "Incluir fora da janela" desce
-  para a linha das abas; os três botões contornados somem (estão na barra).
+  para a linha das abas; os três botões contornados somem (estão na barra); a tarja vermelha
+  sai (decisão 3) e a aba "Execuções" passa a "Ciclos" (decisão 4).
 - Tema: `wbc-tema`/`data-tema` passam a ler o cookie; quem já tinha escolhido "claro" no
   painel é migrado uma vez.
 - HTMX continua igual: só a casca muda.
@@ -125,16 +135,13 @@ Controle de Produção ocupado, última carga de oportunidades), lido do `/statu
 
 1. ✅ **Nome da casa — "Central Integração SAP"** (Marcelo, 01/10/2026). Marca à esquerda da
    barra nas três telas; o nome de cada tela fica no título da página.
-2. **Ordem do menu.** **Recomendado:** Integração WBC · Pedidos WBC · Manutenção de OP ·
-   Sincronização · Execuções — segue o caminho do pedido (WBC → SAP → OPs) e deixa a
-   Sincronização, que é paralela, no fim. "← OrçaView" fica antes, como hoje.
-3. **Faixa de produção.** O painel tem a tarja vermelha; o Controle de Produção tirou a dele
-   (29/09). **Recomendado:** nenhuma tarja; pílula `SBOALTAMIRAPROD` na barra, igual nas
-   três; fora de produção a faixa cinza que já existe.
-4. **Duas "Execuções".** O painel tem a aba Execuções (ciclos do worker) e o Controle de
-   Produção tem a tela Execuções (tarefas de OP). Na barra única as duas se confundem.
-   **Recomendado:** a aba do painel passa a se chamar "Ciclos"; "Execuções" na barra é a do
-   Controle de Produção.
+2. ✅ **Ordem do menu** (recomendação aceita, 01/10/2026): ← OrçaView · Integração WBC ·
+   Pedidos WBC · Manutenção de OP · Sincronização · Execuções — o caminho do pedido
+   (WBC → SAP → OPs), com a Sincronização, que é paralela, no fim.
+3. ✅ **Faixa de produção** (recomendação aceita): nenhuma tarja; pílula com a company DB na
+   barra, vermelha em produção, igual nas três; fora de produção a faixa cinza que já existe.
+4. ✅ **Duas "Execuções"** (recomendação aceita): a aba do painel passa a se chamar "Ciclos" (F2);
+   "Execuções" na barra é a do Controle de Produção.
 5. ✅ **Tema — escuro por padrão nas três, com o botão para trocar para claro** (Marcelo,
    01/10/2026). A escolha fica no cookie `casa_tema` e vale nas três telas.
 6. ✅ **Login — o mesmo nas três, e as três exigem a chave** (Marcelo, 01/10/2026). A

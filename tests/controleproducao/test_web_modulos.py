@@ -1227,11 +1227,14 @@ def test_css_da_linha_do_topo_e_da_barra_no_celular():
     css = (_RAIZ_SIS / "controleproducao/static/style.css").read_text(encoding="utf-8")
     assert "grid-template-columns: auto 1fr 1fr" in css
     assert re.search(r"@media \(max-width: 760px\) \{\s*\.ov-linha-topo \{ grid-template-columns: 1fr; \}", css)
-    # The one-line nav forced every page to ~570px on a 375px phone; it wraps now.
-    assert re.search(r"@media \(max-width: 760px\) \{\s*\.ov-nav \{\s*height: auto; flex-wrap: wrap;", css)
+    # The one-line nav forced every page to ~570px on a 375px phone. The bar is casa.css's
+    # since 01/10/2026: on phones the screens go to a second, scrolling row.
+    casa_css = (_RAIZ_SIS / "casa/static/casa.css").read_text(encoding="utf-8")
+    assert re.search(r'@media \(max-width: 760px\) \{\s*\.casa-barra \{\s*grid-template-columns: auto auto; '
+                     r'grid-template-areas: "marca direita" "nav nav";', casa_css)
     assert ".ov-opcao:has(input:disabled)" in css
     base = (_RAIZ_SIS / "controleproducao/templates/base.html").read_text(encoding="utf-8")
-    assert "style.css?v=11" in base
+    assert "style.css?v=12" in base
     # 29/09/2026: the mode choice of the search card is larger than the other options.
     assert re.search(r"\.ov-linha-topo \.ov-opcao input\[type=\"radio\"\] \{\s*width: 20px; height: 20px;", css)
 

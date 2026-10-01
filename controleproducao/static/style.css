@@ -36,12 +36,10 @@
    ícone) — o terracota sobre a superfície dá 3,7:1 e reprova em texto pequeno,
    o clareado dá 4,9:1. `--ov-border-strong` é contorno de CONTROLE (3:1), mais
    forte que a borda decorativa de cartão.
-   Estas três linhas são a DEFINIÇÃO da paleta: é a exceção sancionada do §6, e
-   é o único lugar do arquivo onde pode haver hex. */
-/* css-token-ok: hex-color-literal, brand-color-literal — definição da paleta (§6) */
-body{--ov-page:#1a1a1a;--ov-panel:#242424;--ov-card:#2d2d2d;--ov-surface:#3a3a3a;--ov-border:#404040;--ov-border-strong:#9ca3af;--ov-text:#ffffff;--ov-text-2:#9ca3af;--ov-accent:#da7756;--ov-accent-text:#e8956e;--ov-on-solid:#ffffff}
-/* css-token-ok: hex-color-literal, brand-color-literal — definição da paleta clara (§6) */
-:root[data-theme="light"] body{--ov-page:#EEF1F5;--ov-panel:#FFFFFF;--ov-card:#FFFFFF;--ov-surface:#EBEFF5;--ov-border:#CBD5E1;--ov-border-strong:#64748B;--ov-text:#1F2733;--ov-text-2:#5A6675;--ov-accent:#c45a3a;--ov-accent-text:var(--ov-accent)}
+   Since 01/10/2026 (PLANO_CASA_COMUM_11, F1) the palette itself lives in
+   casa/static/casa.css, shared with the painel WBC and the Sincronização: the --ov-*
+   names below only point at it, and the light/dark switch happens there. */
+body{--ov-page:var(--casa-pagina);--ov-panel:var(--casa-painel);--ov-card:var(--casa-cartao);--ov-surface:var(--casa-superficie);--ov-border:var(--casa-borda);--ov-border-strong:var(--casa-borda-forte);--ov-text:var(--casa-texto);--ov-text-2:var(--casa-texto-2);--ov-accent:var(--casa-acento);--ov-accent-text:var(--casa-acento-texto);--ov-on-solid:var(--casa-sobre-solido)}
 /* css-token-ok: hex-color-literal — semânticas do shared.css, valem nos dois temas (§1.5) */
 :root{--color-success:#28a745;--color-danger:#dc3545;--color-warning:#ffc107;--color-info:#0dcaf0}
 
@@ -115,96 +113,24 @@ code {
 
 .icone { flex: none; vertical-align: -.15em; }
 
-/* ── Barra de navegação ───────────────────────────────────────────────────── */
-/* Divergência (b): aqui a barra É o menu — o app não tem o drawer do menu.js. */
-/* Wraps (a second row) wherever it does not fit, and no label ever breaks mid-word: with the
-   "OrçaView" link (30/09/2026) the labels broke in two between ~760 and ~1050px. */
-.ov-nav {
-  display: flex; align-items: center; gap: var(--space-1);
-  flex-wrap: wrap; row-gap: var(--space-1);
-  padding: 0 var(--space-5); min-height: 56px;
-  background: var(--ov-panel); border-bottom: 1px solid var(--ov-border);
-  position: sticky; top: 0; z-index: var(--z-sticky);
-}
-.ov-nav .marca {
-  display: flex; align-items: center; gap: var(--space-2);
-  font-weight: 700; margin-right: var(--space-5); color: var(--ov-text);
-  font-size: var(--fs-base); white-space: nowrap;
-}
-.ov-nav .marca .icone { color: var(--ov-accent-text); }
-/* The arrow of the way back to the OrçaView is green (owner's call, 30/09/2026). */
-.ov-nav a.item.voltar .icone { color: var(--color-success); }
-.ov-nav a.item {
-  display: flex; align-items: center; gap: var(--space-1);
-  padding: var(--space-1) var(--space-3); border-radius: var(--ov-r-item);
-  color: var(--ov-text-2); font-weight: 600; font-size: var(--fs-sm);
-  transition: var(--relief-transition); white-space: nowrap;
-}
-.ov-nav a.item:hover { background: var(--ov-a08); color: var(--ov-accent-text); text-decoration: none; }
-.ov-nav a.item.ativo {
-  background: var(--ov-a13); color: var(--ov-accent-text);
-  box-shadow: inset 0 0 0 1px var(--ov-a40);
-}
-.ov-nav .direita { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); }
-/* Phones: the one-line bar was ~570px wide and forced every page to render shrunk on a
-   375px screen (found 29/09/2026). It wraps instead; the items never break mid-label. */
-@media (max-width: 760px) {
-  .ov-nav {
-    height: auto; flex-wrap: wrap; row-gap: var(--space-1);
-    padding: var(--space-2) var(--space-4);
-  }
-  .ov-nav .marca { margin-right: auto; }
-  .ov-nav a.item, .ov-nav button.item { white-space: nowrap; }
-  .ov-nav .direita { margin-left: 0; flex-wrap: wrap; }
-}
-
-.theme-toggle-btn {
-  display: grid; place-items: center; width: 36px; height: 36px; padding: 0;
-  border-radius: 50%; cursor: pointer; color: var(--ov-accent-text);
-  background: var(--ov-card); border: 1px solid var(--ov-border);
-  transition: var(--relief-transition);
-}
-.theme-toggle-btn:hover { border-color: var(--ov-accent); }
-
-/* ── Faixa de ambiente ────────────────────────────────────────────────────── */
-/* Only off production now: the red PRODUÇÃO strip was removed at the owner's request
-   (29/09/2026) — on the .11 production is the normal state. A homologação run still says
-   so on every page (mixing the two was a real mistake on 21/09). */
-.ov-faixa {
-  display: flex; align-items: center; gap: var(--space-2);
-  padding: var(--space-2) var(--space-5); font-size: var(--fs-sm);
-}
-.ov-faixa--ambiente {
-  background: var(--ov-panel); color: var(--ov-text-2);
-  border-bottom: 1px solid var(--ov-border);
-}
-
 /* ── Casca e cabeçalho (§5.2) ─────────────────────────────────────────────── */
 /* zoom NA CASCA, jamais no body: no body ele encolhe os position:fixed.
    30/09/2026 (owner): the screens read "muito encolhido", mostly on notebooks — 25% larger
-   (.9 → 1.125) and wider (1400 → 1600px), the top bar along. Phones keep the old scale:
-   their layout was tuned with it. */
+   (.9 → 1.125) and wider (1400 → 1600px). Phones keep the old scale: their layout was
+   tuned with it. The top bar is casa.css's and is sized there, the same on every screen. */
 .ov-shell {
   max-width: 1600px; margin: 0 auto;
   padding: var(--space-6) var(--space-4) var(--space-12); zoom: 1.125;
 }
-.ov-nav { zoom: 1.125; }
 @media (max-width: 760px) {
   .ov-shell { zoom: .9; }
-  .ov-nav { zoom: 1; }
 }
-.ov-topbar {
-  display: flex; align-items: center; gap: var(--space-4);
-  margin-bottom: var(--space-6);
-}
-.ov-topbar > .simbolo { font-size: var(--fs-3xl); color: var(--ov-accent-text); display: flex; }
-.ov-topbar h1 { font-size: var(--fs-2xl); margin: 0; color: var(--ov-text); font-weight: 700; }
-.ov-topbar p { font-size: var(--fs-sm); color: var(--ov-text-2); margin: 0; }
-/* "Voltar" of the execution page, pushed to the right of the title (29/09/2026). */
-.ov-topbar .ov-voltar { margin-left: auto; text-decoration: none; }
+/* Page title = .casa-titulo (casa.css). "Voltar" of the execution page, pushed to the right
+   of the title (29/09/2026). */
+.casa-titulo .ov-voltar { margin-left: auto; text-decoration: none; }
 @media (max-width: 760px) {
-  .ov-topbar:has(.ov-voltar) { flex-wrap: wrap; }
-  .ov-topbar .ov-voltar { margin-left: 0; }
+  .casa-titulo:has(.ov-voltar) { flex-wrap: wrap; }
+  .casa-titulo .ov-voltar { margin-left: 0; }
 }
 
 /* ── Faixa de KPI (§5.3) ──────────────────────────────────────────────────── */

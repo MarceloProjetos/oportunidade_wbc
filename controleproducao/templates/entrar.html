@@ -1,5 +1,7 @@
 {% extends "base.html" %}
-{% block title %}Entrar — Controle de Produção{% endblock %}
+{# No screens in the bar here: every one of them would only bring the operator back. #}
+{% set sem_menu = true %}
+{% block title %}Entrar — Central Integração SAP{% endblock %}
 {% block content %}
 {# Porta de entrada quando há OS_API_KEY no .env. É a MESMA chave do painel WBC e da API
    8077 — e o mesmo cookie: quem já entrou no painel neste navegador não passa por aqui. #}

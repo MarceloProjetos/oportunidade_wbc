@@ -22,6 +22,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+import casa
 from controleproducao.core import acesso, historico
 from controleproducao.core.tarefas import TAREFAS
 from controleproducao.core.tarefas_router import router as tarefas_router
@@ -55,6 +56,8 @@ app = FastAPI(
 # Caminho absoluto: ver a nota em `core/templates.py`. A app precisa subir de
 # qualquer diretório de trabalho.
 app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent / "static"), name="static")
+# The shared shell (casa.css/casa.js) — same files the painel WBC and the 8077 serve.
+app.mount("/casa", StaticFiles(directory=casa.STATIC_DIR), name="casa")
 
 # `tipo` of an HTTP error under /api/ — the contract's names (API_MANUTENCAO_OP.md). The 503
 # comes from `core.web.avisa_escrita`: no OS_API_KEY, or a production write off the .11.

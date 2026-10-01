@@ -8,6 +8,8 @@ reading and writes answer 503 (fail-closed); with a key, pages need the cookie o
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -94,15 +96,20 @@ class TestComChave:
         destino = fechado.get("/sincronizacao", follow_redirects=False).headers["location"]
         assert destino == "http://192.168.7.11:8077/sincronizar"
 
-    def test_menu_tem_os_links_juntos(self, logado: TestClient) -> None:
-        # Owner, 01/10/2026: the screen links in a row, Sincronização between Manutenção de OP
-        # and Painel WBC; only Sair and the theme toggle on the right.
+    def test_menu_e_a_barra_da_casa(self, logado: TestClient) -> None:
+        # The shared bar (PLANO_CASA_COMUM_11 F1, decision 2): the screens in the order of the
+        # pedido, the active one marked, then environment, Sair and theme on the right.
         html = logado.get("/manutencao-op").text
-        nav = html[html.index('<nav class="ov-nav">'):html.index("</nav>")]
-        ordem = [nav.index(h) for h in ('href="/manutencao-op"', 'href="/sincronizacao"',
-                                        'href="/painel-wbc"', 'href="/tarefas"',
-                                        'class="direita"')]
+        barra = html[html.index('<header class="casa-barra">'):html.index("</header>")]
+        ordem = [barra.index(h) for h in ('href="/orcaview"', 'href="/painel-wbc"',
+                                          'href="/pedidos-wbc"', 'href="/manutencao-op"',
+                                          'href="/sincronizacao"', 'href="/tarefas"',
+                                          'class="casa-direita"', 'action="/sair"',
+                                          "data-casa-tema")]
         assert ordem == sorted(ordem)
+        assert barra.count('aria-current="page"') == 1
+        assert re.search(r'href="/manutencao-op"[^>]*aria-current="page"', barra)
+        assert "Integração SAP</b>" in barra
 
     def test_orcaview_redireciona_sem_chave(self, fechado: TestClient) -> None:
         # The way back to the OrçaView home must work for someone who has no key.
@@ -117,12 +124,22 @@ class TestComChave:
 
     def test_link_para_o_orcaview_na_barra(self, fechado: TestClient) -> None:
         # Even the key prompt shows it: that is exactly where one gets stuck. Right after the
-        # "Controle de Produção" brand, with a green arrow (owner's calls, 30/09/2026).
+        # brand, with a green arrow (owner's calls, 30/09/2026) — and no screen links there,
+        # each of them would only bring the operator back to this prompt.
         html = fechado.get("/entrar").text
-        assert html.index("Controle de Produção</span>") < html.index('href="/orcaview"')
-        assert 'class="item voltar" href="/orcaview"' in html
-        css = fechado.get("/static/style.css").text
-        assert ".ov-nav a.item.voltar .icone { color: var(--color-success); }" in css
+        assert html.index("Integração SAP</b>") < html.index('href="/orcaview"')
+        assert 'class="casa-item casa-item--voltar" href="/orcaview"' in html
+        assert 'href="/pedidos-wbc"' not in html
+        css = fechado.get("/casa/casa.css").text            # open without the key
+        assert ".casa-item--voltar .casa-icone { color: var(--casa-ok); }" in css
+
+    def test_tema_vem_do_cookie_da_casa(self, logado: TestClient) -> None:
+        # Decision 5: dark by default; the cookie (shared by the three ports) switches it.
+        assert '<html lang="pt-BR" data-theme="dark">' in logado.get("/tarefas").text
+        logado.cookies.set("casa_tema", "claro")
+        assert '<html lang="pt-BR" data-theme="light">' in logado.get("/tarefas").text
+        logado.cookies.set("casa_tema", "<script>")
+        assert '<html lang="pt-BR" data-theme="dark">' in logado.get("/tarefas").text
 
     def test_docs_fechados(self, logado: TestClient) -> None:
         for caminho in ("/docs", "/redoc", "/openapi.json"):

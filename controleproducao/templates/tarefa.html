@@ -9,9 +9,9 @@
                   'manutencao_op': ('/manutencao-op', 'Manutenção de OP'),
                   'romaneio': ('/romaneio', 'Romaneio')} %}
 {% set volta = origens.get(tarefa.modulo, ('/tarefas', 'Execuções')) %}
-<header class="ov-topbar">
-  <span class="simbolo">{{ icone('execucoes', 30) }}</span>
-  <div>
+<header class="casa-titulo">
+  <span class="casa-titulo__simbolo">{{ icone('execucoes', 26) }}</span>
+  <div class="casa-titulo__texto">
     <h1>{{ tarefa.nome }}</h1>
     <p>{{ tarefa.descricao }}{% if tarefa.origem == 'api' %} · por {{ tarefa.solicitante or '—' }} · API{% endif %}</p>
   </div>
