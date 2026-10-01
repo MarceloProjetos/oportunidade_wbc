@@ -99,6 +99,16 @@
   background: var(--casa-a13); color: var(--casa-acento-texto);
   box-shadow: inset 0 0 0 1px var(--casa-a40);
 }
+/* The brand as the link to the home page (F5): quiet until hovered; on the home page itself
+   the tile fills with the accent, like the active screen's item. */
+a.casa-marca {
+  margin-left: -6px; padding: 4px 10px 4px 6px; border-radius: 12px; text-decoration: none;
+  transition: background-color .15s ease;
+}
+a.casa-marca:hover { background: var(--casa-a08); text-decoration: none; }
+a.casa-marca[aria-current="page"] .casa-marca__simbolo {
+  background: var(--casa-acento); color: var(--casa-sobre-solido); box-shadow: none;
+}
 .casa-marca__nome { display: flex; flex-direction: column; line-height: 1.1; }
 .casa-marca__nome small {
   font-size: 10.5px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase;
@@ -165,6 +175,8 @@
 .casa-tema__ir-escuro { display: none; }
 :root[data-theme="light"] .casa-tema__ir-claro { display: none; }
 :root[data-theme="light"] .casa-tema__ir-escuro { display: block; }
+
+@media (prefers-reduced-motion: reduce) { a.casa-marca { transition: none; } }
 
 .casa-barra a:focus-visible, .casa-barra button:focus-visible {
   outline: 2px solid var(--casa-acento-texto); outline-offset: 2px;

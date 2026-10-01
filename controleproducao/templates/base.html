@@ -15,9 +15,11 @@
   {# The shared top bar of the "Central Integração SAP" (PLANO_CASA_COMUM_11, F1): the same
      brand, screens and controls as the painel WBC and the Sincronização. The key prompt
      (`sem_menu`) shows only the way back to the OrçaView. #}
+  {% set no_prompt = sem_menu is defined and sem_menu %}
   {{ casa_ui.barra(
-       [] if sem_menu is defined and sem_menu else casa_itens(CASA_HREFS, ativo if ativo is defined else none),
-       "/orcaview", amb_atual(), mostrar_sair=exige_chave()) }}
+       [] if no_prompt else casa_itens(CASA_HREFS, ativo if ativo is defined else none),
+       "/orcaview", amb_atual(), mostrar_sair=exige_chave(),
+       inicio_href=none if no_prompt else "/inicio") }}
 
   <main id="mainContent" class="ov-shell">
     {% block content %}{% endblock %}

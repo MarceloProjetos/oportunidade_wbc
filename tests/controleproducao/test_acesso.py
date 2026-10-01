@@ -133,6 +133,13 @@ class TestComChave:
         css = fechado.get("/casa/casa.css").text            # open without the key
         assert ".casa-item--voltar .casa-icone { color: var(--casa-ok); }" in css
 
+    def test_a_marca_leva_ao_inicio_da_central(self, logado: TestClient) -> None:
+        # F5: the brand is a link to /inicio here, which hands over to the API port.
+        assert '<a class="casa-marca" href="/inicio"' in logado.get("/tarefas").text
+        resposta = logado.get("/inicio", follow_redirects=False)
+        assert resposta.status_code == 302
+        assert resposta.headers["location"] == "http://testserver:8077/inicio"
+
     def test_tema_vem_do_cookie_da_casa(self, logado: TestClient) -> None:
         # Decision 5: dark by default; the cookie (shared by the three ports) switches it.
         assert '<html lang="pt-BR" data-theme="dark">' in logado.get("/tarefas").text

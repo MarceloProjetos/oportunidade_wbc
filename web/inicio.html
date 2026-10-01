@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+{#
+  Home page of the "Central Integração SAP" (PLANO_CASA_COMUM_11, F5): one card per screen with
+  the state of the service behind it, and the connections they depend on. Everything is read in
+  the browser from `/status` (the same data the .90's watchdog and the MCP use) and from the sync
+  logs — no new check, no new query. Four calls instead of one so the fast cards (local) do not
+  wait for the slow ones (HANA, SQL Server, Supabase). Refreshes every minute.
+#}
+<html lang="pt-BR" data-theme="{{ 'light' if casa_tema(request.cookies) == 'claro' else 'dark' }}">
+{% import "casa/_casa.html" as casa_ui %}
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Central Integração SAP</title>
+  {{ casa_ui.cabeca() }}
+  <style>
+    /* State colours (same hues as the painel WBC); everything else comes from casa.css. */
+    :root {
+      --s-ok: #48b77f; --s-ok-bg: rgb(72 183 127 / .15);
+      --s-err: #f2726a; --s-err-bg: rgb(242 114 106 / .15);
+      --s-warn: #e0a82e; --s-warn-bg: rgb(224 168 46 / .15);
+      --s-neutro: #9ca3af; --s-neutro-bg: rgb(156 163 175 / .14);
+      --s-superficie: #333333;
+      --s-sombra: 0 4px 10px rgb(0 0 0 / .30), 0 1px 3px rgb(0 0 0 / .22);
+    }
+    :root[data-theme="light"] {
+      --s-ok: #1c7a4c; --s-ok-bg: #e4f3ea;
+      --s-err: #b42318; --s-err-bg: #fbe6e4;
+      --s-warn: #92620a; --s-warn-bg: #fbf0d8;
+      --s-neutro: #5c6b79; --s-neutro-bg: #eaeef1;
+      --s-superficie: #f8fafc;
+      --s-sombra: 0 1px 2px rgb(0 0 0 / .05), 0 6px 20px rgb(0 0 0 / .05);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--casa-pagina); color: var(--casa-texto);
+      font: 400 15px/1.5 var(--casa-fonte); -webkit-font-smoothing: antialiased; }
+    main { max-width: 1800px; margin: 0 auto; padding: 24px 20px 56px; }
+    .topo { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
+    .topo .casa-titulo { margin: 0; zoom: 1.125; }
+    .relogio { margin-left: auto; display: flex; align-items: center; gap: 10px; color: var(--casa-texto-2);
+      font-size: .8125rem; font-variant-numeric: tabular-nums; }
+    .link { display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; cursor: pointer;
+      padding: 5px 9px; border-radius: 8px; font: 500 .8125rem/1.2 var(--casa-fonte); color: var(--casa-texto-2); }
+    .link:hover { background: var(--casa-a08); color: var(--casa-acento-texto); }
+    :focus-visible { outline: 2px solid var(--casa-acento-texto); outline-offset: 2px; }
+
+    h2.secao { display: flex; align-items: center; gap: 10px; margin: 28px 0 12px; font-size: .8125rem;
+      font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--casa-texto-2); }
+    h2.secao::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--casa-acento); }
+
+    .avisos { padding: 14px 18px; border-radius: 12px; color: var(--s-warn); background: var(--s-warn-bg);
+      border: 1px solid var(--s-warn); }
+    .avisos b { display: block; margin-bottom: 6px; }
+    .avisos ul { margin: 0; padding-left: 18px; color: var(--casa-texto); font-size: .875rem; }
+    .avisos li { margin: 3px 0; }
+
+    /* One card per screen. The left stripe carries the state, so a red one is seen from afar. */
+    .telas { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+    @media (max-width: 1150px) { .telas { grid-template-columns: minmax(0, 1fr); } }
+    .tela { --estado: var(--casa-borda); display: flex; flex-direction: column; gap: 14px; padding: 20px 22px;
+      background: var(--casa-cartao); border: 1px solid var(--casa-borda); border-left: 4px solid var(--estado);
+      border-radius: 14px; box-shadow: var(--s-sombra); }
+    .tela[data-estado="ok"] { --estado: var(--s-ok); }
+    .tela[data-estado="warn"] { --estado: var(--s-warn); }
+    .tela[data-estado="err"] { --estado: var(--s-err); }
+    .tela[data-estado="neutro"] { --estado: var(--s-neutro); }
+    .tela > header { display: flex; align-items: center; gap: 12px; }
+    .tile { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px;
+      background: var(--casa-a13); color: var(--casa-acento-texto); box-shadow: inset 0 0 0 1px var(--casa-a40); }
+    .tela h3 { margin: 0; font-size: 1.15rem; font-weight: 700; letter-spacing: -.01em; }
+    .tela > header .pilula { margin-left: auto; }
+    .para { margin: -6px 0 0; color: var(--casa-texto-2); font-size: .875rem; }
+    .fatos { margin: 0; display: flex; flex-direction: column; }
+    .fatos > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+      padding: 8px 0; border-bottom: 1px dashed var(--casa-borda); }
+    .fatos > div:last-child { border-bottom: 0; }
+    .fatos dt { color: var(--casa-texto-2); font-size: .8125rem; }
+    .fatos dd { margin: 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .detalhe { margin: 0; padding: 9px 12px; border-radius: 10px; font-size: .8125rem;
+      color: var(--casa-texto-2); background: var(--s-superficie); }
+    .detalhe:empty { display: none; }
+    .tela > footer { margin-top: auto; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .abrir { display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 10px;
+      font-weight: 600; text-decoration: none; color: #fff; border: 1px solid #b04e30;
+      background: linear-gradient(to bottom, #e08060, #c45a3a); }
+    .abrir:hover { background: linear-gradient(to bottom, #e8956e, #da7756); }
+    .tela > footer .link { text-decoration: none; }
+
+    .pilula { display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 3px 10px; border-radius: 999px;
+      font-size: .6875rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap;
+      color: var(--s-neutro); background: var(--s-neutro-bg); }
+    .pilula::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .pilula.ok { color: var(--s-ok); background: var(--s-ok-bg); }
+    .pilula.warn { color: var(--s-warn); background: var(--s-warn-bg); }
+    .pilula.err { color: var(--s-err); background: var(--s-err-bg); }
+
+    /* What the three screens depend on. */
+    .conexoes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    .conexao { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; background: var(--casa-cartao);
+      border: 1px solid var(--casa-borda); border-radius: 12px; }
+    .conexao .linha1 { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .conexao b { font-size: .9375rem; }
+    .conexao span.info { color: var(--casa-texto-2); font-size: .8125rem; font-variant-numeric: tabular-nums;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .nota { margin: 18px 0 0; color: var(--casa-texto-2); font-size: .8125rem; }
+  </style>
+</head>
+<body>
+  {{ casa_ui.barra(casa_itens(CASA_HREFS, none), "/orcaview", ambiente, mostrar_sair=exige_chave,
+                   inicio_href="/inicio", no_inicio=true) }}
+  <main>
+    <div class="topo">
+      <header class="casa-titulo">
+        <span class="casa-titulo__simbolo">{{ casa_ui.icone('marca', 26) }}</span>
+        <div class="casa-titulo__texto">
+          <h1>Central Integração SAP</h1>
+          <p>O estado das três telas e dos serviços da .11 — atualiza sozinho a cada minuto</p>
+        </div>
+      </header>
+      <div class="relogio">
+        <span id="relogio">Consultando…</span>
+        <button type="button" class="link" id="atualizar">{{ casa_ui.icone('sincronizar', 14) }} atualizar</button>
+      </div>
+    </div>
+
+    <section class="avisos" id="avisos" hidden aria-live="polite">
+      <b>Avisos do monitor</b>
+      <ul id="avisosLista"></ul>
+    </section>
+
+    <h2 class="secao">As telas</h2>
+    <div class="telas">
+      <article class="tela" id="tWbc">
+        <header>
+          <span class="tile">{{ casa_ui.icone('integracao', 22) }}</span>
+          <h3>Integração WBC</h3>
+          <span class="pilula" data-pilula>consultando</span>
+        </header>
+        <p class="para">O worker lê os orçamentos do WBC e cria cotações e pedidos no SAP.</p>
+        <dl class="fatos">
+          <div><dt>Último ciclo</dt><dd data-f="ultimo">—</dd></div>
+          <div><dt>Ciclos hoje</dt><dd data-f="hoje">—</dd></div>
+          <div><dt>Último resultado</dt><dd data-f="resultado">—</dd></div>
+        </dl>
+        <p class="detalhe" data-detalhe></p>
+        <footer><a class="abrir" href="{{ CASA_HREFS.integracao }}">Abrir a Integração WBC</a></footer>
+      </article>
+
+      <article class="tela" id="tCp">
+        <header>
+          <span class="tile">{{ casa_ui.icone('ops', 22) }}</span>
+          <h3>Controle de Produção</h3>
+          <span class="pilula" data-pilula>consultando</span>
+        </header>
+        <p class="para">Pedidos do WBC viram Ordens de Produção; as OPs são liberadas e encerradas aqui.</p>
+        <dl class="fatos">
+          <div><dt>Serviço</dt><dd data-f="servico">—</dd></div>
+          <div><dt>Execuções em andamento</dt><dd data-f="ativas">—</dd></div>
+          <div><dt>Grava em</dt><dd data-f="grava">—</dd></div>
+        </dl>
+        <p class="detalhe" data-detalhe></p>
+        <footer>
+          <a class="abrir" href="{{ CASA_HREFS.pedidos }}">Pedidos WBC</a>
+          <a class="link" href="{{ CASA_HREFS.ops }}">Manutenção de OP</a>
+          <a class="link" href="{{ CASA_HREFS.tarefas }}">Execuções</a>
+        </footer>
+      </article>
+
+      <article class="tela" id="tSync">
+        <header>
+          <span class="tile">{{ casa_ui.icone('sincronizar', 22) }}</span>
+          <h3>Sincronização</h3>
+          <span class="pilula" data-pilula>consultando</span>
+        </header>
+        <p class="para">Leva Oportunidades (no agendador) e Ordens de Serviço (sob demanda) do SAP ao Supabase.</p>
+        <dl class="fatos">
+          <div><dt>Última carga de oportunidades</dt><dd data-f="carga">—</dd></div>
+          <div><dt>Última OS sincronizada</dt><dd data-f="os">—</dd></div>
+          <div><dt>Agendador</dt><dd data-f="agendador">—</dd></div>
+        </dl>
+        <p class="detalhe" data-detalhe></p>
+        <footer><a class="abrir" href="{{ CASA_HREFS.sincronizacao }}">Abrir a Sincronização</a></footer>
+      </article>
+    </div>
+
+    <h2 class="secao">Conexões</h2>
+    <div class="conexoes">
+      <div class="conexao" id="cSap"><div class="linha1"><b>SAP HANA</b><span class="pilula" data-pilula>consultando</span></div><span class="info" data-info>—</span></div>
+      <div class="conexao" id="cSql"><div class="linha1"><b>SQL Server do WBC</b><span class="pilula" data-pilula>consultando</span></div><span class="info" data-info>—</span></div>
+      <div class="conexao" id="cSupa"><div class="linha1"><b>Supabase</b><span class="pilula" data-pilula>consultando</span></div><span class="info" data-info>—</span></div>
+      <div class="conexao" id="cDisco"><div class="linha1"><b>Disco da .11</b><span class="pilula" data-pilula>consultando</span></div><span class="info" data-info>—</span></div>
+    </div>
+    <p class="nota">Os mesmos dados do <code>/status</code> que o monitor do .90 consulta. Abrir esta página não muda nada em nenhum sistema.</p>
+  </main>
+
+  <script>
+  {% raw %}
+    const $ = (id) => document.getElementById(id);
+    const entrarDeNovo = () => { location.href = '/entrar?proximo=' + encodeURIComponent('/inicio'); };
+
+    async function pegar(url) {
+      const resp = await fetch(url, { cache: 'no-store' });
+      if (resp.status === 401) { entrarDeNovo(); throw new Error('401'); }
+      return resp.json();
+    }
+
+    // One state per card: the pill's text and colour, and the stripe of the card.
+    function estado(card, nivel, texto, detalhe) {
+      card.dataset.estado = nivel;
+      const p = card.querySelector('[data-pilula]');
+      p.className = 'pilula ' + (nivel === 'neutro' ? '' : nivel);
+      p.textContent = texto;
+      const d = card.querySelector('[data-detalhe]');
+      if (d) d.textContent = detalhe || '';
+    }
+    const fato = (card, nome, valor) => { card.querySelector(`[data-f="${nome}"]`).textContent = valor; };
+    function ha(min) {
+      if (min == null) return '—';
+      if (min < 1) return 'agora há pouco';
+      if (min < 60) return `há ${min} min`;
+      const h = Math.floor(min / 60);
+      return h < 24 ? `há ${h} h ${min % 60} min` : `há ${Math.floor(h / 24)} dia(s)`;
+    }
+    function minutosDesde(iso) {
+      const d = new Date(iso);
+      return isNaN(d) ? null : Math.max(0, Math.round((Date.now() - d.getTime()) / 60000));
+    }
+
+    const avisos = new Map();   // source → list; each call replaces its own share
+    function mostrarAvisos(fonte, lista) {
+      avisos.set(fonte, lista || []);
+      const todos = [...avisos.values()].flat();
+      $('avisosLista').replaceChildren(...todos.map((t) => { const li = document.createElement('li'); li.textContent = t; return li; }));
+      $('avisos').hidden = todos.length === 0;
+    }
+
+    // ---- Integração WBC (worker) and Controle de Produção: local checks, fast ----
+    async function telasLocais() {
+      const wbc = $('tWbc'), cp = $('tCp');
+      try {
+        const d = await pegar('/status?checks=worker,cp');
+        mostrarAvisos('locais', d.alerts);
+        const w = d.wbc_worker || {};
+        const u = w.last || null;
+        if (!w.installed) estado(wbc, 'neutro', 'Não instalado', w.note);
+        else if (w.error) estado(wbc, 'err', 'Erro', w.error);
+        else if (!u) estado(wbc, 'neutro', 'Sem ciclos ainda', w.note);
+        else if (w.stuck) estado(wbc, 'err', 'Ciclo travado', `O ciclo #${u.id} começou e não terminou.`);
+        else if (u.status === 'falhou') estado(wbc, 'err', 'Último ciclo falhou', u.detalhe);
+        else if (w.stale) estado(wbc, 'err', 'Parado', 'Sem ciclo dentro do expediente — o serviço OrcaView-WBC-Worker pode estar parado.');
+        else if (w.running) estado(wbc, 'ok', 'Ciclando agora');
+        else if (!w.in_window) estado(wbc, 'neutro', 'Fora do expediente');
+        else estado(wbc, 'ok', 'Em dia');
+        fato(wbc, 'ultimo', u ? (w.running ? 'em andamento' : ha(w.minutes_ago)) : '—');
+        fato(wbc, 'hoje', w.hoje ? `${w.hoje.execucoes} · ${w.hoje.falhas} com falha` : '—');
+        const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
+        fato(wbc, 'resultado', u && !w.running
+          ? `${plural(u.processados ?? 0, 'processado', 'processados')} · ${plural(u.erros ?? 0, 'erro', 'erros')}` : '—');
+
+        const c = d.controle_producao || {};
+        if (!c.installed) estado(cp, 'neutro', 'Não instalado', c.note);
+        else if (c.lento) estado(cp, 'warn', 'Lento', 'A porta respondeu, mas o /health demorou — execução pesada em andamento?');
+        else if (c.error) estado(cp, 'err', 'Sem resposta', 'O serviço OrcaView-ControleProducao pode estar parado.');
+        else if (c.ocupado) estado(cp, 'ok', 'Executando');
+        else estado(cp, 'ok', 'No ar');
+        fato(cp, 'servico', !c.installed ? '—' : (c.available ? `porta ${c.porta}` : 'sem resposta'));
+        fato(cp, 'ativas', c.available ? String(c.tarefas_ativas ?? 0) : '—');
+        fato(cp, 'grava', c.available ? (c.producao ? 'SAP de produção' : 'homologação') : '—');
+      } catch (e) {
+        if (e.message !== '401') { estado(wbc, 'neutro', 'Sem dados'); estado(cp, 'neutro', 'Sem dados'); }
+      }
+    }
+
+    // ---- Sincronização: the scheduler's last load (Supabase) and the last OS sync ----
+    async function sincronizacao() {
+      const s = $('tSync');
+      try {
+        const [d, os] = await Promise.all([pegar('/status?checks=scheduler'), pegar('/historico?limit=1')]);
+        mostrarAvisos('agendador', d.alerts);
+        const a = d.scheduler || {};
+        if (a.error) estado(s, 'neutro', 'Sem dados', a.error);
+        else if (a.stale) estado(s, 'err', 'Agendador parado?', `Última carga ${ha(a.minutes_ago)} — acima do limite de ${a.threshold_min} min no horário comercial.`);
+        else estado(s, 'ok', 'Em dia');
+        fato(s, 'carga', a.last_sync ? ha(a.minutes_ago) : '—');
+        fato(s, 'agendador', a.error ? '—' : (a.stale ? 'atrasado' : 'em dia'));
+        const it = (os && os.items || [])[0];
+        fato(s, 'os', it ? `Pedido ${it.nped} · ${ha(minutosDesde(it.data_hora_sincronizacao))}${it.status === 'sucesso' ? '' : ' · falhou'}` : '—');
+      } catch (e) {
+        if (e.message !== '401') estado(s, 'neutro', 'Sem dados');
+      }
+    }
+
+    // ---- Connections: real round trips to HANA, SQL Server and Supabase (a few seconds) ----
+    async function conexoes() {
+      const mapa = { sap: $('cSap'), sql_server: $('cSql'), supabase: $('cSupa') };
+      try {
+        const d = await pegar('/status?checks=sap,sql,supabase');
+        mostrarAvisos('conexoes', d.alerts);
+        for (const [nome, card] of Object.entries(mapa)) {
+          const c = (d.checks || {})[nome];
+          if (!c) { estado(card, 'neutro', '—'); continue; }
+          estado(card, c.ok ? 'ok' : 'err', c.ok ? 'OK' : 'Falha');
+          card.querySelector('[data-info]').textContent = c.ok ? `${c.ms} ms` : (c.error || 'sem resposta');
+          card.querySelector('[data-info]').title = c.ok ? (c.detail || '') : (c.error || '');
+        }
+        const sys = d.system || {};
+        const disco = $('cDisco');
+        if (sys.disk_free_gb != null) {
+          estado(disco, sys.disk_low ? 'err' : 'ok', sys.disk_low ? 'Pouco espaço' : 'OK');
+          disco.querySelector('[data-info]').textContent = `${sys.disk_free_gb} GB livres · ${sys.disk_percent}% usado`;
+        } else estado(disco, 'neutro', '—');
+      } catch (e) {
+        if (e.message !== '401') Object.values(mapa).forEach((c) => estado(c, 'neutro', 'Sem dados'));
+      }
+    }
+
+    async function atualizar() {
+      $('relogio').textContent = 'Consultando…';
+      await Promise.all([telasLocais(), sincronizacao(), conexoes()]);
+      $('relogio').textContent = 'Atualizado às ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    }
+    $('atualizar').addEventListener('click', atualizar);
+    atualizar();
+    setInterval(() => { if (!document.hidden) atualizar(); }, 60000);
+  {% endraw %}
+  </script>
+</body>
+</html>

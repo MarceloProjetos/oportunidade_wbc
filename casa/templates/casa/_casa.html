@@ -62,12 +62,19 @@
   way back to the OrçaView makes sense. `ambiente` = {"em_producao", "company_db", "ambiente"}
   and optionally "dica", the pill's tooltip when the screen does not write into the SAP.
 #}
-{% macro barra(itens, voltar_href, ambiente, mostrar_sair=false) -%}
+{% macro barra(itens, voltar_href, ambiente, mostrar_sair=false, inicio_href=none, no_inicio=false) -%}
 <header class="casa-barra">
+  {# The brand is the way to the Central's home page (F5): the state of the three screens.
+     A link only where the app wired it; on the home page itself it is marked current. #}
+  {% if inicio_href %}
+  <a class="casa-marca" href="{{ inicio_href }}" title="Início da {{ casa.marca }} — o estado das telas"
+     {%- if no_inicio %} aria-current="page"{% endif %}>
+  {% else %}
   <span class="casa-marca" title="{{ casa.marca }}">
+  {% endif %}
     <span class="casa-marca__simbolo">{{ icone('marca', 20) }}</span>
     <span class="casa-marca__nome"><small>Central</small><b>Integração SAP</b></span>
-  </span>
+  {% if inicio_href %}</a>{% else %}</span>{% endif %}
 
   <nav class="casa-nav" aria-label="Telas da {{ casa.marca }}">
     {# The way back: these screens open in a new tab from the OrçaView cards. Green arrow

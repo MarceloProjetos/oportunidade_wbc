@@ -164,7 +164,8 @@
   </style>
 </head>
 <body>
-  {{ casa_ui.barra(casa_itens(CASA_HREFS, "sincronizacao"), "/orcaview", ambiente, mostrar_sair=exige_chave) }}
+  {{ casa_ui.barra(casa_itens(CASA_HREFS, "sincronizacao"), "/orcaview", ambiente, mostrar_sair=exige_chave,
+                   inicio_href="/inicio") }}
 
   <main>
     <header class="casa-titulo">

@@ -155,6 +155,22 @@ def test_escrita_por_cookie_so_da_mesma_origem(client, monkeypatch):
                        headers={'Origin': 'http://localhost'}).status_code == 200
 
 
+def test_inicio_e_a_pagina_da_marca(client, monkeypatch):
+    """F5: the Central's home page — behind the same login, marked current on the brand, and
+    built only from /status and the sync logs (no data of its own)."""
+    _com_chave(monkeypatch)
+    r = client.get('/inicio')
+    assert r.status_code == 303 and r.headers['Location'].endswith('/entrar?proximo=%2Finicio')
+    _cookie(client)
+    html = client.get('/inicio').get_data(as_text=True)
+    assert re.search(r'<a class="casa-marca" href="/inicio"[^>]*aria-current="page"', html)
+    assert "pegar('/status?checks=worker,cp')" in html and "pegar('/historico?limit=1')" in html
+    for tela in ('Integração WBC', 'Controle de Produção', 'Sincronização'):
+        assert f'<h3>{tela}</h3>' in html
+    # And the brand leads here from the Sincronização too.
+    assert '<a class="casa-marca" href="/inicio"' in client.get('/sincronizar').get_data(as_text=True)
+
+
 def test_casca_e_atalhos_abrem_sem_chave(client, monkeypatch):
     _com_chave(monkeypatch)
     assert client.get('/casa/casa.css').status_code == 200
@@ -1035,8 +1051,9 @@ def test_autorizado_sem_chave_enviada_401(client, monkeypatch):
 # tests/controleproducao/test_acesso.py).
 _ROTAS_ABERTAS = {'/', '/sincronizar', '/favicon.ico', '/health', '/status', '/painel-wbc',
                   '/controle-producao', '/controle-producao/<tela>', '/orcaview',
-                  # the shared login and shell of the .11 screens (PLANO_CASA_COMUM_11 F3)
-                  '/entrar', '/sair', '/casa/<path:arquivo>'}
+                  # the shared login and shell of the .11 screens (PLANO_CASA_COMUM_11 F3); the
+                  # home page (F5) sends to the key prompt like /sincronizar, it does not 401
+                  '/entrar', '/sair', '/casa/<path:arquivo>', '/inicio'}
 
 
 def test_toda_rota_nova_exige_chave_ou_e_abertura_declarada(client, monkeypatch):

@@ -41,7 +41,8 @@
   </style>
 </head>
 <body>
-  {{ casa_ui.barra(casa_itens(CASA_HREFS, none), "/orcaview", ambiente, mostrar_sair=exige_chave) }}
+  {{ casa_ui.barra(casa_itens(CASA_HREFS, none), "/orcaview", ambiente, mostrar_sair=exige_chave,
+                   inicio_href="/inicio") }}
   <main>
     <header class="casa-titulo">
       <span class="casa-titulo__simbolo">{{ casa_ui.icone('marca', 26) }}</span>
@@ -60,6 +61,7 @@
         <a class="principal" href="/sincronizar">Sincronização SAP → Supabase</a>
         <a href="/controle-producao/pedidos">Controle de Produção</a>
         <a href="{{ painel_url }}">Tentar a Integração WBC de novo</a>
+        <a href="/inicio">Ver o estado da Central</a>
       </div>
       <p class="nota">Esta é a raiz da API 8077. A Integração WBC é outro processo, na porta
         <code>PAINEL_PORTA</code> do <code>.env</code>; o Controle de Produção, na <code>CP_PORTA</code>.</p>

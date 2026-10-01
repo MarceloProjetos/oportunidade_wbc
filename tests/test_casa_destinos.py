@@ -21,6 +21,15 @@ def test_caminho_proprio_da_tela():
     assert destinos.endereco("", "http", "h", 8077, "/sincronizar") == "http://h:8077/sincronizar"
 
 
+@pytest.mark.parametrize(("sis", "esperado"), [
+    ("", "http://h:8077/inicio"),
+    ("http://192.168.7.11:8077/sincronizar", "http://192.168.7.11:8077/inicio"),
+    ("https://central.local/sincronizar?x=1", "https://central.local/inicio"),
+])
+def test_inicio_mora_ao_lado_da_sincronizacao(sis, esperado):
+    assert destinos.inicio(sis, "http", "h", 8077) == esperado
+
+
 @pytest.mark.parametrize(("base", "caminho", "esperado"), [
     ("http://h:8080/", "manutencao-op", "http://h:8080/manutencao-op"),
     ("http://h:8080", "manutencao-op", "http://h:8080/manutencao-op"),

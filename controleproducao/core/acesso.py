@@ -47,7 +47,7 @@ from wbcpython.dashboard import acesso as painel
 
 ROTAS_ABERTAS = frozenset(
     {"/entrar", "/sair", "/favicon.ico", "/health", "/health/ocupado", "/painel-wbc",
-     "/sincronizacao", "/orcaview"}
+     "/sincronizacao", "/inicio", "/orcaview"}
 )
 
 PREFIXO_API = "/api/"
@@ -249,6 +249,14 @@ def instalar(app: FastAPI) -> None:
         destino = destinos.endereco(s.sis_painel_url, request.url.scheme, request.url.hostname,
                                     s.os_api_port, "/sincronizar")
         return RedirectResponse(destino, status_code=302)
+
+    @app.get("/inicio")
+    def inicio(request: Request) -> RedirectResponse:
+        """The brand of the shared bar → the Central's home page (``/inicio`` of the API 8077,
+        beside the Sincronização). Open: it only redirects; that page asks for the key."""
+        s = get_settings()
+        return RedirectResponse(destinos.inicio(s.sis_painel_url, request.url.scheme,
+                                                request.url.hostname, s.os_api_port), status_code=302)
 
     @app.get("/orcaview")
     def orcaview() -> RedirectResponse:

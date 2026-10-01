@@ -95,7 +95,7 @@ TELAS_DO_CONTROLE_DE_PRODUCAO = {"pedidos": "pedidos-wbc", "ops": "manutencao-op
 #: O que abre sem chave: a própria tela de entrada e a ida para as outras telas.
 #: `/static/*` e `/casa/*` também (o CSS da tela de entrada vem de lá).
 ROTAS_ABERTAS = frozenset(
-    {"/entrar", "/sair", "/sincronizacao", "/controle-producao", "/orcaview", "/favicon.ico"}
+    {"/entrar", "/sair", "/sincronizacao", "/controle-producao", "/inicio", "/orcaview", "/favicon.ico"}
     | {f"/controle-producao/{tela}" for tela in TELAS_DO_CONTROLE_DE_PRODUCAO}
 )
 
@@ -315,6 +315,13 @@ def criar_app(
         o mesmo host da requisição, na porta da API — o caso da .11.
         """
         return RedirectResponse(_url_da_sincronizacao(config, request), status_code=302)
+
+    @app.get("/inicio")
+    def inicio(request: Request) -> RedirectResponse:
+        """The brand of the shared bar → the Central's home page (``/inicio`` of the API 8077,
+        beside the Sincronização). Open: it only redirects; that page asks for the key."""
+        return RedirectResponse(destinos.inicio(config.sis_painel_url, request.url.scheme,
+                                                request.url.hostname, config.os_api_port), status_code=302)
 
     @app.get("/orcaview")
     def orcaview() -> RedirectResponse:

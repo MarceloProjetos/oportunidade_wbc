@@ -95,6 +95,12 @@ class TestComChave:
         assert 'class="casa-barra"' in texto and 'href="/orcaview"' in texto
         assert 'href="/controle-producao/pedidos"' not in texto
 
+    def test_a_marca_leva_ao_inicio_da_central(self, fechado: TestClient) -> None:
+        # F5: the brand → /inicio here → the home page on the API port (open: it only redirects).
+        resposta = fechado.get("/inicio", follow_redirects=False)
+        assert resposta.status_code == 302
+        assert resposta.headers["location"] == "http://testserver:8077/inicio"
+
     def test_orcaview_redireciona_sem_chave(self, fechado: TestClient) -> None:
         resposta = fechado.get("/orcaview", follow_redirects=False)
         assert resposta.status_code == 302

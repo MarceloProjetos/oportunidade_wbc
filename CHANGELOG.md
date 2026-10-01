@@ -6,6 +6,23 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-01] — Central Integração SAP, F5: a página inicial com o estado
+
+Entra pelo `deploy_update.bat` (os três serviços de tela). Só leitura. `casa.css?v=4`.
+
+- **`/inicio` na 8077:** um cartão por tela (Integração WBC, Controle de Produção, Sincronização)
+  com o estado do serviço por trás — faixa colorida e pílula ("Em dia", "Executando", "Parado",
+  "Sem resposta"…) e os fatos que importam (último ciclo e ciclos de hoje do worker; execuções em
+  andamento do Controle de Produção; última carga de oportunidades e última OS sincronizada) — e,
+  embaixo, as conexões (SAP HANA, SQL Server do WBC, Supabase, disco). Tudo vem do `/status` e dos
+  logs de sincronização, os mesmos que o monitor do .90 lê: nenhum check novo. Atualiza a cada
+  minuto (só com a aba visível) e mostra os avisos do monitor quando houver.
+- **A marca "Central Integração SAP" da barra virou o link para o início**, nas três telas (no
+  painel e no Controle de Produção, `/inicio` redireciona para a 8077 — `casa/destinos.inicio`).
+  A ordem do menu não mudou, e `/` continua levando ao painel WBC (decisão de 08/09).
+- Mesmo login das outras telas; a entrada da 8077 ganhou o atalho "Ver o estado da Central" quando
+  o painel não responde.
+
 ## [2026-10-01] — Central Integração SAP, F4: acabamento
 
 Entra pelo `deploy_update.bat` (os três serviços de tela). Nenhum comportamento muda.

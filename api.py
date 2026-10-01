@@ -11,6 +11,7 @@ Endpoints
                                               when the painel does not answer)
 - ``GET  /sincronizar``                     → the Painel de Sincronização (OS · Oportunidades),
                                               in the shared shell (casa/); behind the shared login
+- ``GET  /inicio``                          → the Central's home page: state of the three screens
 - ``GET|POST /entrar`` · ``POST /sair``     → the key prompt (same cookie as the other screens)
 - ``GET  /orcaview``                        → 302 to the OrçaView home (``ORCAVIEW_URL``)
 - ``GET  /health``                          → ``{"status": "ok"}``
@@ -715,6 +716,17 @@ def sincronizar():
     if get_settings().os_api_key and not _autorizado():
         return redirect(f"/entrar?proximo={quote('/sincronizar', safe='')}", code=303)
     return _pagina('sincronizar.html')
+
+
+@app.get('/inicio')
+def inicio():
+    """The Central's home page (PLANO_CASA_COMUM_11, F5): one card per screen with the state
+    of its service, and the connections below — all read in the browser from ``/status``
+    and the sync logs, the same data the monitors use. Reached by the brand of the shared
+    bar on the three screens. ``/`` keeps leading to the painel WBC (owner, 2026-09-08)."""
+    if get_settings().os_api_key and not _autorizado():
+        return redirect(f"/entrar?proximo={quote('/inicio', safe='')}", code=303)
+    return _pagina('inicio.html')
 
 
 @app.get('/entrar')
