@@ -154,21 +154,25 @@ def test_rota_de_escrita_em_producao_fora_da_11_e_503(monkeypatch):
     assert recusa.value.status_code == 503 and "máquina de produção" in recusa.value.detail
 
 
-def test_conferencia_de_operacao_irreversivel_continua_valendo_em_homologacao():
+def test_conferencia_de_operacao_irreversivel_continua_valendo_em_homologacao(monkeypatch):
     """Ela nunca foi a trava de produção: o motivo é a operação não ter volta.
 
-    Sem token, nada chega ao serviço — em qualquer ambiente.
+    Sem token, nada chega ao serviço — em qualquer ambiente. The key is configured: since
+    01/10/2026 the write gate runs before the token (a refused write must not spend it).
     """
     from fastapi.testclient import TestClient
 
     import controleproducao.core.web as web
+    from controleproducao.config import get_settings
     from controleproducao.main import app as aplicacao
 
+    monkeypatch.setenv("OS_API_KEY", "chave")
+    get_settings.cache_clear()
     with patch.object(web, "get_settings", return_value=_settings(producao=False)), \
          patch("controleproducao.modules.pedidos_wbc.service.processar_pedidos_novos",
                AsyncMock()) as servico:
         resposta = TestClient(aplicacao).post("/pedidos-wbc/processar/executar",
-                                              data={"token": ""})
+                                              data={"token": ""}, headers={"X-API-Key": "chave"})
 
     assert resposta.status_code == 400
     servico.assert_not_called()

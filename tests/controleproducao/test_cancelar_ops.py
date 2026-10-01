@@ -297,3 +297,99 @@ def test_erro_numa_op_nao_impede_as_demais():
     assert len(resultado["com_erro"]) == 1
     assert resultado["com_erro"][0]["doc_entry"] == 102
     assert "travada" in resultado["com_erro"][0]["motivo"]
+
+
+# ---------------------------------------------------------------------------
+# The screen's path: re-read at execution, then clean like the CLI (01/10/2026 review)
+# ---------------------------------------------------------------------------
+def _conferidas(*ops):
+    """The plan's items, as `levanta_ops_para_cancelamento` produced them at checking time."""
+    return [svc._resumo_op(op) for op in ops]
+
+
+def _tela(ops_agora, conferidas, *, deve_parar=None, falha_em=(), linhas_com_op=(7,)):
+    escritas = []
+    hana = MagicMock()
+    hana.fetch_all = MagicMock(side_effect=lambda sql, *a, **k: (
+        [PEDIDO] if "ORDR" in sql and "DocNum" in sql
+        else ops_agora if "OWOR" in sql
+        else [{"LineNum": n} for n in linhas_com_op] if "RDR1" in sql and "U_INO_OP" in sql
+        else []
+    ))
+    sl = AsyncMock()
+
+    async def update_entity(entidade, chave, campos, **_kw):
+        if entidade == "ProductionOrders" and chave in falha_em:
+            raise RuntimeError("recusada pela Service Layer")
+        escritas.append((entidade, chave, campos))
+
+    sl.update_entity = AsyncMock(side_effect=update_entity)
+    resultado = asyncio.run(
+        svc.cancela_ops_conferidas(sl, hana, "84245", conferidas, deve_parar=deve_parar)
+    )
+    return resultado, escritas
+
+
+def test_tela_cancela_e_devolve_o_pedido_como_a_cli():
+    """The screen never cleaned the links: the order stayed ProcessWBC='Y' and the documented
+    recovery (cancelar-ops → processar-novos) did not work from the screen."""
+    ops = [_op(101, 9001, "A", "P"), _op(102, 9002, "B", "P")]
+    resultado, escritas = _tela(ops, _conferidas(*ops))
+
+    assert [chave for chave, _ in _cancelamentos(escritas)] == [101, 102]
+    assert _limpezas(escritas) == [
+        (19124, {"U_INO_ProcessWBC": "N", "DocumentLines": [{"LineNum": 7, "U_INO_OP": 0}]})
+    ]
+    assert resultado["limpeza"] == {"linhas_limpas": 1}
+
+
+def test_tela_op_liberada_depois_da_conferencia_barra_tudo():
+    """Checked at 10:00 (all planned); someone released 9002 at 10:04; confirmed at 10:05.
+    It used to be cancelled anyway, against the white list."""
+    conferidas = _conferidas(_op(101, 9001, "A", "P"), _op(102, 9002, "B", "P"))
+    agora = [_op(101, 9001, "A", "P"), _op(102, 9002, "B", "R")]
+    resultado, escritas = _tela(agora, conferidas)
+
+    assert escritas == []
+    assert resultado["limpeza"] == "pulada"
+    assert resultado["com_erro"][0]["doc_entry"] == 102
+    assert "mudou" in resultado["com_erro"][0]["motivo"]
+
+
+def test_tela_op_cancelada_por_outro_nao_e_tocada_e_o_pedido_e_limpo():
+    conferidas = _conferidas(_op(101, 9001, "A", "P"), _op(102, 9002, "B", "P"))
+    agora = [_op(101, 9001, "A", "P"), _op(102, 9002, "B", "C")]
+    resultado, escritas = _tela(agora, conferidas)
+
+    assert [chave for chave, _ in _cancelamentos(escritas)] == [101]
+    assert [op["doc_entry"] for op in resultado["status_mudou"]] == [102]
+    assert _limpezas(escritas), "every OP ended cancelled: the order goes back"
+
+
+def test_tela_op_planejada_fora_da_conferencia_nao_e_tocada_e_nao_limpa():
+    conferidas = _conferidas(_op(101, 9001, "A", "P"))
+    agora = [_op(101, 9001, "A", "P"), _op(103, 9003, "C", "P")]
+    resultado, escritas = _tela(agora, conferidas)
+
+    assert [chave for chave, _ in _cancelamentos(escritas)] == [101]
+    assert [op["doc_entry"] for op in resultado["nao_conferidas"]] == [103]
+    assert not _limpezas(escritas) and resultado["limpeza"] == "pulada"
+
+
+def test_tela_interromper_para_entre_ops_e_nao_limpa():
+    ops = [_op(101, 9001, "A", "P"), _op(102, 9002, "B", "P"), _op(103, 9003, "C", "P")]
+    chamadas = iter([False, True])
+    resultado, escritas = _tela(ops, _conferidas(*ops), deve_parar=lambda: next(chamadas))
+
+    assert [chave for chave, _ in _cancelamentos(escritas)] == [101]
+    assert [op["doc_entry"] for op in resultado["nao_iniciadas"]] == [102, 103]
+    assert not _limpezas(escritas) and resultado["limpeza"] == "pulada"
+
+
+def test_tela_falha_de_uma_op_nao_limpa():
+    ops = [_op(101, 9001, "A", "P"), _op(102, 9002, "B", "P")]
+    resultado, escritas = _tela(ops, _conferidas(*ops), falha_em=(101,))
+
+    assert [chave for chave, _ in _cancelamentos(escritas)] == [102]
+    assert resultado["com_erro"][0]["doc_entry"] == 101
+    assert not _limpezas(escritas) and resultado["limpeza"] == "pulada"

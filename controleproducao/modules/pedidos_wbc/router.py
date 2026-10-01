@@ -137,7 +137,7 @@ async def conferir_processar(
     force: str = Form(default=""),
 ):
     return await _confere_pedidos(
-        request, opp_ids, integrados=False, force=bool(force),
+        request, opp_ids, integrados=False, force=bool(force), tipo=TIPO_PROCESSAR,
         operacao="Processar pedidos novos",
         acao="/pedidos-wbc/processar/executar",
         destaque="Cria Ordens de Produção",
@@ -163,7 +163,7 @@ async def conferir_reprocessar(request: Request, opp_ids: list[str] = Form(defau
     # Back on the screen on 30/09/2026 (D8 reversed by the owner), behind the same checked
     # plan + single-use token as Processar.
     return await _confere_pedidos(
-        request, opp_ids, integrados=True, force=False,
+        request, opp_ids, integrados=True, force=False, tipo=TIPO_REPROCESSAR,
         operacao="Reprocessar pedidos integrados",
         acao="/pedidos-wbc/reprocessar/executar",
         aviso=AVISO_REPROCESSAR,
@@ -171,7 +171,7 @@ async def conferir_reprocessar(request: Request, opp_ids: list[str] = Form(defau
 
 
 async def _confere_pedidos(
-    request: Request, opp_ids: list[str], integrados: bool, force: bool,
+    request: Request, opp_ids: list[str], integrados: bool, force: bool, tipo: str,
     operacao: str, acao: str, aviso: str, destaque: str = "",
 ):
     if not opp_ids:
@@ -203,6 +203,7 @@ async def _confere_pedidos(
              "Total": numero_br(p.total_pedido)}
             for p in selecionados
         ],
+        tipo=tipo,
     )
     # O `force` viaja no plano, não no formulário de confirmação: o usuário confirma
     # exatamente o modo que foi conferido.
@@ -263,15 +264,22 @@ async def conferir_cancelar_ops(
             "OP(s) a cancelar": len(levantamento["a_cancelar"]),
             "OP(s) já canceladas (ignoradas)": len(levantamento["ja_canceladas"]),
             "OP(s) no pedido": len(levantamento["ops"]),
+            # The execution reads the order again (see `service.cancela_ops_conferidas`).
+            "_doc_num": pedido.get("DocNum"),
         },
         itens=levantamento["a_cancelar"],
+        tipo=TIPO_CANCELAR_OPS,
     )
     return templates.TemplateResponse(
         request, "confirmar.html",
         {"plano": _plano_visivel(plano), "colunas": COLUNAS_OP,
          "acao": "/pedidos-wbc/cancelar-ops/executar",
-         "aviso_operacao": "Cancela as Ordens de Produção listadas. Uma OP cancelada não "
-                           "volta atrás — só recriando.",
+         "aviso_operacao": "Cancela as Ordens de Produção listadas e, se todas ficarem "
+                           "canceladas, devolve o pedido a \"não processado\" "
+                           "(U_INO_ProcessWBC='N' e U_INO_OP zerado nas linhas), como a CLI. "
+                           "Na execução as OPs são relidas: se alguma tiver mudado de status, "
+                           "só as que continuam planejadas são canceladas. Uma OP cancelada "
+                           "não volta atrás — só recriando.",
          "voltar": voltar},
     )
 
@@ -279,37 +287,59 @@ async def conferir_cancelar_ops(
 # ---------------------------------------------------------------------------
 # Etapa 2 — execução (grava; exige token e passa pela trava de produção)
 # ---------------------------------------------------------------------------
-def _consome(request: Request, token: str):
+#: Which execution route may spend a plan's token (`Plano.tipo`, 01/10/2026 review).
+TIPO_PROCESSAR = "processar"
+TIPO_REPROCESSAR = "reprocessar"
+TIPO_CANCELAR_OPS = "cancelar-ops"
+
+
+def _consome(request: Request, token: str, tipo: str):
     """Valida o token do plano conferido. Devolve `(plano, resposta_de_erro)`.
 
     A conferência em duas etapas **não é** a trava de produção (removida em 22/09/2026):
     ela vale igual em homologação e existe porque a operação é irreversível — o usuário
     confirma sobre o que foi calculado e mostrado, e um F5 não reexecuta.
+
+    The write gate and the busy check come BEFORE the token is spent (01/10/2026, as module 3
+    does since 29/09): a refused write or a busy module used to burn the token and send the
+    operator back to check the plan again. No `await` between the check and the spend.
     """
+    plano_visto = PLANOS.obter(token)
+    avisa_escrita(plano_visto.operacao if plano_visto else "Pedidos WBC")
     try:
-        plano = PLANOS.consumir(token)
+        TAREFAS.confere_livre(MODULO)
+    except RuntimeError as exc:
+        return None, _ocupado(request, exc)
+    try:
+        plano = PLANOS.consumir(token, tipo)
     except ConfirmacaoInvalida as exc:
         return None, _erro(request, str(exc), titulo="Confirmação não aceita")
-    avisa_escrita(plano.operacao)
     return plano, None
 
 
+def _ocupado(request: Request, exc: Exception):
+    # The link matters: after a double submit the operator must land on the run that DID
+    # start, not on an error that invites doing it again.
+    rodando = TAREFAS.em_execucao(MODULO)
+    return _erro(request, str(exc), titulo="Já existe execução em andamento",
+                 link=f"/tarefas/{rodando.id}" if rodando else None,
+                 link_texto="Acompanhar a execução em andamento")
+
+
 def _dispara(request: Request, nome: str, descricao: str, corrotina):
+    # `parada_combinada` (01/10/2026 review): "Interromper" used to cancel the coroutine in
+    # the middle of a Service Layer write — an OP created without U_INO_OP, a pedido marked
+    # processed without its semi-finished OPs. Now the body stops between pedidos / OPs.
     try:
-        tarefa = TAREFAS.criar(MODULO, nome, descricao, corrotina)
+        tarefa = TAREFAS.criar(MODULO, nome, descricao, corrotina, parada_combinada=True)
     except RuntimeError as exc:
-        # The link matters: after a double submit the operator must land on the run that
-        # DID start, not on an error that invites doing it again.
-        rodando = TAREFAS.em_execucao(MODULO)
-        return _erro(request, str(exc), titulo="Já existe execução em andamento",
-                     link=f"/tarefas/{rodando.id}" if rodando else None,
-                     link_texto="Acompanhar a execução em andamento")
+        return _ocupado(request, exc)
     return RedirectResponse(f"/tarefas/{tarefa.id}", status_code=303)
 
 
 @router.post("/processar/executar")
 async def executar_processar(request: Request, token: str = Form(default="")):
-    plano, erro = _consome(request, token)
+    plano, erro = _consome(request, token, TIPO_PROCESSAR)
     if erro:
         return erro
     alvos = _alvos(plano)
@@ -327,7 +357,7 @@ async def executar_processar(request: Request, token: str = Form(default="")):
 
 @router.post("/reprocessar/executar")
 async def executar_reprocessar(request: Request, token: str = Form(default="")):
-    plano, erro = _consome(request, token)
+    plano, erro = _consome(request, token, TIPO_REPROCESSAR)
     if erro:
         return erro
     alvos = _alvos(plano)
@@ -375,6 +405,14 @@ async def _roda_pedidos_com(tarefa, alvos, modo, force, settings, hana_reader, w
         # execução estava quando alguém interrompeu.
         agregado: dict[str, list] = {}
         for i, (doc_num, orc_num) in enumerate(alvos, start=1):
+            if tarefa.parada_pedida:
+                faltaram = alvos[i - 1:]
+                agregado["nao_iniciados"] = [{"doc_num": d, "orc_num": o} for d, o in faltaram]
+                tarefa.anota(
+                    "Interrompida: " + ", ".join(d for d, _ in faltaram)
+                    + " NÃO foram iniciados. Os anteriores terminaram inteiros."
+                )
+                break
             rotulo = f"Pedido {doc_num} (WBC {orc_num})"
             tarefa.avanca(f"{rotulo} ({i}/{len(alvos)})…", i - 1)
             # Cada OP criada, cada item cadastrado e cada recurso de rateio já sai no
@@ -430,25 +468,63 @@ async def _roda_pedidos_com(tarefa, alvos, modo, force, settings, hana_reader, w
                 )
             else:
                 tarefa.avanca(f"{rotulo}: concluído.", i)
+    if tarefa.parada_pedida and not agregado.get("nao_iniciados"):
+        # Asked while the last pedido was already running: nothing was left out.
+        tarefa.parada_pedida = False
+        tarefa.anota("Interrupção pedida com o último pedido já em andamento — nenhum ficou de fora.")
     return agregado
+
+
+def _relata_cancelamento(tarefa: Tarefa, doc_num, resultado: dict) -> None:
+    """The cancel run, line by line, in the operator's words."""
+    if tarefa.parada_pedida and not resultado["nao_iniciadas"]:
+        tarefa.parada_pedida = False
+        tarefa.anota("Interrupção pedida com a última OP já em andamento — nenhuma ficou de fora.")
+    for op in resultado["status_mudou"]:
+        tarefa.anota(f"OP {op['doc_num']}: não tocada — já não está planejada (o status mudou "
+                     "depois da conferência).")
+    for op in resultado["nao_conferidas"]:
+        tarefa.anota(f"OP {op['doc_num']}: planejada, mas não estava na conferência — não "
+                     "tocada. Confira o pedido de novo.", problema=True)
+    for op in resultado["nao_iniciadas"]:
+        tarefa.anota(f"OP {op['doc_num']}: NÃO INICIADA — a execução foi interrompida antes dela.")
+    for erro in resultado["com_erro"]:
+        tarefa.anota(f"OP {erro['doc_num']}: ERRO — {erro['motivo']}", problema=True)
+    limpeza = resultado["limpeza"]
+    if isinstance(limpeza, dict):
+        tarefa.anota(f"Pedido {doc_num} devolvido a \"não processado\" (U_INO_ProcessWBC='N'; "
+                     f"U_INO_OP zerado em {limpeza.get('linhas_limpas', 0)} linha(s)).")
+    elif limpeza == "pulada":
+        tarefa.anota(f"Pedido {doc_num} NÃO foi devolvido a \"não processado\": ainda há OP "
+                     "planejada ou com erro. Resolva e rode o cancelamento de novo.", problema=True)
 
 
 @router.post("/cancelar-ops/executar")
 async def executar_cancelar_ops(request: Request, token: str = Form(default="")):
-    plano, erro = _consome(request, token)
+    plano, erro = _consome(request, token, TIPO_CANCELAR_OPS)
     if erro:
         return erro
     ops = plano.itens
+    doc_num = plano.resumo.get("_doc_num")
 
     async def executa(tarefa: Tarefa):
         settings = get_settings()
-        tarefa.avanca(f"Cancelando {len(ops)} OP(s)…", 0, len(ops))
-        async with ServiceLayerClient(settings) as sl:
-            resultado = await service.cancela_ops_do_pedido(sl, ops)
+        tarefa.avanca(f"Relendo as OPs do pedido {doc_num} e cancelando {len(ops)}…", 0, len(ops))
+        with HanaDirectReader(settings) as hana_reader, acompanha_log(tarefa, service.__name__):
+            async with ServiceLayerClient(settings) as sl:
+                resultado = await service.cancela_ops_conferidas(
+                    sl, hana_reader, doc_num, ops, deve_parar=lambda: tarefa.parada_pedida,
+                )
+        _relata_cancelamento(tarefa, doc_num, resultado)
         tarefa.avanca(
             f"{len(resultado['canceladas'])} cancelada(s), "
-            f"{len(resultado['com_erro'])} com erro.",
-            len(ops),
+            f"{len(resultado['com_erro'])} com erro"
+            + (f", {len(resultado['status_mudou'])} com status mudado (não tocadas)"
+               if resultado["status_mudou"] else "")
+            + (f", {len(resultado['nao_iniciadas'])} não iniciada(s) (interrompida)"
+               if resultado["nao_iniciadas"] else "")
+            + ".",
+            len(resultado["canceladas"]) + len(resultado["com_erro"]),
         )
         return resultado
 

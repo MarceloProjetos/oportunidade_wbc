@@ -285,7 +285,12 @@ def monta_plano_encerramento(
             "OP(s) listadas (inclui ignoradas)": len(ops),
         },
         itens=itens,
+        tipo=TIPO_ENCERRAR,
     )
+
+
+#: The confirmation tokens of this module are only spent by the closing (see `Plano.tipo`).
+TIPO_ENCERRAR = "encerrar"
 
 
 def operacao_do_plano(token: str) -> str:
@@ -306,7 +311,7 @@ def consome_plano(token: str) -> Plano:
     except RuntimeError as exc:
         raise _ocupado(exc) from exc
     try:
-        return PLANOS.consumir(token)
+        return PLANOS.consumir(token, TIPO_ENCERRAR)
     except ConfirmacaoInvalida as exc:
         raise Recusa("confirmacao_invalida", str(exc), titulo="Confirmação não aceita") from exc
 

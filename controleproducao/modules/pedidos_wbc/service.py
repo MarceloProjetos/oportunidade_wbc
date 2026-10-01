@@ -22,6 +22,7 @@ Layer do Anderson** antes do primeiro teste (marcado com TODO no local exato).
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import datetime, timedelta
 
 from controleproducao.core.audit_log import preenche_log
@@ -2427,6 +2428,79 @@ async def cancela_ops_do_pedido(sl: ServiceLayerClient, ops_a_cancelar: list[dic
             logger.error("  Falha ao cancelar a OP %s (item %s): %s", op["doc_num"], op["item_code"], exc)
 
     return {"canceladas": canceladas, "com_erro": com_erro}
+
+
+async def cancela_ops_conferidas(
+    sl: ServiceLayerClient,
+    hana_reader: HanaDirectReader,
+    doc_num: str | int,
+    conferidas: list[dict],
+    *,
+    deve_parar: Callable[[], bool] | None = None,
+) -> dict:
+    """The screen's "Cancelar OPs": re-read, cancel what is still as checked, then clean.
+
+    01/10/2026 review, two gaps against the CLI:
+
+    - The plan was checked up to 10 min earlier and the execution trusted it: an OP released
+      meanwhile (PCP, the Liberar screen, the API, an Encerrar running in the OTHER module)
+      was cancelled anyway, against ``STATUS_QUE_PERMITEM_CANCELAR``. Now the order's OPs are
+      read again: any blocker refuses everything, as at checking time, and only the checked
+      OPs that are STILL planned are cancelled.
+    - The screen never ran ``limpa_vinculos_do_pedido``: the order stayed
+      ``ProcessWBC='Y'`` with lines pointing at cancelled OPs, so the documented recovery
+      ("cancelar-ops → processar-novos without --force") did not work from the screen.
+      Same rule as the CLI: clean only when every OP of the order ended cancelled.
+
+    ``deve_parar`` is checked before each OP, never inside one (the screen's "Interromper").
+    Returns ``canceladas``, ``com_erro``, ``status_mudou`` (checked, no longer planned — not
+    touched), ``nao_conferidas`` (planned now but not in the checked plan — not touched),
+    ``nao_iniciadas`` (left out by an interruption) and ``limpeza``.
+    """
+    resultado: dict = {
+        "canceladas": [], "com_erro": [], "status_mudou": [], "nao_conferidas": [],
+        "nao_iniciadas": [], "limpeza": None,
+    }
+    atual = await levanta_ops_para_cancelamento(hana_reader, doc_num=str(doc_num))
+    pedido = atual["pedido"]
+    if not pedido:
+        resultado["com_erro"].append({"doc_num": doc_num, "item_code": "—",
+                                      "motivo": "Pedido não encontrado na releitura."})
+        resultado["limpeza"] = "pulada"
+        return resultado
+    if atual["bloqueantes"]:
+        resultado["com_erro"] = [
+            {**op, "motivo": f"Status mudou para {op['status']} — "
+                             f"{STATUS_OP.get(op['status'], op['status'])} depois da "
+                             "conferência; nenhuma OP foi cancelada."}
+            for op in atual["bloqueantes"]
+        ]
+        resultado["limpeza"] = "pulada"
+        return resultado
+
+    planejadas_agora = {int(op["doc_entry"]) for op in atual["a_cancelar"]}
+    conferidas_ids = {int(op["doc_entry"]) for op in conferidas}
+    a_cancelar = [op for op in conferidas if int(op["doc_entry"]) in planejadas_agora]
+    resultado["status_mudou"] = [op for op in conferidas if int(op["doc_entry"]) not in planejadas_agora]
+    resultado["nao_conferidas"] = [
+        op for op in atual["a_cancelar"] if int(op["doc_entry"]) not in conferidas_ids
+    ]
+
+    for posicao, op in enumerate(a_cancelar):
+        if deve_parar is not None and deve_parar():
+            resultado["nao_iniciadas"] = a_cancelar[posicao:]
+            break
+        parcial = await cancela_ops_do_pedido(sl, [op])
+        resultado["canceladas"].extend(parcial["canceladas"])
+        resultado["com_erro"].extend(parcial["com_erro"])
+
+    # Cleaning with an OP still planned would leave the order saying "never processed" while
+    # a live OP points at it — worse than before (see `limpa_vinculos_do_pedido`).
+    if resultado["com_erro"] or resultado["nao_iniciadas"] or resultado["nao_conferidas"]:
+        resultado["limpeza"] = "pulada"
+    else:
+        resultado["limpeza"] = await limpa_vinculos_do_pedido(sl, hana_reader, pedido["DocEntry"])
+    return resultado
 
 
 async def limpa_vinculos_do_pedido(

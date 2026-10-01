@@ -42,7 +42,11 @@
   <div id="acoes" class="ov-acoes-lote"{% if tarefa.terminada %} hidden{% endif %}>
     <button type="button" class="ov-btn-ghost" id="btn-cancelar">
       {{ icone('parar') }} Interromper</button>
-    {% if tarefa.parada_combinada %}
+    {% if tarefa.parada_combinada and tarefa.modulo == 'pedidos_wbc' %}
+    <span class="ov-nota-inline">Para depois do pedido em curso (no cancelamento, da OP em
+      curso) — ele termina inteiro; os próximos não começam. <strong>Não desfaz</strong> o que
+      já foi gravado no SAP.</span>
+    {% elif tarefa.parada_combinada %}
     <span class="ov-nota-inline">Para depois da OP em curso — ela termina saída, entrada e
       encerramento; as próximas não começam. <strong>Não desfaz</strong> o que já foi gravado no SAP.</span>
     {% else %}
@@ -100,7 +104,7 @@
           avisa(!d.cancelada
             ? 'Não havia execução em andamento para interromper.'
             : d.entre_etapas
-              ? 'Interrupção pedida — a OP em curso termina a cadeia e as próximas não começam. O que já foi gravado no SAP fica.'
+              ? 'Interrupção pedida — o que está em curso termina inteiro e o próximo não começa. O que já foi gravado no SAP fica.'
               : 'Interrupção pedida — a execução para no fim do passo atual. O que já foi gravado no SAP fica.');
         });
       })

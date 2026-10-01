@@ -6,6 +6,29 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-01] — Revisão geral, lote 2: Controle de Produção (Pedidos WBC)
+
+Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`). Achados da revisão geral de
+01/10/2026, conferidos no código antes de corrigir.
+
+- **"Interromper" cortava a gravação no meio** em Processar, Reprocessar e Cancelar OPs (só o
+  Encerrar parava entre etapas): podia sobrar OP criada sem `U_INO_OP`, sem os semiacabados e
+  com o pedido já marcado como processado. Agora o módulo 2 para **entre pedidos** (no
+  cancelamento, entre OPs); os que não começaram aparecem no log como "NÃO foram iniciados".
+- **"Cancelar OPs" pela tela não devolvia o pedido a "não processado"** (a CLI devolvia): o pedido
+  ficava `U_INO_ProcessWBC='Y'` com linhas apontando para OPs canceladas, e a retomada
+  documentada não funcionava pela tela. Agora faz o mesmo que a CLI — limpa os vínculos quando
+  todas as OPs ficaram canceladas (`service.cancela_ops_conferidas`).
+- **O cancelamento confiava na conferência de até 10 min atrás:** uma OP liberada nesse meio
+  tempo (PCP, Liberar, API, um Encerrar do outro módulo) era cancelada mesmo assim. Agora as OPs
+  são relidas na execução: qualquer bloqueante recusa tudo, e só as conferidas que continuam
+  planejadas são canceladas.
+- **O token de confirmação não era preso à operação:** um token conferido no Processar era
+  aceito no Reprocessar (que cancela todas as OPs planejadas do pedido). Agora cada token só vale
+  na rota da sua operação (`Plano.tipo`), nos dois módulos.
+- No módulo 2 a trava de escrita e a checagem de "já existe execução" vêm **antes** de gastar o
+  token, como no módulo 3: uma recusa não obriga mais a conferir de novo.
+
 ## [2026-10-01] — Revisão geral, lote 1: segurança do painel e "Interromper"
 
 Entra pelo `deploy_update.bat` (painel WBC e API 8077). Achados da revisão geral de 01/10/2026,

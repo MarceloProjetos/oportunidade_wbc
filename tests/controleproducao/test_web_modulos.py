@@ -1332,3 +1332,152 @@ def test_tela_da_execucao_tem_voltar_para_a_origem_e_sem_faixa_de_producao():
     assert "ov-faixa--producao" not in base
     assert "'pedidos_wbc': ('/pedidos-wbc', 'Pedidos WBC')" in tarefa
     assert 'id="voltar"' in tarefa
+
+
+# ---------------------------------------------------------------------------
+# 01/10/2026 review, lote 2: Pedidos WBC
+# ---------------------------------------------------------------------------
+def test_token_do_processar_nao_vale_no_reprocessar(cliente):
+    """The token was not tied to its operation: one checked for Processar was accepted by
+    Reprocessar (same item shape), which cancels every planned OP of the order."""
+    with _Ligado(_patches()):
+        token = _token(cliente.post("/pedidos-wbc/processar/conferir", data={"opp_ids": ["4321"]}).text)
+        with patch("controleproducao.modules.pedidos_wbc.service.reprocessar_pedidos_integrados",
+                   AsyncMock()) as servico, patch.object(r_wbc_mod, "_dispara") as disparo:
+            resposta = cliente.post("/pedidos-wbc/reprocessar/executar", data={"token": token})
+
+    assert resposta.status_code == 400
+    assert "outra operação" in _texto(resposta.text)
+    servico.assert_not_called()
+    disparo.assert_not_called()
+    assert PLANOS.obter(token) is not None, "the right route can still use it"
+
+
+def test_pedidos_wbc_com_modulo_ocupado_nao_gasta_o_token(cliente):
+    with _Ligado(_patches()):
+        token = _token(cliente.post("/pedidos-wbc/processar/conferir", data={"opp_ids": ["4321"]}).text)
+        with patch("controleproducao.core.tarefas.RegistroDeTarefas.confere_livre",
+                   side_effect=RuntimeError("O módulo 'pedidos_wbc' já tem uma execução em andamento")):
+            recusada = cliente.post("/pedidos-wbc/processar/executar", data={"token": token})
+
+    assert recusada.status_code == 400
+    assert "já tem uma execução em andamento" in _texto(recusada.text)
+    assert PLANOS.obter(token) is not None
+
+
+def test_pedidos_wbc_escrita_recusada_nao_gasta_o_token(cliente):
+    """Off the .11 a production write is refused (503) — before the token, not after."""
+    with _Ligado(_patches(producao=True)):
+        token = _token(cliente.post("/pedidos-wbc/processar/conferir", data={"opp_ids": ["4321"]}).text)
+        resposta = cliente.post("/pedidos-wbc/processar/executar", data={"token": token})
+    assert resposta.status_code == 503
+    assert PLANOS.obter(token) is not None
+
+
+def test_interromper_processar_para_entre_pedidos():
+    """"Interromper" used to cancel the coroutine in the middle of a Service Layer write. The
+    module-2 tasks are combined-stop now, and the body stops between pedidos."""
+    import asyncio as _asyncio
+
+    from controleproducao.core.tarefas import Tarefa
+
+    feitos: list[str] = []
+    tarefa = Tarefa(id="t", nome="n", descricao="d", criada_em=datetime.now(), modulo="pedidos_wbc",
+                    parada_combinada=True)
+
+    async def processar(_sl, _wbc, _hana, orcamentos, force=False):
+        feitos.append(orcamentos[0])
+        tarefa.parada_pedida = True        # the operator clicks during the first pedido
+        return {"processados": [orcamentos[0]]}
+
+    class _Sl:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return None
+
+    with patch("controleproducao.modules.pedidos_wbc.router.ServiceLayerClient", return_value=_Sl()), \
+         patch("controleproducao.modules.pedidos_wbc.service.processar_pedidos_novos", processar):
+        resultado = _asyncio.run(r_wbc_mod._roda_pedidos_com(
+            tarefa, [("84245", "00120634"), ("84246", "00120635"), ("84247", "00120636")],
+            "processar", False, _settings(), MagicMock(), MagicMock(),
+        ))
+
+    assert feitos == ["00120634"], "the pedido in progress finished; the others never started"
+    assert [p["doc_num"] for p in resultado["nao_iniciados"]] == ["84246", "84247"]
+    assert tarefa.parada_pedida is True
+    assert any("NÃO foram iniciados" in linha for linha in tarefa.linhas)
+
+
+def test_pedidos_wbc_dispara_com_parada_combinada():
+    import asyncio as _asyncio
+
+    from starlette.requests import Request
+
+    async def cenario():
+        pedido = Request({"type": "http", "method": "POST", "path": "/", "headers": [], "query_string": b""})
+
+        async def corpo(_t):
+            return {}
+
+        r_wbc_mod._dispara(pedido, "Cancelar OPs", "x", corpo)
+        tarefa = TAREFAS.em_execucao(r_wbc_mod.MODULO)
+        return tarefa.parada_combinada
+
+    assert _asyncio.run(cenario()) is True
+
+
+def test_cancelar_ops_pela_tela_reler_e_devolve_o_pedido(cliente):
+    """The route hands the checked plan and the order number to `cancela_ops_conferidas`
+    (re-read + clean like the CLI) and tells the operator the order went back."""
+    import asyncio as _asyncio
+
+    from controleproducao.core.tarefas import Tarefa
+
+    levantamento = {
+        "pedido": {"DocEntry": 19124, "DocNum": 84245},
+        "ops": [{"doc_entry": 101, "doc_num": 9001, "item_code": "A", "status": "P"}],
+        "bloqueantes": [], "ja_canceladas": [],
+        "a_cancelar": [{"doc_entry": 101, "doc_num": 9001, "item_code": "A", "status": "P"}],
+    }
+    capturado = {}
+
+    def dispara(_request, nome, descricao, corrotina):
+        capturado["corrotina"] = corrotina
+        return MagicMock(status_code=303)
+
+    with _Ligado(_patches()), \
+         patch("controleproducao.modules.pedidos_wbc.service.levanta_ops_para_cancelamento",
+               AsyncMock(return_value=levantamento)):
+        token = _token(
+            cliente.post("/pedidos-wbc/cancelar-ops/conferir", data={"doc_num": "84245"}).text
+        )
+        with patch.object(r_wbc_mod, "_dispara", side_effect=dispara):
+            cliente.post("/pedidos-wbc/cancelar-ops/executar", data={"token": token})
+
+    resultado_servico = {
+        "canceladas": levantamento["a_cancelar"], "com_erro": [], "status_mudou": [],
+        "nao_conferidas": [], "nao_iniciadas": [], "limpeza": {"linhas_limpas": 2},
+    }
+
+    class _Sl:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return None
+
+    tarefa = Tarefa(id="t", nome="n", descricao="d", criada_em=datetime.now(), modulo="pedidos_wbc",
+                    parada_combinada=True)
+    with patch("controleproducao.modules.pedidos_wbc.router.get_settings", return_value=_settings()), \
+         patch("controleproducao.modules.pedidos_wbc.router.HanaDirectReader", MagicMock()), \
+         patch("controleproducao.modules.pedidos_wbc.router.ServiceLayerClient", return_value=_Sl()), \
+         patch("controleproducao.modules.pedidos_wbc.service.cancela_ops_conferidas",
+               AsyncMock(return_value=resultado_servico)) as servico:
+        _asyncio.run(capturado["corrotina"](tarefa))
+
+    _sl, _hana, doc_num, conferidas = servico.call_args.args
+    assert doc_num == 84245
+    assert [op["doc_entry"] for op in conferidas] == [101]
+    assert any('devolvido a "não processado"' in linha for linha in tarefa.linhas)

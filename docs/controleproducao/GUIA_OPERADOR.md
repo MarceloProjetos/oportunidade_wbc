@@ -11,6 +11,11 @@
 3. "Integração WBC" e "Sincronização" levam às outras telas; "Sair" desloga das três. O botão
    redondo troca o tema (escuro/claro) e a escolha vale nas três.
 4. **Cancelar as OPs de um pedido** fica na **Manutenção de OP**, abaixo de "Encerrar todas as OPs".
+   Desde 01/10/2026 ele faz o mesmo que a CLI: cancela as OPs planejadas e, se todas ficarem
+   canceladas, **devolve o pedido a "Pedidos novos"** (pronto para processar de novo, sem
+   "forçar"). Na hora de executar ele relê as OPs: se alguma tiver sido liberada depois da
+   conferência, nada é cancelado; se alguma já tiver sido cancelada por outro caminho, ela é
+   deixada como está.
 
 ## Pedidos WBC → OPs (criar as OPs de um pedido)
 
@@ -31,8 +36,13 @@ inclusive as do addon — e **não recria**: o pedido volta para "Pedidos novos"
 processado de novo. OP liberada ou encerrada não é tocada. Use quando o orçamento mudou depois
 do processamento e as OPs planejadas precisam sair.
 
+**Interromper** um Processar/Reprocessar para **depois do pedido em curso**: ele termina
+inteiro, e os próximos aparecem no log como "NÃO foram iniciados". No Cancelar OPs, para depois
+da OP em curso. (Até 01/10/2026 o botão cortava a gravação no meio.)
+
 **Caiu no meio?** Não processe de novo. Chame o Anderson: a retomada é `manutencao-op buscar` →
-`cancelar-ops` → `processar-novos` **sem** `--force`.
+`cancelar-ops` → `processar-novos` **sem** `--force` — e o Cancelar OPs da tela já serve para
+isso.
 
 ## Manutenção de OP
 

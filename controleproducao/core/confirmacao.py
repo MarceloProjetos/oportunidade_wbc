@@ -44,6 +44,10 @@ class Plano:
     resumo: dict
     itens: list[dict]
     criado_em: datetime
+    #: Which execution route may spend this token ("processar", "encerrar"…). 01/10/2026
+    #: review: the token was not tied to its operation — one checked for Processar was
+    #: accepted by Reprocessar (same item shape), which cancels every planned OP of the order.
+    tipo: str = ""
 
     @property
     def vencido(self) -> bool:
@@ -67,19 +71,20 @@ class RegistroDePlanos:
     def __init__(self) -> None:
         self._planos: dict[str, Plano] = {}
 
-    def criar(self, operacao: str, resumo: dict, itens: list[dict]) -> Plano:
+    def criar(self, operacao: str, resumo: dict, itens: list[dict], *, tipo: str = "") -> Plano:
         plano = Plano(
             token=secrets.token_urlsafe(24),
             operacao=operacao,
             resumo=resumo,
             itens=itens,
             criado_em=datetime.now(),
+            tipo=tipo,
         )
         self._planos[plano.token] = plano
         self._limpa_vencidos()
         return plano
 
-    def consumir(self, token: str) -> Plano:
+    def consumir(self, token: str, tipo: str | None = None) -> Plano:
         """Valida e **invalida** o token. Levanta `ConfirmacaoInvalida` em qualquer erro.
 
         Invalidar antes de executar, e não depois, é deliberado: se a execução falhar no
@@ -97,6 +102,12 @@ class RegistroDePlanos:
             raise ConfirmacaoInvalida(
                 "A confirmação venceu. O plano foi calculado sobre o estado do SAP de "
                 "alguns minutos atrás e pode não valer mais; refaça a conferência."
+            )
+        if tipo is not None and plano.tipo != tipo:
+            # Not spent: the right route can still use it. Reaching here takes a forged POST.
+            raise ConfirmacaoInvalida(
+                "Esta confirmação é de outra operação e não vale aqui. Refaça a conferência "
+                "da operação que quer executar."
             )
         # Token invalidado aqui: decisão tomada, execução a seguir.
         self._planos.pop(token, None)
