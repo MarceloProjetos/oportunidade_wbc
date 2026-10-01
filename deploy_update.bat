@@ -4,7 +4,7 @@ REM  deploy_update.bat - Atualiza o ServidorIntegracaoSAP em producao (.11) via 
 REM
 REM  Roda NO servidor 192.168.7.11, na raiz C:\Python\ServidorIntegracaoSAP.
 REM  Fluxo: confere que o Controle de Producao nao tem execucao em andamento -> para os
-REM  6 servicos -> git pull --ff-only -> pip (so se o conteudo dos requirements difere do
+REM  git fetch (antes de parar) -> 6 servicos -> git merge --ff-only -> pip (so se o conteudo dos requirements difere do
 REM  ultimo instalado, marca em state\deps.sha256; no venv se houver, senao no Python do
 REM  sistema) -> sobe os servicos na ordem certa -> confere /health da API, a porta do
 REM  painel WBC e o /health do Controle de Producao.
@@ -95,6 +95,22 @@ if not "%CP_OCUPADO%"=="0" (
   echo [cp] OrcaView-ControleProducao parado ou nao instalado: nada a proteger.
 )
 
+REM --- baixar o codigo novo ANTES de parar qualquer servico (01/10/2026): o fetch e o unico passo
+REM     que precisa de rede. A .11 ficou sem resolver github.com e o deploy, que parava os 6
+REM     servicos primeiro, derrubou tudo a toa. Agora sem GitHub o deploy para aqui, com tudo no
+REM     ar; depois da parada, a atualizacao e so local (merge do que ja foi baixado). ---
+if exist ".git" (
+  echo [git] baixando origin/%BRANCH% ^(antes de parar os servicos^)...
+  git fetch origin %BRANCH%
+  if errorlevel 1 (
+    echo.
+    echo ERRO: nao foi possivel baixar o codigo do GitHub ^(rede, DNS ou proxy - veja a mensagem acima^).
+    echo       NADA foi parado nem alterado: os servicos continuam no ar com a versao atual.
+    echo       Confira o acesso a github.com nesta maquina e rode o deploy de novo.
+    pause & exit /b 1
+  )
+)
+
 REM --- parar servicos antes de mexer nos arquivos (Controle de Producao 1o; MCP antes da API, que ele usa;
 REM     o worker por ultimo, porque a parada dele espera o ciclo em andamento) ---
 echo [nssm] parando servicos...
@@ -131,10 +147,10 @@ if not exist ".git" (
   git branch --set-upstream-to=origin/%BRANCH% %BRANCH% >nul 2>&1
   set "REQCHANGED=1"
 ) else (
-  echo [git] atualizando a partir de origin/%BRANCH%...
+  echo [git] aplicando origin/%BRANCH% ^(ja baixado^)...
   for /f %%i in ('git rev-parse HEAD') do set "BEFORE=%%i"
-  git fetch origin %BRANCH%                        || goto :fail
-  git pull --ff-only origin %BRANCH%               || goto :pullfail
+  REM No network here: origin/%BRANCH% was fetched before the services stopped.
+  git merge --ff-only origin/%BRANCH%              || goto :pullfail
   for /f %%i in ('git rev-parse HEAD') do set "AFTER=%%i"
   if not "!BEFORE!"=="!AFTER!" (
     git diff --name-only !BEFORE! !AFTER! | findstr /i "requirements" >nul && set "REQCHANGED=1"
@@ -247,7 +263,7 @@ goto :religar
 
 :pullfail
 echo.
-echo ERRO: git pull --ff-only falhou. Ha alteracoes locais em arquivos versionados
+echo ERRO: git merge --ff-only falhou. Ha alteracoes locais em arquivos versionados
 echo       nesta pasta que impedem o fast-forward. Nada foi alterado.
 echo       Para descartar as mudancas locais e forcar o estado do remoto:
 echo           git reset --hard origin/%BRANCH%

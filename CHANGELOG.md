@@ -6,6 +6,17 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-01] — Deploy: sem GitHub, não para nada
+
+- 01/10 ~15:53 a .11 não resolveu `github.com` ("Could not resolve host") e o `deploy_update.bat`,
+  que **parava os 6 serviços antes** de buscar o código, derrubou tudo e precisou religar (voltou:
+  API, painel, Controle de Produção, MCP e worker conferidos, ciclo 4436 às 15:56 sem erro). O
+  comando que falhou estava igual desde 10/07 — a causa foi a rede/DNS da máquina.
+- Agora o **`git fetch` roda antes de parar qualquer serviço**: sem GitHub o deploy para ali com
+  "NADA foi parado nem alterado". Depois da parada, a atualização é só local (`git merge --ff-only
+  origin/master`, do que já foi baixado). Testado no `cmd` com um remoto que não resolve.
+- Vale a partir do deploy **seguinte** a um que dê certo (o `.bat` roda de uma cópia do antigo).
+
 ## [2026-10-01] — Guia `API_PEDIDOS_WBC.md` mais didático
 
 Só documentação. O guia ganhou um começo para quem chega sem contexto: "Como ler este guia" (por
