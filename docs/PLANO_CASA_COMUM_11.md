@@ -1,0 +1,141 @@
+# Plano — Casa comum das telas da .11
+
+> **Status (01/10/2026): proposta, nada codado.** Aguardando as decisões da §4 (nome da
+> casa, ordem do menu, faixa de produção, as duas "Execuções"). Página publicada:
+> https://claude.ai/artifact/Qim4SmTbstoyzgcoWG4UdQ (mesma url a cada atualização).
+
+## O problema
+
+As três telas da .11 funcionam, e funcionam bem. O que falta é parecerem a mesma coisa:
+
+| Tela | Processo / porta | Cabeçalho | Paleta | Tema | Login |
+| --- | --- | --- | --- | --- | --- |
+| Integração WBC × SAP (painel) | `OrcaView-WBC-Painel` · 8079 · FastAPI+HTMX | título grande + botões contornados + abas | coral (OrçaView) | escuro padrão, chave `wbc-tema` (`data-tema="claro"`) | cookie `wbc_painel` |
+| Controle de Produção | `OrcaView-ControleProducao` · 8080 · FastAPI | barra de navegação fina com links | coral (OrçaView) | escuro padrão, chave `orcaview-theme` (`data-theme="light"`) | mesmo cookie |
+| Painel de Sincronização | `OrcaView-OS-API` · 8077 · Flask/waitress | logo "OS" azul + botão "Integração WBC" + cadeado | azul e branco, sem escuro | só claro | **chave colada na página** (`X-API-Key` no `localStorage`) |
+
+Números: 3 telas, 3 portas, 3 cabeçalhos diferentes, 2 paletas, 2 chaves de tema (e uma
+tela sem tema escuro), `sincronizar.html` com 523 linhas de HTML+CSS+JS próprios.
+
+O detalhe que explica por que o tema "não pega" entre as telas: `localStorage` é separado
+por porta, cookie não. O login já atravessa as portas (cookie `wbc_painel`); o tema não.
+
+## A ideia em uma frase
+
+**Mesma barra, mesma folha de cores, mesmo tema e mesmo login nas três telas — cada uma
+continua no seu processo.** O usuário passa de uma para outra sem perceber que trocou de porta.
+
+## Fatos que travam o desenho
+
+- **Os três processos ficam separados.** É de propósito: `hdbcli` caindo derruba o processo
+  (24/09), e uma execução pesada do Controle de Produção não pode derrubar o painel. Juntar
+  tudo num processo só, ou pôr um proxy reverso na frente, está fora.
+- **Sem CDN, sem fonte web:** a .11 roda na LAN. Tudo vendorizado, como hoje.
+- **Contratos que não mudam:** `/health` e `/status` da 8077 (o watchdog do .90 lê sem
+  credencial), `X-API-Key` para scripts, MCP e o .90, todas as rotas JSON.
+- **Duas pilhas de template:** FastAPI (8079, 8080) e Flask (8077). As duas usam Jinja2 —
+  é isso que permite um cabeçalho único.
+- Repo público: nenhuma chave na página; a Sincronização para de guardar a chave no navegador.
+
+## Arquitetura
+
+Uma pasta comum no repo (`casa/`) com três peças, servidas pelos três processos:
+
+- `casa/templates/_barra.html` — macro Jinja da barra: marca, links das telas, pílula do
+  ambiente, tema e Sair. Recebe a tela ativa e os endereços das outras.
+- `casa/static/casa.css` — tokens (a paleta coral que painel e Controle de Produção já
+  dividem), barra, título de página, cartão, pílula, botão. Cada tela mantém o CSS próprio só
+  para o que é dela.
+- `casa/tema` — cookie `casa_tema` (`escuro`/`claro`, `path=/`), lido no servidor para
+  escrever o `data-theme` no `<html>` antes da pintura, e gravado pelo botão. Cookie não
+  separa porta: trocou numa tela, as outras abrem igual.
+- `casa/destinos.py` — de onde sai o endereço de cada tela (configurado ou mesmo host na
+  porta da tela). Hoje essa regra está copiada em três lugares (`api.py`, `wbcpython`,
+  `controleproducao`).
+
+```mermaid
+flowchart LR
+  N["Navegador<br/>cookies wbc_painel + casa_tema<br/>(valem nas 3 portas)"]
+  subgraph REPO["casa/ no repo"]
+    B["_barra.html"]
+    C["casa.css"]
+    D["destinos.py"]
+  end
+  P["Painel WBC · 8079"]
+  CP["Controle de Produção · 8080"]
+  S["Sincronização · 8077"]
+  N --> P & CP & S
+  REPO -. mesma barra e cores .-> P & CP & S
+```
+
+## Fases
+
+### F0 — Decisões (dele)
+Nome da casa, ordem do menu, faixa de produção, as duas "Execuções" (§4). Nada começa sem
+o nome e a ordem do menu: eles são o desenho da barra.
+
+### F1 — As peças comuns, estreando no Controle de Produção
+**O que passa a existir:** a barra e o tema compartilhados, na tela que já está mais perto.
+- `casa/` com barra, CSS, tema e destinos; `StaticFiles` em `/casa` no 8080.
+- `base.html` do Controle de Produção troca a barra própria pela macro.
+- Teste: a barra lista as mesmas telas, na mesma ordem, com a ativa marcada.
+
+### F2 — Painel WBC entra na casa
+**O que passa a existir:** sair do painel para o Controle de Produção não muda o cabeçalho.
+- `pagina.html`: a barra comum em cima; título "Integração WBC × SAP Business One" vira o
+  título de página (mesmo bloco do Controle de Produção); "Incluir fora da janela" desce
+  para a linha das abas; os três botões contornados somem (estão na barra).
+- Tema: `wbc-tema`/`data-tema` passam a ler o cookie; quem já tinha escolhido "claro" no
+  painel é migrado uma vez.
+- HTMX continua igual: só a casca muda.
+
+### F3 — Sincronização entra na casa
+**O que passa a existir:** a Sincronização com a mesma cara, tema escuro e sem chave colada.
+- `sincronizar.html` vira template Jinja com a barra; CSS azul próprio sai, entram os
+  tokens da casa (verde do "Forçar sincronismo" vira o botão de ação da casa; OK/FALHA
+  viram as pílulas da casa).
+- Login: a página usa o cookie `wbc_painel` (mesmo HMAC); o campo da chave e o
+  `localStorage` saem. `X-API-Key` continua valendo para quem chama por script.
+- Escrita por cookie exige mesma origem (a regra de CSRF do Controle de Produção).
+- A rota continua `/sincronizar` na 8077 — ninguém precisa mudar favorito.
+
+### F4 — Acabamento
+- Remover o que sobrou: `/sincronizacao` e `/painel-wbc` viram só redirecionamento de
+  compatibilidade; regras de URL duplicadas apontam para `casa/destinos.py`.
+- Docs: `GUIA_OPERADOR`, `README` (seção das telas), `CLAUDE.md` (mapa ganha `casa/`).
+- Conferir claro/escuro e 1280/1700 px nas três, no navegador.
+
+### F5 — (opcional) Início com saúde
+Uma página de entrada com um cartão por tela e o estado de cada serviço (worker ciclando,
+Controle de Produção ocupado, última carga de oportunidades), lido do `/status`. Hoje o
+`/` da 8077 só redireciona para o painel.
+
+## Ideias consideradas e descartadas
+
+| Ideia | Por que não |
+| --- | --- |
+| Um processo só (tudo na 8077 ou na 8080) | Desfaz o isolamento que protege o painel do `hdbcli` e das tarefas pesadas |
+| Proxy reverso (uma porta, caminhos `/wbc`, `/producao`…) | Serviço novo na .11 (Caddy/nginx) para manter; resolve o que o cookie já resolve |
+| Iframe de uma tela dentro da outra | Dois cabeçalhos empilhados, rolagem dupla, login confuso |
+| Só trocar as cores da Sincronização | Resolve a paleta, não o desencontro dos cabeçalhos nem o tema |
+
+## Decisões
+
+1. **Nome da casa** (a marca à esquerda da barra). Hoje são três: "Integração WBC × SAP
+   Business One", "Controle de Produção", "Painel de Sincronização".
+   **Recomendado: "Central SAP"** — cobre as três telas sem prometer só integração.
+   Alternativas: "Integrações SAP", "SAP · .11".
+2. **Ordem do menu.** **Recomendado:** Integração WBC · Pedidos WBC · Manutenção de OP ·
+   Sincronização · Execuções — segue o caminho do pedido (WBC → SAP → OPs) e deixa a
+   Sincronização, que é paralela, no fim. "← OrçaView" fica antes, como hoje.
+3. **Faixa de produção.** O painel tem a tarja vermelha; o Controle de Produção tirou a dele
+   (29/09). **Recomendado:** nenhuma tarja; pílula `SBOALTAMIRAPROD` na barra, igual nas
+   três; fora de produção a faixa cinza que já existe.
+4. **Duas "Execuções".** O painel tem a aba Execuções (ciclos do worker) e o Controle de
+   Produção tem a tela Execuções (tarefas de OP). Na barra única as duas se confundem.
+   **Recomendado:** a aba do painel passa a se chamar "Ciclos"; "Execuções" na barra é a do
+   Controle de Produção.
+5. **Tema padrão.** **Recomendado:** escuro nas três (já é o padrão de duas), lembrado por
+   cookie.
+6. **Login da Sincronização.** **Recomendado:** cookie da casa; o campo da chave sai da
+   página.
