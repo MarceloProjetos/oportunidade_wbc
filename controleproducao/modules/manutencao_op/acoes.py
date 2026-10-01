@@ -20,6 +20,7 @@ from typing import Any
 from controleproducao.config import get_settings
 from controleproducao.core.confirmacao import PLANOS, ConfirmacaoInvalida, Plano
 from controleproducao.core.hana_reader import HanaDirectReader
+from controleproducao.core.recusa import HTTP_DA_RECUSA, Recusa
 from controleproducao.core.service_layer_client import ServiceLayerClient
 from controleproducao.core.tarefas import ORIGEM_TELA, TAREFAS, Tarefa, acompanha_log
 from controleproducao.modules.manutencao_op import service
@@ -32,55 +33,8 @@ NOME_LIBERAR = "Liberar OPs"
 NOME_REPLANEJAR = "Replanejar OPs"
 NOME_ENCERRAR = "Encerrar OPs"
 
-# HTTP status of each refusal in the JSON API. The screen answers 400 for all of them (as it
-# always did); the API tells "fix the request" (400) from "no such thing" (404) from "the
-# state of the SAP or of the module says no" (409).
-HTTP_DA_RECUSA = {
-    "invalido": 400,
-    "nao_encontrada": 404,
-    "status_terminal": 409,
-    "saida_lancada": 409,
-    "entrada_lancada": 409,
-    "ciclo": 409,
-    "nada_a_encerrar": 409,
-    "confirmacao_invalida": 409,
-    "ocupado": 409,
-}
-
-
-class Recusa(Exception):
-    """An action refused before anything was written, with the screen's own message.
-
-    ``detalhes``/``colunas`` are the table the screen shows under the message (the OPs that
-    caused it); ``dados`` is extra JSON only the API returns; ``execucao`` is the task that
-    keeps the module busy (the screen links to it, the API returns its id).
-    """
-
-    def __init__(
-        self,
-        tipo: str,
-        mensagem: str,
-        *,
-        titulo: str | None = None,
-        detalhes: list[dict] | None = None,
-        colunas: list[str] | None = None,
-        dados: dict | None = None,
-        execucao: Tarefa | None = None,
-    ) -> None:
-        if tipo not in HTTP_DA_RECUSA:
-            raise ValueError(f"tipo de recusa desconhecido: {tipo!r}")
-        super().__init__(mensagem)
-        self.tipo = tipo
-        self.mensagem = mensagem
-        self.titulo = titulo
-        self.detalhes = detalhes or []
-        self.colunas = colunas or []
-        self.dados = dados or {}
-        self.execucao = execucao
-
-    @property
-    def http(self) -> int:
-        return HTTP_DA_RECUSA[self.tipo]
+# `Recusa` moved to core/recusa.py on 01/10/2026 (Pedidos WBC uses it too); re-exported here.
+__all__ = ["HTTP_DA_RECUSA", "Recusa"]
 
 
 def _ocupado(exc: RuntimeError) -> Recusa:

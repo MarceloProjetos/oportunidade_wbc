@@ -27,6 +27,7 @@ from fastapi.testclient import TestClient
 from controleproducao.core.confirmacao import PLANOS
 from controleproducao.core.tarefas import TAREFAS
 from controleproducao.main import app
+from controleproducao.modules.pedidos_wbc import acoes as acoes_wbc
 from controleproducao.modules.pedidos_wbc import router as r_wbc_mod
 from controleproducao.modules.pedidos_wbc.schemas import PedidoParaIntegrar
 
@@ -98,6 +99,9 @@ def _patches(producao: bool = False, pedidos=None):
         patch("controleproducao.core.web.get_settings", return_value=_settings(producao)),
         patch("controleproducao.modules.pedidos_wbc.router.get_settings", return_value=_settings(producao)),
         patch("controleproducao.modules.pedidos_wbc.router.HanaDirectReader", MagicMock()),
+        # The processar/reprocessar run lives in acoes.py since 01/10/2026 (shared with the API).
+        patch("controleproducao.modules.pedidos_wbc.acoes.get_settings", return_value=_settings(producao)),
+        patch("controleproducao.modules.pedidos_wbc.acoes.HanaDirectReader", MagicMock()),
         patch("controleproducao.modules.pedidos_wbc.service.buscar_pedidos_para_integrar",
               AsyncMock(return_value=pedidos)),
     ]
@@ -175,6 +179,10 @@ ROTAS_QUE_NAO_GRAVAM = {
     # only interrupts.
     "/api/manutencao-op/encerrar/conferir",
     "/api/manutencao-op/execucoes/{tarefa_id}/cancelar",
+    # Pedidos WBC API (01/10/2026): the plans only read, and cancel only interrupts.
+    "/api/pedidos-wbc/processar/conferir",
+    "/api/pedidos-wbc/reprocessar/conferir",
+    "/api/pedidos-wbc/execucoes/{tarefa_id}/cancelar",
 }
 
 
@@ -191,10 +199,11 @@ def test_toda_rota_post_que_grava_passa_pela_trava():
     from controleproducao.core import tarefas_router as r_tar
     from controleproducao.modules.manutencao_op import api_router as r_api
     from controleproducao.modules.manutencao_op import router as r_mop
+    from controleproducao.modules.pedidos_wbc import api_router as r_api_wbc
     from controleproducao.modules.pedidos_wbc import router as r_wbc
 
     faltando = []
-    for modulo in (r_wbc, r_mop, r_tar, r_api):
+    for modulo in (r_wbc, r_mop, r_tar, r_api, r_api_wbc):
         for rota in modulo.router.routes:
             if "POST" not in rota.methods:
                 continue
@@ -499,8 +508,8 @@ def test_execucao_recebe_o_numero_do_orcamento_e_nao_a_chave_da_oportunidade(cli
         conferir = cliente.post("/pedidos-wbc/processar/conferir", data={"opp_ids": ["4321"]})
         token = _token(conferir.text)
         with patch("controleproducao.modules.pedidos_wbc.service.processar_pedidos_novos", _falso), \
-             patch("controleproducao.modules.pedidos_wbc.router.ServiceLayerClient", MagicMock()), \
-             patch("controleproducao.modules.pedidos_wbc.router.WbcSqlServerClient", MagicMock()):
+             patch("controleproducao.modules.pedidos_wbc.acoes.ServiceLayerClient", MagicMock()), \
+             patch("controleproducao.modules.pedidos_wbc.acoes.WbcSqlServerClient", MagicMock()):
             cliente.post("/pedidos-wbc/processar/executar", data={"token": token})
 
     # `orc_num_masc` do PEDIDO de teste, não o `opp_id`.
@@ -517,8 +526,8 @@ def test_acompanhamento_identifica_pelo_pedido_do_sap(cliente):
         conferir = cliente.post("/pedidos-wbc/processar/conferir", data={"opp_ids": ["4321"]})
         token = _token(conferir.text)
         with patch("controleproducao.modules.pedidos_wbc.service.processar_pedidos_novos", _falso), \
-             patch("controleproducao.modules.pedidos_wbc.router.ServiceLayerClient", MagicMock()), \
-             patch("controleproducao.modules.pedidos_wbc.router.WbcSqlServerClient", MagicMock()):
+             patch("controleproducao.modules.pedidos_wbc.acoes.ServiceLayerClient", MagicMock()), \
+             patch("controleproducao.modules.pedidos_wbc.acoes.WbcSqlServerClient", MagicMock()):
             resposta = cliente.post(
                 "/pedidos-wbc/processar/executar", data={"token": token}, follow_redirects=False
             )
@@ -735,8 +744,8 @@ def test_reprocessar_volta_a_tela_com_aviso_e_executa(cliente):
         assert "antes de recriá-las" not in texto
         token = _token(conferir.text)
         with patch("controleproducao.modules.pedidos_wbc.service.reprocessar_pedidos_integrados", _falso), \
-             patch("controleproducao.modules.pedidos_wbc.router.ServiceLayerClient", MagicMock()), \
-             patch("controleproducao.modules.pedidos_wbc.router.WbcSqlServerClient", MagicMock()):
+             patch("controleproducao.modules.pedidos_wbc.acoes.ServiceLayerClient", MagicMock()), \
+             patch("controleproducao.modules.pedidos_wbc.acoes.WbcSqlServerClient", MagicMock()):
             resposta = cliente.post(
                 "/pedidos-wbc/reprocessar/executar", data={"token": token}, follow_redirects=False
             )
@@ -928,8 +937,8 @@ def test_grupo_sem_op_avisa_em_vez_de_dizer_concluido(cliente):
         conferir = cliente.post("/pedidos-wbc/processar/conferir", data={"opp_ids": ["4321"]})
         token = _token(conferir.text)
         with patch("controleproducao.modules.pedidos_wbc.service.processar_pedidos_novos", _falso), \
-             patch("controleproducao.modules.pedidos_wbc.router.ServiceLayerClient", MagicMock()), \
-             patch("controleproducao.modules.pedidos_wbc.router.WbcSqlServerClient", MagicMock()):
+             patch("controleproducao.modules.pedidos_wbc.acoes.ServiceLayerClient", MagicMock()), \
+             patch("controleproducao.modules.pedidos_wbc.acoes.WbcSqlServerClient", MagicMock()):
             resposta = cliente.post(
                 "/pedidos-wbc/processar/executar", data={"token": token}, follow_redirects=False
             )
@@ -1397,9 +1406,9 @@ def test_interromper_processar_para_entre_pedidos():
         async def __aexit__(self, *a):
             return None
 
-    with patch("controleproducao.modules.pedidos_wbc.router.ServiceLayerClient", return_value=_Sl()), \
+    with patch("controleproducao.modules.pedidos_wbc.acoes.ServiceLayerClient", return_value=_Sl()), \
          patch("controleproducao.modules.pedidos_wbc.service.processar_pedidos_novos", processar):
-        resultado = _asyncio.run(r_wbc_mod._roda_pedidos_com(
+        resultado = _asyncio.run(acoes_wbc._roda_pedidos_com(
             tarefa, [("84245", "00120634"), ("84246", "00120635"), ("84247", "00120636")],
             "processar", False, _settings(), MagicMock(), MagicMock(),
         ))
