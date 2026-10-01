@@ -56,6 +56,7 @@ def test_orcaview_da_barra_e_o_mesmo():
     from controleproducao.config import Settings as SettingsCP
 
     assert _default(Settings, "orcaview_url") == _default(SettingsCP, "orcaview_url")
+    assert _default(Settings, "orcaview_url") == config.ORCAVIEW_URL_DEFAULT
 
 
 def test_porta_da_api_nos_links_e_a_mesma():

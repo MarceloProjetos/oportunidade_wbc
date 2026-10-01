@@ -128,6 +128,9 @@ WBC_PAINEL_PORTA_DEFAULT = 8079
 # ``controleproducao.config`` and ``wbcpython.config`` (paridade test).
 CP_PORTA_DEFAULT = 8080
 CP_LOG_FILE_DEFAULT = 'logs/controleproducao.log'
+# The "← OrçaView" link of the shared top bar (casa/): the .90 home. Same default as the
+# painel and the Controle de Produção (tests/test_config_paridade_wbc.py).
+ORCAVIEW_URL_DEFAULT = 'http://192.168.0.90:8000/'
 
 # Windows Update / pending reboot (``windows_update.py``; full plan in
 # ``../SAP_RDP/docs/PLANO_WINDOWS_UPDATE.md``). Every number here comes from MEASUREMENT
@@ -333,6 +336,7 @@ class Settings:
     cp_porta: int                # CP_PORTA
     cp_url: str | None           # CP_URL — overrides host:CP_PORTA
     cp_log_file: str             # CP_LOG_FILE — the "installed" marker for the check
+    orcaview_url: str            # ORCAVIEW_URL — the "← OrçaView" link of the shared bar
 
     # Windows Update (expensive collection, in the background — see windows_update.py)
     wu_enabled: bool           # WU_ENABLED — turns the collection thread off
@@ -422,6 +426,7 @@ class Settings:
             cp_porta=_env_int('CP_PORTA', CP_PORTA_DEFAULT),
             cp_url=(os.getenv('CP_URL') or '').strip() or None,
             cp_log_file=(os.getenv('CP_LOG_FILE') or '').strip() or CP_LOG_FILE_DEFAULT,
+            orcaview_url=(os.getenv('ORCAVIEW_URL') or '').strip() or ORCAVIEW_URL_DEFAULT,
             wu_enabled=_env_bool('WU_ENABLED', WU_ENABLED_DEFAULT),
             rotinas_estado_supabase=_env_bool(
                 'ROTINAS_ESTADO_SUPABASE', ROTINAS_ESTADO_SUPABASE_DEFAULT

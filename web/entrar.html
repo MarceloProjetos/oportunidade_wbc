@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+{#
+  Key prompt of the API 8077 pages (PLANO_CASA_COMUM_11, F3, decision 6): the SAME key and
+  the SAME cookie as the painel WBC and the Controle de Produção — whoever entered one of the
+  three screens in this browser never sees it. The shared bar without the screens: each of
+  them would only lead back to a prompt.
+#}
+<html lang="pt-BR" data-theme="{{ 'light' if casa_tema(request.cookies) == 'claro' else 'dark' }}">
+{% import "casa/_casa.html" as casa_ui %}
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Entrar — Central Integração SAP</title>
+  {{ casa_ui.cabeca() }}
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--casa-pagina); color: var(--casa-texto);
+      font: 400 15px/1.5 var(--casa-fonte); -webkit-font-smoothing: antialiased; }
+    main { max-width: 1800px; margin: 0 auto; padding: 32px 20px 56px; }
+    .cartao { max-width: 34rem; padding: 26px 28px; background: var(--casa-cartao);
+      border: 1px solid var(--casa-borda); border-radius: 14px;
+      box-shadow: 0 4px 10px rgb(0 0 0 / .25), 0 1px 3px rgb(0 0 0 / .18); }
+    h1 { margin: 0 0 10px; font-size: 1.6rem; font-weight: 700; letter-spacing: -.01em; }
+    p { margin: 0 0 16px; color: var(--casa-texto-2); font-size: .9375rem; }
+    code { font-family: ui-monospace, Consolas, monospace; font-size: .8125rem; padding: 1px 6px;
+      border: 1px solid var(--casa-borda); border-radius: 6px; }
+    label { display: block; margin: 0 0 6px; font-size: .75rem; letter-spacing: .05em;
+      text-transform: uppercase; color: var(--casa-texto-2); }
+    input { width: 100%; padding: 10px 12px; font: inherit; color: var(--casa-texto);
+      background: var(--casa-superficie); border: 1px solid var(--casa-borda-forte); border-radius: 9px; }
+    input:focus { outline: none; border-color: var(--casa-acento); box-shadow: 0 0 0 3px var(--casa-a20); }
+    button { margin-top: 14px; padding: 10px 22px; border-radius: 10px; cursor: pointer;
+      font: 600 .9375rem/1 var(--casa-fonte); color: #fff; border: 1px solid #b04e30;
+      background: linear-gradient(to bottom, #e08060, #c45a3a); }
+    button:hover { background: linear-gradient(to bottom, #e8956e, #da7756); }
+    .erro { padding: 10px 12px; border-radius: 10px; color: var(--casa-perigo);
+      background: var(--casa-perigo-fundo); border: 1px solid var(--casa-perigo-borda); }
+    a { color: var(--casa-acento-texto); }
+    :focus-visible { outline: 2px solid var(--casa-acento-texto); outline-offset: 2px; }
+  </style>
+</head>
+<body>
+  {{ casa_ui.barra([], "/orcaview", ambiente) }}
+  <main>
+    <section class="cartao">
+      <h1>Chave de acesso</h1>
+      <p>É a mesma chave do painel da Integração WBC e do Controle de Produção
+        (<code>OS_API_KEY</code>). Fica guardada só neste navegador, como cookie — e vale para as
+        três telas da Central.</p>
+      {% if erro %}<p class="erro" role="alert">{{ erro }}</p>{% endif %}
+      <form method="post" action="/entrar" autocomplete="off">
+        <input type="hidden" name="proximo" value="{{ proximo }}">
+        <label for="chave">Chave</label>
+        <input id="chave" name="chave" type="password" autofocus required autocomplete="current-password">
+        <button type="submit">Entrar</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

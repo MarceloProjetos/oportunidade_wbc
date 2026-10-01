@@ -65,6 +65,11 @@
   --casa-sombra-barra: 0 1px 0 rgb(15 23 42 / .06), 0 6px 18px rgb(15 23 42 / .06);
 }
 
+/* `hidden` must beat any class that sets `display` — on every screen. Without it a dialog
+   marked hidden but styled `display: grid` opens on page load (seen on the Sincronização's
+   "Buscar na lista", 01/10/2026; the Controle de Produção had hit it with an empty red box). */
+[hidden] { display: none !important; }
+
 .casa-icone { flex: none; display: block; }
 
 /* ── Top bar ─────────────────────────────────────────────────────────────── */

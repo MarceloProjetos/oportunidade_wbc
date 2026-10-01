@@ -59,7 +59,8 @@
 
 {#
   The top bar. `itens` = casa_itens(hrefs, ativa) — empty on the key prompt, where only the
-  way back to the OrçaView makes sense. `ambiente` = {"em_producao", "company_db", "ambiente"}.
+  way back to the OrçaView makes sense. `ambiente` = {"em_producao", "company_db", "ambiente"}
+  and optionally "dica", the pill's tooltip when the screen does not write into the SAP.
 #}
 {% macro barra(itens, voltar_href, ambiente, mostrar_sair=false) -%}
 <header class="casa-barra">
@@ -86,7 +87,7 @@
   <div class="casa-direita">
     {% if ambiente.em_producao %}
     <span class="casa-ambiente casa-ambiente--producao"
-          title="Produção: as gravações vão para o SAP de verdade">{{ ambiente.company_db }}</span>
+          title="{{ ambiente.dica or 'Produção: as gravações vão para o SAP de verdade' }}">{{ ambiente.company_db }}</span>
     {% else %}
     <span class="casa-ambiente" title="{{ ambiente.ambiente }}">{{ ambiente.company_db }}</span>
     {% endif %}

@@ -79,6 +79,13 @@ def test_css_da_casa_tem_os_dois_temas_com_os_mesmos_tokens():
     assert tokens_escuro - tokens_claro == {"--casa-sobre-solido", "--casa-fonte", "--casa-barra-altura"}
 
 
+def test_hidden_vence_qualquer_display():
+    """A dialog styled `display: grid` and marked `hidden` opened on load (Sincronização,
+    01/10/2026). The house rule makes the attribute win on the three screens."""
+    css = (casa.STATIC_DIR / "casa.css").read_text(encoding="utf-8")
+    assert "[hidden] { display: none !important; }" in css
+
+
 def test_js_do_tema_grava_o_mesmo_cookie():
     js = (casa.STATIC_DIR / "casa.js").read_text(encoding="utf-8")
     assert f'"{casa.COOKIE_TEMA}=" +' in js

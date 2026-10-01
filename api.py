@@ -9,7 +9,10 @@ Endpoints
 - ``GET  /``                                → entrance: sends the browser to the WBC painel
                                               (``web/entrada.html``; falls back to ``/sincronizar``
                                               when the painel does not answer)
-- ``GET  /sincronizar``                     → the Painel de Sincronização (OS · Oportunidades)
+- ``GET  /sincronizar``                     → the Painel de Sincronização (OS · Oportunidades),
+                                              in the shared shell (casa/); behind the shared login
+- ``GET|POST /entrar`` · ``POST /sair``     → the key prompt (same cookie as the other screens)
+- ``GET  /orcaview``                        → 302 to the OrçaView home (``ORCAVIEW_URL``)
 - ``GET  /health``                          → ``{"status": "ok"}``
 - ``GET  /status``                          → diagnosis (two levels, see below); ``?checks=``, ``?strict=1``
 - ``GET|DELETE /historico``                 → OS sync log (read / clear)
@@ -29,13 +32,15 @@ Endpoints
 - ``GET  /pedidos/<numero>/situacao``       → status of ONE order
 - ``GET  /rh/colaboradores``                → Kairos roster mirror (company → sector → people)
 - ``GET  /painel-wbc``                      → 302 to the WBC integration painel (FastAPI, PAINEL_PORTA)
-- ``GET  /controle-producao``               → 302 to the Controle de Produção screen (FastAPI, CP_PORTA)
+- ``GET  /controle-producao[/<tela>]``      → 302 to the Controle de Produção screen (FastAPI, CP_PORTA)
 
 Authentication (optional, **recommended in production**)
 --------------------------------------------------------
 Set ``OS_API_KEY`` in ``.env``. The client must send the ``X-API-Key: <key>`` header
 (or ``Authorization: Bearer <key>``). Without ``OS_API_KEY`` the endpoint is **open**
-(use only on a trusted internal network / development).
+(use only on a trusted internal network / development). A browser on the Sincronização
+page uses instead the shared login cookie of the .11 screens (``casa/acesso.py``); a write
+by cookie must come from this same origin (CSRF).
 
 ``GET /status`` is the one route with **two** levels. It stays open — the .90's watchdog
 polls it with no credential and decides by the HTTP status code — but a caller without a
@@ -75,14 +80,18 @@ import time
 from functools import wraps
 from logging.handlers import TimedRotatingFileHandler
 from typing import Any
+from urllib.parse import quote, urlsplit
 
 from flask import Flask, Response, jsonify, redirect, request, send_from_directory
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+import casa
 import feriados_br
 import ordens_producao_sl as op_sl
 import situacao_pedidos as sit_ped
 import situacao_pedidos_hana as sit_ped_hana
 import windows_update
+from casa import acesso as casa_acesso
 from config import get_settings
 from extract_ordens_servico_engenharia import (
     consultar_status_pedido,
@@ -135,6 +144,25 @@ def _configure_logging() -> None:
 
 app = Flask(__name__)
 _WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web')
+
+# The browser pages of this API (Sincronização, key prompt) wear the shared shell of the .11
+# screens, "Central Integração SAP" (casa/, PLANO_CASA_COMUM_11 F3). A Jinja environment of
+# their own, not Flask's: the shell's macros are plain Jinja and nothing else here renders.
+_PAGINAS = Environment(loader=FileSystemLoader(_WEB_DIR), autoescape=select_autoescape(('html',)))
+casa.instalar(_PAGINAS)
+# Where each screen of the shared bar lives, seen from this API: itself, and the redirect
+# routes below for the other two processes (they resolve host and port from the .env).
+_PAGINAS.globals['CASA_HREFS'] = {
+    'integracao': '/painel-wbc',
+    'pedidos': '/controle-producao/pedidos',
+    'ops': '/controle-producao/ops',
+    'sincronizacao': '/sincronizar',
+    'tarefas': '/controle-producao/tarefas',
+}
+#: The Controle de Produção screens behind the bar's links: path here → path there.
+_TELAS_DO_CONTROLE_DE_PRODUCAO = {'pedidos': 'pedidos-wbc', 'ops': 'manutencao-op', 'tarefas': 'tarefas'}
+#: The company the HANA reads of this API point at in production (the pill turns red).
+_COMPANY_DE_PRODUCAO = 'SBOALTAMIRAPROD'
 
 # Serializes the loads: never two concurrent syncs (avoids multiple SAP connections and
 # races in replace_nped). Volume is low (on-demand trigger).
@@ -441,8 +469,29 @@ def _confere(enviado: str | None, esperado: str | None) -> bool:
     return hmac.compare_digest(enviado.encode('utf-8'), esperado.encode('utf-8'))
 
 
+def _por_cookie() -> bool:
+    """The browser carries the shared login cookie of the .11 screens (``casa/acesso.py``):
+    an HMAC of ``OS_API_KEY``, the same one the painel WBC and the Controle de Produção issue
+    (owner's decision 6, 01/10/2026 — one login for the three)."""
+    chave = get_settings().os_api_key
+    cookie = request.cookies.get(casa_acesso.COOKIE_DE_ACESSO, '')
+    return bool(chave) and bool(cookie) and casa_acesso.igual(cookie, casa_acesso.token_da_chave(chave))
+
+
+def _mesma_origem() -> bool:
+    """The request comes from a page of THIS host:port (``Origin``, else ``Referer``).
+
+    A cookie rides along on any request the browser makes to this host, including one a
+    foreign page fires; a write authenticated only by the cookie must prove it came from
+    the Sincronização itself (CSRF). Same rule as the Controle de Produção."""
+    origem = request.headers.get('Origin') or request.headers.get('Referer') or ''
+    return bool(origem) and urlsplit(origem).netloc == request.host
+
+
 def _autorizado() -> bool:
-    """True if ``OS_API_KEY`` is unset (open) or if the key matches.
+    """True if ``OS_API_KEY`` is unset (open), if the key matches, or — for the
+    Sincronização page in a browser — if the shared login cookie is valid (a write by
+    cookie must also come from this same origin).
 
     **The ``STATUS_ID`` is deliberately NOT accepted here.** It is a low-privilege
     credential that opens the full ``/status`` and nothing else; letting it through this
@@ -452,7 +501,11 @@ def _autorizado() -> bool:
     chave = get_settings().os_api_key
     if not chave:
         return True
-    return _confere(_credencial_enviada(), chave)
+    if _confere(_credencial_enviada(), chave):
+        return True
+    if _por_cookie():
+        return request.method in ('GET', 'HEAD', 'OPTIONS') or _mesma_origem()
+    return False
 
 
 def _status_completo_autorizado() -> bool:
@@ -625,16 +678,93 @@ def ui():
     return Response(pagina, mimetype='text/html', headers={'Cache-Control': 'no-store'})
 
 
+def _ambiente_da_pagina() -> dict:
+    """The environment pill of the shared bar. This API READS the SAP (``SAP_SCHEMA``) and
+    writes the Supabase, so the pill names the schema and its tooltip says so."""
+    schema = get_settings().sap_schema or ''
+    producao = schema.upper() == _COMPANY_DE_PRODUCAO
+    return {
+        'em_producao': producao,
+        'company_db': schema or 'SAP_SCHEMA não definido',
+        'ambiente': f"{'produção' if producao else 'fora de produção'} — schema SAP '{schema or '?'}'",
+        'dica': f'Lê o SAP de produção ({schema}) e grava no Supabase: as cargas são reais',
+    }
+
+
+def _pagina(nome: str, status: int = 200, **contexto: Any) -> Response:
+    """A browser page of this API, in the shared shell. ``no-store``: without it Chrome
+    keeps serving a stale HTML after a deploy (heuristic cache, seen on the .90)."""
+    html = _PAGINAS.get_template(nome).render(
+        request=request, ambiente=_ambiente_da_pagina(),
+        exige_chave=bool(get_settings().os_api_key), **contexto,
+    )
+    return Response(html, status=status, mimetype='text/html', headers={'Cache-Control': 'no-store'})
+
+
 @app.get('/sincronizar')
 def sincronizar():
-    """Painel de Sincronização (pedido field + key + Sincronizar button). Was ``GET /``
-    until 2026-09-08; the root now leads to the WBC painel."""
-    return send_from_directory(_WEB_DIR, 'sincronizar.html')
+    """Painel de Sincronização (OS by pedido · Oportunidades load). Was ``GET /`` until
+    2026-09-08; the root now leads to the WBC painel.
+
+    Since 01/10/2026 (PLANO_CASA_COMUM_11 F3) it opens behind the same login as the other two
+    screens: with ``OS_API_KEY`` set and no valid cookie (or key), the key prompt first. The
+    page's own calls then ride on that cookie — the key is no longer pasted into the page
+    nor kept in ``localStorage``.
+    """
+    if get_settings().os_api_key and not _autorizado():
+        return redirect(f"/entrar?proximo={quote('/sincronizar', safe='')}", code=303)
+    return _pagina('sincronizar.html')
+
+
+@app.get('/entrar')
+def entrar():
+    """The key prompt of this API's pages — the same key and the same cookie as the painel
+    WBC and the Controle de Produção: whoever entered one of them never sees this."""
+    if not get_settings().os_api_key:
+        return redirect('/sincronizar', code=303)
+    return _pagina('entrar.html', erro=None,
+                   proximo=casa_acesso.destino_local(request.args.get('proximo', '/sincronizar')))
+
+
+@app.post('/entrar')
+def entrar_conferir():
+    chave = get_settings().os_api_key
+    if not chave:
+        return redirect('/sincronizar', code=303)
+    proximo = casa_acesso.destino_local(request.form.get('proximo', '/sincronizar'))
+    if not casa_acesso.igual(request.form.get('chave', ''), chave):
+        return _pagina('entrar.html', status=401, erro='Chave incorreta.', proximo=proximo)
+    resposta = redirect(proximo, code=303)
+    resposta.set_cookie(casa_acesso.COOKIE_DE_ACESSO, casa_acesso.token_da_chave(chave),
+                        max_age=30 * 24 * 3600, httponly=True, samesite='Lax')
+    return resposta
+
+
+@app.post('/sair')
+def sair():
+    """Forgets the key in this browser — on the three screens, the cookie is one."""
+    resposta = redirect('/entrar', code=303)
+    resposta.delete_cookie(casa_acesso.COOKIE_DE_ACESSO)
+    return resposta
+
+
+@app.get('/orcaview')
+def orcaview():
+    """The "← OrçaView" link of the shared bar (``ORCAVIEW_URL``, the .90 home). Open: it
+    only redirects, and someone stuck at the key prompt must still be able to leave."""
+    return redirect(get_settings().orcaview_url, code=302)
 
 
 @app.get('/favicon.ico')
 def favicon():
     return ('', 204)  # avoids a noisy 404 in the log
+
+
+@app.get('/casa/<path:arquivo>')
+def casa_estatico(arquivo: str):
+    """The shared shell's CSS/JS (``casa/static``) — the very files the painel WBC and the
+    Controle de Produção serve. Open: the key prompt wears them too."""
+    return send_from_directory(casa.STATIC_DIR, arquivo, max_age=3600)
 
 
 @app.get('/painel-wbc')
@@ -664,6 +794,14 @@ def controle_producao():
     Produção and Manutenção de OP. Open (no key): the screen asks for the same
     ``OS_API_KEY`` itself — and the painel's cookie already opens it."""
     return redirect(_url_controle_producao(), code=302)
+
+
+@app.get('/controle-producao/<tela>')
+def controle_producao_tela(tela: str):
+    """The shared bar's links to one Controle de Produção screen: ``pedidos``, ``ops`` and
+    ``tarefas``; anything else lands on its home. Open, like the root redirect."""
+    caminho = _TELAS_DO_CONTROLE_DE_PRODUCAO.get(tela, '')
+    return redirect(f"{_url_controle_producao().rstrip('/')}/{caminho}", code=302)
 
 
 @app.get('/health')

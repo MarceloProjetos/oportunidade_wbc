@@ -1,6 +1,7 @@
 """Testes da API HTTP de disparo da sync de OS (sem rede; sync_os mockado)."""
 
 import logging
+import re
 
 import pytest
 
@@ -77,7 +78,92 @@ def test_raiz_escapa_a_url_configurada(client, monkeypatch):
 def test_sincronizar_serve_o_painel_de_sincronizacao(client):
     r = client.get('/sincronizar')
     assert r.status_code == 200
-    assert b'Painel de Sincroniza' in r.data  # a pagina HTML de sempre, em outro caminho
+    assert r.headers['Cache-Control'] == 'no-store'
+    html = r.get_data(as_text=True)
+    assert 'Sincronização SAP → Supabase' in html
+    # The shared shell (PLANO_CASA_COMUM_11 F3): the same bar as the other two screens.
+    assert '<header class="casa-barra">' in html and '/casa/casa.css' in html
+    assert re.search(r'href="/sincronizar"[^>]*aria-current="page"', html)
+    # No key pasted into the page any more, nor kept in localStorage (decision 6).
+    assert 'id="key"' not in html and 'os_api_key' not in html and 'X-API-Key' not in html
+
+
+# ============ the shared login of the .11 screens (PLANO_CASA_COMUM_11 F3) ============
+
+def _com_chave(monkeypatch):
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+
+
+def _cookie(client, chave='segredo'):
+    from casa import acesso
+    client.set_cookie(acesso.COOKIE_DE_ACESSO, acesso.token_da_chave(chave))
+
+
+def test_sincronizar_com_chave_pede_a_entrada(client, monkeypatch):
+    _com_chave(monkeypatch)
+    r = client.get('/sincronizar')
+    assert r.status_code == 303
+    assert r.headers['Location'].endswith('/entrar?proximo=%2Fsincronizar')
+    entrada = client.get('/entrar?proximo=/sincronizar').get_data(as_text=True)
+    assert 'Chave de acesso' in entrada and '<header class="casa-barra">' in entrada
+    assert 'href="/painel-wbc"' not in entrada        # only the way back to the OrçaView
+
+
+def test_o_cookie_do_painel_abre_a_sincronizacao(client, monkeypatch):
+    """One login for the three screens: the cookie the painel WBC or the Controle de Produção
+    issued opens this page and its calls, with no key typed again."""
+    _com_chave(monkeypatch)
+    monkeypatch.setattr(apimod, '_fetch_log', lambda table, n: [])
+    _cookie(client)
+    assert client.get('/sincronizar').status_code == 200
+    assert client.get('/historico').status_code == 200
+    _cookie(client, chave='outra')                     # a cookie of another key
+    assert client.get('/historico').status_code == 401
+
+
+def test_entrar_confere_a_chave_e_grava_o_mesmo_cookie(client, monkeypatch):
+    from casa import acesso
+    _com_chave(monkeypatch)
+    errada = client.post('/entrar', data={'chave': 'nao', 'proximo': '/sincronizar'})
+    assert errada.status_code == 401 and 'Chave incorreta' in errada.get_data(as_text=True)
+    certa = client.post('/entrar', data={'chave': 'segredo', 'proximo': '//fora/x'})
+    assert certa.status_code == 303 and certa.headers['Location'] == '/'   # never off-site
+    biscoito = certa.headers['Set-Cookie']
+    assert biscoito.startswith(f'{acesso.COOKIE_DE_ACESSO}={acesso.token_da_chave("segredo")};')
+    assert 'HttpOnly' in biscoito and 'segredo;' not in biscoito
+    assert client.post('/sair').headers['Location'] == '/entrar'
+
+
+def test_escrita_por_cookie_so_da_mesma_origem(client, monkeypatch):
+    """CSRF: the cookie rides along on a request any page fires at this host; a write
+    authenticated only by it must come from this origin. The key header stays exempt."""
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _fake_lock(timeout=0):
+        yield
+
+    _com_chave(monkeypatch)
+    monkeypatch.setattr(apimod, 'oportunidades_sync_lock', _fake_lock)
+    monkeypatch.setattr(apimod, 'sync_oportunidades', lambda: True)
+    _cookie(client)
+    assert client.post('/oportunidades/sincronizar').status_code == 401
+    assert client.post('/oportunidades/sincronizar',
+                       headers={'Origin': 'http://evil.example'}).status_code == 401
+    assert client.post('/oportunidades/sincronizar',
+                       headers={'Origin': 'http://localhost'}).status_code == 200
+
+
+def test_casca_e_atalhos_abrem_sem_chave(client, monkeypatch):
+    _com_chave(monkeypatch)
+    assert client.get('/casa/casa.css').status_code == 200
+    assert client.get('/orcaview').headers['Location'] == 'http://192.168.0.90:8000/'
+    monkeypatch.delenv('CP_URL', raising=False)
+    monkeypatch.delenv('CP_PORTA', raising=False)
+    reset_settings()
+    assert client.get('/controle-producao/ops').headers['Location'] == 'http://localhost:8080/manutencao-op'
+    assert client.get('/controle-producao/tarefas').headers['Location'] == 'http://localhost:8080/tarefas'
 
 
 def test_favicon_no_content(client):
@@ -948,7 +1034,9 @@ def test_autorizado_sem_chave_enviada_401(client, monkeypatch):
 # telas, que pedem a MESMA OS_API_KEY por conta propria (tests/wbc/dashboard/test_entrada.py,
 # tests/controleproducao/test_acesso.py).
 _ROTAS_ABERTAS = {'/', '/sincronizar', '/favicon.ico', '/health', '/status', '/painel-wbc',
-                  '/controle-producao'}
+                  '/controle-producao', '/controle-producao/<tela>', '/orcaview',
+                  # the shared login and shell of the .11 screens (PLANO_CASA_COMUM_11 F3)
+                  '/entrar', '/sair', '/casa/<path:arquivo>'}
 
 
 def test_toda_rota_nova_exige_chave_ou_e_abertura_declarada(client, monkeypatch):

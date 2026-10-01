@@ -6,6 +6,31 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-01] — Central Integração SAP, F3: a Sincronização entra na casa
+
+Entra pelo `deploy_update.bat` (`OrcaView-OS-API`). As cargas, as rotas JSON e o `X-API-Key`
+dos scripts, do MCP e do .90 não mudaram; o `/status` e o `/health` também não. `casa.css?v=3`.
+
+- **A Sincronização ganhou a cara das outras duas telas:** a mesma barra (com "Sincronização"
+  destacada), o título de página da casa, cartões e pílulas iguais aos do painel, tema escuro por
+  padrão e o botão para claro. O azul próprio, o logo "OS" e os emojis saíram; os números de
+  Oportunidades viraram dois indicadores (linhas na tabela · cadência).
+- **Mesmo login das outras telas (decisão 6):** sem o cookie, `/sincronizar` leva à tela da chave
+  (`/entrar`, nova na 8077); quem já entrou no painel ou no Controle de Produção abre direto. O
+  campo de colar a chave, o cadeado e o `localStorage` com a chave **saíram** da página — as
+  chamadas dela vão pelo cookie. Escrita feita pelo cookie só vale vinda da própria página
+  (`Origin`/`Referer` do mesmo host:porta). `X-API-Key` continua igual para quem chama por script.
+- O cookie (nome, HMAC, comparação) mudou de casa: `casa/acesso.py`. O
+  `wbcpython/dashboard/acesso.py` só o reexporta — nada muda para o painel e o Controle de Produção.
+- Rotas novas na 8077, todas abertas porque só redirecionam ou servem a casca: `/entrar`,
+  `/sair`, `/orcaview` (`ORCAVIEW_URL`, padrão o .90 — paridade com os outros dois),
+  `/controle-producao/<tela>` e `/casa/<arquivo>`.
+- Achado na prévia: a janela "Buscar na lista" abria sozinha ao carregar, porque um `display: grid`
+  vencia o atributo `hidden`. A regra `[hidden] { display: none !important }` agora fica no
+  `casa.css` e vale nas três telas.
+- Resultado "ocupado" de um pedido aparece como "Em andamento" (antes, "FALHA"), e o 429 da carga de
+  oportunidades ganhou mensagem própria.
+
 ## [2026-10-01] — Central Integração SAP, F2: o painel WBC entra na casa
 
 Entra pelo `deploy_update.bat` (`OrcaView-WBC-Painel`); só aparência — rotas, fragmentos e
