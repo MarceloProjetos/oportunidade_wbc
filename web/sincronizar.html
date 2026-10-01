@@ -137,9 +137,6 @@
     .hist-linha .hora { margin-left: auto; color: var(--casa-texto-2); font-size: .8125rem; white-space: nowrap;
       font-variant-numeric: tabular-nums; }
     .vazio { margin: 12px 0; color: var(--casa-texto-2); font-size: .875rem; }
-    .rodape { margin-top: 22px; color: var(--casa-texto-2); font-size: .8125rem; }
-    .rodape code { font-family: ui-monospace, Consolas, monospace; font-size: .8125rem; padding: 1px 6px;
-      border: 1px solid var(--casa-borda); border-radius: 6px; background: var(--s-superficie); }
 
     /* "Buscar na lista" dialog. */
     .modal { position: fixed; inset: 0; z-index: 2000; display: grid; place-items: center; padding: 16px;
@@ -172,7 +169,7 @@
       <span class="casa-titulo__simbolo">{{ casa_ui.icone('sincronizar', 26) }}</span>
       <div class="casa-titulo__texto">
         <h1>Sincronização SAP → Supabase</h1>
-        <p>Ordens de Serviço sob demanda e Oportunidades no agendador — do SAP para o Supabase, que o OrçaView e o app leem</p>
+        <p>Ordens de Serviço sob demanda e Oportunidades no agendador</p>
       </div>
     </header>
 
@@ -236,8 +233,6 @@
         </div>
       </section>
     </div>
-
-    <p class="rodape">API: <code id="origin"></code> · Sincronizar = recarrega as OS do pedido · Forçar = carga total de oportunidades</p>
   </main>
 
   <!-- "Buscar na lista": pedidos with an OS created in the SAP -->
@@ -269,7 +264,6 @@
     // Also covers `motivo` and unparseable dates (fmtTime returns the raw ISO).
     const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ESC_MAP[c]);
-    $('origin').textContent = location.origin;
 
     // The calls ride on the shared login cookie (same origin → the browser sends it). A 401
     // means it expired or the key changed: back to the key prompt, then here again.

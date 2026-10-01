@@ -6,9 +6,13 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
-## [2026-10-01] — Textos mais curtos no painel WBC e nos Pedidos WBC
+## [2026-10-01] — Textos mais curtos no painel WBC, nos Pedidos WBC e na Sincronização
 
-Só texto; entra pelo `deploy_update.bat` (painel WBC e Controle de Produção).
+Só texto; entra pelo `deploy_update.bat` (painel WBC, Controle de Produção e API 8077).
+
+- Sincronização (8077): o subtítulo virou "Ordens de Serviço sob demanda e Oportunidades no
+  agendador" e saiu o rodapé "API: … · Sincronizar = … · Forçar = …" (com a linha do script que o
+  preenchia; um teste confere que todo `$('id')` do script tem o seu elemento).
 
 - Painel WBC, subtítulo: "cotações e pedidos no SAP a partir do WBC".
 - Aba Executar, "Processar um orçamento": o aviso virou "Roda o ciclo só para o orçamento

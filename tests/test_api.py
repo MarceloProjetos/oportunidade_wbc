@@ -88,6 +88,15 @@ def test_sincronizar_serve_o_painel_de_sincronizacao(client):
     assert 'id="key"' not in html and 'os_api_key' not in html and 'X-API-Key' not in html
 
 
+def test_sincronizar_todo_elemento_do_script_existe(client):
+    """One `$('x')` without its element throws at load and the rest of the script never runs
+    (histories and the line count stay empty). Guard for text cuts like the footer's (01/10)."""
+    html = client.get('/sincronizar').get_data(as_text=True)
+    ids = set(re.findall(r'id="([^"]+)"', html))
+    usados = set(re.findall(r"\$\('([^']+)'\)", html))
+    assert usados and usados <= ids, sorted(usados - ids)
+
+
 # ============ the shared login of the .11 screens (PLANO_CASA_COMUM_11 F3) ============
 
 def _com_chave(monkeypatch):
