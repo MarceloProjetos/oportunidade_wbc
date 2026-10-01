@@ -1,8 +1,8 @@
 # Plano — Casa comum das telas da .11
 
-> **Status (01/10/2026): F1 codada e conferida na prévia — falta o deploy dele na .11.** As 6
-> decisões estão fechadas. O Controle de Produção já usa a casca comum (`casa/`); o painel WBC
-> (F2) e a Sincronização (F3) ainda têm o cabeçalho antigo. Página publicada:
+> **Status (01/10/2026): F0–F5 codadas, testadas (2.543 testes) e conferidas na prévia com o CSS
+> real — falta o `deploy_update.bat` dele na .11** (commits a032729 F1 · 966c223 F2 · fec8aca F3 ·
+> d70c7f7 F4 · ec16c18 F5). Nada disso rodou ainda nas telas de verdade da .11. Página publicada:
 > https://claude.ai/artifact/Qim4SmTbstoyzgcoWG4UdQ (mesma url a cada atualização).
 
 ## O problema
@@ -74,7 +74,7 @@ flowchart LR
 ### F0 — Decisões (dele) — ✅ concluída 01/10/2026
 As 6 decisões da seção Decisões, todas fechadas no mesmo dia.
 
-### F1 — As peças comuns, estreando no Controle de Produção — ✅ codada 01/10/2026 (deploy pendente)
+### F1 — As peças comuns, estreando no Controle de Produção — ✅ codada 01/10/2026 · a032729
 **O que passa a existir:** a barra e o tema compartilhados, na tela que já está mais perto.
 - `casa/__init__.py` (`TELAS` = ordem e rótulos, `MARCA`, `tema()`, `instalar(env)`),
   `casa/templates/casa/_casa.html` (macros `cabeca()` e `barra()`), `casa/static/casa.css` e
@@ -87,10 +87,9 @@ As 6 decisões da seção Decisões, todas fechadas no mesmo dia.
   celular (375 px, sem rolagem lateral).
 - **O que mordeu:** o script que migra o tema antigo forçava escuro quando não havia nada
   a migrar e sobrescrevia o `data-theme` do servidor — agora só mexe quando acha um "claro" antigo.
-- `destinos.py` ficou para a F4: no Controle de Produção os links para as outras telas continuam
-  pelas rotas de redirecionamento que já existiam (`/painel-wbc`, `/sincronizacao`).
+- `destinos.py` ficou para a F4 (feito lá).
 
-### F2 — Painel WBC entra na casa
+### F2 — Painel WBC entra na casa — ✅ codada 01/10/2026 · 966c223
 **O que passa a existir:** sair do painel para o Controle de Produção não muda o cabeçalho.
 - `pagina.html`: a barra comum em cima; título "Integração WBC × SAP Business One" vira o
   título de página (mesmo bloco do Controle de Produção); "Incluir fora da janela" desce
@@ -98,9 +97,12 @@ As 6 decisões da seção Decisões, todas fechadas no mesmo dia.
   sai (decisão 3) e a aba "Execuções" passa a "Ciclos" (decisão 4).
 - Tema: `wbc-tema`/`data-tema` passam a ler o cookie; quem já tinha escolhido "claro" no
   painel é migrado uma vez.
-- HTMX continua igual: só a casca muda.
+- HTMX continua igual: só a casca muda. As abas ficam numa linha presa sob a barra
+  (`--casa-barra-altura`); o título usa `zoom: 1.125` para medir igual ao do Controle de Produção.
+- Ganhou `/orcaview` (`ORCAVIEW_URL`, com teste de paridade) e `/controle-producao/tarefas`.
+- No tema claro, o coral como texto passou a `#a94a2e` (5,7:1) nas duas telas — o ajuste do painel.
 
-### F3 — Sincronização entra na casa
+### F3 — Sincronização entra na casa — ✅ codada 01/10/2026 · fec8aca
 **O que passa a existir:** a Sincronização com a mesma cara, tema escuro e sem chave colada.
 - `sincronizar.html` vira template Jinja com a barra; CSS azul próprio sai, entram os
   tokens da casa (verde do "Forçar sincronismo" vira o botão de ação da casa; OK/FALHA
@@ -110,17 +112,24 @@ As 6 decisões da seção Decisões, todas fechadas no mesmo dia.
   campo da chave e o `localStorage` saem. `X-API-Key` continua valendo para quem chama por script.
 - Escrita por cookie exige mesma origem (a regra de CSRF do Controle de Produção).
 - A rota continua `/sincronizar` na 8077 — ninguém precisa mudar favorito.
+- O cookie (nome, HMAC, comparação) mudou para `casa/acesso.py`; o painel reexporta. Rotas novas
+  e abertas na 8077: `/entrar`, `/sair`, `/orcaview`, `/controle-producao/<tela>`, `/casa/<arquivo>`.
+- **O que mordeu:** na prévia, a janela "Buscar na lista" abria sozinha — `display: grid` vencia o
+  atributo `hidden`. A regra `[hidden] { display: none !important }` foi para o `casa.css` (vale nas três).
 
-### F4 — Acabamento
-- Remover o que sobrou: `/sincronizacao` e `/painel-wbc` viram só redirecionamento de
-  compatibilidade; regras de URL duplicadas apontam para `casa/destinos.py`.
-- Docs: `GUIA_OPERADOR`, `README` (seção das telas), `CLAUDE.md` (mapa ganha `casa/`).
-- Conferir claro/escuro e 1280/1700 px nas três, no navegador.
+### F4 — Acabamento — ✅ codada 01/10/2026 · d70c7f7
+- `casa/destinos.py`: a regra "configurado ou mesmo host na porta" é uma só (eram seis cópias).
+- A entrada da 8077 (`GET /`) também na casca, com a mesma sonda de 3 s para o painel.
+- Docs: `GUIA_OPERADOR`, `README`, `docs/wbc/README.md`, README do `controleproducao`, `CLAUDE.md`.
+- Conferido na prévia: claro/escuro e 1700/1366/1280 px nas três; celular no Controle de Produção.
 
-### F5 — (opcional) Início com saúde
-Uma página de entrada com um cartão por tela e o estado de cada serviço (worker ciclando,
-Controle de Produção ocupado, última carga de oportunidades), lido do `/status`. Hoje o
-`/` da 8077 só redireciona para o painel.
+### F5 — Início com o estado — ✅ codada 01/10/2026 · ec16c18
+**O que passa a existir:** um lugar para ver, de relance, se as três telas estão no ar.
+- `/inicio` na 8077 (mesmo login): um cartão por tela com faixa e pílula de estado e os fatos
+  que importam; embaixo, as conexões (HANA, SQL Server do WBC, Supabase, disco) e os avisos do
+  monitor. Só lê o `/status` e os logs de sincronização — nenhum check novo. Atualiza a cada minuto.
+- **A marca "Central Integração SAP" da barra é o link para o início**, nas três telas — a ordem
+  do menu (decisão 2) não mudou e `/` continua indo para o painel (decisão de 08/09).
 
 ## Ideias consideradas e descartadas
 
