@@ -1,7 +1,8 @@
 # Plano — Casa comum das telas da .11
 
-> **Status (01/10/2026): proposta, nada codado.** Aguardando as decisões da §4 (nome da
-> casa, ordem do menu, faixa de produção, as duas "Execuções"). Página publicada:
+> **Status (01/10/2026): proposta, nada codado.** Decididas 1 (nome "Central Integração SAP"),
+> 5 (escuro padrão, com troca para claro) e 6 (mesmo login, as três exigem a chave). Abertas:
+> 2 (ordem do menu — trava a F1), 3 (faixa de produção), 4 (as duas "Execuções"). Página publicada:
 > https://claude.ai/artifact/Qim4SmTbstoyzgcoWG4UdQ (mesma url a cada atualização).
 
 ## O problema
@@ -94,8 +95,9 @@ o nome e a ordem do menu: eles são o desenho da barra.
 - `sincronizar.html` vira template Jinja com a barra; CSS azul próprio sai, entram os
   tokens da casa (verde do "Forçar sincronismo" vira o botão de ação da casa; OK/FALHA
   viram as pílulas da casa).
-- Login: a página usa o cookie `wbc_painel` (mesmo HMAC); o campo da chave e o
-  `localStorage` saem. `X-API-Key` continua valendo para quem chama por script.
+- Login (decisão 6): sem o cookie `wbc_painel`, `/sincronizar` manda para a tela de entrada,
+  como as outras duas; com ele, a página e as chamadas dela usam o cookie (mesmo HMAC). O
+  campo da chave e o `localStorage` saem. `X-API-Key` continua valendo para quem chama por script.
 - Escrita por cookie exige mesma origem (a regra de CSRF do Controle de Produção).
 - A rota continua `/sincronizar` na 8077 — ninguém precisa mudar favorito.
 
@@ -121,10 +123,8 @@ Controle de Produção ocupado, última carga de oportunidades), lido do `/statu
 
 ## Decisões
 
-1. **Nome da casa** (a marca à esquerda da barra). Hoje são três: "Integração WBC × SAP
-   Business One", "Controle de Produção", "Painel de Sincronização".
-   **Recomendado: "Central SAP"** — cobre as três telas sem prometer só integração.
-   Alternativas: "Integrações SAP", "SAP · .11".
+1. ✅ **Nome da casa — "Central Integração SAP"** (Marcelo, 01/10/2026). Marca à esquerda da
+   barra nas três telas; o nome de cada tela fica no título da página.
 2. **Ordem do menu.** **Recomendado:** Integração WBC · Pedidos WBC · Manutenção de OP ·
    Sincronização · Execuções — segue o caminho do pedido (WBC → SAP → OPs) e deixa a
    Sincronização, que é paralela, no fim. "← OrçaView" fica antes, como hoje.
@@ -135,7 +135,9 @@ Controle de Produção ocupado, última carga de oportunidades), lido do `/statu
    Produção tem a tela Execuções (tarefas de OP). Na barra única as duas se confundem.
    **Recomendado:** a aba do painel passa a se chamar "Ciclos"; "Execuções" na barra é a do
    Controle de Produção.
-5. **Tema padrão.** **Recomendado:** escuro nas três (já é o padrão de duas), lembrado por
-   cookie.
-6. **Login da Sincronização.** **Recomendado:** cookie da casa; o campo da chave sai da
-   página.
+5. ✅ **Tema — escuro por padrão nas três, com o botão para trocar para claro** (Marcelo,
+   01/10/2026). A escolha fica no cookie `casa_tema` e vale nas três telas.
+6. ✅ **Login — o mesmo nas três, e as três exigem a chave** (Marcelo, 01/10/2026). A
+   Sincronização passa a abrir pela tela de entrada (cookie `wbc_painel`), como o painel e o
+   Controle de Produção; o campo de colar a chave e o `localStorage` saem. `X-API-Key`
+   continua para scripts, MCP e o .90.
