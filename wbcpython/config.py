@@ -430,6 +430,10 @@ class Settings(BaseSettings):
     cp_url: str = Field(default="", alias="CP_URL")
     cp_porta: int = Field(default=8080, alias="CP_PORTA")
 
+    #: The "← OrçaView" link of the shared top bar (casa/, 01/10/2026): the .90 home. Same
+    #: default as ``controleproducao`` (parity test); ``ORCAVIEW_URL`` only for a dev copy.
+    orcaview_url: str = Field(default="http://192.168.0.90:8000/", alias="ORCAVIEW_URL")
+
     @property
     def painel_exige_chave(self) -> bool:
         """O painel pede a chave de acesso (há `OS_API_KEY` configurada)."""

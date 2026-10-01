@@ -6,6 +6,29 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-01] — Central Integração SAP, F2: o painel WBC entra na casa
+
+Entra pelo `deploy_update.bat` (`OrcaView-WBC-Painel`); só aparência — rotas, fragmentos e
+HTMX iguais. `painel.css?v=20261001`, `casa.css?v=2`.
+
+- **A mesma barra do Controle de Produção** no topo do painel, com "Integração WBC" destacada.
+  Os três botões contornados (Sincronização, Pedidos WBC → OPs, Manutenção de OP) saíram — estão
+  na barra, com "Execuções" do Controle de Produção junto (`/controle-producao/tarefas`).
+- **Tarja vermelha de produção saiu** (decisão 3): a pílula `SBOALTAMIRAPROD` vermelha na barra
+  é a mesma das outras telas.
+- **Título de página** no bloco da casa (ladrilho coral + título + subtítulo), na mesma posição e
+  tamanho do Controle de Produção. As abas ficam numa linha logo abaixo, presa sob a barra ao
+  rolar a lista, com "Incluir fora da janela" à direita.
+- **Aba "Execuções" agora se chama "Ciclos"** (decisão 4): "Execuções" na barra é a do Controle de
+  Produção. O endereço `/?aba=execucoes` continua valendo.
+- **Tema:** o mesmo cookie das outras telas; quem tinha escolhido claro no painel é migrado na 1ª
+  visita. A paleta base vem do `casa.css` (uma definição só).
+- **"← OrçaView"** também no painel (`/orcaview`, `ORCAVIEW_URL` — padrão o .90, igual ao do
+  Controle de Produção; teste de paridade).
+- Conteúdo um pouco mais largo (1500 → 1800 px) e margem de 20 px, alinhado com a barra.
+- No tema claro, o coral como texto escureceu para `#a94a2e` (5,7:1 sobre branco) nas duas telas
+  — era o ajuste que o painel já tinha.
+
 ## [2026-10-01] — Central Integração SAP, F1: a casca comum estreia no Controle de Produção
 
 Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); só aparência — nenhuma rota,

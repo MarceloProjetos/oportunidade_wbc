@@ -76,7 +76,7 @@ def test_css_da_casa_tem_os_dois_temas_com_os_mesmos_tokens():
     # Every light override exists in dark (no light-only color), and every color in dark
     # is redefined in light — except the ones that read on both grounds.
     assert tokens_claro <= tokens_escuro
-    assert tokens_escuro - tokens_claro == {"--casa-sobre-solido", "--casa-fonte"}
+    assert tokens_escuro - tokens_claro == {"--casa-sobre-solido", "--casa-fonte", "--casa-barra-altura"}
 
 
 def test_js_do_tema_grava_o_mesmo_cookie():

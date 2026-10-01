@@ -38,6 +38,8 @@
   --casa-perigo-fundo: rgb(242 114 106 / .13);
   --casa-perigo-borda: rgb(242 114 106 / .45);
   --casa-sombra-barra: 0 1px 0 rgb(0 0 0 / .35), 0 6px 16px rgb(0 0 0 / .22);
+  /* Height of the top bar on desktop: what a sticky row of a page sits under. */
+  --casa-barra-altura: 62px;
   --casa-fonte: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 :root[data-theme="light"] {
@@ -51,7 +53,7 @@
   --casa-texto: #1f2733;
   --casa-texto-2: #5a6675;
   --casa-acento: #c45a3a;
-  --casa-acento-texto: #c45a3a;
+  --casa-acento-texto: #a94a2e;   /* 5.7:1 on white (the fill colour gives 4.0:1) */
   --casa-a08: rgb(196 90 58 / .08);
   --casa-a13: rgb(196 90 58 / .12);
   --casa-a20: rgb(196 90 58 / .20);
@@ -73,7 +75,7 @@
 .casa-barra {
   position: sticky; top: 0; z-index: 1055;
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
-  column-gap: 20px; min-height: 62px; padding: 0 20px;
+  box-sizing: border-box; column-gap: 20px; min-height: var(--casa-barra-altura); padding: 0 20px;
   background: var(--casa-painel);
   border-top: 2px solid var(--casa-acento);
   border-bottom: 1px solid var(--casa-borda);

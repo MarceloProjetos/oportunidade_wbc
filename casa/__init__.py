@@ -31,7 +31,7 @@ TEMPLATES_DIR = PASTA / "templates"
 STATIC_DIR = PASTA / "static"
 
 #: Bump when casa.css / casa.js change: the three apps link them with ``?v=``.
-VERSAO = "1"
+VERSAO = "2"
 
 MARCA = "Central Integração SAP"
 

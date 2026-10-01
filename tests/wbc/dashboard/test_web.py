@@ -95,9 +95,10 @@ class TestPagina:
     def test_o_ambiente_fica_visivel(self, cliente: TestClient) -> None:
         assert "SBOALTAMIRAHOMOLOG" in cliente.get("/").text
 
-    def test_producao_ganha_tarja(self, tmp_path: Path, monkeypatch, repo) -> None:
+    def test_producao_ganha_a_pilula_vermelha_da_casa(self, tmp_path: Path, monkeypatch, repo) -> None:
         """O fato mais perigoso da tela é o ambiente: em produção o ciclo cria e
-        cancela documentos de verdade."""
+        cancela documentos de verdade. Since 01/10/2026 (PLANO_CASA_COMUM_11, decision 3) it is
+        the shared bar's red pill, the same on the three screens — no red strip."""
         monkeypatch.setenv("TRACKING_DB_URL", f"sqlite:///{tmp_path}/p.db")
         monkeypatch.setenv("SL_BASE_URL", "https://exemplo:50000/b1s/v1")
         monkeypatch.setenv("SL_COMPANY_DB", "SBOALTAMIRAPROD")
@@ -106,8 +107,30 @@ class TestPagina:
         cliente = TestClient(criar_app(settings=Settings(), tracking=repo))
 
         texto = cliente.get("/").text
-        assert "tarja-producao" in texto
-        assert "não têm volta" in texto
+        assert "casa-ambiente casa-ambiente--producao" in texto and "SBOALTAMIRAPROD" in texto
+        assert "tarja-producao" not in texto and "casa-faixa" not in texto
+
+    def test_a_barra_e_a_da_casa(self, cliente: TestClient) -> None:
+        """The same top bar as the Controle de Produção: brand, screens in the owner's order
+        (this one marked), then environment and theme; and the tab once called "Execuções"
+        is "Ciclos" — the bar has an "Execuções" of its own."""
+        texto = cliente.get("/").text
+        barra = texto[texto.index('<header class="casa-barra">'):texto.index("</header>")]
+        ordem = [barra.index(h) for h in (
+            'href="/orcaview"', 'href="/"', 'href="/controle-producao/pedidos"',
+            'href="/controle-producao/ops"', 'href="/sincronizacao"',
+            'href="/controle-producao/tarefas"', "data-casa-tema")]
+        assert ordem == sorted(ordem)
+        assert re.search(r'href="/"[^>]*aria-current="page"', barra)
+        assert "/casa/casa.css" in texto and 'class="casa-titulo"' in texto
+        assert ">\n              Ciclos\n" in texto
+        # The old per-port theme key is only READ, once, to migrate it to the cookie.
+        assert 'setItem("wbc-tema"' not in texto and "data-tema" not in texto
+
+    def test_tema_vem_do_cookie_da_casa(self, cliente: TestClient) -> None:
+        assert '<html lang="pt-BR" data-theme="dark">' in cliente.get("/").text
+        cliente.cookies.set("casa_tema", "claro")
+        assert '<html lang="pt-BR" data-theme="light">' in cliente.get("/").text
 
     def test_a_aba_vem_do_endereco(self, cliente: TestClient) -> None:
         """Estado no endereço: o painel pode ficar numa TV numa aba fixa, e um

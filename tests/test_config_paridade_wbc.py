@@ -50,6 +50,14 @@ def test_porta_e_log_do_controle_producao_sao_os_mesmos():
     assert _default(SettingsCP, "cp_log_file") == config.CP_LOG_FILE_DEFAULT
 
 
+def test_orcaview_da_barra_e_o_mesmo():
+    """The "← OrçaView" link of the shared bar is read by the painel and the Controle de
+    Produção; a drifted default would send one of them to another address."""
+    from controleproducao.config import Settings as SettingsCP
+
+    assert _default(Settings, "orcaview_url") == _default(SettingsCP, "orcaview_url")
+
+
 def test_porta_da_api_nos_links_e_a_mesma():
     """OS_API_PORT feeds the "Sincronização SAP → Supabase" link in the painel WBC and in the
     Controle de Produção; both must default to the port the API binds."""

@@ -1,38 +1,22 @@
 <!doctype html>
-<html lang="pt-BR">
+{# Theme from the shared `casa_tema` cookie, written before any paint (casa/__init__.py). #}
+<html lang="pt-BR" data-theme="{{ 'light' if casa_tema(request.cookies) == 'claro' else 'dark' }}">
+{% import "casa/_casa.html" as casa_ui %}
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Entrar — Integração WBC × SAP</title>
-    <link rel="stylesheet" href="/static/painel.css?v=20260930" />
-    <script>
-      // Theme before the first paint (30/09/2026): dark is the default (no attribute); only
-      // "claro" is ever set, so a light-theme viewer no longer sees a dark flash.
-      try {
-        if (localStorage.getItem("wbc-tema") === "claro") document.documentElement.setAttribute("data-tema", "claro");
-      } catch (e) { /* blocked storage: the default theme */ }
-    </script>
+    <title>Entrar — Central Integração SAP</title>
+    {{ casa_ui.cabeca() }}
+    <link rel="stylesheet" href="/static/painel.css?v=20261001" />
   </head>
   <body>
     {#
       Porta de entrada do painel quando há OS_API_KEY no .env. A chave é a MESMA
       da API 8077 (Painel de Sincronização): uma chave só para as duas telas.
       Depois de conferida, vira um cookie HttpOnly — o navegador não a reexpõe.
+      The shared bar without the screens: each of them would only bring the operator back here.
     #}
-    <div class="topo">
-      <div class="topo-linha">
-        <div class="marca">
-          <span class="icone" aria-hidden="true"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h14l-4-4"/><path d="M20 16H6l4 4"/></svg></span>
-          <div>
-            <h1>Integração WBC × SAP Business One</h1>
-            <span class="sub">Painel de acompanhamento</span>
-          </div>
-        </div>
-        <span class="ambiente {{ 'producao' if producao else '' }}">
-          {{ company_db }}{{ '' if producao else ' · homologação' }}
-        </span>
-      </div>
-    </div>
+    {{ casa_ui.barra([], "/orcaview", ambiente) }}
 
     <main>
       <div class="bloco entrada">

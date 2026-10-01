@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlencode
 
+import casa
 from wbcpython import logs
 from wbcpython.config import Settings, get_settings
 from wbcpython.dashboard import acesso, dados, usuarios
@@ -88,14 +89,24 @@ _destino_local = acesso.destino_local
 
 #: As telas do Controle de Produção (outro processo, CP_PORTA) atrás de cada botão do topo:
 #: caminho do botão aqui → caminho na tela de lá. Sem entrada = a raiz de lá.
-TELAS_DO_CONTROLE_DE_PRODUCAO = {"pedidos": "pedidos-wbc", "ops": "manutencao-op"}
+TELAS_DO_CONTROLE_DE_PRODUCAO = {"pedidos": "pedidos-wbc", "ops": "manutencao-op", "tarefas": "tarefas"}
 
 #: O que abre sem chave: a própria tela de entrada e a ida para as outras telas.
-#: `/static/*` também (o CSS da tela de entrada vem de lá).
+#: `/static/*` e `/casa/*` também (o CSS da tela de entrada vem de lá).
 ROTAS_ABERTAS = frozenset(
-    {"/entrar", "/sair", "/sincronizacao", "/controle-producao", "/favicon.ico"}
+    {"/entrar", "/sair", "/sincronizacao", "/controle-producao", "/orcaview", "/favicon.ico"}
     | {f"/controle-producao/{tela}" for tela in TELAS_DO_CONTROLE_DE_PRODUCAO}
 )
+
+#: The screens of the shared top bar (casa/), seen from this painel: itself, and the redirect
+#: routes below for the other two processes (they resolve host and port from the .env).
+CASA_HREFS = {
+    "integracao": "/",
+    "pedidos": "/controle-producao/pedidos",
+    "ops": "/controle-producao/ops",
+    "sincronizacao": "/sincronizacao",
+    "tarefas": "/controle-producao/tarefas",
+}
 
 #: Quantas linhas de acompanhamento o painel busca de uma vez. O mesmo teto
 #: que o Streamlit usava: alto o bastante para a janela inteira, baixo o
@@ -151,7 +162,10 @@ ABAS = (
     ("ciclo", "Próximo ciclo"),
     ("detalhe", "Detalhe"),
     ("comandos", "Executar"),
-    ("execucoes", "Execuções"),
+    # "Ciclos", not "Execuções" (01/10/2026, decision 4 of PLANO_CASA_COMUM_11): the shared top
+    # bar has an "Execuções" of its own (the Controle de Produção's tasks). The id — and so every
+    # saved `/?aba=execucoes` address — stays.
+    ("execucoes", "Ciclos"),
     ("log", "Log"),
 )
 
@@ -200,9 +214,21 @@ def criar_app(
 
     app = FastAPI(title="Integração WBC × SAP", docs_url=None, redoc_url=None)
     app.mount("/static", StaticFiles(directory=ESTATICOS), name="static")
+    # The shared shell of the .11 screens (top bar, palette, theme cookie) — the same files the
+    # Controle de Produção and the 8077 serve.
+    app.mount("/casa", StaticFiles(directory=casa.STATIC_DIR), name="casa")
     templates = Jinja2Templates(directory=str(TEMPLATES))
     templates.env.filters["moeda"] = _moeda
     templates.env.filters["numero"] = _numero
+    casa.instalar(templates.env)
+    templates.env.globals["CASA_HREFS"] = CASA_HREFS
+    # What the bar's environment pill shows. The process's, not the request's: global.
+    templates.env.globals["ambiente"] = {
+        "em_producao": config.targets_production,
+        "company_db": config.service_layer.company_db,
+        "ambiente": f"{'produção' if config.targets_production else 'homologação'} — company DB "
+                    f"'{config.service_layer.company_db}'",
+    }
 
     def render(request: Request, nome: str, **contexto: Any) -> HTMLResponse:
         return templates.TemplateResponse(request, nome, contexto)
@@ -226,7 +252,7 @@ def criar_app(
     @app.middleware("http")
     async def exigir_chave(request: Request, call_next: Any) -> Any:
         caminho = request.url.path
-        if caminho in ROTAS_ABERTAS or caminho.startswith("/static/") or _autenticado(request):
+        if caminho in ROTAS_ABERTAS or caminho.startswith(("/static/", "/casa/")) or _autenticado(request):
             return await call_next(request)
         if request.headers.get("hx-request"):
             # Um fragmento pedido pelo HTMX com o cookie vencido: devolver a tela
@@ -289,11 +315,17 @@ def criar_app(
         """
         return RedirectResponse(_url_da_sincronizacao(config, request), status_code=302)
 
+    @app.get("/orcaview")
+    def orcaview() -> RedirectResponse:
+        """The "← OrçaView" link of the shared bar (``ORCAVIEW_URL``, the .90 home). Open: it
+        only redirects, and someone stuck at the key prompt must still be able to leave."""
+        return RedirectResponse(config.orcaview_url, status_code=302)
+
     @app.get("/controle-producao")
     @app.get("/controle-producao/{tela}")
     def controle_producao(request: Request, tela: str = "") -> RedirectResponse:
-        """The top buttons to the Controle de Produção screens: ``/pedidos`` (Pedidos WBC →
-        OPs) and ``/ops`` (Manutenção de OP); anything else lands on its home.
+        """The top-bar links to the Controle de Produção screens: ``/pedidos`` (Pedidos WBC),
+        ``/ops`` (Manutenção de OP) and ``/tarefas`` (Execuções); anything else lands on its home.
 
         Another process on CP_PORTA, same key: the browser sends this painel's cookie
         there too (cookies ignore the port), so no second login.

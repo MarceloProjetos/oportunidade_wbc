@@ -87,6 +87,18 @@ class TestComChave:
 
     def test_o_css_da_entrada_abre_sem_chave(self, fechado: TestClient) -> None:
         assert fechado.get("/static/painel.css").status_code == 200
+        assert fechado.get("/casa/casa.css").status_code == 200
+
+    def test_a_entrada_tem_a_barra_da_casa_so_com_o_orcaview(self, fechado: TestClient) -> None:
+        # Stuck at the prompt, the only way out that works is back to the OrçaView.
+        texto = fechado.get("/entrar").text
+        assert 'class="casa-barra"' in texto and 'href="/orcaview"' in texto
+        assert 'href="/controle-producao/pedidos"' not in texto
+
+    def test_orcaview_redireciona_sem_chave(self, fechado: TestClient) -> None:
+        resposta = fechado.get("/orcaview", follow_redirects=False)
+        assert resposta.status_code == 302
+        assert resposta.headers["location"] == "http://192.168.0.90:8000/"
 
     def test_a_tela_de_entrada_explica_que_chave_e(self, fechado: TestClient) -> None:
         texto = fechado.get("/entrar").text
@@ -201,17 +213,19 @@ class TestCaminhoParaOControleDeProducao:
     """The screens on the same host (CP_PORTA): links, not iframes — another process. One
     top button per screen (Marcelo, 28/09/2026): Pedidos WBC → OPs and Manutenção de OP."""
 
-    def test_os_dois_botoes_estao_na_pagina(self, aberto: TestClient) -> None:
+    def test_as_telas_estao_na_barra(self, aberto: TestClient) -> None:
         texto = aberto.get("/").text
         assert 'href="/controle-producao/pedidos"' in texto and "Pedidos WBC" in texto
         assert 'href="/controle-producao/ops"' in texto and "Manutenção de OP" in texto
+        assert 'href="/controle-producao/tarefas"' in texto and "Execuções" in texto
 
     def test_sem_configuracao_e_o_mesmo_host_na_porta_do_cp(self, aberto: TestClient) -> None:
         resposta = aberto.get("/controle-producao", follow_redirects=False)
         assert resposta.status_code == 302
         assert resposta.headers["location"] == "http://testserver:8080/"
 
-    @pytest.mark.parametrize("tela, destino", [("pedidos", "pedidos-wbc"), ("ops", "manutencao-op")])
+    @pytest.mark.parametrize("tela, destino", [("pedidos", "pedidos-wbc"), ("ops", "manutencao-op"),
+                                               ("tarefas", "tarefas")])
     def test_cada_botao_cai_na_sua_tela(self, aberto: TestClient, tela: str, destino: str) -> None:
         resposta = aberto.get(f"/controle-producao/{tela}", follow_redirects=False)
         assert resposta.status_code == 302

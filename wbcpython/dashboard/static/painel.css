@@ -6,32 +6,31 @@
  * fontes do sistema e CSS puro — inclusive as barras dos gráficos.
  */
 
-/* OrçaView look (29/09/2026): the same palette, surfaces and accent as the OrçaView
- * pages (Usuarios.html) and the Controle de Produção screen next door — this painel is
- * their sister screen. Dark is the DEFAULT, as in OrçaView; light is the explicit
- * `data-tema="claro"` override chosen with the round sun/moon button (kept per browser). The
- * operating-system preference no longer decides: the house default does.
+/* "Central Integração SAP" (01/10/2026, PLANO_CASA_COMUM_11 F2): the top bar, the page title,
+ * the theme and the base palette come from casa/static/casa.css, loaded before this file and
+ * shared with the Controle de Produção and the Sincronização. The tokens below that have a
+ * house equivalent only POINT at it (one definition); the rest are this painel's own.
+ * Dark is the default; light is `data-theme="light"`, written by the server from the
+ * `casa_tema` cookie (it replaced the per-port `wbc-tema` localStorage key).
  *
  * Surface ladder: page < card header < card < inner surface (KPIs) < input.
  * `--acento` fills and borders; `--acento-texto` is the accent as TEXT (lighter coral in
  * dark, for contrast on the card). Semantic colours keep their tuned hues; their
  * backgrounds are translucent so they sit on any surface. */
 :root {
-  color-scheme: dark;
-
-  --fundo: #1a1a1a;
-  --painel: #2d2d2d;
+  --fundo: var(--casa-pagina);
+  --painel: var(--casa-cartao);
   --painel-2: #262626;
   --superficie: #333333;
   --campo: #3a3a3a;
-  --traco: #404040;
+  --traco: var(--casa-borda);
   --traco-forte: #5c5c5c;
-  --tinta: #f3f4f6;
-  --tinta-fraca: #9ca3af;
+  --tinta: var(--casa-texto);
+  --tinta-fraca: var(--casa-texto-2);
   --tinta-fraquissima: #959ca8; /* 4.6:1 on --superficie (30/09/2026: was 3.3:1) */
 
-  --acento: #da7756;
-  --acento-texto: #e8956e;
+  --acento: var(--casa-acento);
+  --acento-texto: var(--casa-acento-texto);
   --acento-fraco: rgb(218 119 86 / 14%);
 
   --ok: #48b77f;
@@ -58,21 +57,12 @@
     "Liberation Mono", monospace;
 }
 
-:root[data-tema="claro"] {
-  color-scheme: light;
-
-  --fundo: #eef1f5;
-  --painel: #ffffff;
+:root[data-theme="light"] {
   --painel-2: #f6f8fb;
   --superficie: #f8fafc;
   --campo: #ffffff;
-  --traco: #dce3ec;
   --traco-forte: #b8c3d1;
-  --tinta: #1f2733;
-  --tinta-fraca: #5a6675;
   --tinta-fraquissima: #667180; /* 4.9:1 on white */
-  --acento: #c45a3a;
-  --acento-texto: #a94a2e; /* 5.7:1 on white, 5.0:1 on the page (was 4.3:1) */
   --acento-fraco: rgb(196 90 58 / 10%);
   --ok: #1c7a4c;
   --ok-fundo: #e4f3ea;
@@ -118,89 +108,34 @@ a {
   border-radius: 3px;
 }
 
-/* ------------------------------------------------------------------ cabeçalho */
+/* ------------------------------------------------------------- título e abas */
 
-/* OrçaView topbar: coral icon, title and subtitle stacked, actions on the right; the tab
- * row below. Sticky with a translucent page background, so the list scrolls under it. */
-.topo {
+/* The page title is the shared .casa-titulo. The Controle de Produção renders its content at
+ * zoom 1.125 (owner, 30/09/2026); the same factor here makes the two titles identical. */
+main > .casa-titulo {
+  zoom: 1.125;
+}
+
+/* The tab row stays under the shared bar while the list scrolls (it used to live in the
+ * sticky header). Full width of <main>: the negative margins reach its padding, so rows
+ * scrolling underneath never show beside it. Solid background — no color-mix here: older
+ * Chrome/Edge paint nothing for it (30/09/2026). */
+.abas-linha {
   position: sticky;
-  top: 0;
+  top: var(--casa-barra-altura);
   z-index: 20;
-  background: var(--fundo); /* fallback: no color-mix → a transparent sticky bar */
-  background: color-mix(in srgb, var(--fundo) 92%, transparent);
-  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0 -20px 20px;
+  padding: 0 20px;
+  background: var(--fundo);
   border-bottom: 1px solid var(--traco);
 }
 
-.topo-linha {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  max-width: 1500px;
-  margin: 0 auto;
-  padding: 16px 24px 12px;
-}
-
-.marca {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-right: auto;
-}
-
-.marca .icone {
-  display: inline-flex;
-  color: var(--acento-texto);
-}
-
-.marca h1 {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: var(--tinta);
-  line-height: 1.2;
-}
-
-.marca .sub {
-  display: block;
-  margin-top: 2px;
-  font-size: 0.8125rem;
-  color: var(--tinta-fraca);
-}
-
-/* O ambiente é o fato mais perigoso da tela: em produção o ciclo cria e
- * cancela documentos financeiros de verdade. Ganha uma tarja hachurada de
- * largura inteira, e é a única coisa da página autorizada a gritar. */
-.ambiente {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  font: 700 0.75rem/1 var(--ui);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  background: var(--neutro-fundo);
-  color: var(--tinta-fraca);
-  border: 1px solid var(--traco);
-}
-
-.ambiente.producao {
-  background: var(--critico-fundo);
-  color: var(--critico);
-  border-color: color-mix(in srgb, var(--critico) 40%, transparent);
-}
-
-.tarja-producao {
-  padding: 8px 20px;
-  font: 600 13px/1.4 var(--ui);
-  color: #fff;
-  background-color: #a3251b;
-  background-image: repeating-linear-gradient(
-    -45deg,
-    rgb(0 0 0 / 16%) 0 10px,
-    transparent 10px 20px
-  );
+.abas-linha .caixa {
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 /* --------------------------------------------------------------------- abas */
@@ -208,9 +143,7 @@ a {
 .abas {
   display: flex;
   gap: 4px;
-  max-width: 1500px;
-  margin: 0 auto;
-  padding: 0 24px;
+  min-width: 0;
   overflow-x: auto;
 }
 
@@ -242,8 +175,8 @@ a {
 /* ------------------------------------------------------------------ estrutura */
 
 main {
-  padding: 24px 24px 56px;
-  max-width: 1500px;
+  padding: 24px 20px 56px;
+  max-width: 1800px;
   margin: 0 auto;
 }
 
@@ -528,28 +461,6 @@ a.acao {
   text-decoration: none;
 }
 
-/* Round icon button for the theme, as in OrçaView; shows the theme it switches TO. */
-button.acao.tema {
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  justify-content: center;
-  border-radius: 50%;
-  color: var(--acento-texto);
-}
-
-button.acao.tema .ir-escuro,
-:root[data-tema="claro"] button.acao.tema .ir-claro {
-  display: none;
-}
-
-:root[data-tema="claro"] button.acao.tema .ir-escuro {
-  display: inline;
-}
-
-.sair {
-  margin: 0;
-}
 
 /* ------------------------------------------------------------- entrada */
 
@@ -994,11 +905,15 @@ code,
   main {
     padding: 12px 10px 40px;
   }
-  .topo-linha {
-    padding: 10px 12px;
+  .abas-linha {
+    position: static;
+    flex-wrap: wrap;
+    margin: 0 -10px 16px;
+    padding: 0 10px;
   }
-  .abas {
-    padding: 0 12px;
+  .abas-linha .caixa {
+    margin-left: 0;
+    padding-bottom: 10px;
   }
 }
 
