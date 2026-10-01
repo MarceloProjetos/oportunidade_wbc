@@ -466,6 +466,12 @@ class TestCicloDeUmOrcamento:
         assert "ciclo-simulado" not in cmd.POR_ID
         assert all("--simular" not in c.argv for c in cmd.CATALOGO)
 
+    def test_o_cartao_diz_a_janela_e_a_espera(self, cliente: TestClient) -> None:
+        """24 months since 01/10/2026 (owner); the wait for the worker's lock is new too."""
+        tela = cliente.get("/fragmentos/comandos").text
+        assert "<strong>24 meses</strong>" in tela
+        assert "espera terminar" in tela
+
     def test_so_o_ciclo_e_dirigido(self) -> None:
         """The exception does not leak: the weights keep the password and the production block."""
         assert [c.id for c in cmd.CATALOGO if c.dirigido] == ["ciclo"]

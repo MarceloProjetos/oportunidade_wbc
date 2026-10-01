@@ -6,6 +6,20 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-01] — Ciclo de um orçamento: 24 meses e espera pelo worker
+
+Entra pelo `deploy_update.bat` (worker e painel). Decisão em `docs/wbc/DECISOES.md` ("Ciclo do
+painel…", último bloco).
+
+- **O 00123304 não rodou** às 10:07:33: o ciclo agendado do worker tinha tomado a trava 1 s antes,
+  e a tela disse "[ok] 0 orçamento(s) avaliado(s)… nenhum erro". Agora o ciclo de um orçamento
+  **espera** o do worker terminar (até 3 min) e, se ainda assim não rodar, a tela mostra falha:
+  "Ciclo NÃO rodou: …".
+- **Janela do orçamento avulso: 24 meses** (era 12), pedido do Marcelo. Vale para "Processar este
+  orçamento" e para "Verificar pendentes" com orçamento. Se o `.env` da .11 tiver
+  `MESES_DE_JANELA_DIRIGIDA`, apague a linha.
+- O cartão "Processar um orçamento" diz a janela e a espera.
+
 ## [2026-10-01] — Texto da janela no ciclo com orçamento e na "Verificar pendentes"
 
 Só mensagem de log/saída; nada muda no que é lido ou gravado. Entra pelo `deploy_update.bat`

@@ -322,6 +322,10 @@ def _cmd_worker(
                 apenas_sitcode=apenas_sitcode,
                 somente_leitura=somente_leitura,
             )
+            if resultado.ignorado:
+                # Exit non-zero so the painel shows the run as failed, not "ok".
+                print(f"{AVISO}{resultado.resumo} Nada foi lido nem gravado; rode de novo.")
+                return 1
             print(f"{OK}{resultado.resumo}")
             if somente_leitura:
                 print(

@@ -105,5 +105,5 @@ class TestJanelaDirigida:
 
         assert not [r for r in caplog.records if "não encontrado" in r.getMessage()]
 
-    def test_o_padrao_da_janela_dirigida_e_doze_meses(self) -> None:
-        assert Settings(_env_file=None).meses_de_janela_dirigida == 12  # type: ignore[call-arg]
+    def test_o_padrao_da_janela_dirigida_e_vinte_e_quatro_meses(self) -> None:
+        assert Settings(_env_file=None).meses_de_janela_dirigida == 24  # type: ignore[call-arg]

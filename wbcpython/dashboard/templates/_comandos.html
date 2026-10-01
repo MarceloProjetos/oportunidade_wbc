@@ -174,8 +174,10 @@
     <div class="aviso info">
       <div>
         Roda o ciclo <strong>só para o orçamento informado</strong>, em <strong>{{ company_db }}</strong>
-        — o resto da janela continua com o worker. Uma execução por vez, sob a mesma trava do
-        worker. Não pede senha; pede o seu nome, que fica no histórico do orçamento.
+        — o resto da janela continua com o worker. Busca o orçamento nos últimos
+        <strong>{{ meses_dirigida }} meses</strong>, mesmo fora da janela do worker. Uma execução por
+        vez, sob a mesma trava do worker: se ele estiver no meio de um ciclo, espera terminar
+        (até 3 minutos). Não pede senha; pede o seu nome, que fica no histórico do orçamento.
       </div>
     </div>
   </div>

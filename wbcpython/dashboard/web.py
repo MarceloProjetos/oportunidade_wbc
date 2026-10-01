@@ -679,6 +679,7 @@ def criar_app(
             motivo=_por_que_nao_escreve(config),
             producao=config.targets_production,
             company_db=config.service_layer.company_db,
+            meses_dirigida=config.meses_de_janela_dirigida,
             ritmo=RITMO_DA_EXECUCAO,
         )
 

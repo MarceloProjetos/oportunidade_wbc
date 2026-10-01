@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import signal
 import threading
+import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from types import FrameType
@@ -86,9 +87,14 @@ class ResultadoExecucao:
     erros: int = 0
     com_acao: int = 0
     escritas: int = 0
+    # Set when the cycle never ran (lock held by another process). The summary must
+    # say so: "0 avaliados; nenhum erro" read as "nothing to do" on 01/10/2026.
+    ignorado: str | None = None
 
     @property
     def resumo(self) -> str:
+        if self.ignorado:
+            return f"Ciclo NÃO rodou: {self.ignorado}"
         if self.erros:
             final = f"{self.erros} com erro."
         else:
@@ -98,6 +104,13 @@ class ResultadoExecucao:
             f"{self.com_acao} com ação ({self.escritas} com escrita no SAP); "
             f"{final}"
         )
+
+
+# A per-quote cycle comes from someone waiting on the painel. The scheduled cycle holds
+# the lock for ~20 s every 3 min, so losing the race is common; wait it out instead of
+# giving up. The scheduled cycle itself never waits: the next tick is minutes away.
+ESPERA_PELA_TRAVA_DIRIGIDA = timedelta(minutes=3)
+INTERVALO_DE_TENTATIVA_DA_TRAVA = 5.0
 
 
 def _agora() -> datetime:
@@ -192,16 +205,32 @@ class WorkerIntegracao:
         SAP, mas escreve no acompanhamento, e dois processos mexendo nas mesmas
         linhas é justamente o que a trava existe para impedir.
         """
-        try:
-            with self._tracking.trava_de_execucao():
-                return self._ciclo(
-                    orcamento=orcamento,
-                    apenas_sitcode=apenas_sitcode,
-                    somente_leitura=somente_leitura,
-                )
-        except TravaNaoObtida as exc:
-            logger.warning("Ciclo ignorado: %s", exc)
-            return ResultadoExecucao()
+        limite = time.monotonic() + (
+            ESPERA_PELA_TRAVA_DIRIGIDA.total_seconds() if orcamento else 0.0
+        )
+        avisou = False
+        while True:
+            try:
+                with self._tracking.trava_de_execucao():
+                    return self._ciclo(
+                        orcamento=orcamento,
+                        apenas_sitcode=apenas_sitcode,
+                        somente_leitura=somente_leitura,
+                    )
+            except TravaNaoObtida as exc:
+                if time.monotonic() + INTERVALO_DE_TENTATIVA_DA_TRAVA > limite:
+                    logger.warning("Ciclo ignorado: %s", exc)
+                    return ResultadoExecucao(ignorado=str(exc))
+                if not avisou:
+                    logger.info(
+                        "Aguardando o ciclo em andamento terminar para processar o "
+                        "orçamento %s (até %d s): %s",
+                        orcamento,
+                        int(ESPERA_PELA_TRAVA_DIRIGIDA.total_seconds()),
+                        exc,
+                    )
+                    avisou = True
+                time.sleep(INTERVALO_DE_TENTATIVA_DA_TRAVA)
 
     def _janela_do_ciclo(self) -> jn.Janela:
         """Resolve a janela **deste** ciclo — e é por isso que ela não é lida no arranque.
@@ -301,7 +330,7 @@ class WorkerIntegracao:
         janela. Falhar em voz alta é o comportamento seguro: o dashboard mostra
         o erro e alguém age.
 
-        Com `--orcamento`, a janela é a **dirigida** (12 meses por padrão), e
+        Com `--orcamento`, a janela é a **dirigida** (24 meses por padrão), e
         não a do ciclo. A janela limita o que é varrido sem ninguém pedir;
         pedir um orçamento pelo número é o oposto — alguém sabe qual quer.
         Antes, um orçamento fora da janela do ciclo apenas não era encontrado,

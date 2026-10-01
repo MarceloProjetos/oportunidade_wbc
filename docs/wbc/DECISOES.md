@@ -1626,7 +1626,7 @@ antigo simplesmente não era encontrado, e o comando terminava com
 
 A janela existe para limitar o que é varrido *sem ninguém pedir*. Pedir um
 orçamento pelo número é o oposto: alguém sabe qual quer e está esperando. Agora
-`--orcamento` usa `MESES_DE_JANELA_DIRIGIDA` (12 por padrão), no ciclo **e** na
+`--orcamento` usa `MESES_DE_JANELA_DIRIGIDA` (12 por padrão; **24** desde 01/10/2026), no ciclo **e** na
 prévia — uma prévia com janela menor diria "nada a fazer" sobre um orçamento que
 o ciclo seguinte vai atualizar, e é a prévia que autoriza rodá-lo.
 
@@ -2167,3 +2167,19 @@ e de novo no executor — sem ele, o executor recusa, porque a CLI rodaria a jan
 aviso de irreversibilidade e a confirmação no clique. `Comando.dirigido` é a marca; só o `ciclo`
 a tem (teste). "Recalcular pesos" e "Preencher datas de abertura" seguem com senha e bloqueados em
 produção.
+
+**Mesmo dia, depois do 00123304: janela de 24 meses e espera pela trava.** O operador rodou o
+00123304 (fora da janela de 7 meses do worker — o worker nunca o tinha avaliado) às 10:07:33; o
+ciclo agendado tinha tomado a trava às 10:07:32. O ciclo do painel foi ignorado e a tela disse
+"[ok] 0 orçamento(s) avaliado(s)… nenhum erro" — parecia "nada a fazer". Três mudanças:
+
+- `MESES_DE_JANELA_DIRIGIDA` passou de 12 para **24** (pedido do Marcelo: rodando isolado, a
+  restrição é 24 meses — o mesmo teto do cartão "Janela de busca"). Não defina no `.env`: o
+  padrão é o valor de produção. Ressalva da frase acima: para um orçamento **fora** da janela do
+  worker, o botão escreve o que o worker **não** escreveria — é o propósito dele, e continua sendo
+  um orçamento só.
+- Com `--orcamento`, o ciclo **espera a trava** até 3 minutos (tenta a cada 5 s). O ciclo agendado
+  leva ~20 s a cada 3 min, então perder a corrida é comum; quem está na tela esperando não deve
+  ter de adivinhar. O ciclo agendado continua sem esperar (o próximo vem em minutos).
+- Se mesmo assim não rodar, o resumo diz **"Ciclo NÃO rodou: …"** e a CLI sai com código 1 (a tela
+  mostra falha, não "ok").

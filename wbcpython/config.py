@@ -398,7 +398,9 @@ class Settings(BaseSettings):
     #: aconteça. Com a janela normal, um orçamento mais antigo simplesmente não
     #: era encontrado, e o comando terminava com "0 avaliado(s)" e código 0:
     #: um nada silencioso que parece sucesso.
-    meses_de_janela_dirigida: int = Field(default=12, alias="MESES_DE_JANELA_DIRIGIDA")
+    # 24 since 01/10/2026 (Marcelo): a single quote run from the painel must reach any
+    # quote the window-arming card can reach (max 24), so the operator never needs both.
+    meses_de_janela_dirigida: int = Field(default=24, alias="MESES_DE_JANELA_DIRIGIDA")
 
     painel_senha: SecretStr = Field(default=SecretStr(""), alias="PAINEL_SENHA")
 

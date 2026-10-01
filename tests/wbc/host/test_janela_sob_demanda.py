@@ -302,3 +302,53 @@ class TestAuditoria:
         execucao = tracking.ultimas_execucoes(limite=1)[0]
         assert execucao.meses_da_janela == 12
         assert execucao.teto_de_escrita == 600
+
+
+class TestCicloDeUmOrcamentoEsperaATrava:
+    """01/10/2026: the painel's per-quote cycle for 00123304 started 1 s after the
+    scheduled cycle took the lock, was skipped, and the screen said "[ok] 0 avaliados;
+    nenhum erro" — read as "nothing to do" while nothing had run."""
+
+    def test_o_orcamento_espera_o_ciclo_do_worker_terminar(
+        self, ambiente, tracking, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        outro = tracking.trava_de_execucao()
+        outro.__enter__()
+        esperas: list[float] = []
+
+        def dormir(segundos: float) -> None:
+            esperas.append(segundos)
+            outro.__exit__(None, None, None)
+
+        monkeypatch.setattr(mod_worker.time, "sleep", dormir)
+
+        resultado = _worker(tracking).executar_ciclo(orcamento="00123304")
+
+        assert esperas == [mod_worker.INTERVALO_DE_TENTATIVA_DA_TRAVA]
+        assert resultado.ignorado is None
+        assert HanaEspiao.cortes, "the quote must be read after the lock is released"
+
+    def test_o_ciclo_agendado_nao_espera(
+        self, ambiente, tracking, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            mod_worker.time, "sleep", lambda s: pytest.fail("scheduled cycle must not wait")
+        )
+        with tracking.trava_de_execucao():
+            resultado = _worker(tracking).executar_ciclo()
+
+        assert resultado.ignorado
+        assert not HanaEspiao.cortes
+
+    def test_desiste_no_limite_e_o_resumo_diz_que_nao_rodou(
+        self, ambiente, tracking, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from datetime import timedelta
+
+        monkeypatch.setattr(mod_worker, "ESPERA_PELA_TRAVA_DIRIGIDA", timedelta(0))
+        with tracking.trava_de_execucao():
+            resultado = _worker(tracking).executar_ciclo(orcamento="00123304")
+
+        assert resultado.resumo.startswith("Ciclo NÃO rodou: Já existe uma execução")
+        assert "nenhum erro" not in resultado.resumo
+        assert not HanaEspiao.cortes

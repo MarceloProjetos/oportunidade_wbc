@@ -44,7 +44,7 @@ python -m wbcpython check-sap    # login no Service Layer + leitura mínima (só
 python -m wbcpython check-hana   # HANA: as views existem no schema configurado? (só leitura)
 python -m wbcpython pendentes --exportar state/wbc_previsao.json   # o que o ciclo FARIA
 python -m wbcpython ciclo        # UM ciclo completo e sai (escreve!)
-python -m wbcpython ciclo --orcamento 00123316   # só este orçamento (janela de 12 meses)
+python -m wbcpython ciclo --orcamento 00123316   # só este orçamento (janela de 24 meses)
 python -m wbcpython ciclo --simular              # enche o painel sem tocar no SAP
 python -m wbcpython worker       # contínuo: ciclo a cada WORKER_INTERVAL_SECONDS, no expediente
 python -m wbcpython dashboard    # painel em PAINEL_HOST:PAINEL_PORTA (.env)
