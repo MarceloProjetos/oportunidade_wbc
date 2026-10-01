@@ -1,7 +1,8 @@
 # Plano — API JSON dos Pedidos WBC (Controle de Produção, porta 8080)
 
-> **Status (01/10/2026, fim da tarde): F1–F5 codadas e conferidas localmente; falta F6 (deploy
-> e conferência na .11).** A API `/api/pedidos-wbc` existe, com 41 testes de paridade com a
+> **Status (01/10/2026, 15:05): NO AR na .11 e conferida só leitura (33 de 33 itens: chave,
+> CORS, lista igual à tela nos dois modos, conferência, recusas). Execução real ainda não
+> exercitada — só num pedido escolhido pelo Marcelo.** Antes: F1–F5 codadas e conferidas localmente. A API `/api/pedidos-wbc` existe, com 41 testes de paridade com a
 > tela; o guia `API_PEDIDOS_WBC.md` e a página pronta `docs/exemplos/pedidos_wbc_clone.html`
 > foram conferidos contra a API de verdade com o SAP simulado — lista, paginação, conferência,
 > execução concluída e com falha, tema claro e escuro, celular — e os exemplos de JavaScript,
@@ -112,7 +113,7 @@ API da Manutenção de OP (`acoes.py` + `api_router.py` + `API_MANUTENCAO_OP.md`
   e a linha "ERRO" de um pedido chegava ao log **sem** a marca ⚠ — na tela original também.
   Corrigido na origem (`Tarefa.avanca(..., problema=True)`): vale para a tela e para a API.
 
-### F6 — No ar (Marcelo) e conferência
+### F6 — No ar (Marcelo) e conferência — no ar 01/10 ~14:58; conferência só leitura OK
 - `deploy_update.bat` na .11 (reinicia o Controle de Produção).
 - Conferência **só leitura** na .11: lista igual à tela nos dois modos; conferir devolve plano
   sem gravar; executar sem `solicitante` → 400; token inválido → 409. **Execução real só com
