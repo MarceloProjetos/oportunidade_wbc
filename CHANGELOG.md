@@ -6,6 +6,16 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-01] — Textos mais curtos no painel WBC e nos Pedidos WBC
+
+Só texto; entra pelo `deploy_update.bat` (painel WBC e Controle de Produção).
+
+- Painel WBC, subtítulo: "cotações e pedidos no SAP a partir do WBC".
+- Aba Executar, "Processar um orçamento": o aviso virou "Roda o ciclo só para o orçamento
+  informado nos últimos 24 meses. Espera terminar (até 3 minutos) e conferir no SAP". A etiqueta
+  "escreve no SAP" aparecia duas vezes (no título do bloco e no cartão); ficou só a do cartão.
+- Pedidos WBC: saiu a nota "Nada é gravado neste passo…" abaixo do "Processar selecionados…".
+
 ## [2026-10-01] — Configuração: um lugar só para os padrões das três telas
 
 Sem efeito em produção (os valores são os mesmos); entra no próximo `deploy_update.bat`.
