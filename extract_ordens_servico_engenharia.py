@@ -37,6 +37,7 @@ from config import (
     get_settings,
 )
 from pipeline_core import (
+    FileLockTimeout,
     SupabaseLoader,
     agora_iso,
     build_view_query,
@@ -402,6 +403,7 @@ def main(
     inicio = time.monotonic()
     qtd_registros = 0
     resultado = False
+    ocupado = False
     nped_int: int | None = None
     loader: SupabaseLoader | None = None
 
@@ -469,29 +471,47 @@ def main(
         logger.error("✗ Erro ao carregar o NPED %s no Supabase", nped_int)
         return False
 
+    except FileLockTimeout:
+        # Another process is loading this same NPED: nothing was changed here. Re-raised so
+        # the API answers 409 'ocupado' — the generic `except` below used to swallow it into
+        # `False`, the API answered 502 'erro' and the history got a "falha" row (01/10/2026
+        # review).
+        ocupado = True
+        raise
     except Exception as exc:
         logger.error("Erro ao sincronizar o NPED %s: %s", nped_int, exc)
         return False
     finally:
-        # Auxiliary log (never affects the main result).
-        try:
-            duracao = time.monotonic() - inicio
-            data_hora_pc = agora_iso()   # with offset: the column is timestamptz (see agora_iso)
-            status = 'sucesso' if resultado else 'falha'
-            log_loader = loader or SupabaseLoader(
-                settings.supabase_url, settings.supabase_write_key
+        # Auxiliary log (never affects the main result). None for a busy NPED: this call did
+        # not run, and a "falha" row would send someone hunting a problem that does not exist.
+        if not ocupado:
+            _registrar_sincronizacao(
+                settings, loader, nped_int, resultado, qtd_registros, time.monotonic() - inicio
             )
-            log_loader.registrar_sincronizacao(
-                settings.os_sync_log_table,
-                data_hora_pc,
-                duracao,
-                status,
-                qtd_registros,
-                max_registros=OS_SYNC_LOG_MAX_REGISTROS,
-                extra_fields={'nped': nped_int},
-            )
-        except Exception as log_exc:
-            logger.error("Falha ao registrar log de sincronização (ignorada): %s", log_exc)
+
+
+def _registrar_sincronizacao(
+    settings, loader: SupabaseLoader | None, nped_int: int | None, resultado: bool,
+    qtd_registros: int, duracao: float,
+) -> None:
+    """The sync-log row of one NPED. Never raises: the log must not change the outcome."""
+    try:
+        data_hora_pc = agora_iso()   # with offset: the column is timestamptz (see agora_iso)
+        status = 'sucesso' if resultado else 'falha'
+        log_loader = loader or SupabaseLoader(
+            settings.supabase_url, settings.supabase_write_key
+        )
+        log_loader.registrar_sincronizacao(
+            settings.os_sync_log_table,
+            data_hora_pc,
+            duracao,
+            status,
+            qtd_registros,
+            max_registros=OS_SYNC_LOG_MAX_REGISTROS,
+            extra_fields={'nped': nped_int},
+        )
+    except Exception as log_exc:
+        logger.error("Falha ao registrar log de sincronização (ignorada): %s", log_exc)
 
 
 def run_npeds(npeds: Iterable[object]) -> dict:

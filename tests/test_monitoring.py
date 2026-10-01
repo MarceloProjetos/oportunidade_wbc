@@ -338,7 +338,7 @@ def test_collect_status_aceita_subconjunto_valido(monkeypatch):
 #  (b) sem carência na abertura da janela: às 07:00 a última carga é a de ~18:5x de
 #      ontem (~780 min) -> 'stale' -> alerta + 503 no strict, TODO dia útil.
 
-def _sinal(monkeypatch, *, agora, ultima_carga, intervalo=30):
+def _sinal(monkeypatch, *, agora, ultima_carga, intervalo=30, status=('sucesso',)):
     """Roda _scheduler_signal com relógio e log fakes.
 
     `create_client` é importado DENTRO da função, então não dá para monkeypatchar o
@@ -360,12 +360,13 @@ def _sinal(monkeypatch, *, agora, ultima_carga, intervalo=30):
 
     monkeypatch.setattr(monitoring, 'datetime', _FakeDT)
 
-    linha = {'data_hora_sincronizacao': ultima_carga.isoformat(), 'status': 'sucesso'}
+    linhas = [{'data_hora_sincronizacao': ultima_carga.isoformat(), 'status': st}
+              for st in status]
     fake_client = SimpleNamespace(table=lambda _t: SimpleNamespace(
         select=lambda *_a: SimpleNamespace(
             order=lambda *_a, **_k: SimpleNamespace(
-                limit=lambda _n: SimpleNamespace(
-                    execute=lambda: SimpleNamespace(data=[linha]))))))
+                limit=lambda n: SimpleNamespace(
+                    execute=lambda: SimpleNamespace(data=linhas[:n]))))))
     monkeypatch.setitem(sys.modules, 'supabase',
                         SimpleNamespace(create_client=lambda *a, **k: fake_client))
     monkeypatch.setitem(sys.modules, 'supabase.client',
@@ -415,6 +416,46 @@ def test_limiar_derivado_ainda_pega_parada_real(monkeypatch):
                    ultima_carga=_dt(2026, 7, 15, 12, 30),  # 90 min > 65
                    intervalo=60)
     assert sinal['stale'] is True
+
+
+def test_cargas_no_horario_mas_falhando_alarmam(monkeypatch):
+    """01/10/2026 review: loads that ran on time and all ended in 'falha' kept the block
+    healthy all day — only the age counted."""
+    from datetime import datetime as _dt
+    sinal = _sinal(monkeypatch,
+                   agora=_dt(2026, 7, 15, 11, 0),
+                   ultima_carga=_dt(2026, 7, 15, 10, 50),
+                   status=('falha', 'falha'))
+    assert sinal['stale'] is False
+    assert sinal['failing'] is True and sinal['consecutive_failures'] == 2
+
+
+def test_uma_falha_isolada_nao_alarma(monkeypatch):
+    from datetime import datetime as _dt
+    sinal = _sinal(monkeypatch,
+                   agora=_dt(2026, 7, 15, 11, 0),
+                   ultima_carga=_dt(2026, 7, 15, 10, 50),
+                   status=('falha', 'sucesso'))
+    assert sinal['failing'] is False and sinal['consecutive_failures'] == 1
+
+
+def test_falhas_fora_da_janela_nao_alarmam(monkeypatch):
+    from datetime import datetime as _dt
+    sinal = _sinal(monkeypatch,
+                   agora=_dt(2026, 7, 15, 22, 0),
+                   ultima_carga=_dt(2026, 7, 15, 18, 50),
+                   status=('falha', 'falha'))
+    assert sinal['failing'] is False
+
+
+def test_alerta_de_cargas_falhando(monkeypatch):
+    _stub_all_ok(monkeypatch)
+    monkeypatch.setattr(monitoring, '_scheduler_signal',
+                        lambda: {'minutes_ago': 8, 'stale': False, 'in_window': True,
+                                 'failing': True, 'consecutive_failures': 2})
+    data = monitoring.collect_status()
+    assert data['healthy'] is False
+    assert any('cargas de oportunidades falhando' in a for a in data['alerts'])
 
 
 def test_fora_da_janela_nunca_alarma(monkeypatch):

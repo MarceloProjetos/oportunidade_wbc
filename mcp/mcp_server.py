@@ -10,8 +10,8 @@ O que NÃO é: não reimplementa lógica, não fala com SAP/SQL/Supabase direto,
 roda agendador. Cada tool apenas chama um endpoint HTTP existente. Quem fala com o
 banco continua sendo a API (service_role), exatamente como hoje.
 
-Fase 0 = fundação + tools de LEITURA. Ações de escrita (sincronizar pedido, forçar
-carga de oportunidades) ficam para a Fase 2, com confirmação humana.
+Fase 0 = fundação + tools de LEITURA. As duas ações de escrita (sincronizar pedido,
+forçar carga de oportunidades) vieram depois, com confirmação humana (fim do arquivo).
 
 Config (via ambiente ou .env ao lado deste arquivo):
     SIS_API_BASE   URL base da API. Default http://192.168.7.11:8077
@@ -113,6 +113,42 @@ def _tratar_resposta(path: str, resp: httpx.Response) -> dict[str, Any]:
         return {"ok": False, "erro": f"resposta não-JSON de {path}", "corpo": resp.text[:300]}
 
 
+#: How long each kind of call may take. One 12 s budget for everything made a slow API look
+#: DOWN (01/10/2026 review): the full /status opens SAP, SQL Server and Supabase in sequence
+#: (15 s connect timeouts each), and the forced load runs inside the request (~5.6k rows; the
+#: web uses 120 s for it). A timeout now says "slow", never "unreachable".
+_TEMPO_STATUS = 60.0
+_TEMPO_LEITURA_HANA = 45.0       # /pedidos/* and /ordens-servico/*: live HANA reads
+_TEMPO_SYNC_OS = 120.0           # POST /ordens-servico/<n>/sincronizar
+_TEMPO_CARGA_OPORTUNIDADES = 180.0
+
+
+def _tempo_limite(metodo: str, path: str) -> float:
+    """The timeout of one call: the route's own budget, never below ``SIS_HTTP_TIMEOUT``."""
+    if metodo == "POST":
+        proprio = (_TEMPO_CARGA_OPORTUNIDADES if path == "/oportunidades/sincronizar"
+                   else _TEMPO_SYNC_OS if path.startswith("/ordens-servico/") else HTTP_TIMEOUT)
+    elif path == "/status":
+        proprio = _TEMPO_STATUS
+    elif path.startswith(("/pedidos/", "/ordens-servico/")):
+        proprio = _TEMPO_LEITURA_HANA
+    else:
+        proprio = HTTP_TIMEOUT
+    return max(HTTP_TIMEOUT, proprio)
+
+
+def _demorou(metodo: str, path: str, tempo: float) -> dict[str, Any]:
+    """A timeout is "the API is slow", not "the API is down" — and a write may have run."""
+    erro = {"ok": False, "erro": f"a API demorou mais de {tempo:.0f} s para responder ({metodo} {path})"}
+    if metodo == "POST":
+        erro["dica"] = ("a operação pode ter seguido no servidor: confira o histórico "
+                        "(listar_sincronizacoes_*) antes de repetir.")
+    else:
+        erro["dica"] = ("o servidor está no ar, mas lento — normalmente um banco que não "
+                        "responde. Tente de novo em instantes ou peça só um check.")
+    return erro
+
+
 def _get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     """GET num endpoint da API, injetando a X-API-Key server-side.
 
@@ -120,13 +156,16 @@ def _get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     JSON) devolve ``{"ok": False, "erro": "..."}`` — a tool nunca estoura exceção
     para o cliente MCP, para o modelo receber um erro legível em vez de um crash.
     """
+    tempo = _tempo_limite("GET", path)
     try:
         # trust_env=False: NÃO honra proxy do ambiente (HTTP_PROXY/ALL_PROXY/etc). A fachada
         # só fala com a API interna (loopback/LAN); um proxy corporativo herdado pelo serviço
         # (LocalSystem) rotearia até a chamada de 127.0.0.1 pelo proxy → WinError 10061
         # (connection refused) mesmo com a API no ar. Um shell interativo sem proxy funciona.
         resp = httpx.get(f"{API_BASE}{path}", params=params, headers=_headers(),
-                         timeout=HTTP_TIMEOUT, trust_env=False)
+                         timeout=tempo, trust_env=False)
+    except httpx.TimeoutException:
+        return _demorou("GET", path, tempo)
     except httpx.RequestError as exc:
         return {"ok": False, "erro": f"servidor de integração inacessível ({API_BASE}): {exc}"}
     return _tratar_resposta(path, resp)
@@ -137,9 +176,12 @@ def _post(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
 
     Mesmo tratamento de erro do ``_get`` (``_tratar_resposta``).
     """
+    tempo = _tempo_limite("POST", path)
     try:
         resp = httpx.post(f"{API_BASE}{path}", params=params, headers=_headers(),
-                          timeout=HTTP_TIMEOUT, trust_env=False)
+                          timeout=tempo, trust_env=False)
+    except httpx.TimeoutException:
+        return _demorou("POST", path, tempo)
     except httpx.RequestError as exc:
         return {"ok": False, "erro": f"servidor de integração inacessível ({API_BASE}): {exc}"}
     return _tratar_resposta(path, resp)
@@ -268,6 +310,21 @@ def detalhe_pedido_os(nped: int, incluir_linhas: bool = False) -> dict[str, Any]
     return _get(f"/ordens-servico/{int(nped)}", params)
 
 
+def _restrito(data: Any) -> bool:
+    return isinstance(data, dict) and bool(data.get("restrito"))
+
+
+def _sem_credencial(bloco: str) -> dict[str, Any]:
+    """The /status came back reduced (no key, or a rotated one): the block is not in it.
+
+    Since 10/09/2026 the anonymous /status keeps only ``ok``/``healthy``/one boolean per check;
+    these tools used to pass that through as ``{restrito: true, alerts: <int>}`` with no hint,
+    and the model read it as "the server stopped reporting" (01/10/2026 review)."""
+    return {"ok": False, "restrito": True,
+            "erro": (f"diagnóstico reduzido: a SIS_API_KEY não chegou ou foi recusada, e o "
+                     f"bloco '{bloco}' só sai no /status completo. Não é falha do servidor.")}
+
+
 @mcp.tool()
 def estado_tarefa_wbc() -> dict[str, Any]:
     """Estado da tarefa agendada LEGADA "Integração WBC" (bloco scheduled_task do /status).
@@ -277,9 +334,11 @@ def estado_tarefa_wbc() -> dict[str, Any]:
     normalmente vem com ``retired=true`` e ``available=false`` — não é falha, é o desenho.
     Para "a integração WBC está rodando?" use ``estado_integracao_wbc``. Esta tool só volta
     a trazer o monitor de verdade se a .11 religar ``WBC_TASK_MONITOR=true`` (rollback).
-    Endpoint aberto (não exige chave).
+    Requer a SIS_API_KEY (sem ela o /status vem reduzido e a tool diz isso).
     """
     data = _get("/status", {"checks": "scheduled_task"})
+    if _restrito(data):
+        return _sem_credencial("scheduled_task")
     # No /status, scheduled_task é chave de TOPO (irmã de `checks`/`alerts`), não fica dentro
     # de `checks` — isola o bloco da tarefa + os alertas relacionados.
     if isinstance(data, dict) and "scheduled_task" in data:
@@ -294,8 +353,9 @@ def estado_integracao_wbc() -> dict[str, Any]:
 
     O worker lê os orçamentos do WBC e cria/atualiza/cancela cotação e pedido no SAP a
     cada poucos minutos, dentro do expediente dele. Use para "a integração WBC está
-    rodando?", "quando foi o último ciclo?", "o ciclo deu erro?". Endpoint aberto (não
-    exige chave); lê só o banco de acompanhamento do worker — não toca SAP nem WBC.
+    rodando?", "quando foi o último ciclo?", "o ciclo deu erro?". Requer a SIS_API_KEY
+    (sem ela o /status vem reduzido e a tool diz isso); lê só o banco de acompanhamento do
+    worker — não toca SAP nem WBC.
 
     Como ler: ``installed=false`` = a integração nunca rodou nesta máquina (não é falha);
     ``last=null`` = tabelas criadas mas nenhum ciclo ainda; ``stale=true`` = silêncio além
@@ -305,6 +365,8 @@ def estado_integracao_wbc() -> dict[str, Any]:
     há o que avaliar", não "doente". Os ``alerts`` já vêm em texto legível.
     """
     data = _get("/status", {"checks": "wbc_worker"})
+    if _restrito(data):
+        return _sem_credencial("wbc_worker")
     if isinstance(data, dict) and "wbc_worker" in data:
         return {"ok": data.get("ok", True), "wbc_worker": data["wbc_worker"],
                 "alerts": data.get("alerts", [])}
@@ -317,9 +379,9 @@ def estado_windows_update() -> dict[str, Any]:
     patch e reboot pendente.
 
     Use para "o servidor de integração está atualizado?", "tem update pendente?", "quando
-    foi o último patch?", "precisa reiniciar?". Endpoint aberto (não exige chave); é o
-    bloco ``windows_update`` do /status, pedido isolado (não abre as conexões de teste
-    com SAP/SQL/Supabase).
+    foi o último patch?", "precisa reiniciar?". Requer a SIS_API_KEY (sem ela o /status
+    vem reduzido e a tool diz isso); é o bloco ``windows_update`` do /status, pedido
+    isolado (não abre as conexões de teste com SAP/SQL/Supabase).
 
     Esta é a máquina da integração (API 8077, agendador WBC). O servidor RDP do SAP
     (192.168.7.12) é outra máquina, com tools próprias.
@@ -339,6 +401,8 @@ def estado_windows_update() -> dict[str, Any]:
       terminou; ela roda em background para não travar as consultas.
     """
     data = _get("/status", {"checks": "windows_update"})
+    if _restrito(data):
+        return _sem_credencial("windows_update")
     # Como em `estado_tarefa_wbc`: no /status, `windows_update` é chave de TOPO (irmã de
     # `checks`/`alerts`), não fica dentro de `checks`.
     if isinstance(data, dict) and "windows_update" in data:
@@ -435,7 +499,8 @@ def situacao_pedido(pedido: int, chave: str = "docnum") -> dict[str, Any]:
 
 
 @mcp.tool(annotations=_ANOTACAO_LEITURA)
-def pedidos_bloqueados(bloqueio: str = "qualquer", status: str = "aberto") -> dict[str, Any]:
+def pedidos_bloqueados(bloqueio: str = "qualquer", status: str = "aberto",
+                       limite: int = 40) -> dict[str, Any]:
     """Pedidos TRAVADOS no SAP: os que estão bloqueados em Financeiro, Produção ou
     Entrega. Requer a SIS_API_KEY.
 
@@ -458,12 +523,28 @@ def pedidos_bloqueados(bloqueio: str = "qualquer", status: str = "aberto") -> di
     **já resolvido**. ``entrega_difere: true`` diz que o pedido tem um local de entrega
     separado do cadastro do cliente — é informação para avisar, não escolha a fazer.
 
+    A lista ``pedidos`` respeita ``limite`` (default 40). Quando cortou, vem ``truncado:
+    true`` e ``mostrando`` — diga que a lista é parcial; ``total_filtrado`` e os ``kpis``
+    continuam sendo do recorte inteiro.
+
     Args:
         bloqueio: ``qualquer`` (default, travado em pelo menos uma etapa), ``financeiro``,
             ``producao``, ``entrega``, ou ``nenhum`` (as três liberadas).
         status: ``aberto`` (default), ``todos`` ou ``fechado``.
+        limite: teto de pedidos na lista (default 40; 0 = sem teto).
     """
-    return _get("/pedidos/situacao", {"bloqueio": bloqueio, "status": status})
+    data = _get("/pedidos/situacao", {"bloqueio": bloqueio, "status": status})
+    # The whole cut could reach ~74 KB (~18k tokens) with bloqueio="nenhum" + status="todos"
+    # (01/10/2026 review); panorama_pedidos already had a ceiling, this one did not.
+    if not isinstance(data, dict) or not isinstance(data.get("pedidos"), list):
+        return data
+    limite = int(limite)
+    if limite <= 0 or len(data["pedidos"]) <= limite:
+        return data
+    return {**data, "pedidos": data["pedidos"][:limite], "truncado": True, "mostrando": limite,
+            "aviso": (f"lista cortada em {limite} de {len(data['pedidos'])} pedidos; kpis e "
+                      "total_filtrado são do recorte inteiro. Filtre por bloqueio ou aumente "
+                      "o limite para ver o resto.")}
 
 
 def _norm(texto: Any) -> str:

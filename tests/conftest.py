@@ -14,6 +14,13 @@ import pytest
 from config import reset_settings
 from wbcpython import safety
 
+try:  # the MCP facade is written against SDK 1.x; on a 2.x machine, test it on a stand-in
+    import mcp.server.fastmcp  # noqa: F401
+except ImportError:
+    from tests import mcp_fastmcp_stub
+
+    mcp_fastmcp_stub.instalar()
+
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(

@@ -11,15 +11,27 @@ operar/consultar o servidor de integração **em linguagem natural**.
 
 | Tool | Endpoint | Chave? | Fase |
 |---|---|---|---|
-| `verificar_saude(checks?, strict?)` | `GET /status` | não (aberto) | 0 |
+| `verificar_saude(checks?, strict?)` | `GET /status` (sem a chave vem **reduzido**, desde 10/09/2026) | sim | 0 |
 | `listar_sincronizacoes_os(limit?)` | `GET /historico` | sim | 0 |
 | `listar_sincronizacoes_oportunidades(limit?)` | `GET /oportunidades/historico` | sim | 0 |
 | `info_oportunidades()` | `GET /oportunidades/info` | sim | 0 |
 | `listar_pedidos_com_os(limit?)` | `GET /ordens-servico/disponiveis` | sim | 0 |
 | `detalhe_pedido_os(nped, incluir_linhas?)` | `GET /ordens-servico/<nped>` | sim | 1 |
-| `estado_tarefa_wbc()` | `GET /status?checks=scheduled_task` — tarefa LEGADA, desativada em 2026-09-08: vem `retired=true` (não é falha); use `estado_integracao_wbc` | não (aberto) | 1 |
-| `estado_integracao_wbc()` | `GET /status?checks=wbc_worker` (worker da Integração WBC → SAP; não alarma antes do 1º ciclo na máquina) | não (aberto) | WBC F3 |
+| `estado_tarefa_wbc()` | `GET /status?checks=scheduled_task` — tarefa LEGADA, desativada em 2026-09-08: vem `retired=true` (não é falha); use `estado_integracao_wbc` | sim | 1 |
+| `estado_integracao_wbc()` | `GET /status?checks=wbc_worker` (worker da Integração WBC → SAP; não alarma antes do 1º ciclo na máquina) | sim | WBC F3 |
 | `ultimos_erros(limit?)` | `GET /historico` (filtra falhas) | sim | 1 |
+| `estado_windows_update()` | `GET /status?checks=windows_update` (updates pendentes, último patch, reboot) | sim | — |
+| `listar_colaboradores(empresa?, setor?, somente_ativos?, limite?)` | `GET /rh/colaboradores` (espelho do Kairos) | sim | F5 |
+| `resumo_colaboradores(empresa?, somente_ativos?)` | `GET /rh/colaboradores` (contagens) | sim | F5 |
+
+> As três tools de bloco do `/status` (`estado_tarefa_wbc`, `estado_integracao_wbc`,
+> `estado_windows_update`) dizem **"diagnóstico reduzido por falta de credencial"** quando
+> a chave não chega (01/10/2026) — antes repassavam o `/status` reduzido sem explicar.
+>
+> **Tempo de espera por rota (01/10/2026):** `/status` 60 s, leituras do HANA
+> (`/pedidos/*`, `/ordens-servico/*`) 45 s, sync de OS 120 s, carga de oportunidades 180 s;
+> o resto, `SIS_HTTP_TIMEOUT` (12 s). Estourar o tempo devolve "a API demorou", nunca
+> "inacessível" — e, numa escrita, manda conferir o histórico antes de repetir.
 
 ## Tools — Situação dos Pedidos
 
@@ -35,7 +47,7 @@ Todas **read-only**, todas com `X-API-Key` injetada server-side.
 | Tool | Endpoint | Chave? | Responde a |
 |---|---|---|---|
 | `situacao_pedido(pedido, chave?)` | `GET /pedidos/<numero>/situacao` | sim | "o pedido 84260 está preso onde?" |
-| `pedidos_bloqueados(bloqueio?, status?)` | `GET /pedidos/situacao?bloqueio=…` | sim | "o que está travado?" |
+| `pedidos_bloqueados(bloqueio?, status?, limite?)` | `GET /pedidos/situacao?bloqueio=…` (lista com teto de 40, como o panorama) | sim | "o que está travado?" |
 | `panorama_pedidos(campos?, limite?, montador?, vendedor?, so_atrasados?)` | `GET /pedidos/situacao` | sim | "como está a carteira?", "o que a Barros tem em aberto?" |
 
 As três declaram `readOnlyHint=True` — o cliente MCP mostra ao usuário que são consulta,
@@ -100,6 +112,7 @@ Recursos que o cliente MCP lê como "arquivos de contexto", **sem gastar uma too
 |---|---|
 | `sap-integracao://status` | snapshot do `/status` (JSON) |
 | `sap-integracao://historico-os` | últimas 20 sincronizações de OS (JSON) |
+| `sap-integracao://colaboradores` | resumo do quadro de colaboradores (JSON) |
 
 ## Tools de escrita (Fase 4 — com confirmação humana)
 
@@ -162,7 +175,7 @@ HTTP da `.11` (abaixo), que não depende do Python da máquina cliente.
 ### Claude Code (CLI)
 
 ```bash
-claude mcp add servidor-integracao-sap -- python D:\ProjetoAltamira\ServidorIntegracaoSAP\mcp\mcp_server.py
+claude mcp add servidor-integracao-sap -- python D:\ProjetoAltamira\MCPs\ServidorIntegracaoSAP\mcp\mcp_server.py
 ```
 
 > Use o Python do venv se criou um (ex.: `...\mcp\.venv\Scripts\python.exe`).
@@ -176,7 +189,7 @@ Edite `claude_desktop_config.json` (Windows: `%APPDATA%\Claude\claude_desktop_co
   "mcpServers": {
     "servidor-integracao-sap": {
       "command": "python",
-      "args": ["D:\\ProjetoAltamira\\ServidorIntegracaoSAP\\mcp\\mcp_server.py"],
+      "args": ["D:\\ProjetoAltamira\\MCPs\\ServidorIntegracaoSAP\\mcp\\mcp_server.py"],
       "env": {
         "SIS_API_BASE": "http://192.168.7.11:8077",
         "SIS_API_KEY": "COLOQUE_A_CHAVE_AQUI"
@@ -194,7 +207,7 @@ Reinicie o Claude Desktop. Depois é só perguntar: *"o servidor de integração
 
 Em vez do stdio-por-cliente (acima), a fachada pode rodar como **serviço HTTP central na
 `.11`** (porta **8078**), e os clientes apontam para **uma URL só**, autenticando com um
-**token estático**. Plano completo em [PLANO_FASE3.md](PLANO_FASE3.md).
+**token estático** (o plano da fase foi encerrado; o histórico está no git).
 
 **Entrypoint:** [serve_http.py](serve_http.py) — serve o mesmo FastMCP via *Streamable HTTP*
 (uvicorn) atrás de um middleware que exige `Authorization: Bearer <SIS_MCP_TOKEN>`.

@@ -162,7 +162,8 @@ def test_registrar_sincronizacao_recebe_hora_com_offset():
     from datetime import datetime as _dt
 
     import extract_ordens_servico_engenharia as os_mod
-    fonte = inspect.getsource(os_mod.main)
+    # The sync-log row moved out of `main` into its own helper on 01/10/2026.
+    fonte = inspect.getsource(os_mod._registrar_sincronizacao)
     assert 'agora_iso()' in fonte, 'o log de sync voltou a usar datetime.now() naive?'
     assert 'datetime.now().isoformat()' not in fonte
     # e a função de fato entrega offset

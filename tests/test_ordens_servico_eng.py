@@ -276,6 +276,32 @@ def test_sync_pega_lock_do_pedido(monkeypatch):
     assert eventos[0][1] == 84080                          # travou o pedido certo
 
 
+
+def test_pedido_ocupado_por_outro_processo_chega_a_api_como_ocupado(monkeypatch):
+    """01/10/2026 review: the FileLockTimeout was swallowed by the generic except, so the
+    API's 409 'ocupado' branch was dead code — it answered 502 'erro' and the sync log got a
+    "falha" row for a call that did not run."""
+    _set_supabase_env(monkeypatch)
+    df = pd.DataFrame({'N_PED': [84080], 'N_OP': [1]})
+    monkeypatch.setattr(mod, 'extract_os_to_dataframe', lambda nped: df)
+
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _ocupado(nped, timeout=0):
+        raise mod.FileLockTimeout('outro processo')
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(mod, 'os_sync_lock', _ocupado)
+    fake_cls = MagicMock()
+    inst = fake_cls.return_value
+    monkeypatch.setattr(mod, 'SupabaseLoader', fake_cls)
+
+    with pytest.raises(mod.FileLockTimeout):
+        mod.main(84080)
+    inst.insert_data.assert_not_called()
+    inst.registrar_sincronizacao.assert_not_called()
+
 # ============ OS_EXECUTION_MODE: a env var agora FUNCIONA (2026-07-17) ============
 # Era documentada em .env.example e no README, mas `main()` usava a CONSTANTE como default
 # do parâmetro — `settings.os_execution_mode` nunca era lido. Quem setasse a var em

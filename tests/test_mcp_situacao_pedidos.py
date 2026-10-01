@@ -373,3 +373,70 @@ def test_as_docstrings_dizem_que_o_endereco_JA_e_o_de_despacho(fachada):
     assert 'cadastro do cliente' in tools['situacao_pedido']
     for nome in ('pedidos_bloqueados', 'panorama_pedidos'):
         assert 'entrega' in tools[nome].lower(), nome
+
+
+# --- 01/10/2026 review: timeouts, reduced /status, ceiling on pedidos_bloqueados -------
+
+def test_cada_rota_tem_o_seu_tempo(fachada):
+    """One 12 s budget for everything made a slow API look DOWN: the full /status opens three
+    databases in sequence, and the forced load runs inside the request."""
+    assert fachada._tempo_limite('GET', '/status') >= 60
+    assert fachada._tempo_limite('GET', '/pedidos/situacao') >= 45
+    assert fachada._tempo_limite('POST', '/oportunidades/sincronizar') >= 180
+    assert fachada._tempo_limite('POST', '/ordens-servico/84080/sincronizar') >= 120
+    assert fachada._tempo_limite('GET', '/historico') == fachada.HTTP_TIMEOUT
+
+
+def test_demora_nao_vira_inacessivel(fachada, monkeypatch):
+    def _lento(*_a, **k):
+        raise fachada.httpx.ReadTimeout('lento')
+
+    monkeypatch.setattr(fachada.httpx, 'get', _lento)
+    r = fachada._get('/status')
+    assert r['ok'] is False
+    assert 'demorou' in r['erro'] and 'inacess' not in r['erro']
+
+
+def test_escrita_que_demora_manda_conferir_antes_de_repetir(fachada, monkeypatch):
+    """The load keeps running on the server after the client gives up; the model used to
+    read "inacessível" and, with idempotentHint, repeat it."""
+    def _lento(*_a, **k):
+        raise fachada.httpx.ReadTimeout('lento')
+
+    monkeypatch.setattr(fachada.httpx, 'post', _lento)
+    r = fachada._post('/oportunidades/sincronizar')
+    assert 'pode ter seguido no servidor' in r['dica']
+
+
+def test_status_reduzido_vira_erro_de_credencial(fachada, monkeypatch):
+    """Without the key the /status is reduced; the block tools passed that through with no
+    hint, and the model read it as "the server stopped reporting"."""
+    monkeypatch.setattr(fachada, '_get', lambda *_a, **_k: {'ok': True, 'restrito': True, 'alerts': 0})
+    for tool in (fachada.estado_integracao_wbc, fachada.estado_tarefa_wbc,
+                 fachada.estado_windows_update):
+        r = tool()
+        assert r['ok'] is False and r['restrito'] is True
+        assert 'SIS_API_KEY' in r['erro'] and 'Não é falha do servidor' in r['erro']
+
+
+def test_nenhuma_tool_diz_mais_que_o_status_e_aberto(fachada):
+    tools = {t.name: t.description for t in asyncio.run(fachada.mcp.list_tools())}
+    for nome in ('estado_integracao_wbc', 'estado_tarefa_wbc', 'estado_windows_update'):
+        assert 'não exige chave' not in tools[nome], nome
+        assert 'SIS_API_KEY' in tools[nome], nome
+
+
+def test_bloqueados_corta_a_lista_e_avisa(fachada, monkeypatch):
+    corpo = {'ok': True, 'total_filtrado': 90, 'kpis': {'total': 300},
+             'pedidos': [{'pedido': i} for i in range(90)]}
+    monkeypatch.setattr(fachada, '_get', lambda *_a, **_k: corpo)
+    r = fachada.pedidos_bloqueados()
+    assert len(r['pedidos']) == 40 and r['truncado'] is True and r['mostrando'] == 40
+    assert r['total_filtrado'] == 90 and r['kpis'] == {'total': 300}
+    assert len(fachada.pedidos_bloqueados(limite=0)['pedidos']) == 90
+
+
+def test_bloqueados_sem_corte_devolve_igual(fachada, monkeypatch):
+    corpo = {'ok': True, 'pedidos': [{'pedido': 1}]}
+    monkeypatch.setattr(fachada, '_get', lambda *_a, **_k: corpo)
+    assert fachada.pedidos_bloqueados() == corpo

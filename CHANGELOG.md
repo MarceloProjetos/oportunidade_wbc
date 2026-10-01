@@ -6,6 +6,33 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-01] — Revisão geral, lote 3: cargas, monitoramento e MCP
+
+Entra pelo `deploy_update.bat` (API 8077, agendador e `OrcaView-MCP`). Achados da revisão geral
+de 01/10/2026, conferidos no código antes de corrigir.
+
+- **Vendas BI apagava o ranking e os KPIs por vendedor quando a consulta de detalhe falhava**, e
+  registrava "sucesso": a falha virava lista vazia, a carga gravava os quatro cartões zerados e a
+  poda por carimbo apagava o resto (o app mostrava R$ 0,00 em "Hoje" até a carga seguinte).
+  Agora consulta que falha é diferente de consulta vazia: sem o detalhe, cartões e ranking ficam
+  com a carga anterior, a poda não roda e o desfecho em `rotinas_execucao` é **falha**, dizendo
+  qual consulta caiu.
+- **Sincronização de OS com o pedido ocupado por outro processo** respondia 502 "erro" e gravava
+  "falha" no histórico — o 409 "ocupado" da API nunca acontecia (a exceção era engolida antes).
+  Agora chega como 409 "ocupado", sem linha de falha.
+- **`/status`: cargas de oportunidades que falham viram alerta.** Só a idade da última carga
+  contava; um dia inteiro de cargas no horário terminando em `falha` aparecia "saudável". Duas
+  falhas seguidas dentro da janela = alerta (uma isolada não).
+- **MCP:** cada rota tem o seu tempo de espera (`/status` 60 s, HANA 45 s, sync de OS 120 s,
+  carga de oportunidades 180 s; antes 12 s para tudo), e estourar o tempo diz "a API demorou" —
+  numa escrita, manda conferir o histórico antes de repetir — em vez de "inacessível". As tools
+  de bloco do `/status` avisam "diagnóstico reduzido por falta de credencial" quando a chave não
+  chega (a descrição dizia "aberto, não exige chave", falso desde 10/09). `pedidos_bloqueados`
+  ganhou o mesmo teto de 40 do `panorama_pedidos` (podia devolver ~74 KB).
+- **Os testes do MCP voltaram a rodar no notebook** (eram pulados calados com o `mcp` 2.x):
+  `tests/mcp_fastmcp_stub.py` faz o papel do FastMCP 1.x só quando o real não importa — na .11
+  continua o real. README do MCP atualizado (chave, tools que faltavam, caminhos).
+
 ## [2026-10-01] — Revisão geral, lote 2: Controle de Produção (Pedidos WBC)
 
 Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`). Achados da revisão geral de

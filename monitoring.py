@@ -141,6 +141,10 @@ def _check_supabase() -> str:
     return s.supabase_url
 
 
+#: Oportunidades loads ending in ``falha`` in a row (inside the window) that make an alert.
+FALHAS_SEGUIDAS_PARA_ALERTA = 2
+
+
 def _scheduler_signal() -> dict[str, Any]:
     """INDIRECT scheduler signal: age of the last oportunidades load (read from the log).
 
@@ -157,6 +161,11 @@ def _scheduler_signal() -> dict[str, Any]:
     The strictness is deliberate: this signal becomes an alert and, with ``?strict=1``,
     **HTTP 503**. A recurring false alarm trains everyone to ignore the monitor — which is
     worse than having no monitor.
+
+    ``failing`` (01/10/2026 review): only the AGE used to count, so loads that ran on time
+    and all ended in ``falha`` (a changed WBC view, a load with 0 rows) kept the block
+    healthy all day. Two failures in a row inside the window are an alert; one is noise (the
+    next run usually recovers).
     """
     from supabase import create_client
     from supabase.client import ClientOptions
@@ -174,7 +183,7 @@ def _scheduler_signal() -> dict[str, Any]:
         )
         res = (client.table(s.sync_log_table_name)
                .select('data_hora_sincronizacao,status')
-               .order('id', desc=True).limit(1).execute())
+               .order('id', desc=True).limit(FALHAS_SEGUIDAS_PARA_ALERTA).execute())
     except Exception as exc:
         return {'error': str(exc)[:200], 'stale': False}
 
@@ -210,6 +219,11 @@ def _scheduler_signal() -> dict[str, Any]:
     stale = bool(
         in_window and not aquecendo and minutes is not None and minutes > limite
     )
+    seguidas = 0
+    for linha in rows:
+        if linha.get('status') != 'falha':
+            break
+        seguidas += 1
     return {
         'last_sync': last_iso,
         'last_status': last.get('status'),
@@ -218,6 +232,8 @@ def _scheduler_signal() -> dict[str, Any]:
         'warming_up': aquecendo,
         'threshold_min': limite,
         'stale': stale,
+        'consecutive_failures': seguidas,
+        'failing': bool(in_window and seguidas >= FALHAS_SEGUIDAS_PARA_ALERTA),
     }
 
 
@@ -703,6 +719,12 @@ def collect_status(only: set | None = None) -> dict[str, Any]:
             f"agendador possivelmente parado: última carga de oportunidades há "
             f"{scheduler.get('minutes_ago')} min (limite {scheduler.get('threshold_min')} min "
             f"na janela comercial)"
+        )
+    if scheduler and scheduler.get('failing'):
+        alerts.append(
+            f"cargas de oportunidades falhando: as {scheduler.get('consecutive_failures')} "
+            f"últimas terminaram em falha (a última há {scheduler.get('minutes_ago')} min) "
+            "— veja o log do agendador"
         )
     if scheduled_task is not None:
         alerts.extend(_scheduled_task_alerts(scheduled_task))

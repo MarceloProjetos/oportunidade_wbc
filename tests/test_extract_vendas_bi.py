@@ -746,6 +746,47 @@ class TestRegistroDaExecucao:
         assert loader.podas  # a poda rodou
 
 
+    def test_consulta_de_detalhe_que_falha_nao_zera_cartoes_nem_ranking(self, monkeypatch):
+        """01/10/2026 review: a failed detail query came back as an empty list — the load
+        wrote zeroed __TOTAL__ cards, pruned every per-seller KPI and the whole ranking, and
+        logged "sucesso". Now nothing of KPI/ranking is written or pruned, and it is a failure."""
+        import extract_vendas_bi as mod
+
+        gravadas: list[str] = []
+
+        class Loader(self.LoaderFake):
+            def upsert_data(self, tabela, linhas, on_conflict=None):
+                gravadas.append(tabela)
+                return True
+
+        loader = Loader()
+        monkeypatch.setattr(mod, 'SupabaseLoader', lambda *a, **k: loader)
+        monkeypatch.setattr(mod, 'SAPExtractor', lambda *a, **k: _ExtratorFake())
+        monkeypatch.setattr(mod, 'get_settings', lambda: _SettingsFake())
+        monkeypatch.setattr(
+            mod, '_consultar',
+            lambda ex, sql, rotulo: None if rotulo == 'detalhe recente' else [
+                {'ANO': 2026, 'MES': 9, 'VENDEDOR': 'Ana', 'VALOR': 10.0, 'QTD': 1}
+            ],
+        )
+
+        assert mod.main() is False
+        assert mod.TABELA_KPI not in gravadas and mod.TABELA_RANKING not in gravadas
+        assert mod.TABELA_SERIE in gravadas, "the series still loads"
+        assert mod.TABELA_KPI not in loader.podas and mod.TABELA_RANKING not in loader.podas
+        erro = loader.registros[0]['erro']
+        assert 'detalhe recente' in erro and 'carga anterior' in erro
+
+    def test_falha_vira_none_e_nao_lista_vazia(self):
+        import extract_vendas_bi as mod
+
+        class Ex:
+            def execute_query(self, sql):
+                return None
+
+        assert mod._consultar(Ex(), 'select 1', 'x') is None
+
+
 class _ExtratorFake:
     def connect(self):
         return True

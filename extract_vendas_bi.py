@@ -492,12 +492,22 @@ def _linha_ranking(
 # ------------------------------------------------------------------ pipeline
 
 
-def _consultar(ex: SAPExtractor, sql: str, rotulo: str) -> list[dict[str, Any]]:
-    """Roda a consulta e devolve dicionários. Falha vira lista vazia + log."""
+#: Payload key with the labels of the HANA queries that FAILED (not "came back empty").
+CONSULTAS_FALHAS = '_consultas_falhas'
+
+
+def _consultar(ex: SAPExtractor, sql: str, rotulo: str) -> list[dict[str, Any]] | None:
+    """Roda a consulta e devolve dicionários; ``None`` quando ela FALHOU.
+
+    Failure used to come back as an empty list, the same as "no sales" (01/10/2026 review):
+    with the detail query down, the load wrote the four zeroed ``__TOTAL__`` cards, pruned
+    every per-seller KPI and the whole ranking by stamp, and logged "sucesso" — the app showed
+    R$ 0,00 for "Hoje" until the next load.
+    """
     df = ex.execute_query(sql)
     if df is None:
         logger.error('[VENDAS_BI] consulta %s falhou', rotulo)
-        return []
+        return None
     logger.info('[VENDAS_BI] %s: %s linha(s)', rotulo, len(df))
     return df.to_dict('records')
 
@@ -506,17 +516,27 @@ def montar_payload(ex: SAPExtractor, schema: str, hoje: date) -> dict[str, list[
     """Consulta o HANA e devolve as linhas prontas das três tabelas."""
     quando = agora_iso()
     desde = ano_inicial(hoje)
+    falhas: list[str] = []
 
-    pedidos = _consultar(ex, sql_pedidos_mensal(schema, desde), 'pedidos mensal')
-    faturamento = _consultar(ex, sql_faturamento_mensal(schema, desde), 'faturamento mensal')
+    def consulta(sql: str, rotulo: str) -> list[dict[str, Any]]:
+        linhas = _consultar(ex, sql, rotulo)
+        if linhas is None:
+            falhas.append(rotulo)
+            return []
+        return linhas
+
+    pedidos = consulta(sql_pedidos_mensal(schema, desde), 'pedidos mensal')
+    faturamento = consulta(sql_faturamento_mensal(schema, desde), 'faturamento mensal')
     # Do 1º dia do mês passado até hoje — a menor janela que cobre os quatro
     # escopos dos cartões, que agora também filtram os rankings.
     inicio = janelas(hoje)['mes_passado'][0]
     detalhe = _consultar(ex, sql_detalhe_recente(schema, inicio, hoje), 'detalhe recente')
+    if detalhe is None:
+        falhas.append('detalhe recente')
 
-    orcamentos = _consultar(
-        ex, sql_orcamentos_mensal(schema, desde), 'orcamentos mensal'
-    )
+    orcamentos = consulta(sql_orcamentos_mensal(schema, desde), 'orcamentos mensal')
+    # A failed metric adds no rows: its months are not "read", so the series prune (by month
+    # read, see `_podar_serie_meses_lidos`) leaves them alone.
     serie = (
         linhas_serie(pedidos, 'pedidos', quando)
         + linhas_serie(faturamento, 'faturamento', quando)
@@ -524,8 +544,11 @@ def montar_payload(ex: SAPExtractor, schema: str, hoje: date) -> dict[str, list[
     )
     return {
         TABELA_SERIE: serie,
-        TABELA_KPI: linhas_kpi(detalhe, hoje, quando),
-        TABELA_RANKING: linhas_ranking(detalhe, hoje, quando),
+        # No detail → no cards and no ranking: `_carga` keeps the previous load's rows
+        # instead of writing zeros over them.
+        TABELA_KPI: linhas_kpi(detalhe, hoje, quando) if detalhe is not None else [],
+        TABELA_RANKING: linhas_ranking(detalhe, hoje, quando) if detalhe is not None else [],
+        CONSULTAS_FALHAS: falhas,
     }
 
 
@@ -629,8 +652,17 @@ def _carga(loader: SupabaseLoader, hoje: date | None, falhas: list[str]) -> bool
             falhas.append(f'upsert falhou em {tabela}')
             ok = False
 
+    consultas_falhas = payload.get(CONSULTAS_FALHAS) or []
+    if consultas_falhas:
+        falhas.append(
+            'consulta falhou no HANA: ' + ', '.join(consultas_falhas)
+            + ' (o que ela alimenta ficou com a carga anterior)'
+        )
+        ok = False
+
     # A poda vem DEPOIS da escrita, e só se ela deu certo: assim a tela nunca
-    # fica sem dado — no pior caso mostra o anterior.
+    # fica sem dado — no pior caso mostra o anterior. A failed query also skips it: the
+    # prune by stamp would delete what the failed query could not rewrite.
     if ok:
         carimbo = payload[TABELA_KPI][0]['atualizado_em'] if payload[TABELA_KPI] else None
         if carimbo:
@@ -641,7 +673,7 @@ def _carga(loader: SupabaseLoader, hoje: date | None, falhas: list[str]) -> bool
         # Vale registrar: a poda ser PULADA é o que faz o ranking de "hoje"
         # amanhecer com cliente de ontem. Sem esta linha, o desfecho contaria só
         # metade da história.
-        falhas.append('poda não executada (escrita incompleta)')
+        falhas.append('poda não executada (carga incompleta)')
     return ok
 
 
