@@ -6,6 +6,14 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-01] — Guia `API_PEDIDOS_WBC.md` mais didático
+
+Só documentação. O guia ganhou um começo para quem chega sem contexto: "Como ler este guia" (por
+objetivo), **A ideia em um minuto** (o caminho de um pedido e a conversa da página com a API, em
+diagramas), um **tutorial em 5 etapas** com código curto e um ponto de conferência em cada etapa
+(as 4 primeiras não gravam nada), **glossário**, **a vida de uma execução** (diagrama de estados) e
+uma **lista de verificação antes de pôr no ar**. A referência continua igual, renumerada (6 a 15).
+
 ## [2026-10-01] — A causa do peso diferente também na API (`resultado.pesos_diferentes`)
 
 Entra pelo `deploy_update.bat` (Controle de Produção). Só leitura.
@@ -13,7 +21,7 @@ Entra pelo `deploy_update.bat` (Controle de Produção). Só leitura.
 - O "Processar pedidos novos" devolve, no resultado da execução, **`pesos_diferentes`**: cada linha
   com o peso do SAP diferente da árvore do WBC + 10%, com a **causa** estruturada (tipo, usuário,
   momento, quantidade e peso antes/depois, se a integração gravou certo, e a frase da tela). A API
-  `/api/pedidos-wbc/execucoes/{id}` a devolve como está; guia: `API_PEDIDOS_WBC.md` §5.4.1.
+  `/api/pedidos-wbc/execucoes/{id}` a devolve como está; guia: `API_PEDIDOS_WBC.md` §6.4.1.
 - O pedido com peso diferente fecha como **ATENÇÃO** ("1 linha(s) com peso diferente da árvore do
   WBC (veja a CAUSA acima)") em vez de "concluído" — o desfecho continua `ok`.
 - Pedido 84453 corrigido pelo Marcelo com `wbcpython pesos` (15:22): 176,90 kg, conferido no SAP.
