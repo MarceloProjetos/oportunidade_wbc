@@ -6,6 +6,18 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-01] — Texto da janela no ciclo com orçamento e na "Verificar pendentes"
+
+Só mensagem de log/saída; nada muda no que é lido ou gravado. Entra pelo `deploy_update.bat`
+(worker e painel).
+
+- **Ciclo com `--orcamento`:** dizia "janela: OpenDate >= 2026-03-01, 7 meses (padrão)", mas a
+  busca usa a janela dirigida (12 meses). Agora diz "orçamento 00123300; janela dirigida:
+  OpenDate >= 2025-10-01, 12 meses; teto de … escrita(s)".
+- **"Verificar pendentes":** imprimia sempre os meses da janela padrão (7), mesmo no ensaio de 12
+  ou com orçamento. Agora diz os meses lidos e de onde vieram — "padrão", "ensaio" ou "dirigida,
+  só o orçamento …".
+
 ## [2026-10-01] — Painel WBC: ciclo de um orçamento, sem senha; "Simular" sai da tela
 
 Entra pelo `deploy_update.bat` (`OrcaView-WBC-Painel`). Decisão em `docs/wbc/DECISOES.md`

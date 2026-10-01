@@ -246,6 +246,19 @@ class TestODestinoDoPedido:
 
         assert tracking.janela_pedida().estado is EstadoDaJanela.ARMADO
 
+    def test_o_log_do_orcamento_diz_a_janela_que_foi_lida(
+        self, ambiente, tracking, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """01/10/2026: the per-quote cycle printed the CYCLE's window ("7 meses (padrão)")
+        while it had read the directed one — the painel showed a date the quote was not
+        searched from."""
+        with caplog.at_level("INFO", logger="wbcpython"):
+            _worker(tracking, meses_de_janela_dirigida=12).executar_ciclo(orcamento="00124045")
+        texto = caplog.text
+        assert "orçamento 00124045; janela dirigida" in texto
+        assert f"OpenDate >= {mod_worker.janela_padrao(meses=12).isoformat()}, 12 meses" in texto
+        assert "(padrão)" not in texto
+
 
 class TestAPartidaDoWorker:
     """O restart devolve a janela ao padrão — mas sem inventar um histórico.

@@ -519,9 +519,17 @@ def _cmd_pendentes(
                 )
             finally:
                 repositorio_hana.close()
+            # The months actually read, and why — it used to print the standard window's
+            # months even when the rehearsal or the directed window had read more.
+            if meses_pedidos is not None:
+                origem = "ensaio"
+            elif orcamento:
+                origem = f"dirigida, só o orçamento {orcamento}"
+            else:
+                origem = "padrão"
             relatar(
                 f"{len(pendentes)} oportunidade(s) na janela "
-                f"(OpenDate >= {corte.isoformat()}, {settings.meses_de_janela} meses; "
+                f"(OpenDate >= {corte.isoformat()}, {meses} meses — {origem}; "
                 f"teto de escrita por ciclo: {settings.limite_de_escrita_por_ciclo})."
             )
             # Situações em lote, como no ciclo: sem isso a prévia levaria

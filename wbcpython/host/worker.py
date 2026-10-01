@@ -406,12 +406,27 @@ class WorkerIntegracao:
                         antes,
                     )
 
-                logger.info(
-                    "%d oportunidade(s) a avaliar (janela: OpenDate >= %s, %s).",
-                    len(pendentes),
-                    janela_padrao(meses=janela.meses).isoformat(),
-                    janela,
-                )
+                if orcamento:
+                    # The read above used the DIRECTED window, not the cycle's: printing the
+                    # cycle's date and "(padrão)" told the operator the quote was searched
+                    # where it was not (seen on the painel, 01/10/2026).
+                    dirigida = self._settings.meses_de_janela_dirigida
+                    logger.info(
+                        "%d oportunidade(s) a avaliar (orçamento %s; janela dirigida: "
+                        "OpenDate >= %s, %d meses; teto de %d escrita(s)).",
+                        len(pendentes),
+                        orcamento,
+                        janela_padrao(meses=dirigida).isoformat(),
+                        dirigida,
+                        janela.teto,
+                    )
+                else:
+                    logger.info(
+                        "%d oportunidade(s) a avaliar (janela: OpenDate >= %s, %s).",
+                        len(pendentes),
+                        janela_padrao(meses=janela.meses).isoformat(),
+                        janela,
+                    )
 
                 if somente_leitura:
                     logger.warning(

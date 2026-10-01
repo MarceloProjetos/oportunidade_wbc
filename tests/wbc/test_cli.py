@@ -913,6 +913,18 @@ class TestJanelaDaPreviaComOrcamento:
         vistos = self._cortes(monkeypatch, ["pendentes"])
         assert vistos[0][0] == janela_padrao(meses=6)
 
+    @pytest.mark.parametrize(("argv", "esperado"), [
+        (["pendentes", "--orcamento", "00124045"], "12 meses — dirigida, só o orçamento 00124045"),
+        (["pendentes", "--meses", "12"], "12 meses — ensaio"),
+        (["pendentes"], "6 meses — padrão"),
+    ])
+    def test_a_linha_da_janela_diz_os_meses_lidos(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, argv, esperado
+    ) -> None:
+        """It printed the standard window's months whatever was read (01/10/2026)."""
+        self._cortes(monkeypatch, argv)
+        assert esperado in capsys.readouterr().out
+
     def test_nada_encontrado_com_orcamento_avisa(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
