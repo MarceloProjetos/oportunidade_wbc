@@ -1,8 +1,8 @@
 # Plano — Casa comum das telas da .11
 
-> **Status (01/10/2026): F0–F5 codadas, testadas (2.543 testes) e conferidas na prévia com o CSS
-> real — falta o `deploy_update.bat` dele na .11** (commits a032729 F1 · 966c223 F2 · fec8aca F3 ·
-> d70c7f7 F4 · ec16c18 F5). Nada disso rodou ainda nas telas de verdade da .11. Página publicada:
+> **Status (01/10/2026): F0–F5 NO AR na .11 e conferidas no navegador dele** (deploy 01/10 ~09:30;
+> commits a032729 · 966c223 · fec8aca · d70c7f7 · ec16c18). As três telas com a mesma barra e o mesmo
+> tema (cookie migrado do claro dele), login único entre as portas, `/inicio` com dados reais. Página publicada:
 > https://claude.ai/artifact/Qim4SmTbstoyzgcoWG4UdQ (mesma url a cada atualização).
 
 ## O problema
