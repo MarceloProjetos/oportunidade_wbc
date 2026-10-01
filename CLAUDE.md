@@ -207,7 +207,8 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
 - **Defaults do worker existem em dois configs** (`config.py` da raiz relê `TRACKING_DB_URL`,
   `WORKER_*`, `PAINEL_PORTA` para o check `wbc_worker`); `CP_PORTA` em **três** (raiz,
   `wbcpython/config.py`, `controleproducao/config.py`) e `CP_LOG_FILE` em dois (raiz e
-  `controleproducao/config.py`). Mudou um, mude os outros — `tests/test_config_paridade_wbc.py`
+  `controleproducao/config.py`); `OS_API_PORT` também em três (raiz = o que a API escuta;
+  painel e `controleproducao` = o link "Sincronização SAP → Supabase"). Mudou um, mude os outros — `tests/test_config_paridade_wbc.py`
   cobra. `SL_BASE_URL`/`SL_VERIFY_SSL` têm defaults DIFERENTES no worker e no pacote: na .11
   o `.env` define os dois, e é isso que vale.
 - **`controleproducao` roda como módulo, com cwd na raiz**, igual ao `wbcpython`: `python -m

@@ -39,8 +39,11 @@
       {{ icone('pedidos') }} Pedidos WBC</a>
     <a class="item {% if ativo == 'ops' %}ativo{% endif %}" href="/manutencao-op">
       {{ icone('ops') }} Manutenção de OP</a>
-    {# Painel WBC and Execuções sit with the other screen links (owner, 01/10/2026); only
-       Sair and the theme toggle stay on the right. #}
+    {# Sincronização, Painel WBC and Execuções sit with the other screen links (owner,
+       01/10/2026); only Sair and the theme toggle stay on the right. Sincronização = the API
+       8077 painel, same label as the painel WBC's button. #}
+    <a class="item" href="/sincronizacao" title="Painel de Sincronização (API 8077)">
+      {{ icone('sincronizar') }} Sincronização SAP → Supabase</a>
     {# O painel da Integração WBC × SAP: outro processo desta máquina (PAINEL_PORTA), mesma
        chave — o cookie vale para as duas telas, então não pede a chave de novo. #}
     <a class="item" href="/painel-wbc" title="Painel da Integração WBC × SAP (cotações e pedidos)">

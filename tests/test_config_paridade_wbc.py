@@ -48,3 +48,12 @@ def test_porta_e_log_do_controle_producao_sao_os_mesmos():
     assert _default(SettingsCP, "cp_porta") == config.CP_PORTA_DEFAULT
     assert _default(Settings, "cp_porta") == config.CP_PORTA_DEFAULT
     assert _default(SettingsCP, "cp_log_file") == config.CP_LOG_FILE_DEFAULT
+
+
+def test_porta_da_api_nos_links_e_a_mesma():
+    """OS_API_PORT feeds the "Sincronização SAP → Supabase" link in the painel WBC and in the
+    Controle de Produção; both must default to the port the API binds."""
+    from controleproducao.config import Settings as SettingsCP
+
+    assert _default(SettingsCP, "os_api_port") == config.OS_API_PORT_DEFAULT
+    assert _default(Settings, "os_api_port") == config.OS_API_PORT_DEFAULT

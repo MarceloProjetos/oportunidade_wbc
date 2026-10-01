@@ -82,6 +82,28 @@ class TestComChave:
         get_settings.cache_clear()
         assert fechado.get("/painel-wbc", follow_redirects=False).headers["location"] == "http://192.168.7.11:8079/"
 
+    def test_sincronizacao_redireciona_sem_chave(self, fechado: TestClient) -> None:
+        # The API 8077 painel: same host, OS_API_PORT, /sincronizar (its root bounces back).
+        resposta = fechado.get("/sincronizacao", follow_redirects=False)
+        assert resposta.status_code == 302
+        assert resposta.headers["location"] == "http://testserver:8077/sincronizar"
+
+    def test_sincronizacao_url_configurada_ganha(self, fechado: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SIS_PAINEL_URL", "http://192.168.7.11:8077/sincronizar")
+        get_settings.cache_clear()
+        destino = fechado.get("/sincronizacao", follow_redirects=False).headers["location"]
+        assert destino == "http://192.168.7.11:8077/sincronizar"
+
+    def test_menu_tem_os_links_juntos(self, logado: TestClient) -> None:
+        # Owner, 01/10/2026: the screen links in a row, Sincronização between Manutenção de OP
+        # and Painel WBC; only Sair and the theme toggle on the right.
+        html = logado.get("/manutencao-op").text
+        nav = html[html.index('<nav class="ov-nav">'):html.index("</nav>")]
+        ordem = [nav.index(h) for h in ('href="/manutencao-op"', 'href="/sincronizacao"',
+                                        'href="/painel-wbc"', 'href="/tarefas"',
+                                        'class="direita"')]
+        assert ordem == sorted(ordem)
+
     def test_orcaview_redireciona_sem_chave(self, fechado: TestClient) -> None:
         # The way back to the OrçaView home must work for someone who has no key.
         resposta = fechado.get("/orcaview", follow_redirects=False)

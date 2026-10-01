@@ -105,6 +105,10 @@ class Settings(BaseSettings):
     # itself reads PAINEL_PORTA from `wbcpython/config.py`.
     painel_porta: int = 8079
     wbc_painel_url: str = ""
+    # The "Sincronização SAP → Supabase" link (API 8077, `/sincronizar`): SIS_PAINEL_URL
+    # verbatim, or this host on OS_API_PORT — same pair the WBC panel reads.
+    os_api_port: int = 8077
+    sis_painel_url: str = ""
     # The way back to the OrçaView home (the "OrçaView" link in the top bar): this screen is
     # opened in a new tab from the OrçaView card "Integração de Pedidos WBC" (web V118.404).
     # The .90 address is the default; ORCAVIEW_URL only for a dev copy.

@@ -16,4 +16,8 @@ Entra pelo `deploy_update.bat` (`OrcaView-ControleProducao`); só a tela.
   Pedidos WBC); só o "Voltar" da conferência e dos erros agora leva à Manutenção de OP.
 - **Menu do topo**: "Painel WBC" e "Execuções" vieram para junto de "Manutenção de OP"; só "Sair"
   e o botão de tema ficam à direita.
+- **"Sincronização SAP → Supabase" no menu**, entre "Manutenção de OP" e "Painel WBC" — o mesmo
+  botão do painel WBC. Passa por `/sincronizacao` (aberta, só redireciona): `SIS_PAINEL_URL` se
+  houver, senão o mesmo host na `OS_API_PORT` (8077), em `/sincronizar`. Em tela de até ~1300 px
+  o "Sair" e o tema descem para uma segunda linha.
 

@@ -6,7 +6,8 @@ port, so whoever entered the painel is already in here — and vice versa. Each 
 own ``/entrar`` because the painel's login page only redirects to paths of its own port.
 
 Open without the key: ``/entrar``, ``/sair``, ``/favicon.ico``, ``/health*`` (the SIS
-``/status`` probe and the deploy guard), ``/painel-wbc`` and ``/orcaview`` (redirects) and
+``/status`` probe and the deploy guard), ``/painel-wbc``, ``/sincronizacao`` and ``/orcaview``
+(redirects) and
 ``/static/*``.
 Everything else — pages, the task JSON the browser polls and ``POST /tarefas/{id}/cancelar``
 — needs the cookie or ``X-API-Key``. With no ``OS_API_KEY`` configured the screen is open for
@@ -44,7 +45,8 @@ from controleproducao.core.templates import templates
 from wbcpython.dashboard import acesso as painel
 
 ROTAS_ABERTAS = frozenset(
-    {"/entrar", "/sair", "/favicon.ico", "/health", "/health/ocupado", "/painel-wbc", "/orcaview"}
+    {"/entrar", "/sair", "/favicon.ico", "/health", "/health/ocupado", "/painel-wbc",
+     "/sincronizacao", "/orcaview"}
 )
 
 PREFIXO_API = "/api/"
@@ -236,6 +238,16 @@ def instalar(app: FastAPI) -> None:
         ``PAINEL_PORTA`` (the .11 case)."""
         s = get_settings()
         destino = s.wbc_painel_url.strip() or f"{request.url.scheme}://{request.url.hostname}:{s.painel_porta}/"
+        return RedirectResponse(destino, status_code=302)
+
+    @app.get("/sincronizacao")
+    def sincronizacao(request: Request) -> RedirectResponse:
+        """The Painel de Sincronização of the API 8077: ``SIS_PAINEL_URL`` verbatim, or this
+        host on ``OS_API_PORT`` at ``/sincronizar`` (the API root bounces to the painel WBC)."""
+        s = get_settings()
+        destino = s.sis_painel_url.strip() or (
+            f"{request.url.scheme}://{request.url.hostname}:{s.os_api_port}/sincronizar"
+        )
         return RedirectResponse(destino, status_code=302)
 
     @app.get("/orcaview")
