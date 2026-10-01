@@ -394,6 +394,31 @@ def test_erro_do_servico_termina_com_falhas(c, ambiente, execucao_falsa):
     assert any("⚠" in linha and "ERRO — sem pedido vinculado" in linha for linha in estado["linhas"])
 
 
+def test_peso_diferente_vem_no_resultado_com_a_causa(c, ambiente, execucao_falsa):
+    """Pedido 84453 (01/10/2026): the API returns WHO changed the line in the SAP, as fields."""
+    causa = {
+        "tipo": "quantidade_mudada_no_sap", "usuario": "Adriano Fonseca", "momento": "2026-10-01T14:00:06",
+        "quantidade_antes": 2.0, "quantidade_depois": 1.0, "peso_antes": 176.9, "peso_depois": 88.45,
+        "integracao_gravou_certo": True, "texto": "CAUSA: Adriano Fonseca mudou a quantidade…",
+    }
+    servico = AsyncMock(return_value={"processados": ["00120001"], "com_erro": [], "sem_op": [], "sem_rateio": [],
+                                      "pesos_diferentes": [{"orc_num": "00120001", "linha": 0, "item": "I000003",
+                                                            "quantidade": 1.0, "peso_sap": 88.45,
+                                                            "peso_esperado": 176.9, "arvore_wbc": 160.82,
+                                                            "causa": causa}]})
+    token = _token(c, (4301,))
+    with patch(f"{SVC}.processar_pedidos_novos", servico):
+        resposta = c.post(f"{API}/processar/executar", json={"token": token, "solicitante": "Ana"},
+                          headers=CABECALHO)
+        estado = _espera(c, resposta.json()["execucao"]["id"])
+
+    item = estado["resultado"]["pesos_diferentes"][0]
+    assert item["doc_num"] == "84201" and item["causa"]["usuario"] == "Adriano Fonseca"
+    assert estado["passo"] == ("Pedido 84201 (WBC 00120001): ATENÇÃO — 1 linha(s) com peso diferente "
+                               "da árvore do WBC (veja a CAUSA acima)")
+    assert estado["desfecho"] == "ok"       # a weight is a warning, not a failed pedido
+
+
 def test_token_de_processar_nao_executa_reprocessar_e_continua_valendo(c, ambiente, execucao_falsa):
     token = _token(c, (4301,))
     errado = c.post(f"{API}/reprocessar/executar", json={"token": token, "solicitante": "Ana"},

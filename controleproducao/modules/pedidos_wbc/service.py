@@ -703,7 +703,7 @@ async def _update_tab_pedido_cong(
         raise
 
 
-def _loga_pesos(hana_reader: HanaDirectReader, orc_num: str, doc_entry, estrutura) -> None:
+def _loga_pesos(hana_reader: HanaDirectReader, orc_num: str, doc_entry, estrutura) -> list[dict]:
     """One log line per order line: the SAP ``Weight1`` next to what it should be.
 
     Expected = WBC tree level 1 + 10% — the worker's rule (`wbcpython.domain.linhas.
@@ -712,12 +712,16 @@ def _loga_pesos(hana_reader: HanaDirectReader, orc_num: str, doc_entry, estrutur
     order). It exists because the weight went wrong on quote 00125817 (29/09/2026) with
     nothing about it in this log. More than 1% away from the expected value (hand-typed
     weights are round numbers: 248 for 249.07) comes out as a WARNING — followed, since
-    01/10/2026, by WHO changed the line in the SAP (`_causa_do_peso`).
+    01/10/2026, by WHO changed the line in the SAP (`_mudanca_do_peso`).
+
+    Returns the lines that are off, structured (``pesos_diferentes`` of the execution result,
+    the JSON API's view of the same warning — API_PEDIDOS_WBC.md).
     """
     from decimal import Decimal
 
     from wbcpython.domain.linhas import peso_da_linha
 
+    diferentes: list[dict] = []
     try:
         wbc: dict[int, float] = {}
         for no in estrutura:            # `EstruturaPrd`, from `busca_estrutura_produto`
@@ -726,35 +730,48 @@ def _loga_pesos(hana_reader: HanaDirectReader, orc_num: str, doc_entry, estrutur
         linhas = hana_reader.fetch_all(*ligar(q.PESOS_DAS_LINHAS_DO_PEDIDO, doc_entry=doc_entry))
     except Exception as exc:  # noqa: BLE001 - a log line must not break the processing
         logger.warning("Pedido %s: não foi possível comparar os pesos: %s", orc_num, exc)
-        return
+        return diferentes
     for linha in linhas:
         orc_itm = str(linha.get("U_INO_ORCITM") or "").strip()
         sap = float(linha.get("Weight1") or 0)
+        quantidade = float(linha.get("Quantity") or 0)
         arvore = wbc.get(int(orc_itm)) if orc_itm.isdigit() else None
         esperado = peso_da_linha(Decimal(str(arvore))) if arvore is not None else None
         texto = (
             f"Pedido {orc_num}: peso da linha {linha.get('LineNum')} (item {linha.get('ItemCode')}, "
-            f"OrcItm {orc_itm or '—'}, qtd {float(linha.get('Quantity') or 0):g}): SAP {numero_br(sap)} kg"
+            f"OrcItm {orc_itm or '—'}, qtd {quantidade:g}): SAP {numero_br(sap)} kg"
             + (f" · esperado {numero_br(esperado)} kg (árvore do WBC {numero_br(arvore)} kg + 10%)"
                if esperado is not None else " · árvore do WBC sem peso")
         )
         if esperado is not None and abs(sap - float(esperado)) > float(esperado) * 0.01:
             logger.warning("%s — DIFERENTE.", texto)
-            causa = _causa_do_peso(hana_reader, doc_entry, linha.get("LineNum"), float(esperado))
-            if causa:
-                logger.warning("Pedido %s: %s", orc_num, causa)
+            mudanca = _mudanca_do_peso(hana_reader, doc_entry, linha.get("LineNum"), float(esperado))
+            if mudanca:
+                logger.warning("Pedido %s: %s", orc_num, mudanca["texto"])
+            diferentes.append({
+                "orc_num": orc_num,
+                "linha": linha.get("LineNum"),
+                "item": linha.get("ItemCode"),
+                "quantidade": quantidade,
+                "peso_sap": round(sap, 2),
+                "peso_esperado": float(esperado),
+                "arvore_wbc": round(float(arvore), 2),
+                "causa": mudanca,
+            })
         else:
             logger.info("%s.", texto)
+    return diferentes
 
 
-def _causa_do_peso(hana_reader: HanaDirectReader, doc_entry, line_num, esperado: float) -> str | None:
+def _mudanca_do_peso(hana_reader: HanaDirectReader, doc_entry, line_num, esperado: float) -> dict | None:
     """Who changed the order line in the SAP, from its change log (ADOC/ADO1) — or ``None``.
 
     Orders 84444 (29/09/2026) and 84453 (01/10/2026) were created by the worker with the right
     weight; then a person changed the line quantity from 2 to 1 in the SAP, and the SAP rescales
     ``Weight1`` with the quantity (176,90 → 88,45 kg). The log said "DIFERENTE" and nothing
     else, so it read as an integration bug. Now it names the change: who, when, from what to
-    what. Read-only; any failure just leaves the cause out.
+    what — as a sentence for the log (``texto``) and as fields for the API. Read-only; any
+    failure just leaves the cause out.
     """
     if line_num is None:
         return None
@@ -772,23 +789,47 @@ def _causa_do_peso(hana_reader: HanaDirectReader, doc_entry, line_num, esperado:
             continue
         quem = str(depois.get("U_NAME") or depois.get("USER_CODE") or "usuário não identificado").strip()
         quando = _momento_do_sap(depois.get("UpdateDate"), depois.get("UpdateTS"))
-        criado_certo = abs(float(versoes[0].get("Weight1") or 0) - esperado) <= esperado * 0.01
+        peso_criado = float(versoes[0].get("Weight1") or 0)
+        criado_certo = abs(peso_criado - esperado) <= esperado * 0.01
         fecho = (
-            f" A integração tinha gravado o peso certo ({numero_br(float(versoes[0].get('Weight1') or 0))} kg) "
-            "ao criar o pedido."
+            f" A integração tinha gravado o peso certo ({numero_br(peso_criado)} kg) ao criar o pedido."
             if criado_certo else ""
         )
-        if abs(q0 - q1) > 1e-9:
-            return (
+        mudou_quantidade = abs(q0 - q1) > 1e-9
+        if mudou_quantidade:
+            texto = (
                 f"CAUSA: {quem} mudou a quantidade da linha {line_num} de {q0:g} para {q1:g} no SAP"
                 f"{quando}, e o SAP refez o peso na mesma proporção ({numero_br(w0)} → "
                 f"{numero_br(w1)} kg).{fecho}"
             )
-        return (
-            f"CAUSA: {quem} mudou o peso da linha {line_num} no SAP{quando} "
-            f"({numero_br(w0)} → {numero_br(w1)} kg).{fecho}"
-        )
+        else:
+            texto = (
+                f"CAUSA: {quem} mudou o peso da linha {line_num} no SAP{quando} "
+                f"({numero_br(w0)} → {numero_br(w1)} kg).{fecho}"
+            )
+        return {
+            "tipo": "quantidade_mudada_no_sap" if mudou_quantidade else "peso_mudado_no_sap",
+            "usuario": quem,
+            "momento": _momento_iso(depois.get("UpdateDate"), depois.get("UpdateTS")),
+            "quantidade_antes": q0,
+            "quantidade_depois": q1,
+            "peso_antes": round(w0, 2),
+            "peso_depois": round(w1, 2),
+            "integracao_gravou_certo": criado_certo,
+            "texto": texto,
+        }
     return None
+
+
+def _momento_iso(data, hora) -> str | None:
+    """`UpdateDate` + `UpdateTS` (HHMMSS) → "2026-10-01T14:00:06", or the date alone, or None."""
+    if data is None or not hasattr(data, "strftime"):
+        return None
+    try:
+        hhmmss = int(hora)
+    except (TypeError, ValueError):
+        return f"{data:%Y-%m-%d}"
+    return f"{data:%Y-%m-%d}T{hhmmss // 10000:02d}:{hhmmss // 100 % 100:02d}:{hhmmss % 100:02d}"
 
 
 def _momento_do_sap(data, hora) -> str:
@@ -1643,6 +1684,8 @@ async def processar_pedidos_novos(
     sem_op: list[dict] = []
     # Grupos cuja OP saiu sem a linha de rateio porque o recurso GGF_ não pôde ser criado.
     sem_rateio: list[dict] = []
+    # Order lines whose SAP weight is off the WBC tree, with who changed them (01/10/2026).
+    pesos_diferentes: list[dict] = []
 
     for orc_num in orc_nums_selecionados:
         try:
@@ -1687,7 +1730,7 @@ async def processar_pedidos_novos(
                 com_erro.append({"orc_num": orc_num, "motivo": "sem dados no WBC (estrutura vazia)"})
                 continue
 
-            _loga_pesos(hana_reader, orc_num, doc_entry, estrutura)
+            pesos_diferentes.extend(_loga_pesos(hana_reader, orc_num, doc_entry, estrutura))
             logger.info(
                 "Pedido %s: estrutura com %d item(ns); garantindo que estejam cadastrados "
                 "(uma consulta por item)...", orc_num, len(estrutura),
@@ -1734,7 +1777,8 @@ async def processar_pedidos_novos(
             await preenche_log(sl, orc_num, "Pedido", "Erro", "Integração", str(exc))
             com_erro.append({"orc_num": orc_num, "motivo": str(exc)})
 
-    return {"processados": processados, "com_erro": com_erro, "sem_op": sem_op, "sem_rateio": sem_rateio}
+    return {"processados": processados, "com_erro": com_erro, "sem_op": sem_op, "sem_rateio": sem_rateio,
+            "pesos_diferentes": pesos_diferentes}
 
 
 def _agrupa_por_grp_orc_itm(estrutura: list[EstruturaPrd]):

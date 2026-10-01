@@ -98,6 +98,37 @@ def test_peso_diferente_diz_quem_mudou_a_quantidade_no_sap(caplog):
     assert "FROM ADO1 T0" in sql and "?" in sql and list(params) == [20300, 0]
 
 
+def test_peso_diferente_volta_estruturado_para_o_resultado():
+    """The same finding, as fields — `resultado.pesos_diferentes` of the JSON API."""
+    leitor = MagicMock()
+    leitor.fetch_all.side_effect = [
+        [{"LineNum": 0, "ItemCode": "I000003", "Quantity": 1, "Weight1": 88.45, "U_INO_ORCITM": "1"}],
+        [_versao(2, 176.9, quem="orcaview", hora=115109), _versao(1, 88.45)],
+    ]
+    diferentes = service._loga_pesos(leitor, "00125348", 20300, [_arvore(1, 1, 160.82)])
+
+    assert len(diferentes) == 1
+    item = diferentes[0]
+    assert {k: item[k] for k in ("orc_num", "linha", "item", "quantidade", "peso_sap", "peso_esperado",
+                                 "arvore_wbc")} == {
+        "orc_num": "00125348", "linha": 0, "item": "I000003", "quantidade": 1.0,
+        "peso_sap": 88.45, "peso_esperado": 176.9, "arvore_wbc": 160.82,
+    }
+    causa = item["causa"]
+    assert {k: causa[k] for k in causa if k != "texto"} == {
+        "tipo": "quantidade_mudada_no_sap", "usuario": "Adriano Fonseca",
+        "momento": "2026-10-01T14:00:06", "quantidade_antes": 2.0, "quantidade_depois": 1.0,
+        "peso_antes": 176.9, "peso_depois": 88.45, "integracao_gravou_certo": True,
+    }
+    assert causa["texto"].startswith("CAUSA: Adriano Fonseca mudou a quantidade")
+
+
+def test_peso_certo_nao_entra_no_resultado():
+    leitor = _leitor({"LineNum": 0, "ItemCode": "I000003", "Quantity": 2, "Weight1": 176.9,
+                      "U_INO_ORCITM": "1"})
+    assert service._loga_pesos(leitor, "00125348", 20300, [_arvore(1, 1, 160.82)]) == []
+
+
 def test_peso_mudado_a_mao_sem_mudar_a_quantidade(caplog):
     leitor = MagicMock()
     leitor.fetch_all.side_effect = [

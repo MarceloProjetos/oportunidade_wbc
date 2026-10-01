@@ -463,7 +463,8 @@ Terminada, sem problema:
     "processados": [ { "doc_num": "84445", "orc_num": "00124882" } ],
     "com_erro": [],
     "sem_op": [],
-    "sem_rateio": []
+    "sem_rateio": [],
+    "pesos_diferentes": []
   }
 }
 ```
@@ -514,8 +515,65 @@ O que pode vir em `resultado`:
 | `sem_op` | Processar | Grupos do pedido que **não geraram OP**, com `motivo` — o pedido "passou", mas parte dele não produziu nada. |
 | `sem_rateio` | Processar | OPs criadas **sem a linha de rateio** (recurso recusado pelo SAP). |
 | `nao_iniciados` | as duas | Pedidos que **não começaram** porque alguém interrompeu. |
+| `pesos_diferentes` | Processar | Linhas do pedido com o **peso no SAP diferente** da árvore do WBC + 10%, com a **causa** — quem mudou a linha no SAP ([5.4.1](#541-peso-diferente-e-a-causa)). |
 
 **Linhas com `⚠`** são erro ou atenção: pinte-as de vermelho (é o que a tela faz).
+
+#### 5.4.1 Peso diferente e a causa
+
+Ao processar, o servidor confere o peso de cada linha do pedido no SAP contra a regra da
+integração: **nível 1 da árvore do WBC + 10%**, para a linha inteira, qualquer que seja a
+quantidade. Acima de 1% de diferença, a linha entra em `resultado.pesos_diferentes` — e o
+servidor lê o **histórico de alterações do SAP** para dizer quem mudou a linha.
+
+O caso que motivou isto (pedido 84453, 01/10/2026): a integração criou a linha com quantidade 2
+e 176,90 kg; depois uma pessoa mudou a quantidade para 1 no SAP, e **o SAP refaz o peso na mesma
+proporção** — ficou 88,45 kg. Não é defeito da integração, e a resposta deixa isso explícito:
+
+```json
+"pesos_diferentes": [
+  {
+    "orc_num": "00125348",
+    "doc_num": "84453",
+    "linha": 0,
+    "item": "I000003",
+    "quantidade": 1.0,
+    "peso_sap": 88.45,
+    "peso_esperado": 176.9,
+    "arvore_wbc": 160.82,
+    "causa": {
+      "tipo": "quantidade_mudada_no_sap",
+      "usuario": "Adriano Fonseca",
+      "momento": "2026-10-01T14:00:06",
+      "quantidade_antes": 2.0,
+      "quantidade_depois": 1.0,
+      "peso_antes": 176.9,
+      "peso_depois": 88.45,
+      "integracao_gravou_certo": true,
+      "texto": "CAUSA: Adriano Fonseca mudou a quantidade da linha 0 de 2 para 1 no SAP em 01/10/2026 às 14:00, e o SAP refez o peso na mesma proporção (176,90 → 88,45 kg). A integração tinha gravado o peso certo (176,90 kg) ao criar o pedido."
+    }
+  }
+]
+```
+
+| Campo | O que é |
+| --- | --- |
+| `linha`, `item`, `quantidade` | A linha do pedido no SAP (`LineNum`), o item e a quantidade **atual**. |
+| `peso_sap` | O peso que está no SAP agora. |
+| `peso_esperado` | O que a regra dá: `arvore_wbc` × 1,10, 2 casas. |
+| `causa` | `null` quando o histórico do SAP não mostra a mudança (ou não pôde ser lido). |
+| `causa.tipo` | `quantidade_mudada_no_sap` (alguém mudou a quantidade e o SAP reescalou o peso) ou `peso_mudado_no_sap` (alguém digitou outro peso). |
+| `causa.usuario` / `causa.momento` | Quem salvou a mudança no SAP, e quando (hora de Brasília). |
+| `causa.*_antes` / `causa.*_depois` | Quantidade e peso antes e depois daquela mudança. |
+| `causa.integracao_gravou_certo` | `true` = o pedido nasceu com o peso certo; a diferença veio depois. |
+| `causa.texto` | A mesma frase que a tela mostra no acompanhamento — use-a para exibir. |
+
+- **Não é erro**: o processamento segue, o `desfecho` continua `ok`; o pedido fecha com
+  "**ATENÇÃO** — N linha(s) com peso diferente da árvore do WBC (veja a CAUSA acima)" no `passo` e
+  nas `linhas`, com as linhas `⚠` do aviso e da CAUSA.
+- **O peso não é corrigido sozinho.** Para acertar, o TI roda na .11
+  `python -m wbcpython pesos --pedido 84453` (com `--simular` antes). Para não acontecer: não mude a
+  quantidade da linha no SAP — ou avise que o peso precisa ser refeito.
 
 ### 5.5 `POST /execucoes/{id}/cancelar` — interromper
 
@@ -1062,6 +1120,11 @@ Não. O pedido em curso termina inteiro; os seguintes ficam em `resultado.nao_in
 Porque ele ignora as checagens que impedem OP duplicada. Se for mesmo preciso, é pela tela do
 Controle de Produção, por quem conhece o caso.
 
+**O processamento avisou "peso diferente". A integração errou?**
+Leia `causa` em `resultado.pesos_diferentes` (ou a linha "CAUSA:" do acompanhamento). Nos casos
+vistos até hoje, a integração gravou o peso certo e alguém **mudou a quantidade da linha no SAP**
+depois — o SAP refaz o peso na mesma proporção. Veja a [5.4.1](#541-peso-diferente-e-a-causa).
+
 **Reprocessei e as OPs não voltaram.**
 É o comportamento: Reprocessar **cancela** as OPs planejadas e devolve o pedido a "Pedidos
 novos". Para criar as OPs de novo, **processe** o pedido em "Pedidos novos".
@@ -1100,3 +1163,4 @@ fictícios; só os nomes de pessoa e o servidor de exemplo foram ajustados. No S
 | Data | O que mudou |
 | --- | --- |
 | 01/10/2026 | Primeira versão: listar, conferir, executar (Processar e Reprocessar, sem "forçar"), acompanhar e interromper; página pronta `docs/exemplos/pedidos_wbc_clone.html` |
+| 01/10/2026 | `resultado.pesos_diferentes`: linha com peso diferente da árvore do WBC, com a **causa** lida do histórico do SAP (quem mudou, quando, de quanto para quanto) — [5.4.1](#541-peso-diferente-e-a-causa) |

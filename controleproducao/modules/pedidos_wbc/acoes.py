@@ -305,12 +305,20 @@ async def _roda_pedidos_com(tarefa, alvos, modo, force, settings, hana_reader, w
             sem_op = parcial.get("sem_op", [])
             # OP created without the allocation line (GGF_ resource refused by the SL).
             sem_rateio = parcial.get("sem_rateio", [])
+            # SAP weight off the WBC tree — usually a quantity changed by hand in the SAP; the
+            # cause (who, when) is in `resultado.pesos_diferentes` and in the line above.
+            pesos = parcial.get("pesos_diferentes", [])
             # A failed pedido is not "concluído": saying both in a row made the log look like
             # the failure had been worked around.
             if erros:
                 tarefa.avanca(f"{rotulo}: ERRO — {erros[0].get('motivo')}", i, problema=True)
-            elif sem_op or sem_rateio:
+            elif sem_op or sem_rateio or pesos:
                 ressalvas = []
+                if pesos:
+                    ressalvas.append(
+                        f"{len(pesos)} linha(s) com peso diferente da árvore do WBC"
+                        + (" (veja a CAUSA acima)" if any(p.get("causa") for p in pesos) else "")
+                    )
                 if sem_op:
                     ressalvas.append(
                         f"{len(sem_op)} grupo(s) sem OP: "
