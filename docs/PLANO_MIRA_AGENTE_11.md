@@ -1,6 +1,10 @@
 # Plano — a .11 pronta para a Mira agir como agente
 
-> **Status (02/10/2026, 11:48): F1 no ar e MIGRADA; F2 (leituras) NO AR na .11 e conferida pelo MCP** (5 ferramentas:
+> **Status (02/10/2026, tarde): F3/F4 (aprovação fora do modelo + escritas novas) CODADAS e testadas, pendem
+> deploy e 2 comandos (`docs/SEGURANCA_11.md`).** O agente só pede; uma pessoa aprova na Central (`/inicio`) — e,
+> na F5, respondendo `aprovar 4821` no grupo privado da Mira (ideia do Marcelo, 02/10; contrato em
+> `docs/APROVACOES_11.md`). Nada de escrita nova foi exercitado de verdade ainda.
+> **Antes: F1 no ar e MIGRADA; F2 (leituras) NO AR na .11 e conferida pelo MCP** (5 ferramentas:
 > serviços 6/6, HANA e GitHub alcançados, destino fora da lista recusado, histórico do 84453 com pessoa × integração,
 > log do 00125348). Antes: F2 codada.
 > Os 4 clientes usam a própria chave (o Altamira View precisou de `rh` a mais, acrescentado sem trocar
@@ -180,14 +184,31 @@ volta a quebrar calada.
 - **O registro do deploy só aparece a partir do 2º deploy** depois deste: o `.bat` roda de uma cópia
   feita antes do `git pull`, então o 1º ainda executa a versão antiga.
 
-### F3 — Aprovação fora do modelo
+### F3 — Aprovação fora do modelo — codada 02/10; pende deploy
 *Quando fechar: nenhuma escrita acontece sem o clique de uma pessoa identificada.*
+- **Feito:** `seguranca/aprovacoes.py` (SQLite `state/aprovacoes.db`; pedido vale 30 min, código de **4
+  dígitos**, decidido uma vez por UPDATE atômico) + rotas `/aprovacoes` na 8077 + seção "Aprovações do
+  agente" na Central (`/inicio`: nome de quem decide, Aprovar e executar / Recusar, últimas decisões) +
+  escopo `aprovar`, que **o agente nunca recebe** (`PROIBIDOS_AO_AGENTE`). No MCP: `pedir_*` e
+  `acompanhar_aprovacao`; a porta 8078 **carimba** `pedido_por`/`em_nome_de` com o cliente real e
+  **recusa** o `confirmar=True` de credencial de agente nas 2 escritas diretas (pessoas mantêm — regra 0).
+- **Por que 4 dígitos:** o grupo privado do .90 já trata `confirmar 1234` por código, antes do modelo, e
+  voz transcrita acerta número, não letra. Contrato da F5 (WhatsApp) em `docs/APROVACOES_11.md`.
+- **Conferido:** 19 testes de aprovação + 4 da porta; a tela na prévia local (pedidos falsos, recusa com
+  nome, celular). **Não exercitado:** uma aprovação real na .11.
 - Protocolo pedir → aprovar (pessoa, na Mira) → executar, com o token preso à pessoa e à operação.
 - `sincronizar_pedido_os` e `forcar_carga_oportunidades` passam para esse protocolo (o
   `confirmar=True` do modelo deixa de valer).
 
-### F4 — As escritas novas
+### F4 — As escritas novas — codada 02/10; pende deploy
 *Quando fechar: o agente processa pedido e reinicia serviço, sempre com aprovação.*
+- **Feito:** `operacao/acoes_agente.py` (catálogo fechado: sincronizar OS, forçar carga, processar
+  pedido, reiniciar serviço — escopo, quem aprova, teto por hora, prévia, execução pelas rotas de
+  sempre com `X-SIS-Usuario` = quem aprovou) e `operacao/reinicio.py` (as travas do deploy: CP ocupado
+  recusa; worker por arquivo e nunca ligado se estava parado; a API se reinicia por `cmd` destacado).
+- **Processar** confere o plano de novo na aprovação e recusa se pedido, oportunidade ou valor
+  mudaram. `estado_servicos` passou a mostrar a **conta** de cada serviço: reiniciar os outros exige
+  direito de controle de serviço (LocalSystem tem) — conferir na .11 antes do 1º reinício.
 - Processar pedido via MCP sobre `/api/pedidos-wbc` (listar, conferir, pedir aprovação,
   acompanhar). Reiniciar serviço (só os 6; recusa com o Controle de Produção ocupado; worker pela
   parada por arquivo).

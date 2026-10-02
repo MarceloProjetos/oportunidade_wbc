@@ -6,6 +6,22 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-02] — F3/F4 do plano da Mira: o agente pede, uma pessoa aprova
+
+`docs/PLANO_MIRA_AGENTE_11.md`, F3 e F4. Contrato: `docs/APROVACOES_11.md`.
+
+- **Pedido de aprovação** (`seguranca/aprovacoes.py`, rotas `/aprovacoes`): o agente pede, nada
+  executa; vale 30 min, código de 4 dígitos, decidido uma vez. Escopo novo `aprovar` (nunca de
+  agente) e `servico:reiniciar`.
+- **Central `/inicio`**: seção "Aprovações do agente" — quem decide escreve o nome, aprova ou recusa.
+- **4 ações** (`operacao/acoes_agente.py`): sincronizar OS, forçar carga, **processar pedido** (o
+  plano é conferido de novo na aprovação) e **reiniciar serviço** (`operacao/reinicio.py`, com as
+  travas do deploy). Execução pelas rotas de sempre, em nome de quem aprovou.
+- **MCP**: `pedir_sincronizar_os`, `pedir_forcar_carga`, `pedir_processar_pedido`,
+  `pedir_reiniciar_servico`, `acompanhar_aprovacao` (29 ferramentas). A porta 8078 carimba quem
+  pediu e recusa o `confirmar=True` de credencial de agente; pessoas continuam como antes.
+- `python -m seguranca acrescentar ... --declara-usuario`; `estado_servicos` mostra a conta.
+
 ## [2026-10-02] — F2 do plano da Mira: a .11 se explica sozinha (só leitura)
 
 `docs/PLANO_MIRA_AGENTE_11.md`, F2. Pacote novo `operacao/`, rotas com escopo `leitura` e 5

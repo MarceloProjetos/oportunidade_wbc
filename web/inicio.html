@@ -103,6 +103,32 @@
     .conexao span.info { color: var(--casa-texto-2); font-size: .8125rem; font-variant-numeric: tabular-nums;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .nota { margin: 18px 0 0; color: var(--casa-texto-2); font-size: .8125rem; }
+
+    /* Approvals (F3 of PLANO_MIRA_AGENTE_11): what the agent asked, waiting for a person. */
+    .aprov-cab { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+    .aprov-cab label { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--casa-texto-2); font-size: .8125rem; }
+    .aprov-cab input { width: 220px; max-width: 100%; padding: 7px 10px; border-radius: 8px; font: inherit;
+      color: var(--casa-texto); background: var(--casa-cartao); border: 1px solid var(--casa-borda); }
+    .aprovacoes { display: grid; gap: 12px; }
+    .aprov { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 16px; align-items: start;
+      padding: 16px 20px; background: var(--casa-cartao); border: 1px solid var(--casa-borda);
+      border-left: 4px solid var(--s-warn); border-radius: 14px; box-shadow: var(--s-sombra); }
+    @media (max-width: 760px) { .aprov { grid-template-columns: minmax(0, 1fr); } }
+    .aprov .codigo { font: 700 1.6rem/1 var(--casa-fonte); letter-spacing: .08em; font-variant-numeric: tabular-nums;
+      color: var(--s-warn); padding-top: 2px; }
+    .aprov h3 { margin: 0 0 4px; font-size: 1rem; font-weight: 700; }
+    .aprov .previa { margin: 0 0 6px; font-size: .875rem; }
+    .aprov .meta { margin: 0; color: var(--casa-texto-2); font-size: .8125rem; }
+    .aprov .botoes { display: flex; gap: 8px; flex-wrap: wrap; }
+    .aprov button { padding: 8px 14px; border-radius: 10px; font: 600 .875rem/1.2 var(--casa-fonte); cursor: pointer; }
+    .aprov button.sim { color: #fff; border: 1px solid #b04e30; background: linear-gradient(to bottom, #e08060, #c45a3a); }
+    .aprov button.nao { color: var(--casa-texto); border: 1px solid var(--casa-borda); background: transparent; }
+    .aprov button:disabled { opacity: .5; cursor: default; }
+    .aprov .retorno { grid-column: 1 / -1; margin: 0; font-size: .8125rem; }
+    .aprov .retorno:empty { display: none; }
+    .aprov-vazio { margin: 0; color: var(--casa-texto-2); font-size: .875rem; }
+    .decididas { margin: 10px 0 0; padding: 0; list-style: none; color: var(--casa-texto-2); font-size: .8125rem; }
+    .decididas li { padding: 4px 0; border-bottom: 1px dashed var(--casa-borda); }
   </style>
 </head>
 <body>
@@ -127,6 +153,13 @@
       <b>Avisos do monitor</b>
       <ul id="avisosLista"></ul>
     </section>
+
+    <h2 class="secao">Aprovações do agente</h2>
+    <div class="aprov-cab">
+      <label>Seu nome (fica registrado em cada decisão) <input id="aprovNome" autocomplete="name" maxlength="80"></label>
+    </div>
+    <div class="aprovacoes" id="aprovacoes"><p class="aprov-vazio">Consultando…</p></div>
+    <ul class="decididas" id="decididas"></ul>
 
     <h2 class="secao">As telas</h2>
     <div class="telas">
@@ -190,7 +223,7 @@
       <div class="conexao" id="cSupa"><div class="linha1"><b>Supabase</b><span class="pilula" data-pilula>consultando</span></div><span class="info" data-info>—</span></div>
       <div class="conexao" id="cDisco"><div class="linha1"><b>Disco da .11</b><span class="pilula" data-pilula>consultando</span></div><span class="info" data-info>—</span></div>
     </div>
-    <p class="nota">Os mesmos dados do <code>/status</code> que o monitor do .90 consulta. Abrir esta página não muda nada em nenhum sistema.</p>
+    <p class="nota">Os mesmos dados do <code>/status</code> que o monitor do .90 consulta. Abrir esta página não muda nada em nenhum sistema — só o botão <b>Aprovar</b> executa o que o agente pediu, com o seu nome no registro.</p>
   </main>
 
   <script>
@@ -314,9 +347,85 @@
       }
     }
 
+    // ---- Approvals: what the agent asked; only a person's click here runs it ----
+    const NOME = 'casa_aprov_nome';
+    try { $('aprovNome').value = localStorage.getItem(NOME) || ''; } catch (e) { /* storage blocked */ }
+    $('aprovNome').addEventListener('change', () => { try { localStorage.setItem(NOME, $('aprovNome').value.trim()); } catch (e) { /* storage blocked */ } });
+    const hora = (iso) => { const d = new Date(iso); return isNaN(d) ? '—' : d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
+    const ESTADO = { executado: 'executado', falhou: 'falhou', recusado: 'recusado', expirado: 'expirou', executando: 'executando' };
+
+    function el(tag, classe, texto) {
+      const e = document.createElement(tag);
+      if (classe) e.className = classe;
+      if (texto != null) e.textContent = texto;
+      return e;
+    }
+
+    async function decidir(card, a, aprovar) {
+      const pessoa = $('aprovNome').value.trim();
+      const retorno = card.querySelector('.retorno');
+      const botoes = card.querySelectorAll('button');
+      if (pessoa.length < 2) { retorno.textContent = 'Escreva o seu nome acima — ele fica registrado na decisão.'; $('aprovNome').focus(); return; }
+      botoes.forEach((b) => { b.disabled = true; });
+      retorno.textContent = aprovar ? 'Aprovando…' : 'Recusando…';
+      try {
+        const resp = await fetch(`/aprovacoes/${encodeURIComponent(a.id)}/${aprovar ? 'aprovar' : 'recusar'}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pessoa, canal: 'tela' }) });
+        if (resp.status === 401) { entrarDeNovo(); return; }
+        const d = await resp.json();
+        retorno.textContent = d.ok ? (aprovar ? 'Aprovado — executando. O resultado aparece na lista abaixo.' : 'Recusado.')
+          : (d.motivo || d.error || 'Não foi possível.');
+        if (!d.ok) botoes.forEach((b) => { b.disabled = false; });
+        else setTimeout(aprovacoes, 1500);
+      } catch (e) {
+        retorno.textContent = 'Sem resposta da API. Tente de novo.';
+        botoes.forEach((b) => { b.disabled = false; });
+      }
+    }
+
+    function cartao(a) {
+      const card = el('article', 'aprov');
+      card.append(el('div', 'codigo', a.codigo));
+      const corpo = el('div');
+      corpo.append(el('h3', null, a.titulo));
+      corpo.append(el('p', 'previa', (a.previa && a.previa.texto) || ''));
+      if (a.motivo) corpo.append(el('p', 'meta', 'Motivo: ' + a.motivo));
+      const quem = a.em_nome_de ? `${a.pedido_por}, para ${a.em_nome_de}` : a.pedido_por;
+      corpo.append(el('p', 'meta', `Pedido por ${quem} às ${hora(a.criado_em)} · expira às ${hora(a.expira_em)} · aprova: ${a.quem_aprova}`));
+      card.append(corpo);
+      const botoes = el('div', 'botoes');
+      const sim = el('button', 'sim', 'Aprovar e executar');
+      const nao = el('button', 'nao', 'Recusar');
+      sim.type = 'button'; nao.type = 'button';
+      sim.addEventListener('click', () => decidir(card, a, true));
+      nao.addEventListener('click', () => decidir(card, a, false));
+      botoes.append(sim, nao);
+      card.append(botoes, el('p', 'retorno'));
+      return card;
+    }
+
+    async function aprovacoes() {
+      try {
+        const d = await pegar('/aprovacoes?limite=15');
+        const todas = d.aprovacoes || [];
+        const pendentes = todas.filter((a) => a.estado === 'pendente');
+        $('aprovacoes').replaceChildren(...(pendentes.length ? pendentes.map(cartao)
+          : [el('p', 'aprov-vazio', 'Nenhum pedido do agente aguardando aprovação.')]));
+        const decididas = todas.filter((a) => a.estado !== 'pendente').slice(0, 5);
+        $('decididas').replaceChildren(...decididas.map((a) => {
+          const quem = a.decidido_por ? ` por ${a.decidido_por}${a.decidido_canal ? ' (' + a.decidido_canal + ')' : ''}` : '';
+          const falha = a.estado === 'falhou' && a.resultado ? ' — ' + (a.resultado.motivo || a.resultado.erro || '') : '';
+          return el('li', null, `${a.codigo} · ${a.titulo} · ${ESTADO[a.estado] || a.estado}${quem} · ${hora(a.decidido_em || a.criado_em)}${falha}`);
+        }));
+      } catch (e) {
+        if (e.message !== '401') $('aprovacoes').replaceChildren(el('p', 'aprov-vazio', 'Não foi possível ler os pedidos de aprovação.'));
+      }
+    }
+
     async function atualizar() {
       $('relogio').textContent = 'Consultando…';
-      await Promise.all([telasLocais(), sincronizacao(), conexoes()]);
+      await Promise.all([aprovacoes(), telasLocais(), sincronizacao(), conexoes()]);
       $('relogio').textContent = 'Atualizado às ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     }
     $('atualizar').addEventListener('click', atualizar);

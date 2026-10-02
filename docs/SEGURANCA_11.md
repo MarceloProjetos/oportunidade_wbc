@@ -32,6 +32,8 @@ PowerShell, dentro de `C:\Python\ServidorIntegracaoSAP`.
 | `historico:apagar` | apagar os históricos de sincronização |
 | `pedidos_wbc` | `/api/pedidos-wbc` (8080) |
 | `manutencao_op` | `/api/manutencao-op` (8080) |
+| `servico:reiniciar` | **pedir** o reinício de um dos 6 serviços (só roda com aprovação de uma pessoa) |
+| `aprovar` | aprovar/recusar o que o agente pediu — pessoa ou backend que fala por uma, **nunca** o agente |
 | `mcp` | conectar ao MCP (as ferramentas seguem os outros escopos) |
 | `admin` | tudo (só a chave-mestra) |
 
@@ -86,6 +88,21 @@ python -m seguranca criar mira-agente --escopos mcp,leitura,rh,os:sincronizar,op
 ```
 
 As funções **novas** (processar pedido, reiniciar serviço) entram depois da F3, uma por vez.
+
+## F3/F4: aprovações do agente (02/10/2026)
+
+O agente só **pede** escrita; uma pessoa aprova na Central (`/inicio`, seção "Aprovações do
+agente") ou, quando a F5 existir, respondendo `aprovar 4821` no grupo privado da Mira. Contrato e
+regras: `docs/APROVACOES_11.md`. Depois do deploy, para as ferramentas `pedir_*` do MCP funcionarem
+(só acrescenta; a chave de ninguém muda):
+
+```powershell
+python -m seguranca acrescentar mcp-servico --escopos pedidos_wbc,servico:reiniciar --declara-usuario
+python -m seguranca acrescentar mcp-marcelo --escopos pedidos_wbc,servico:reiniciar
+```
+
+O `--declara-usuario` do `mcp-servico` é o que deixa a .11 registrar **qual** cliente do MCP pediu
+(o MCP carimba o cliente real; o modelo não consegue fingir outro).
 
 ## O dia a dia
 

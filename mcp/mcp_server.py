@@ -71,7 +71,11 @@ lista fechada), `ultimo_deploy` (versão no ar e como foi o último deploy),
 
 Tudo é leitura, exceto `sincronizar_pedido_os` e `forcar_carga_oportunidades`: essas
 devolvem um preview com `confirmar=False` e só executam com `confirmar=True`, depois do
-"sim" explícito do usuário.
+"sim" explícito do usuário — para PESSOAS. Para um agente, escrever é sempre PEDIR:
+`pedir_sincronizar_os`, `pedir_forcar_carga`, `pedir_processar_pedido` e
+`pedir_reiniciar_servico` criam um pedido com um código de 4 dígitos e NÃO executam nada;
+uma pessoa aprova (na Central da .11, ou respondendo "aprovar <código>" no canal da Mira) e
+`acompanhar_aprovacao` diz o resultado. Você nunca aprova.
 
 Frescor dos dados: situação de pedidos tem cache de 2 minutos (`cache_idade_s` diz a
 idade); colaboradores é uma carga diária das 12:40 em dias úteis (`desatualizado=true`
@@ -1110,6 +1114,115 @@ def forcar_carga_oportunidades(confirmar: bool = False) -> dict[str, Any]:
                            "já roda periodicamente — force só se precisar AGORA."),
                 "instrucao": _INSTRUCAO_CONFIRMAR}
     return _post("/oportunidades/sincronizar")
+
+
+# --- F3/F4: writes by approval (docs/PLANO_MIRA_AGENTE_11.md) ---------------------------------
+# The agent only REQUESTS; a person approves on the Central's screen (/inicio) or, later, by
+# replying "aprovar <código>" in the Mira's channel. These tools never execute anything.
+_ANOTACAO_PEDIDO = ToolAnnotations(readOnlyHint=False, idempotentHint=False, openWorldHint=True)
+_INSTRUCAO_PEDIDO = ("NADA foi executado. Diga ao usuário o que foi pedido (a 'previa'), o 'codigo' e "
+                     "que uma pessoa precisa aprovar — na Central da .11 ou respondendo 'aprovar <codigo>'. "
+                     "Você não aprova; use acompanhar_aprovacao para saber o resultado.")
+
+
+def _pedir(acao: str, parametros: dict[str, Any], motivo: str, pedido_por: str, em_nome_de: str) -> dict[str, Any]:
+    """POST /aprovacoes. ``pedido_por``/``em_nome_de`` are stamped by the 8078 door (acesso_mcp)
+    with the real client and person; whatever the model sends in them is replaced there."""
+    cabecalhos = {**_headers(), "X-SIS-Pedido-Por": (pedido_por or "mcp-stdio")[:40]}
+    if em_nome_de:
+        cabecalhos["X-SIS-Usuario"] = em_nome_de[:80]
+    tempo = 120.0   # the preview of "processar" reads the CP's list and its plan
+    try:
+        resp = httpx.post(f"{API_BASE}/aprovacoes", json={"acao": acao, "parametros": parametros,
+                                                          "motivo": (motivo or "")[:300]},
+                          headers=cabecalhos, timeout=tempo, trust_env=False)
+    except httpx.TimeoutException:
+        return _demorou("POST", "/aprovacoes", tempo)
+    except httpx.RequestError as exc:
+        return {"ok": False, "erro": f"servidor de integração inacessível ({API_BASE}): {exc}"}
+    resposta = _tratar_resposta("/aprovacoes", resp)
+    if resposta.get("ok"):
+        resposta["instrucao"] = _INSTRUCAO_PEDIDO
+    return resposta
+
+
+@mcp.tool(annotations=_ANOTACAO_PEDIDO)
+def pedir_sincronizar_os(nped: int, motivo: str = "", pedido_por: str = "", em_nome_de: str = "") -> dict[str, Any]:
+    """PEDE aprovação para sincronizar (SAP → Supabase) as OS de um pedido. NÃO executa.
+
+    Uma pessoa identificada aprova (Central da .11 ou "aprovar <codigo>" no canal da Mira).
+
+    Args:
+        nped: número do pedido (ex.: 84080).
+        motivo: por que (aparece para quem aprova).
+        pedido_por: preenchido pelo servidor — não informe.
+        em_nome_de: preenchido pelo servidor — não informe.
+    """
+    return _pedir("sincronizar_os", {"nped": int(nped)}, motivo, pedido_por, em_nome_de)
+
+
+@mcp.tool(annotations=_ANOTACAO_PEDIDO)
+def pedir_forcar_carga(motivo: str = "", pedido_por: str = "", em_nome_de: str = "") -> dict[str, Any]:
+    """PEDE aprovação para a carga completa de oportunidades (SAP → Supabase). NÃO executa.
+
+    Args:
+        motivo: por que (aparece para quem aprova).
+        pedido_por: preenchido pelo servidor — não informe.
+        em_nome_de: preenchido pelo servidor — não informe.
+    """
+    return _pedir("forcar_carga", {}, motivo, pedido_por, em_nome_de)
+
+
+@mcp.tool(annotations=_ANOTACAO_PEDIDO)
+def pedir_processar_pedido(pedido: int, motivo: str = "", pedido_por: str = "",
+                           em_nome_de: str = "") -> dict[str, Any]:
+    """PEDE aprovação para PROCESSAR um pedido no Controle de Produção (cria as Ordens de
+    Produção, itens e recursos no SAP — irreversível). NÃO executa.
+
+    Só pedidos em "Pedidos novos". Aprova: PCP ou administrador. Reprocessar e "forçar" não
+    existem para o agente. A prévia traz cliente, valor e os itens que serão processados; se
+    o plano mudar até a aprovação, a execução é recusada e é preciso pedir de novo.
+
+    Args:
+        pedido: número do pedido no SAP (DocNum, ex.: 84453).
+        motivo: por que (aparece para quem aprova).
+        pedido_por: preenchido pelo servidor — não informe.
+        em_nome_de: preenchido pelo servidor — não informe.
+    """
+    return _pedir("processar_pedido", {"pedido": int(pedido)}, motivo, pedido_por, em_nome_de)
+
+
+@mcp.tool(annotations=_ANOTACAO_PEDIDO)
+def pedir_reiniciar_servico(servico: str, motivo: str = "", pedido_por: str = "",
+                            em_nome_de: str = "") -> dict[str, Any]:
+    """PEDE aprovação para reiniciar UM dos 6 serviços da .11. NÃO executa.
+
+    Serviços: OrcaView-OS-API, OrcaView-MCP, OrcaView-Scheduler, OrcaView-WBC-Painel,
+    OrcaView-ControleProducao, OrcaView-WBC-Worker. Aprova: só administrador. O Controle de
+    Produção com execução em andamento é recusado; o worker para por arquivo (termina o
+    orçamento em mãos) e, se estiver parado, não é ligado por aqui. Use estado_servicos antes.
+
+    Args:
+        servico: nome exato do serviço (ex.: OrcaView-WBC-Painel).
+        motivo: por que (aparece para quem aprova).
+        pedido_por: preenchido pelo servidor — não informe.
+        em_nome_de: preenchido pelo servidor — não informe.
+    """
+    return _pedir("reiniciar_servico", {"servico": str(servico)}, motivo, pedido_por, em_nome_de)
+
+
+@mcp.tool(annotations=_ANOTACAO_LEITURA)
+def acompanhar_aprovacao(codigo: str = "") -> dict[str, Any]:
+    """O estado de um pedido de aprovação (pelo ``codigo`` de 4 dígitos ou pelo id). Só leitura.
+
+    Sem código: lista os pendentes. Estados: pendente, recusado (com o motivo), expirado,
+    executando, executado, falhou (com o ``resultado``). Num pedido processado vem também a
+    ``execucao_atual`` do Controle de Produção.
+    """
+    chave = "".join(ch for ch in str(codigo) if ch.isalnum())
+    if not chave:
+        return _get("/aprovacoes", {"estado": "pendente"})
+    return _get(f"/aprovacoes/{chave}")
 
 
 if __name__ == "__main__":

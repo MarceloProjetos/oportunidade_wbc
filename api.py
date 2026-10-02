@@ -105,7 +105,7 @@ from extract_ordens_servico_engenharia import (
 from extract_sap_to_supabase import main as sync_oportunidades
 from extract_vendas_bi import main as sync_vendas_bi
 from monitoring import SELECTABLE_CHECKS, AcompanhamentoIndisponivel, collect_status, wbc_orcamento
-from operacao import conexoes, historico_pedido, log_worker, versao
+from operacao import acoes_agente, conexoes, historico_pedido, log_worker, reinicio, versao
 from operacao import servicos as operacao_servicos_mod
 from pipeline_core import (
     FileLockTimeout,
@@ -114,7 +114,7 @@ from pipeline_core import (
     vendas_bi_sync_lock,
 )
 from seguranca import agente as seguranca_agente
-from seguranca import auditoria, credenciais
+from seguranca import aprovacoes, auditoria, credenciais
 from seguranca.credenciais import Cliente
 
 # UTF-8 console on Windows
@@ -1568,6 +1568,170 @@ def operacao_testar_conexao(destino: str):
 def operacao_deploy():
     """The running commit (and whether a restart is pending) plus the last deploy's steps."""
     return jsonify(ok=True, versao=versao.versao(), ultimo_deploy=versao.ultimo_deploy())
+
+
+# --- F3/F4 of docs/PLANO_MIRA_AGENTE_11.md: the agent asks, a person approves -----------------
+_CANAIS = ('tela', 'whatsapp', 'mira', 'api')
+_LIMITE_PESSOA = 80
+
+
+def _papel_do_aprovador(cliente: Cliente) -> str | None:
+    """The screens' cookie and the master key are the administrator; a trusted backend (the
+    Mira on the .90) says the person's role in ``X-SIS-Papel``; anyone else has no role."""
+    if cliente.nome in ('tela', 'chave-mestra', 'aberto'):
+        return 'admin'
+    if cliente.declara_usuario:
+        papel = (request.headers.get('X-SIS-Papel') or '').strip().lower()
+        return papel if papel.isalnum() and len(papel) <= 20 else None
+    return None
+
+
+def _pessoa_que_decide(cliente: Cliente, corpo: dict) -> str | None:
+    """A backend that speaks for people names them in ``X-SIS-Usuario``; on the screen the
+    person types the name (the cookie proves the key, not who holds it)."""
+    if cliente.declara_usuario and cliente.nome not in ('tela', 'chave-mestra', 'aberto'):
+        return _usuario_declarado(cliente)
+    valor = corpo.get('pessoa')
+    texto = valor.strip() if isinstance(valor, str) else ''
+    if len(texto) < 2 or len(texto) > _LIMITE_PESSOA or any(ord(c) < 32 or ord(c) == 127 for c in texto):
+        return None
+    return texto
+
+
+def _aprovacao_publica(r: dict) -> dict:
+    acao = acoes_agente.CATALOGO.get(r['acao'])
+    return {
+        **{k: r.get(k) for k in ('id', 'codigo', 'acao', 'parametros', 'previa', 'motivo', 'pedido_por',
+                                 'em_nome_de', 'criado_em', 'expira_em', 'estado', 'decidido_por',
+                                 'decidido_canal', 'decidido_em', 'motivo_recusa', 'resultado', 'concluido_em')},
+        'titulo': acao.titulo if acao else r['acao'],
+        'quem_aprova': ('qualquer pessoa identificada' if acao is None or acao.papeis is None
+                        else ' ou '.join(sorted(acao.papeis))),
+    }
+
+
+@app.post('/aprovacoes')
+@requer_chave('leitura')
+def aprovacao_pedir():
+    """An agent REQUESTS a write; nothing runs. Body ``{acao, parametros, motivo}``. The caller
+    needs the action's own scope (``acoes_agente.CATALOGO``); the answer is the preview a person
+    will read and the ``codigo`` to approve it. Valid for ``aprovacoes.VALIDADE_MIN`` minutes."""
+    cliente = _cliente()
+    corpo = request.get_json(silent=True) or {}
+    acao = acoes_agente.CATALOGO.get(str(corpo.get('acao') or ''))
+    if acao is None:
+        return jsonify(ok=False, error='acao_desconhecida', acoes=sorted(acoes_agente.CATALOGO)), 400
+    if not cliente.pode(acao.escopo):
+        return jsonify(ok=False, error='forbidden', tipo='sem_permissao',
+                       motivo=f"A credencial '{cliente.nome}' nao tem o escopo '{acao.escopo}'."), 403
+    if aprovacoes.contar_recentes(acao.nome) >= acao.por_hora:
+        return jsonify(ok=False, error='rate_limited',
+                       motivo=f'Limite de {acao.por_hora} pedido(s) de "{acao.titulo}" por hora.'), 429
+    parametros = corpo.get('parametros') if isinstance(corpo.get('parametros'), dict) else {}
+    try:
+        parametros = acao.validar(parametros)
+        previa = acao.previa(parametros)
+    except acoes_agente.AcaoInvalida as exc:
+        return jsonify(ok=False, error='recusado', motivo=str(exc)), 400
+    except Exception as exc:  # a preview that could not be read is never a silent 500
+        logger.error("Previa de %s falhou: %s", acao.nome, exc)
+        return jsonify(ok=False, error='previa_indisponivel', motivo=str(exc)[:300]), 502
+    pedido_por = cliente.nome
+    if cliente.declara_usuario:
+        declarado = (request.headers.get('X-SIS-Pedido-Por') or '').strip()
+        if declarado and declarado.replace('-', '').replace('_', '').replace('.', '').isalnum():
+            pedido_por = declarado[:40]
+    r = aprovacoes.criar(acao.nome, parametros, previa, pedido_por=pedido_por,
+                         em_nome_de=_usuario_declarado(cliente), motivo=corpo.get('motivo'))
+    return jsonify(ok=True, aprovacao=_aprovacao_publica(r),
+                   como_aprovar=(f"Uma pessoa aprova na Central da .11 (/inicio) ou responde "
+                                 f"'aprovar {r['codigo']}' no canal da Mira. Nada foi executado.")), 201
+
+
+@app.get('/aprovacoes')
+@requer_chave('leitura')
+def aprovacao_listar():
+    """Requests, newest first (``?estado=pendente`` = waiting for a person)."""
+    estado = request.args.get('estado') or None
+    if estado and estado not in aprovacoes.ESTADOS:
+        return jsonify(ok=False, error='estado invalido', estados=list(aprovacoes.ESTADOS)), 400
+    linhas = aprovacoes.listar(estado, limite=max(1, min(request.args.get('limite', 30, type=int), 100)))
+    return jsonify(ok=True, aprovacoes=[_aprovacao_publica(r) for r in linhas])
+
+
+@app.get('/aprovacoes/<chave>')
+@requer_chave('leitura')
+def aprovacao_ver(chave: str):
+    """One request by id or pending code; a processed order also brings the live execution."""
+    r = aprovacoes.obter(chave)
+    if r is None:
+        return jsonify(ok=False, error='nao_encontrado'), 404
+    publico = _aprovacao_publica(r)
+    execucao = ((r.get('resultado') or {}).get('execucao') or {}).get('id')
+    if r['acao'] == 'processar_pedido' and execucao:
+        _, publico['execucao_atual'] = acoes_agente._chamar(
+            acoes_agente._cp(), 'GET', f'/api/pedidos-wbc/execucoes/{execucao}', tempo=30)
+    return jsonify(ok=True, aprovacao=publico)
+
+
+def _executa_aprovada(r: dict, acao, ctx) -> None:
+    try:
+        ok, resultado = acao.executar(r['parametros'], r['previa'], ctx)
+    except Exception as exc:  # the record must end, whatever the action did
+        logger.error("Execucao aprovada %s (%s) falhou: %s", r['codigo'], acao.nome, exc)
+        ok, resultado = False, {'erro': str(exc)[:300]}
+    aprovacoes.concluir(r['id'], ok=ok, resultado=resultado)
+
+
+def _decisao(chave: str, aprovar: bool):
+    cliente = _cliente()
+    corpo = request.get_json(silent=True) or {}
+    pessoa = _pessoa_que_decide(cliente, corpo)
+    if not pessoa:
+        return jsonify(ok=False, error='sem_pessoa',
+                       motivo='Informe quem decide (campo "pessoa", 2 a 80 caracteres).'), 400
+    canal = str(corpo.get('canal') or ('tela' if cliente.nome == 'tela' else 'api')).lower()
+    if canal not in _CANAIS or (canal in ('whatsapp', 'mira') and not cliente.declara_usuario):
+        canal = 'api'
+    atual = aprovacoes.obter(chave)
+    if atual is None:
+        return jsonify(ok=False, error='nao_encontrado', motivo='Pedido de aprovacao nao encontrado.'), 404
+    acao = acoes_agente.CATALOGO.get(atual['acao'])
+    papel = _papel_do_aprovador(cliente)
+    if aprovar and acao is not None and not acoes_agente.pode_aprovar(acao, papel):
+        return jsonify(ok=False, error='forbidden', tipo='papel',
+                       motivo=f'"{acao.titulo}" so pode ser aprovado por: {" ou ".join(sorted(acao.papeis))}.'), 403
+    if (aprovar and atual['acao'] == 'reiniciar_servico' and atual['parametros'].get('servico') == reinicio.API
+            and aprovacoes.listar('executando', limite=1)):
+        return jsonify(ok=False, error='ocupado',
+                       motivo='Ha outra acao aprovada em execucao; reiniciar a API agora a interromperia.'), 409
+    try:
+        r = aprovacoes.decidir(chave, aprovar=aprovar, pessoa=pessoa, canal=canal, papel=papel,
+                               cliente=cliente.nome, motivo=corpo.get('motivo'))
+    except aprovacoes.AprovacaoInvalida as exc:
+        return jsonify(ok=False, error=exc.tipo, motivo=str(exc)), 404 if exc.tipo == 'nao_encontrado' else 409
+    if not aprovar:
+        return jsonify(ok=True, aprovacao=_aprovacao_publica(r))
+    ctx = acoes_agente.Contexto(pessoa=pessoa, codigo=r['codigo'], pedido_por=r['pedido_por'])
+    threading.Thread(target=_executa_aprovada, args=(r, acao, ctx), daemon=True,
+                     name=f"aprovacao-{r['codigo']}").start()
+    return jsonify(ok=True, aprovacao=_aprovacao_publica(r),
+                   acompanhar=f"/aprovacoes/{r['id']}"), 202
+
+
+@app.post('/aprovacoes/<chave>/aprovar')
+@requer_chave('aprovar')
+def aprovacao_aprovar(chave: str):
+    """A PERSON approves (screen, or the Mira for a person) and the action runs in background.
+    The agent never holds ``aprovar`` (``credenciais.PROIBIDOS_AO_AGENTE``)."""
+    return _decisao(chave, aprovar=True)
+
+
+@app.post('/aprovacoes/<chave>/recusar')
+@requer_chave('aprovar')
+def aprovacao_recusar(chave: str):
+    """A person refuses; nothing runs. Body ``{pessoa, motivo}``."""
+    return _decisao(chave, aprovar=False)
 
 
 @app.get('/pedidos/<numero>/historico')

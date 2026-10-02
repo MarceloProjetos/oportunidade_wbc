@@ -70,6 +70,7 @@ do Anderson, importado em 2026-09-28) tem o histórico em `docs/controleproducao
 | `mcp/` | Fachada MCP fina sobre a API 8077 — NÃO fala com banco. `acesso_mcp.py` = a porta do HTTP 8078 (token por cliente, escopo por ferramenta em `ESCOPO_DA_FERRAMENTA`, regras do agente, auditoria); importa `seguranca/` da raiz (sys.path **append**, nunca insert: a pasta `mcp/` não pode sombrear o SDK) |
 | `seguranca/` | F1 de `docs/PLANO_MIRA_AGENTE_11.md` (02/10/2026), stdlib: `credenciais.py` (cliente + escopos; `state/credenciais.json` só com SHA-256; `OS_API_KEY` = "chave-mestra" admin), `auditoria.py` (`logs/auditoria/<serviço>-AAAA-MM-DD.jsonl`, 30 dias, nunca levanta), `agente.py` (interruptor `state/agente.desligado` + escrita só seg–sex 7h–19h, só para credencial `agente`), `__main__.py` (CLI `python -m seguranca`). Operação: `docs/SEGURANCA_11.md` |
 | `operacao/` | F2 do plano da Mira (02/10/2026), **só leitura** da própria .11: `servicos.py` (os 6 NSSM via psutil), `conexoes.py` (DNS/ping/TCP a partir da .11, **lista fechada** de destinos pelo nome), `historico_pedido.py` (ADOC/ADO1: versões do pedido, quem salvou, pessoa × integração), `log_worker.py` (linhas do log do worker por orçamento), `versao.py` (commit lido do `.git` + `logs/deploy.log`). Rotas `/operacao/*`, `/pedidos/<n>/historico`, `/wbc/orcamentos/<n>/log` |
+| `seguranca/aprovacoes.py` · `operacao/acoes_agente.py` · `operacao/reinicio.py` | F3/F4 (02/10/2026): o agente **pede**, uma pessoa aprova (Central `/inicio` ou, na F5, `aprovar 4821` no WhatsApp da Mira), a .11 executa pelas rotas de sempre. Pedidos em `state/aprovacoes.db`. Contrato: `docs/APROVACOES_11.md` |
 | `web/sincronizar.html` · `web/entrar.html` · `web/entrada.html` | Painel de Sincronização (`GET /sincronizar`, template Jinja na casca `casa/`, atrás do login comum) · tela da chave da 8077 (`/entrar`) · `GET /` (sonda o painel WBC e redireciona) |
 | `tests/` | pytest; `test_<modulo>.py` espelha o módulo. `tests/wbc/` = suíte do pacote `wbcpython` (mesma árvore dele); `tests/controleproducao/` = suíte do pacote `controleproducao` (244 testes do Anderson + os da integração) |
 | `docs/` | `PLANO_*.md` (abertos e encerrados recentes — o status está no topo de cada um; os antigos em `arquivo/`); `wbc/` (README, DECISOES, APRENDIZADOS, RISCOS_PRODUCAO, RETOMADA); `controleproducao/` (README = guia; GUIA_OPERADOR = quem opera a tela; PARA_O_ANDERSON; migration_guide, decisoes, GUIA_ESTILO — históricos do pacote); `INCIDENTES.md`; `changelog/` (meses anteriores) |
@@ -200,6 +201,10 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   escopo, registro e limites EM VOLTA do que existe; cliente que migra para chave própria recebe todos os
   escopos que usa hoje (o agente inclusive: RH, sincronizar OS, forçar carga). Tirar uma função existente
   é decisão dele, nunca padrão. Firewall só depois de a auditoria mostrar quem usa.
+- ⚠️⚠️ **O agente nunca aprova** (F3, 02/10/2026): escrita de agente = `POST /aprovacoes` (pedido sem poder);
+  só `aprovar` executa, e credencial `agente` nunca recebe `aprovar` nem `admin` (`PROIBIDOS_AO_AGENTE`). Ação
+  nova para o agente = entrada em `acoes_agente.CATALOGO` (escopo, papéis, teto, prévia, execução) — nunca
+  comando livre. A porta 8078 carimba `pedido_por`/`em_nome_de` das `pedir_*` (o modelo não finge outro).
 - **Toda rota protegida da 8077 declara o escopo**: `@app.get(...)` e logo abaixo `@requer_chave('leitura')`
   (desde 02/10/2026). Rota nova sem escopo = teste vermelho (`test_toda_rota_protegida_declara_um_escopo`).
   Ferramenta nova no MCP = acrescentar em `mcp/acesso_mcp.py:ESCOPO_DA_FERRAMENTA` (sem isso ela exige

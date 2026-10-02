@@ -53,6 +53,12 @@ ESCOPO_DA_FERRAMENTA: dict[str, str] = {
     "estado_servicos": "leitura",
     "testar_conexao": "leitura",
     "ultimo_deploy": "leitura",
+    # F3/F4: requests for a person to approve; the scope is the one of the action asked.
+    "pedir_sincronizar_os": "os:sincronizar",
+    "pedir_forcar_carga": "oportunidades:carga",
+    "pedir_processar_pedido": "pedidos_wbc",
+    "pedir_reiniciar_servico": "servico:reiniciar",
+    "acompanhar_aprovacao": "leitura",
     "estado_orcamento_wbc": "leitura",
     "situacao_pedido": "leitura",
     "pedidos_bloqueados": "leitura",
@@ -67,7 +73,14 @@ ESCOPO_DO_RECURSO: dict[str, str] = {
     "sap-integracao://historico-os": "leitura",
     "sap-integracao://colaboradores": "rh",
 }
-ESCRITAS = frozenset({"os:sincronizar", "oportunidades:carga"})
+ESCRITAS = frozenset({"os:sincronizar", "oportunidades:carga", "pedidos_wbc", "servico:reiniciar"})
+#: Tools whose ``pedido_por``/``em_nome_de`` arguments the door overwrites with the truth.
+PEDIDOS = frozenset({"pedir_sincronizar_os", "pedir_forcar_carga", "pedir_processar_pedido",
+                     "pedir_reiniciar_servico"})
+#: The two direct writes that still take ``confirmar=True`` from people (rule 0); for an
+#: agent the model's ``confirmar`` no longer runs anything (F3, rule 1).
+DIRETAS = {"sincronizar_pedido_os": "pedir_sincronizar_os",
+           "forcar_carga_oportunidades": "pedir_forcar_carga"}
 LIMITE_USUARIO = 80
 
 
@@ -123,7 +136,29 @@ def avaliar(cliente: Cliente, mensagem: dict) -> tuple[str | None, str | None, s
         return None, None, motivo
     if not cliente.pode(escopo):
         return alvo, escopo, f"A credencial '{cliente.nome}' não tem o escopo '{escopo}' para '{alvo}'."
+    argumentos = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
+    if cliente.agente and alvo in DIRETAS and argumentos.get("confirmar") not in (None, False, "false", 0):
+        return alvo, escopo, (f"Para o agente, escrita só com aprovação de uma pessoa: use "
+                              f"'{DIRETAS[alvo]}' (o confirmar=True do modelo não executa).")
     return alvo, escopo, seguranca_agente.recusa(cliente, escrita=escopo in ESCRITAS)
+
+
+def carimbar(corpo: bytes, cliente: Cliente, usuario: str | None) -> bytes:
+    """Overwrite ``pedido_por``/``em_nome_de`` of the request tools with who really called —
+    the model cannot claim to be someone else. Untouched bytes when nothing to stamp."""
+    try:
+        dados = json.loads(corpo or b"null")
+    except ValueError:
+        return corpo
+    mensagens = dados if isinstance(dados, list) else [dados]
+    mudou = False
+    for m in mensagens:
+        params = m.get("params") if isinstance(m, dict) and isinstance(m.get("params"), dict) else None
+        if m and isinstance(m, dict) and m.get("method") == "tools/call" and params and params.get("name") in PEDIDOS:
+            argumentos = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
+            params["arguments"] = {**argumentos, "pedido_por": cliente.nome, "em_nome_de": usuario or ""}
+            mudou = True
+    return json.dumps(dados, ensure_ascii=False).encode("utf-8") if mudou else corpo
 
 
 async def _responder(send, status: int, corpo: dict, extra_headers: list | None = None) -> None:
@@ -178,6 +213,12 @@ class PortaDoMcp:
                                              "error": {"code": -32001, "message": motivo}})
                 return
 
+        novo = carimbar(corpo, cliente, usuario)
+        if novo is not corpo:
+            corpo = novo
+            scope = {**scope, "headers": [(k, v) for k, v in scope.get("headers") or []
+                                          if k.lower() != b"content-length"]
+                     + [(b"content-length", str(len(corpo)).encode("ascii"))]}
         entregue = False
 
         async def reenvia():

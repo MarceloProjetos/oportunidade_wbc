@@ -42,8 +42,10 @@ def _um(psutil, nome: str, papel: str, agora: datetime) -> dict[str, Any]:
     except Exception as exc:  # access denied, SCM hiccup: say so instead of guessing
         item["motivo"] = f"não foi possível ler o serviço: {exc}"[:200]
         return item
+    # The account matters for F4: restarting the others needs a service-control right
+    # (LocalSystem has it; a plain user does not).
     item.update(instalado=True, estado=info.get("status"),
-                inicio_automatico=info.get("start_type") == "automatic")
+                inicio_automatico=info.get("start_type") == "automatic", conta=info.get("username"))
     pid = info.get("pid")
     if pid:
         try:

@@ -2,7 +2,7 @@
 
     python -m seguranca escopos
     python -m seguranca criar NOME --escopos leitura,os:sincronizar [--agente] [--declara-usuario]
-    python -m seguranca acrescentar NOME --escopos rh,op:status      (same key, scopes only grow)
+    python -m seguranca acrescentar NOME --escopos rh,op:status [--declara-usuario]  (same key, only grows)
     python -m seguranca listar
     python -m seguranca revogar NOME
     python -m seguranca desligar-agente [--so-escrita] [--motivo TEXTO]
@@ -31,7 +31,8 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--declara-usuario", action="store_true", help="pode informar X-SIS-Usuario")
     ac = sub.add_parser("acrescentar", help="acrescenta escopos a um cliente, mantendo a chave")
     ac.add_argument("nome")
-    ac.add_argument("--escopos", required=True, help="separados por vírgula")
+    ac.add_argument("--escopos", default="", help="separados por vírgula")
+    ac.add_argument("--declara-usuario", action="store_true", help="passa a poder informar X-SIS-Usuario")
     sub.add_parser("listar", help="lista os clientes (sem as chaves)")
     r = sub.add_parser("revogar", help="desativa um cliente")
     r.add_argument("nome")
@@ -63,11 +64,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "acrescentar":
         escopos = [e.strip() for e in args.escopos.split(",") if e.strip()]
         try:
-            todos = credenciais.acrescentar_escopos(args.nome, escopos)
+            todos = credenciais.acrescentar_escopos(args.nome, escopos, declara_usuario=args.declara_usuario)
         except credenciais.CredencialInvalida as exc:
             print(f"ERRO: {exc}", file=sys.stderr)
             return 2
-        print(f"Cliente '{args.nome}' agora com: {', '.join(todos)}. A chave é a mesma; vale na próxima chamada.")
+        extra = " (declara usuário)" if args.declara_usuario else ""
+        print(f"Cliente '{args.nome}' agora com: {', '.join(todos)}{extra}. "
+              "A chave é a mesma; vale na próxima chamada.")
         return 0
     if args.cmd == "listar":
         clientes = credenciais.carregar()

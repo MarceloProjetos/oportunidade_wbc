@@ -28,8 +28,10 @@ class _App:
 
     def __init__(self):
         self.recebido = None
+        self.scope = None
 
     async def __call__(self, scope, receive, send):
+        self.scope = scope
         mensagem = await receive()
         self.recebido = mensagem.get("body")
         await send({"type": "http.response.start", "status": 200, "headers": []})
@@ -117,11 +119,44 @@ def test_agente_desligado_nem_lista_ferramentas(porta):
 
 
 def test_agente_so_grava_no_expediente(porta, monkeypatch):
-    chave = credenciais.criar("mira-agente", ["mcp", "leitura", "os:sincronizar"], agente=True)
+    """Asking for an approval is the agent's write: outside business hours it only reads."""
+    chave = credenciais.criar("mira-agente", ["mcp", "leitura", "os:sincronizar", "servico:reiniciar"], agente=True)
     monkeypatch.setattr(agente, "no_expediente", lambda agora=None: False)
     assert _chamar(porta, chave, _ferramenta("situacao_pedido", pedido=1))[0] == 200
-    status, corpo, _ = _chamar(porta, chave, _ferramenta("sincronizar_pedido_os", nped=84080, confirmar=True))
-    assert status == 403 and "7h às 19h" in corpo["error"]["message"]
+    for nome, args in (("pedir_sincronizar_os", {"nped": 84080}), ("pedir_reiniciar_servico", {"servico": "x"})):
+        status, corpo, _ = _chamar(porta, chave, _ferramenta(nome, **args))
+        assert status == 403 and "7h às 19h" in corpo["error"]["message"], nome
+
+
+def test_confirmar_do_modelo_nao_executa_para_o_agente(porta, monkeypatch):
+    """F3, rule 1: for an agent the direct writes only preview; people keep them (rule 0)."""
+    monkeypatch.setattr(agente, "no_expediente", lambda agora=None: True)
+    robo = credenciais.criar("mira-agente", ["mcp", "os:sincronizar", "oportunidades:carga"], agente=True)
+    status, corpo, _ = _chamar(porta, robo, _ferramenta("sincronizar_pedido_os", nped=84080, confirmar=True))
+    assert status == 403 and "pedir_sincronizar_os" in corpo["error"]["message"]
+    status, corpo, _ = _chamar(porta, robo, _ferramenta("forcar_carga_oportunidades", confirmar=True))
+    assert status == 403 and "pedir_forcar_carga" in corpo["error"]["message"]
+    assert _chamar(porta, robo, _ferramenta("sincronizar_pedido_os", nped=84080))[0] == 200   # preview
+    pessoa = credenciais.criar("mcp-marcelo", ["mcp", "os:sincronizar"])
+    assert _chamar(porta, pessoa, _ferramenta("sincronizar_pedido_os", nped=84080, confirmar=True))[0] == 200
+
+
+def test_porta_carimba_quem_pediu_e_o_modelo_nao_finge(porta, monkeypatch):
+    monkeypatch.setattr(agente, "no_expediente", lambda agora=None: True)
+    chave = credenciais.criar("mira-agente", ["mcp", "pedidos_wbc"], agente=True, declara_usuario=True)
+    status, _, app = _chamar(porta, chave, _ferramenta("pedir_processar_pedido", pedido=84453,
+                                                       pedido_por="admin", em_nome_de="Diretor"),
+                             usuario="Ana Souza")
+    assert status == 200
+    argumentos = json.loads(app.recebido)["params"]["arguments"]
+    assert argumentos == {"pedido": 84453, "pedido_por": "mira-agente", "em_nome_de": "Ana Souza"}
+    tamanho = [v for k, v in app.scope["headers"] if k == b"content-length"]
+    assert tamanho == [str(len(app.recebido)).encode()]
+
+
+def test_carimbo_nao_mexe_no_que_nao_e_pedido():
+    corpo = json.dumps(_ferramenta("situacao_pedido", pedido=1)).encode()
+    assert acesso.carimbar(corpo, credenciais.Cliente("x"), None) is corpo
 
 
 def test_auditoria_registra_cada_ferramenta_com_quem_pediu(porta):
@@ -146,7 +181,7 @@ def test_toda_ferramenta_do_servidor_tem_um_escopo():
     """A tool added to mcp_server.py without a scope here stays closed (admin) — and this fails."""
     fonte = (RAIZ / "mcp" / "mcp_server.py").read_text(encoding="utf-8")
     ferramentas = set(re.findall(r"@mcp\.tool\([^)]*\)\s*\ndef (\w+)", fonte))
-    assert len(ferramentas) == 24
+    assert len(ferramentas) == 29
     assert ferramentas == set(acesso.ESCOPO_DA_FERRAMENTA)
     assert set(acesso.ESCOPO_DA_FERRAMENTA.values()) <= set(credenciais.ESCOPOS)
     recursos = set(re.findall(r'@mcp\.resource\("([^"]+)"', fonte))

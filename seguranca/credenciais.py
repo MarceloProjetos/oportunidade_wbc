@@ -40,11 +40,16 @@ ESCOPOS: dict[str, str] = {
     "historico:apagar": "apagar os históricos de sincronização",
     "pedidos_wbc": "API dos Pedidos WBC do Controle de Produção (lê e grava no SAP)",
     "manutencao_op": "API da Manutenção de OP do Controle de Produção (lê e grava no SAP)",
+    "servico:reiniciar": "pedir o reinício de um dos 6 serviços da .11 (só com aprovação de uma pessoa)",
+    "aprovar": "aprovar ou recusar o que o agente pediu — pessoa ou backend que fala por uma, NUNCA o agente",
     "mcp": "conectar ao MCP (8078); as ferramentas seguem os outros escopos",
     "admin": "tudo — só a chave-mestra e quem administra",
 }
 
 LIMITE_NOME = 40
+#: Never held by an agent credential: ``admin`` opens everything, ``aprovar`` would let the
+#: model approve its own request (rule 1 of the plan).
+PROIBIDOS_AO_AGENTE = frozenset({"admin", "aprovar"})
 
 
 class CredencialInvalida(ValueError):
@@ -154,8 +159,8 @@ def criar(nome: str, escopos: list[str], *, agente: bool = False, declara_usuari
         raise CredencialInvalida(
             f"Escopo(s) inválido(s): {', '.join(desconhecidos) or '(nenhum)'}. Válidos: {', '.join(ESCOPOS)}."
         )
-    if agente and "admin" in escopos:
-        raise CredencialInvalida("Um agente nunca recebe 'admin' (regra 12 do plano).")
+    if agente and PROIBIDOS_AO_AGENTE & set(escopos):
+        raise CredencialInvalida("Um agente nunca recebe 'admin' nem 'aprovar' (regras 1 e 12 do plano).")
     clientes = list(carregar(arquivo))
     # A revoked name may be reused (02/10/2026: a key pasted into a chat had to be replaced
     # right away); the revoked entry stays in the file, for the record.
@@ -171,12 +176,14 @@ def criar(nome: str, escopos: list[str], *, agente: bool = False, declara_usuari
     return chave
 
 
-def acrescentar_escopos(nome: str, escopos: list[str], *, arquivo: Path | None = None) -> list[str]:
+def acrescentar_escopos(nome: str, escopos: list[str], *, declara_usuario: bool = False,
+                        arquivo: Path | None = None) -> list[str]:
     """Adds scopes to an active client, keeping its key (02/10/2026: the Altamira View got 403
     on a scope it used before the migration — replacing the key would have broken it again).
-    Returns the client's scopes after the change. Never removes a scope."""
+    Returns the client's scopes after the change. Never removes a scope; ``declara_usuario``
+    only turns the flag on."""
     desconhecidos = [e for e in escopos if e not in ESCOPOS]
-    if desconhecidos or not escopos:
+    if desconhecidos or (not escopos and not declara_usuario):
         raise CredencialInvalida(
             f"Escopo(s) inválido(s): {', '.join(desconhecidos) or '(nenhum)'}. Válidos: {', '.join(ESCOPOS)}."
         )
@@ -184,9 +191,11 @@ def acrescentar_escopos(nome: str, escopos: list[str], *, arquivo: Path | None =
     alvo = next((c for c in clientes if c.get("nome") == nome and c.get("ativo", True)), None)
     if alvo is None:
         raise CredencialInvalida(f"Nenhum cliente ativo chamado '{nome}'.")
-    if alvo.get("agente") and "admin" in escopos:
-        raise CredencialInvalida("Um agente nunca recebe 'admin' (regra 12 do plano).")
+    if alvo.get("agente") and PROIBIDOS_AO_AGENTE & set(escopos):
+        raise CredencialInvalida("Um agente nunca recebe 'admin' nem 'aprovar' (regras 1 e 12 do plano).")
     alvo["escopos"] = sorted(set(alvo.get("escopos", [])) | set(escopos))
+    if declara_usuario:
+        alvo["declara_usuario"] = True
     alvo["alterado_em"] = datetime.now().isoformat(timespec="seconds")
     _gravar(clientes, arquivo)
     return alvo["escopos"]
