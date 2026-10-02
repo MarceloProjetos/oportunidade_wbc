@@ -65,6 +65,23 @@ def test_nome_repetido_e_recusado():
         credenciais.criar("orcaview-90", ["leitura"])
 
 
+def test_acrescentar_escopo_mantem_a_chave_e_nao_tira_nada():
+    chave = credenciais.criar("altamira-view", ["leitura", "os:sincronizar"])
+    assert credenciais.acrescentar_escopos("altamira-view", ["rh", "leitura"]) == ["leitura", "os:sincronizar", "rh"]
+    cliente = credenciais.identificar(chave)
+    assert cliente.pode("rh") and cliente.pode("os:sincronizar")
+    with pytest.raises(CredencialInvalida, match="Nenhum cliente ativo"):
+        credenciais.acrescentar_escopos("inexistente", ["rh"])
+    with pytest.raises(CredencialInvalida, match="Escopo"):
+        credenciais.acrescentar_escopos("altamira-view", ["tudo"])
+
+
+def test_cli_acrescentar(capsys):
+    credenciais.criar("altamira-view", ["leitura"])
+    assert cli(["acrescentar", "altamira-view", "--escopos", "rh"]) == 0
+    assert "leitura, rh" in capsys.readouterr().out
+
+
 def test_nome_revogado_pode_ser_recriado_e_a_chave_velha_segue_sem_valer():
     """A key that leaked is replaced under the same name; the old entry stays for the record."""
     velha = credenciais.criar("altamira-view", ["leitura"])

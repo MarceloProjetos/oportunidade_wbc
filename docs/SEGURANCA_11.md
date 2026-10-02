@@ -91,7 +91,15 @@ As funções **novas** (processar pedido, reiniciar serviço) entram depois da F
 
 ```powershell
 python -m seguranca listar                         # quem tem chave, escopos, ativo ou revogado
+python -m seguranca acrescentar altamira-view --escopos rh   # mesma chave, só ganha escopo; o cliente não muda nada
 python -m seguranca revogar equipe-pedidos         # a chave para de valer na próxima chamada
+```
+
+**Cliente migrado recebendo 403?** É escopo que ele usava com a chave-mestra e ficou de fora
+(regra 0: acrescenta, nunca tira). Veja qual e acrescente com o comando acima:
+
+```powershell
+Get-Content logs\auditoria\api-AAAA-MM-DD.jsonl | ConvertFrom-Json | Where-Object { $_.status -eq 403 } | Group-Object cliente, escopo | Select-Object Count, Name
 python -m seguranca auditoria api --ultimas 30     # últimas chamadas à API (também: controleproducao, mcp)
 python -m seguranca auditoria mcp --dia 2026-10-02
 ```

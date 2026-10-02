@@ -6,6 +6,13 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-02] — `python -m seguranca acrescentar`: escopo a mais sem trocar a chave
+
+O Altamira View migrou para a chave própria sem o escopo `rh` e levou 44 × 403 em
+`/rh/colaboradores` (auditoria da .11). Trocar a chave para corrigir quebraria o cliente de novo;
+`acrescentar NOME --escopos rh` mantém a chave e só soma escopos (nunca tira). Passo a passo de
+"cliente migrado com 403" em `docs/SEGURANCA_11.md`.
+
 ## [2026-10-02] — Segurança-base: chave por cliente, auditoria de 30 dias, interruptor do agente
 
 F1 de `docs/PLANO_MIRA_AGENTE_11.md`. Entra pelo `deploy_update.bat` (API, Controle de Produção e

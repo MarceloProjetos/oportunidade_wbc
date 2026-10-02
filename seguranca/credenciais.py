@@ -171,6 +171,27 @@ def criar(nome: str, escopos: list[str], *, agente: bool = False, declara_usuari
     return chave
 
 
+def acrescentar_escopos(nome: str, escopos: list[str], *, arquivo: Path | None = None) -> list[str]:
+    """Adds scopes to an active client, keeping its key (02/10/2026: the Altamira View got 403
+    on a scope it used before the migration — replacing the key would have broken it again).
+    Returns the client's scopes after the change. Never removes a scope."""
+    desconhecidos = [e for e in escopos if e not in ESCOPOS]
+    if desconhecidos or not escopos:
+        raise CredencialInvalida(
+            f"Escopo(s) inválido(s): {', '.join(desconhecidos) or '(nenhum)'}. Válidos: {', '.join(ESCOPOS)}."
+        )
+    clientes = [dict(c) for c in carregar(arquivo)]
+    alvo = next((c for c in clientes if c.get("nome") == nome and c.get("ativo", True)), None)
+    if alvo is None:
+        raise CredencialInvalida(f"Nenhum cliente ativo chamado '{nome}'.")
+    if alvo.get("agente") and "admin" in escopos:
+        raise CredencialInvalida("Um agente nunca recebe 'admin' (regra 12 do plano).")
+    alvo["escopos"] = sorted(set(alvo.get("escopos", [])) | set(escopos))
+    alvo["alterado_em"] = datetime.now().isoformat(timespec="seconds")
+    _gravar(clientes, arquivo)
+    return alvo["escopos"]
+
+
 def revogar(nome: str, *, arquivo: Path | None = None) -> bool:
     """Deactivates a client (kept in the file, for the record). ``False`` if not found."""
     clientes = [dict(c) for c in carregar(arquivo)]
