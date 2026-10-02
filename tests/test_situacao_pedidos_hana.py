@@ -41,7 +41,8 @@ class _Cursor:
         # As 4 consultas da liberacao real + NF (PLANO_DATAS_LIBERACAO_NF). Vazias por
         # padrao: sem isso cairiam no ``else`` e receberiam as linhas da view.
         elif '"ADOC"' in sql:
-            cols, linhas = ["DocEntry", "UpdateDate", "UpdateTS", "U_INO_PedLib"], self._c.adoc
+            cols, linhas = (["DocEntry", "UpdateDate", "UpdateTS", "U_INO_PedLib",
+                             "LogInstanc"], self._c.adoc)
         elif '"DPI1"' in sql:
             cols, linhas = ["BaseEntry", "DocEntry", "DocStatus", "CANCELED"], self._c.odpi
         elif '"RCT2"' in sql:
@@ -632,6 +633,20 @@ def test_ultima_liberacao_bloqueado_no_fim_ou_sem_historico_e_none():
     assert hana.ultima_liberacao([]) is None
 
 
+def test_historico_cortado_ja_liberado_nao_inventa_a_hora():
+    """84348 on 02/10: the SAP kept versions 8-106; the 15:06 release was in 1-7."""
+    vs = [("S", _m(8, 163026)), ("S", _m(9, 100300)), ("S", _m(29, 170500))]
+    assert hana.ultima_liberacao(vs, historico_completo=False) is None
+    assert hana.liberado_ate(vs) == _m(8, 163026)
+
+
+def test_historico_cortado_com_passagem_visivel_vale_a_passagem():
+    vs = [("S", _m(1, 80000)), ("N", _m(3, 80000)), ("S", _m(4, 90000))]
+    assert hana.ultima_liberacao(vs, historico_completo=False) == _m(4, 90000)
+    assert hana.liberado_ate(vs) is None
+    assert hana.liberado_ate([]) is None
+
+
 def test_sinal_reemitido_e_aberto_nao_esta_pago():
     """84326: pagou o sinal em 02/09, ganhou ODPI nova em 22/09 e voltou a bloquear."""
     odpis = [{"DocEntry": 2627, "DocStatus": "C", "CANCELED": "N"},
@@ -675,6 +690,20 @@ def test_liberacao_com_sinal_e_o_mais_tardio_dos_dois():
     assert g["lib_producao_em"] == "2026-09-23T16:51:16-03:00"
 
 
+def test_historico_cortado_producao_so_pelo_sinal_pago_depois():
+    cortado = dict(_LibFinEm=None, _LibFinAte="2026-09-08T16:30:26-03:00")
+    # Sinal paid after the oldest retained version: Financeiro came before it → the sinal.
+    f = hana.liberacao_e_nf(_crua(Sinal="S", _SinalPagoEm="2026-09-25T08:13:35-03:00",
+                                  **cortado))
+    assert f["lib_fin_em"] is None
+    assert f["lib_producao_em"] == f["lib_entrega_em"] == "2026-09-25T08:13:35-03:00"
+    # Sinal paid before it, or no sinal at all: the order of the two is unknown.
+    g = hana.liberacao_e_nf(_crua(Sinal="S", _SinalPagoEm="2026-09-01T10:00:00-03:00",
+                                  **cortado))
+    assert g["lib_producao_em"] is None
+    assert hana.liberacao_e_nf(_crua(**cortado))["lib_producao_em"] is None
+
+
 def test_liberacao_sem_todas_as_horas_ou_bloqueada_e_none():
     assert hana.liberacao_e_nf(_crua(Sinal="S"))["lib_producao_em"] is None
     assert hana.liberacao_e_nf(_crua(_LibFinEm=None))["lib_producao_em"] is None
@@ -696,8 +725,8 @@ def test_primeira_nf_e_as_chaves_do_contrato():
 def _conexao_com_liberacao(**over):
     kw = dict(
         colunas=COLUNAS, linhas=[_linha(Financeiro="Liberado", Producao="Liberada")],
-        adoc=[(15118, dt.datetime(2026, 9, 23), 164912, "N"),
-              (15118, dt.datetime(2026, 9, 23), 165116, "S")],
+        adoc=[(15118, dt.datetime(2026, 9, 23), 164912, "N", 1),
+              (15118, dt.datetime(2026, 9, 23), 165116, "S", 2)],
         odpi=[(15118, 2627, "C", "N")],
         rct=[(2627, dt.datetime(2026, 9, 24), 101500, "N")],
         evol=[(84260, dt.datetime(2025, 3, 10), "Neto  ", 5729,
@@ -717,6 +746,15 @@ def test_a_leitura_injeta_liberacao_e_nf_nas_linhas(monkeypatch):
     assert "\"ObjType\" = '17'" in adoc and "IN (15118)" in adoc
     evol = next(s for s in c.sqls if "VW_EVOL_ORCAMENTO_ALT" in s)
     assert "\"TipoDoc\" = '17'" in evol and "LEFT JOIN" in evol
+
+
+def test_a_leitura_reconhece_o_historico_cortado_pelo_sap(monkeypatch):
+    adoc = [(15118, dt.datetime(2026, 9, 8), 163026, "S", 8),
+            (15118, dt.datetime(2026, 9, 29), 170500, "S", 106)]
+    _ligar(monkeypatch, _conexao_com_liberacao(adoc=adoc))
+    r = hana.fetch_status_pedidos()[0]
+    assert r["_LibFinEm"] is None
+    assert r["_LibFinAte"] == "2026-09-08T16:30:26-03:00"
 
 
 def test_historico_fora_do_ar_nao_derruba_a_situacao_nem_a_nf(monkeypatch):

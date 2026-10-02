@@ -165,7 +165,7 @@ momento da liberação**:
 
 - `data_lib_prod` é **calculada**: a maior entre `data_lib_fin` e `data_pagto`, mais 3
   dias corridos. Por isso caía em sábado, domingo e no futuro.
-- `data_lib_fin` é **digitada** à mão, e em 182 de 252 pedidos está 1 dia depois do real.
+- `data_lib_fin` é **digitada** à mão, e em 188 de 264 pedidos está 1 dia depois do real.
 - `data_pagto` é a **emissão** da Solicitação de Adiantamento (o sinal), paga ou não.
 
 Os campos **`lib_fin_em`**, **`sinal_pago_em`**, **`lib_producao_em`** e
@@ -180,9 +180,12 @@ paga.** Sinal reemitido faz um pedido que já tinha pago voltar a bloquear. **Pr
 Entrega têm sempre o mesmo status no SAP**, então `lib_entrega_em` é igual a
 `lib_producao_em`.
 
-Quando não dá para afirmar a hora (pedido sem histórico, sinal quitado por outro
-caminho — 6 de 274 hoje), o campo vem **`null`**. Não caia de volta em `data_lib_prod`
-para preencher: ela é uma estimativa, não um fato.
+Quando não dá para afirmar a hora, o campo vem **`null`**. O caso mais comum (desde
+02/10/2026): **o SAP guarda só as 99 últimas versões de cada pedido** e descarta as mais
+antigas. Em pedido muito alterado, a versão em que o Financeiro liberou já foi descartada,
+e `lib_fin_em` vem `null`. Os outros casos são pedido sem histórico e sinal quitado por
+outro caminho. Hoje são 18 de 284 pedidos com a Produção liberada e sem `lib_producao_em`.
+Não caia de volta em `data_lib_prod` para preencher: ela é uma estimativa, não um fato.
 
 Passo a passo para atualizar o seu projeto, com tipos e exemplos:
 [`docs/API_SITUACAO_PEDIDOS_NOVOS_CAMPOS.md`](docs/API_SITUACAO_PEDIDOS_NOVOS_CAMPOS.md).
@@ -205,7 +208,10 @@ Mande um único pedido com estes três itens — nada aqui é auto-serviço:
 
 1. **Liberação de rede** para `192.168.7.11`, portas **8077** (REST) e/ou **8078** (MCP),
    a partir do IP de origem que você vai usar.
-2. **A chave da API** (`X-API-Key`), se for usar REST.
+2. **A chave da API** (`X-API-Key`), se for usar REST. Desde 02/10/2026 **cada equipe
+   tem a sua chave**, com o escopo `leitura` (é o que estas rotas pedem), e toda chamada
+   fica registrada por 30 dias. A chave da equipe **só vale no cabeçalho**: na URL
+   (`?key=`) ela é recusada.
 3. **O token do MCP** (`Bearer`), se for usar MCP.
 4. **O `STATUS_ID`**, se você for **monitorar** a saúde do servidor (§5.3). É uma
    credencial separada e de baixo privilégio: abre o diagnóstico completo e **só ele** —
@@ -509,9 +515,9 @@ ou — em pedido cancelado no SAP — `"Cancelado"` (2.2).
 | `data_lib_fin` | str \| null | Quando o Financeiro liberou, ISO |
 | `data_lib_prod` | str \| null | ⚠️ **Não é o dia em que a Produção liberou.** A view do SAP a *calcula*: a maior entre `data_lib_fin` e `data_pagto`, **+ 3 dias corridos** — e nenhuma das duas é o momento real (`data_lib_fin` é digitada; `data_pagto` é a emissão do sinal). Por isso cai em sábado/domingo e pode estar no futuro. Não há, nesta API, a data real da liberação da Produção. ISO |
 | `data_pagto` | str \| null | ⚠️ **Não é a data do pagamento.** É a data de emissão da Solicitação de Adiantamento (sinal) no SAP, paga ou não. ISO |
-| **`lib_fin_em`** | str \| null | **Quando o Financeiro liberou, com hora** (ISO com fuso). Última passagem de bloqueado para liberado no histórico do pedido — ver 2.8 |
+| **`lib_fin_em`** | str \| null | **Quando o Financeiro liberou, com hora** (ISO com fuso). Última passagem de bloqueado para liberado no histórico do pedido. `null` quando essa versão já saiu do histórico (o SAP guarda só as 99 últimas) — ver 2.8 |
 | `sinal_pago_em` | str \| null | Quando o sinal ficou pago: o registro no SAP do recebimento que quitou a **última** Solicitação de Adiantamento. `null` sem sinal, com sinal em aberto ou reemitido |
-| **`lib_producao_em`** | str \| null | **Quando a Produção foi liberada, com hora.** O mais tardio entre `lib_fin_em` e `sinal_pago_em` (este só se o pedido tem sinal). `null` se a Produção está bloqueada ou se falta uma das horas |
+| **`lib_producao_em`** | str \| null | **Quando a Produção foi liberada, com hora.** O mais tardio entre `lib_fin_em` e `sinal_pago_em` (este só se o pedido tem sinal). `null` se a Produção está bloqueada ou se falta uma das horas — exceto quando dá para provar que o sinal foi pago depois do Financeiro: aí vem `sinal_pago_em` mesmo com `lib_fin_em` `null` |
 | **`lib_entrega_em`** | str \| null | Quando a Entrega foi liberada. **Igual a `lib_producao_em`**: o SAP não separa as duas |
 | `data_criacao_pn` | str \| null | Data de criação do cliente (PN) no SAP, ISO |
 | `representante` | str \| null | Representante do pedido na view de orçamentos do SAP. Quase sempre igual a `vendedor` (1 de 280 difere) |
@@ -717,6 +723,7 @@ mais rápido que isso.
 | --- | --- | --- |
 | **400** | O número não é inteiro positivo | Corrija o valor |
 | **401** | Chave ausente ou errada | Confira o cabeçalho `X-API-Key` |
+| **403** | `tipo: "sem_permissao"`: a chave é válida, mas não tem o escopo `leitura` | Mande-nos o `motivo` da resposta; acrescentamos o escopo **sem trocar a chave** |
 | **404** | Não dá para afirmar a situação: veja o campo **`motivo`** | **Não é "sem bloqueio"** (2.3). Pedido cancelado NÃO cai aqui — ele vem `200` (2.2) |
 | **409** | O número casa com mais de um pedido | Consulte por `chave=docentry`. Não deve acontecer — se acontecer, **avise-nos** |
 | **422** | Parâmetro fora do domínio (ex.: `bloqueio=comercial`) | A mensagem lista os valores aceitos. Tentar de novo não adianta |
@@ -960,7 +967,8 @@ if e["cidade"] != e["ponto_entrega"]["cidade"]:
 | "Esse pedido existe, mas dá 404" | Veja o `motivo` (2.3): ele não está no recorte da view (só os correntes), **ou** você mandou DocEntry sem `chave=docentry` |
 | "A tela mostra 'sem situação'" | Pedido **cancelado** no SAP responde `200` com `status_pedido: "Cancelado"` desde 03/09/2026 (2.2). Se ainda vier vazio, é o `404` — leia o `motivo` |
 | "O dado está velho" | Cache de 120 s. Veja `cache_idade_s` |
-| "Deu 401" | Cabeçalho `X-API-Key` ausente, com espaço, ou chave errada |
+| "Deu 401" | Cabeçalho `X-API-Key` ausente, com espaço, ou chave errada — ou a chave foi na URL (`?key=`), que não vale para chave de equipe |
+| "Deu 403" | A chave não tem o escopo `leitura`. Mande-nos o `motivo` da resposta |
 | "Deu 503" | O SAP HANA está fora. Espere e tente de novo |
 | "A resposta está enorme" | Você está em `campos=completo` (435 KB na lista). Use `resumo` (120 KB) — ele já traz o endereço de entrega |
 | "O endereço não é o do cadastro do cliente" | É assim mesmo: o pedido tem um **Local de Entrega** próprio (2.7). Despache pelo que veio |
@@ -970,5 +978,5 @@ mudou de tipo, ou qualquer número que divirja da tela do OrçaView de forma con
 
 ---
 
-*Servidor de Integração SAP · `192.168.7.11` · atualizado em 2026-09-14.*
+*Servidor de Integração SAP · `192.168.7.11` · atualizado em 2026-10-02.*
 *Runbook interno: `PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29; historico no git)`.*

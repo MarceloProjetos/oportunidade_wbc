@@ -6,6 +6,24 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-02] — Situação dos pedidos: `lib_fin_em` não inventa hora com o histórico cortado
+
+O SAP guarda só as **99 últimas versões** de cada pedido (`ADOC`) e apaga as mais antigas. A
+`ultima_liberacao` contava a versão mais antiga que sobrou, já liberada, como "liberado desde a
+criação": 26 dos 295 pedidos saíam com `lib_fin_em` mais tarde que o real, e a hora andava para
+frente a cada alteração (84348: 15:06 em 25/09, 16:30 em 02/10; 84080: 27/08 para uma liberação de
+junho). Achado ao conferir os exemplos do guia da equipe consumidora.
+
+- Histórico que não começa no `LogInstanc` 1 só aceita uma passagem N→S **visível**; sem ela,
+  `lib_fin_em` = `null` (a regra 2 do contrato: "não dá para saber").
+- `lib_producao_em` continua certo quando o sinal foi pago depois da versão mais antiga que sobrou
+  (`liberado_ate`, chave interna `_LibFinAte`): 84348 segue 25/09 08:13.
+- Medido com a regra nova (02/10, 295 pedidos): 18 de 284 com Produção liberada ficam sem hora;
+  `data_lib_prod` erra de −34 a +15 dias (o "−118" de 25/09 era o histórico cortado).
+- Contrato `API_SITUACAO_PEDIDOS.md` (2.8, 4, 6.2, 10, 13: o 403 `sem_permissao` de 02/10 faltava) e
+  guia `docs/API_SITUACAO_PEDIDOS_NOVOS_CAMPOS.md` revisados — exemplos conferidos no SAP, armadilha
+  do `new Date("AAAA-MM-DD")` no JS, regra do pedido cancelado.
+
 ## [2026-10-02] — F5 do plano da Mira: aprovar pelo grupo do WhatsApp
 
 `docs/PLANO_MIRA_AGENTE_11.md`, F5. O código é do web (V118.439, `services/mira_aprovacoes.py`); aqui só

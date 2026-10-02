@@ -301,8 +301,8 @@ VIEW_ORCAMENTOS = "VW_EVOL_ORCAMENTO_ALT"
 
 #: Chaves injetadas nas linhas cruas. Comecam com ``_`` porque nao sao colunas da view,
 #: como :data:`MUNICIPIO_CHAVES`. Existem sempre; ``None`` = "nao foi possivel saber".
-LIBERACAO_CHAVES = ("_LibFinEm", "_SinalPagoEm", "_DataCriacaoPN", "_Representante",
-                    "_NfDocNum", "_NfNumeroFiscal", "_NfData")
+LIBERACAO_CHAVES = ("_LibFinEm", "_LibFinAte", "_SinalPagoEm", "_DataCriacaoPN",
+                    "_Representante", "_NfDocNum", "_NfNumeroFiscal", "_NfData")
 
 
 def momento(data: Any, hhmmss: Any) -> datetime | None:
@@ -323,21 +323,36 @@ def momento(data: Any, hhmmss: Any) -> datetime | None:
         return None
 
 
-def ultima_liberacao(versoes: list[tuple[Any, datetime | None]]) -> datetime | None:
-    """Momento da ULTIMA passagem do Financeiro para liberado, pelo historico.
+def ultima_liberacao(versoes: list[tuple[Any, datetime | None]],
+                     historico_completo: bool = True) -> datetime | None:
+    """Moment of the LAST Financeiro passage to released, from the change log.
 
-    ``versoes`` = ``[(U_INO_PedLib, momento), ...]`` na ordem do ``LogInstanc``. Pedido
-    que ja nasce ``'S'`` conta a primeira versao (liberado desde a criacao). Pedido
-    re-bloqueado e liberado de novo (11 no recorte de 25/09) vale a liberacao mais
-    recente. Se a ultima versao do historico nao esta liberada, ``None``.
+    ``versoes`` = ``[(U_INO_PedLib, momento), ...]`` in ``LogInstanc`` order. An order born
+    ``'S'`` counts its first version (released since creation). Re-blocked and released
+    again (11 in the 25/09 cut) → the most recent release. Last version not released → ``None``.
+
+    ``historico_completo=False``: the SAP keeps only the last 99 versions of a document and
+    drops the oldest (30 of 295 orders on 02/10/2026). The oldest RETAINED version being
+    ``'S'`` then says nothing about when the release happened — counting it reported 84348
+    as released at 16:30 when it was 15:06, and the time drifted later with every new save.
+    Only a passage N→S visible inside the window counts; otherwise ``None``.
     """
     liberado_em, anterior = None, None
     for pl, quando in versoes:
         pl = str(pl or "").strip().upper()
-        if pl == "S" and anterior != "S":
+        if pl == "S" and anterior != "S" and (anterior is not None or historico_completo):
             liberado_em = quando
         anterior = pl
     return liberado_em if anterior == "S" else None
+
+
+def liberado_ate(versoes: list[tuple[Any, datetime | None]]) -> datetime | None:
+    """Truncated log already released in every retained version → the release happened at
+    or before the oldest one. An upper bound for :func:`liberacao_e_nf`, never a release time.
+    """
+    if versoes and all(str(pl or "").strip().upper() == "S" for pl, _ in versoes):
+        return versoes[0][1]
+    return None
 
 
 def sinal_pago_em(odpis: list[dict[str, Any]],
@@ -392,16 +407,24 @@ def _injetar_liberacao_e_nf(conn, schema: str, linhas: list[dict[str, Any]]) -> 
     # 1) Financeiro: historico do pedido (ADOC, ObjType 17).
     try:
         versoes: dict[int, list[tuple[Any, datetime | None]]] = {}
+        primeira: dict[int, int | None] = {}
         for h in _linhas(conn,
-                         f'SELECT "DocEntry", "UpdateDate", "UpdateTS", "U_INO_PedLib" '
+                         f'SELECT "DocEntry", "UpdateDate", "UpdateTS", "U_INO_PedLib", '
+                         f'"LogInstanc" '
                          f'FROM "{schema}"."ADOC" WHERE "ObjType" = \'17\' '
                          f'AND "DocEntry" IN ({in_entries}) '
                          f'ORDER BY "DocEntry", "LogInstanc"'):
-            versoes.setdefault(int(h["DocEntry"]), []).append(
+            e = int(h["DocEntry"])
+            primeira.setdefault(e, _int(h.get("LogInstanc")))
+            versoes.setdefault(e, []).append(
                 (h.get("U_INO_PedLib"), momento(h.get("UpdateDate"), h.get("UpdateTS"))))
         for e, vs in versoes.items():
             if e in por_entry:
-                por_entry[e]["_LibFinEm"] = _iso(ultima_liberacao(vs))
+                # LogInstanc starts at 1; a higher first one means the SAP dropped the oldest.
+                completo = primeira.get(e) == 1
+                por_entry[e]["_LibFinEm"] = _iso(ultima_liberacao(vs, completo))
+                if not completo:
+                    por_entry[e]["_LibFinAte"] = _iso(liberado_ate(vs))
     except Exception as e:
         logger.warning("[SIT_PED] historico (ADOC) indisponivel (%s) — seguindo sem.", e)
 
@@ -471,13 +494,19 @@ def liberacao_e_nf(r: dict[str, Any]) -> dict[str, Any]:
     ``lib_entrega_em`` e' a mesma: o SAP nao separa Producao de Entrega (281 de 281).
     """
     fin = r.get("_LibFinEm")
+    ate = r.get("_LibFinAte")
     sinal = r.get("_SinalPagoEm")
     lib_prod = None
-    if str(r.get("Producao") or "").strip().lower().startswith("liberad") and fin:
+    if str(r.get("Producao") or "").strip().lower().startswith("liberad"):
         if str(r.get("Sinal") or "").strip().lower().startswith("s"):
-            if sinal:
+            if sinal and fin:
                 lib_prod = max(fin, sinal, key=datetime.fromisoformat)
-        else:
+            elif sinal and ate and (datetime.fromisoformat(sinal)
+                                    >= datetime.fromisoformat(ate)):
+                # Financeiro's time was lost with the old versions, but it came no later
+                # than ``ate``; the payment came after it, so the payment is the moment.
+                lib_prod = sinal
+        elif fin:
             lib_prod = fin
     nf = r.get("_NfDocNum")
     return {
