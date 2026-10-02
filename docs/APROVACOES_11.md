@@ -55,24 +55,37 @@ backend com `declara_usuario` (o .90) manda `X-SIS-Usuario` (a pessoa) e `X-SIS-
 `pcp`…) e pode dizer `canal: "whatsapp"` ou `"mira"`. Recusas: `403 tipo=papel` (papel errado),
 `409 ja_decidido`/`expirado`, `404 nao_encontrado`.
 
-## F5 — o canal privado do WhatsApp (no .90; nada feito ainda)
+## F5 — o grupo da Mira no WhatsApp (.90, web V118.439)
 
-Levantado no código do .90 em 02/10/2026 (só leitura):
+Código no repo do web: `backend/services/mira_aprovacoes.py` (+ a interceptação no topo de
+`_processar_um_turno`, em `mira_whatsapp_gateway.py`). Guia do lado de lá: `docs/agent/whatsapp.md`.
 
-- O grupo privado já tem um caminho **sem o modelo**: `mira_confirmacao.detectar_confirmacao`
-  (`^/?confirmar\s+(\d{4})$`) no topo de `_processar_um_turno`
-  (`backend/services/mira_whatsapp_gateway.py`). Voz transcrita passa pelo mesmo lugar. **Por isso
-  o código da .11 é de 4 dígitos.**
-- O que a F5 precisa:
-  1. **Cartão no grupo** quando nasce um pedido (o .90 consulta `GET /aprovacoes?estado=pendente`
-     ou recebe o retorno do pedido). Texto que **não comece** pelo comando — ex.: "… Para aprovar,
-     responda: aprovar 4821".
-  2. **Interceptar antes do modelo**, ao lado do `confirmar`: `^/?(aprovar|recusar)\s+(\d{4})$` na
-     mensagem inteira → `POST /aprovacoes/<código>/aprovar|recusar` com `canal: "whatsapp"`,
-     `X-SIS-Usuario` = o dono, `X-SIS-Papel: admin`. A credencial do .90 (`orcaview-90`) precisa
-     de `aprovar` e do escopo de cada ação que ela for pedir.
-  3. Responder no grupo com o resultado (`GET /aprovacoes/<código>`).
-- ⚠️ **Cuidados do .90** (memória e `docs/agent/whatsapp.md`): mexer no WhatsApp só com pedido
-  explícito do Marcelo, com teste-catraca; os cartões saem da conta dele e **voltam** pelo
-  `message_create` — só o anti-eco do Node os separa. O regex ancorado na mensagem inteira é a
-  segunda trava: um cartão ecoado nunca casa com `aprovar 4821` sozinho.
+1. **Cartão no grupo.** Um vigia no .90 (tarefa no loop principal, a cada 30 s, só onde a Mira roda) lê
+   `GET /aprovacoes?estado=pendente` e posta cada pedido novo no grupo: código, o que é, a prévia, quem
+   pediu, quem aprova, até quando vale, e as duas linhas "Para aprovar, responda: aprovar 4821" /
+   "Para recusar: recusar 4821". Quando o pedido termina (executado, falhou, recusado ou expirou — por
+   qualquer canal, inclusive a Central), o desfecho volta ao grupo.
+2. **A decisão, antes do modelo.** A mensagem INTEIRA tem de ser o comando: `aprovar 4821`,
+   `Aprovo 4821.`, `aprovar 48 21` (o áudio transcrito pontua e separa número) ou `recusar 4821 motivo`.
+   Só vale do dono (`MIRA_OWNER_JID`). O .90 chama `POST /aprovacoes/4821/aprovar|recusar` com
+   `canal: "whatsapp"`, `X-SIS-Usuario` = o nome do dono (ASCII) e `X-SIS-Papel: admin`.
+3. **A Mira também pede** (`pedir_processar_pedido`, `pedir_reiniciar_servico`, `pedir_forcar_carga`;
+   `sincronizar_pedido_os` segue no `CONFIRMAR` de sempre — regra 0). Ela pede com **outra** credencial.
+
+**Duas credenciais, de propósito:**
+
+| No .90 (`.env`) | Cliente na .11 | Escopos | Faz |
+|---|---|---|---|
+| `OPORTUNIDADE_WBC_API_KEY` | `orcaview-90` (declara usuário) | os de antes **+ `aprovar`** | decide — só pelo `aprovar 4821` do dono |
+| `OPORTUNIDADE_WBC_AGENTE_KEY` | `mira-agente` (**`--agente`**, declara usuário) | `leitura`, `oportunidades:carga`, `pedidos_wbc`, `servico:reiniciar` | só **pede** |
+
+Um modelo enganado por um texto encaminhado alcança só a chave de agente — que a .11 nunca deixa
+aprovar (`PROIBIDOS_AO_AGENTE`) e que obedece ao interruptor e ao expediente (seg–sex 7h–19h). No
+.90 há catraca: a rota de decisão só aparece em `decidir()`, e só o gateway chama `decidir()`.
+
+- O cartão sai da conta do dono e **volta** pelo `message_create`: o anti-eco do Node é a 1ª trava; a
+  mensagem inteira ter de ser o comando é a 2ª (teste: nada que o bot posta vira decisão).
+- O vigia guarda em memória o que já anunciou: depois de um restart do .90, um pedido ainda pendente é
+  anunciado de novo (inofensivo — cada pedido é decidido uma vez).
+- Cada volta do vigia é um GET auditado na .11 (~2,9 mil linhas/dia de `orcaview-90`); a auditoria não
+  foi afrouxada para isso.

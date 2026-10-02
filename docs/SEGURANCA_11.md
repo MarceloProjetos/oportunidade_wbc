@@ -92,7 +92,7 @@ As funções **novas** (processar pedido, reiniciar serviço) entram depois da F
 ## F3/F4: aprovações do agente (02/10/2026)
 
 O agente só **pede** escrita; uma pessoa aprova na Central (`/inicio`, seção "Aprovações do
-agente") ou, quando a F5 existir, respondendo `aprovar 4821` no grupo privado da Mira. Contrato e
+agente") ou respondendo `aprovar 4821` no grupo privado da Mira (F5, abaixo). Contrato e
 regras: `docs/APROVACOES_11.md`. Depois do deploy, para as ferramentas `pedir_*` do MCP funcionarem
 (só acrescenta; a chave de ninguém muda):
 
@@ -103,6 +103,28 @@ python -m seguranca acrescentar mcp-marcelo --escopos pedidos_wbc,servico:reinic
 
 O `--declara-usuario` do `mcp-servico` é o que deixa a .11 registrar **qual** cliente do MCP pediu
 (o MCP carimba o cliente real; o modelo não consegue fingir outro).
+
+## F5: aprovar pelo grupo da Mira (02/10/2026)
+
+Duas linhas na .11 — só acrescentam; nenhuma chave existente muda:
+
+```powershell
+python -m seguranca acrescentar orcaview-90 --escopos aprovar
+```
+
+```powershell
+python -m seguranca criar mira-agente --escopos leitura,oportunidades:carga,pedidos_wbc,servico:reiniciar --agente --declara-usuario
+```
+
+O segundo mostra uma chave nova **uma vez**. Ela vai no `.env` da raiz do OrçaView **no .90** (o mesmo
+arquivo da `OPORTUNIDADE_WBC_API_KEY`), numa linha nova:
+
+```
+OPORTUNIDADE_WBC_AGENTE_KEY=<a chave que apareceu>
+```
+
+e o backend do .90 é reiniciado. Sem essa linha, os cartões e o `aprovar 4821` funcionam do mesmo jeito;
+só a Mira não consegue **pedir** (ela diz isso). Por que duas: `docs/APROVACOES_11.md`, seção F5.
 
 ## O dia a dia
 
@@ -131,7 +153,14 @@ python -m seguranca religar-agente
 
 ## Firewall do MCP (8078)
 
-Hoje a 8078 responde para a rede inteira. O script fecha para todos, menos os IPs permitidos.
+**O firewall do Windows da .11 está DESLIGADO** (Marcelo, 02/10/2026): nenhuma regra de firewall tem
+efeito nesta máquina — nem a da 8078, nem a `OrcaView-ControleProducao-8080`. A proteção que vale é a das
+chaves com escopo + auditoria. Ligar o firewall da máquina mexe em TODAS as portas (8077–8080, RDP,
+compartilhamentos) e é decisão separada, dele; o script fica pronto para esse dia. Conferir:
+`Get-NetFirewallProfile | Select-Object Name, Enabled`.
+
+Hoje a 8078 responde para a rede inteira. O script fecha para todos, menos os IPs permitidos — **com o
+firewall ligado**.
 
 **Antes de fechar, descubra quem usa** (regra "não tirar função"): depois do deploy, a auditoria
 registra o IP de cada chamada ao MCP. Deixe passar alguns dias úteis e veja os IPs:

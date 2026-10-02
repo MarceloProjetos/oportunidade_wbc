@@ -1,6 +1,12 @@
 # Plano — a .11 pronta para a Mira agir como agente
 
-> **Status (02/10/2026, 13:15): F3/F4 NO AR na .11 e exercitadas de verdade.** O pedido 6991 (sincronizar
+> **Status (02/10/2026, tarde): F5 CODADA e testada no web (V118.439, `services/mira_aprovacoes.py`)** — cartão
+> de cada pedido no grupo da Mira, `aprovar 4821` / `recusar 4821 motivo` (texto ou áudio, só do dono, antes do
+> modelo), desfecho de volta ao grupo, e a Mira PEDE com a chave de agente `mira-agente`. **Pendem (Marcelo):** os 2
+> comandos de `docs/SEGURANCA_11.md` (seção F5), 1 linha no `.env` do .90 e o restart do backend do .90. Nenhuma
+> aprovação pelo WhatsApp exercitada ainda. **Firewall do Windows da .11 DESLIGADO** (Marcelo): a regra da 8078
+> não tem efeito; ligar o firewall da máquina é decisão dele, fora deste plano.
+> **Antes (02/10, 13:15): F3/F4 NO AR na .11 e exercitadas de verdade.** O pedido 6991 (sincronizar
 > as OS do 84455) foi pedido pelo agente (`mcp-marcelo`) às 13:08, aprovado por Marcelo Miranda na Central
 > às 13:10:36 e executado em 2 s (200); a auditoria registra a escrita com `usuario = "Marcelo Miranda -
 > aprovacao 6991"`. A 1ª tentativa (6634) falhou ANTES de executar: acento no cabeçalho HTTP (httpx só aceita
@@ -163,8 +169,9 @@ volta a quebrar calada.
   depois das 10:42. **O que mordeu:** a primeira troca do `mcp\.env` foi feita no arquivo do **notebook**, não no da
   .11 — o MCP seguiu com a chave-mestra até a troca certa. E o `/status` com a chave-mestra não entrava na
   auditoria (corrigido em `60e0d0b`, pende deploy, junto com `7aef94a`).
-- **Pende:** em 1–2 dias, sem `mcp-legado` na auditoria → apagar `SIS_MCP_TOKEN` do `mcp\.env`; depois,
-  firewall da 8078 com .148, .90 e .229 (reservar o .229 no DHCP).
+- **Pende:** em 1–2 dias, sem `mcp-legado` na auditoria → apagar `SIS_MCP_TOKEN` do `mcp\.env` (é o
+  `mcp\.env`, não o `.env` da raiz). O firewall da 8078 ficou **sem efeito**: o firewall do Windows da .11
+  está desligado (Marcelo, 02/10); ligar é decisão dele, à parte.
 
 ### F2 — A leitura que falta — NO AR 02/10 11:48 (1ce861b), conferida
 *Quando fechar: o agente responde aos 8 casos sem ninguém abrir a .11.*
@@ -217,9 +224,18 @@ volta a quebrar calada.
   acompanhar). Reiniciar serviço (só os 6; recusa com o Controle de Produção ocupado; worker pela
   parada por arquivo).
 
-### F5 — O lado da Mira (.90) *(próximo projeto)*
-- Cartão de aprovação na conversa, identidade do usuário, ligação ao MCP da .11. Este plano deixa
-  o contrato pronto; a implementação é do projeto do .90.
+### F5 — O lado da Mira (.90) — codada 02/10 (web V118.439); pende restart do .90 + 2 comandos
+*Quando fechar: você aprova pelo WhatsApp, e a Mira pede sem poder aprovar.*
+- **Feito (repo do web):** `services/mira_aprovacoes.py` — vigia (tarefa no loop principal, 30 s, só onde a
+  Mira roda) que posta o cartão de cada pedido pendente e o desfecho; `detectar_decisao` (mensagem inteira:
+  `aprovar 4821`, `Aprovo 48 21.`, `recusar 4821 motivo`) no topo de `_processar_um_turno`, antes do
+  `CONFIRMAR` e do modelo, só do `MIRA_OWNER_JID`; `decidir` (única porta da decisão, chamada só pelo
+  gateway — catraca); ferramentas `pedir_processar_pedido`, `pedir_reiniciar_servico`, `pedir_forcar_carga`,
+  `aprovacoes_pendentes`. O `sincronizar_pedido_os` da Mira segue no `CONFIRMAR` (regra 0).
+- **Duas credenciais:** `orcaview-90` + `aprovar` decide; `mira-agente` (`--agente`) só pede. Contrato:
+  `docs/APROVACOES_11.md` §F5; comandos: `docs/SEGURANCA_11.md` §F5.
+- **Conferido:** 34 testes novos no web (decisão, eco, chaves, vigia, catraca) + a suíte inteira.
+  **Não exercitado:** uma aprovação real pelo WhatsApp.
 
 ## 5. Decisões
 

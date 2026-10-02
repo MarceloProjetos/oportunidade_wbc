@@ -205,6 +205,8 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   só `aprovar` executa, e credencial `agente` nunca recebe `aprovar` nem `admin` (`PROIBIDOS_AO_AGENTE`). Ação
   nova para o agente = entrada em `acoes_agente.CATALOGO` (escopo, papéis, teto, prévia, execução) — nunca
   comando livre. A porta 8078 carimba `pedido_por`/`em_nome_de` das `pedir_*` (o modelo não finge outro).
+  F5 (web V118.439): o .90 decide com `orcaview-90` (+`aprovar`) só pelo `aprovar 4821` do dono no grupo da
+  Mira, e a Mira PEDE com `mira-agente` (`--agente`). Nunca dê `aprovar` à chave que a Mira usa para pedir.
 - **Toda rota protegida da 8077 declara o escopo**: `@app.get(...)` e logo abaixo `@requer_chave('leitura')`
   (desde 02/10/2026). Rota nova sem escopo = teste vermelho (`test_toda_rota_protegida_declara_um_escopo`).
   Ferramenta nova no MCP = acrescentar em `mcp/acesso_mcp.py:ESCOPO_DA_FERRAMENTA` (sem isso ela exige
@@ -288,7 +290,8 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   (30/09). `_update_pedido` (recria
   linhas) está FECHADO com erro claro até o Anderson validar. `Reprocessar` voltou à tela em 30/09 (D8 revertida); (8) o pacote **não** tem expediente: fora do ar = alerta;
   (9) `CP_HOST` decide quem alcança a tela: `0.0.0.0` (o valor da .11 desde 28/09 ~14:45, F6,
-  com a regra de firewall `OrcaView-ControleProducao-8080` só para `192.168.0.0/16`) = a mesma
+  com a regra de firewall `OrcaView-ControleProducao-8080` só para `192.168.0.0/16` — **sem efeito: o firewall
+  do Windows da .11 está desligado**, Marcelo, 02/10/2026) = a mesma
   exposição do painel; **nunca o IP da máquina** (o `deploy_update.bat` e o `/status`
   sondam `127.0.0.1:CP_PORTA`); `127.0.0.1` = só a própria máquina, e aí
   o painel tem de ser aberto por `http://localhost:8079` (os botões montam o link com o host da

@@ -6,6 +6,13 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-02] — F5 do plano da Mira: aprovar pelo grupo do WhatsApp
+
+`docs/PLANO_MIRA_AGENTE_11.md`, F5. O código é do web (V118.439, `services/mira_aprovacoes.py`); aqui só
+documentação: `docs/APROVACOES_11.md` (seção F5, as duas credenciais) e `docs/SEGURANCA_11.md` (os 2
+comandos: `aprovar` para o `orcaview-90`, cliente novo `mira-agente` com `--agente`). Firewall do Windows
+da .11 está desligado: regra da 8078 sem efeito, registrado em `SEGURANCA_11.md` e no `CLAUDE.md`.
+
 ## [2026-10-02] — F3/F4 do plano da Mira: o agente pede, uma pessoa aprova
 
 `docs/PLANO_MIRA_AGENTE_11.md`, F3 e F4. Contrato: `docs/APROVACOES_11.md`.
