@@ -141,6 +141,17 @@ def test_usuario_declarado_so_vale_de_quem_pode_declarar(c):
     assert auditoria.ler("api")[0]["usuario"] is None
 
 
+def test_status_com_credencial_entra_na_auditoria(c, monkeypatch):
+    """/status has no @requer_chave: the caller used to stay unresolved and the call was
+    skipped as anonymous — even with the master key (seen on the .11, 02/10/2026)."""
+    monkeypatch.setattr(apimod, "collect_status", lambda *_a, **_k: {"ok": True, "checks": {}, "alerts": []})
+    leitura = credenciais.criar("monitor", ["leitura"])
+    c.get("/status", headers=_h(MESTRA))
+    c.get("/status", headers=_h(leitura))
+    assert [(l["cliente"], l["rota"]) for l in auditoria.ler("api")] == [
+        ("chave-mestra", "/status"), ("monitor", "/status")]
+
+
 def test_monitoramento_anonimo_nao_enche_a_auditoria(c, monkeypatch):
     monkeypatch.setattr(apimod, "collect_status", lambda *_a, **_k: {"ok": True, "checks": {}, "alerts": []})
     c.get("/health")

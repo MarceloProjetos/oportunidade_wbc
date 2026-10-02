@@ -1398,7 +1398,10 @@ def _audita(resposta: Response) -> Response:
         caminho = request.path
         if caminho.startswith(_SEM_AUDITORIA):
             return resposta
-        cliente = g.get('sis_cliente')
+        # Routes without @requer_chave (/status, the screens) never resolved the caller: resolve
+        # it here, or a /status read with the master key was recorded as anonymous and skipped
+        # (seen on the .11, 02/10/2026).
+        cliente = g.get('sis_cliente') if 'sis_cliente' in g else _cliente()
         if cliente is None and caminho in ('/', '/status') and resposta.status_code < 400:
             return resposta
         inicio = g.get('sis_inicio')
