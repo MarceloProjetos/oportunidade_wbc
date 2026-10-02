@@ -157,8 +157,10 @@ def criar(nome: str, escopos: list[str], *, agente: bool = False, declara_usuari
     if agente and "admin" in escopos:
         raise CredencialInvalida("Um agente nunca recebe 'admin' (regra 12 do plano).")
     clientes = list(carregar(arquivo))
-    if any(c.get("nome") == nome for c in clientes):
-        raise CredencialInvalida(f"Já existe um cliente chamado '{nome}'. Revogue-o antes ou use outro nome.")
+    # A revoked name may be reused (02/10/2026: a key pasted into a chat had to be replaced
+    # right away); the revoked entry stays in the file, for the record.
+    if any(c.get("nome") == nome and c.get("ativo", True) for c in clientes):
+        raise CredencialInvalida(f"Já existe um cliente ativo chamado '{nome}'. Revogue-o antes ou use outro nome.")
     chave = secrets.token_urlsafe(32)
     clientes.append({
         "nome": nome, "hash": resumo(chave), "escopos": sorted(set(escopos)), "agente": agente,

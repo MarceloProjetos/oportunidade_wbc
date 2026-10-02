@@ -61,8 +61,18 @@ def test_criar_recusa_o_que_nao_faz_sentido(nome, escopos, agente_, trecho):
 
 def test_nome_repetido_e_recusado():
     credenciais.criar("orcaview-90", ["leitura"])
-    with pytest.raises(CredencialInvalida, match="Já existe"):
+    with pytest.raises(CredencialInvalida, match="Já existe um cliente ativo"):
         credenciais.criar("orcaview-90", ["leitura"])
+
+
+def test_nome_revogado_pode_ser_recriado_e_a_chave_velha_segue_sem_valer():
+    """A key that leaked is replaced under the same name; the old entry stays for the record."""
+    velha = credenciais.criar("altamira-view", ["leitura"])
+    credenciais.revogar("altamira-view")
+    nova = credenciais.criar("altamira-view", ["leitura"])
+    assert credenciais.identificar(velha) is None
+    assert credenciais.identificar(nova).nome == "altamira-view"
+    assert [c["ativo"] for c in credenciais.carregar()] == [False, True]
 
 
 def test_arquivo_ilegivel_nao_derruba_nada(_seguranca_isolada):
