@@ -526,9 +526,11 @@ def historico_pedido(pedido: int, versoes: int = 20, chave: str = "docnum") -> d
     Use para "quem mudou o pedido 84453?", "o peso do 84444 mudou quando?", "alguém mexeu
     na quantidade?". Lê o histórico de alterações do próprio SAP (ADOC/ADO1). Cada versão
     traz ``momento``, ``usuario`` e ``pela_integracao`` (true = gravado pelo usuário da
-    integração/worker; false = uma pessoa no SAP) e as ``mudancas`` (cabeçalho: cliente,
-    entrega, valor, situação, cancelado, vendedor, aprovado; linhas: item, quantidade,
-    peso, preço, situação; linha incluída/removida). Mais nova primeiro.
+    integração/worker; false = uma pessoa no SAP) e as ``mudancas`` (cabeçalho: qualquer
+    campo, inclusive contato, endereço, condição de pagamento, liberação financeira,
+    montador; linhas: item, quantidade, peso, preço, desconto, situação, entrega,
+    depósito, OPs; linha incluída/removida). Mais nova primeiro. "Salvo sem mudança de
+    conteúdo" = a pessoa abriu e salvou sem alterar nada que importe.
 
     Ao responder, deixe claro quem fez cada mudança: quando ``pela_integracao`` é false, a
     mudança foi feita por uma pessoa no SAP, não pelo software.
