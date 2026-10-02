@@ -13,6 +13,7 @@ caller's choosing (rule 5).
 """
 from __future__ import annotations
 
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -57,9 +58,11 @@ class Acao:
 # Loopback to the routes people use
 # ---------------------------------------------------------------------------
 def _usuario(ctx: Contexto | None) -> str:
-    if ctx is None:
-        return "agente (prévia)"
-    return f"{ctx.pessoa} · aprovação {ctx.codigo}"[:80]
+    """The ``X-SIS-Usuario`` header: ASCII only — httpx refuses "ç", "ã", "·" in a header
+    (the 1st real approval, 02/10/2026, failed on it before reaching the route). Accents stay
+    in the JSON bodies (the CP's ``solicitante``)."""
+    texto = f"{ctx.pessoa} - aprovacao {ctx.codigo}" if ctx else "agente (previa)"
+    return unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("ascii")[:80]
 
 
 def _chamar(base: str, metodo: str, caminho: str, *, corpo: dict | None = None,

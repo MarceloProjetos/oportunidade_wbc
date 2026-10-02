@@ -1128,9 +1128,12 @@ _INSTRUCAO_PEDIDO = ("NADA foi executado. Diga ao usuário o que foi pedido (a '
 def _pedir(acao: str, parametros: dict[str, Any], motivo: str, pedido_por: str, em_nome_de: str) -> dict[str, Any]:
     """POST /aprovacoes. ``pedido_por``/``em_nome_de`` are stamped by the 8078 door (acesso_mcp)
     with the real client and person; whatever the model sends in them is replaced there."""
-    cabecalhos = {**_headers(), "X-SIS-Pedido-Por": (pedido_por or "mcp-stdio")[:40]}
+    def ascii_(texto: str) -> str:   # httpx refuses non-ASCII header values ("João")
+        return unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("ascii")
+
+    cabecalhos = {**_headers(), "X-SIS-Pedido-Por": ascii_(pedido_por or "mcp-stdio")[:40]}
     if em_nome_de:
-        cabecalhos["X-SIS-Usuario"] = em_nome_de[:80]
+        cabecalhos["X-SIS-Usuario"] = ascii_(em_nome_de)[:80]
     tempo = 120.0   # the preview of "processar" reads the CP's list and its plan
     try:
         resp = httpx.post(f"{API_BASE}/aprovacoes", json={"acao": acao, "parametros": parametros,

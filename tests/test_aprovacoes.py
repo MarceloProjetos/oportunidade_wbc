@@ -133,6 +133,22 @@ def test_processar_previa_e_execucao_com_o_mesmo_plano(monkeypatch):
     assert corpo["solicitante"] == "Marcelo (aprovou 4821, pedido de mira-agente)" and ctx.pessoa == "Marcelo"
 
 
+def test_cabecalho_da_pessoa_vai_em_ascii(monkeypatch):
+    """1st real approval (02/10): "Marcelo Miranda · aprovação 6634" broke httpx before the call."""
+    enviados = []
+
+    def request(metodo, url, json=None, headers=None, timeout=None, trust_env=None):
+        enviados.append(headers)
+        for valor in headers.values():
+            valor.encode("ascii")
+        return type("R", (), {"status_code": 200, "json": lambda self: {"ok": True}})()
+
+    monkeypatch.setattr(acoes_agente.httpx, "request", request)
+    ctx = acoes_agente.Contexto("João Conceição", "6634", "mcp-marcelo")
+    ok, _ = acoes_agente.CATALOGO["sincronizar_os"].executar({"nped": 84455}, {}, ctx)
+    assert ok and enviados[0]["X-SIS-Usuario"] == "Joao Conceicao - aprovacao 6634"
+
+
 def test_processar_recusa_plano_que_mudou(monkeypatch):
     monkeypatch.setattr(acoes_agente, "_chamar", _CP())
     acao = acoes_agente.CATALOGO["processar_pedido"]
