@@ -1,7 +1,9 @@
 # Plano — a .11 pronta para a Mira agir como agente
 
-> **Status (02/10/2026, tarde): F1 (segurança-base) codada e testada; pende o deploy e a migração
-> das chaves (`docs/SEGURANCA_11.md`).** Decisões 3–9 aceitas com as recomendações, retenção da
+> **Status (02/10/2026, 10:20): F1 (segurança-base) NO AR na .11 e conferida só leitura** — os 3
+> serviços reiniciaram com o código novo; chave-mestra, token antigo do MCP e telas seguem valendo
+> (33/33 da API do CP, 8077 e MCP com e sem credencial). **Pende (Marcelo): migrar as chaves e,
+> depois de alguns dias de auditoria, o firewall** (`docs/SEGURANCA_11.md`). Antes: codada. Decisões 3–9 aceitas com as recomendações, retenção da
 > auditoria em **30 dias** (Marcelo). Antes: análise feita, nada implementado. Inventário levantado no código (só
 > leitura). Escopo: **só a .11** — os outros servidores ficam para projetos seguintes.
 > **Conclusão direta:** a .11 já responde bem a perguntas (19 ferramentas no MCP), mas **não está
@@ -132,7 +134,7 @@ volta a quebrar calada.
 
 ## 4. Fases (ordem real; cada uma depende da anterior)
 
-### F1 — Segurança-base *(pré-requisito de tudo)* — codada 02/10, pende deploy
+### F1 — Segurança-base *(pré-requisito de tudo)* — no ar 02/10 ~10:19; pende a migração das chaves
 *Quando fechar: dá para saber quem fez o quê pelo MCP, e uma credencial vazada não abre tudo.*
 - Credenciais por cliente com escopo (regra 2) e identidade nas chamadas (regra 3).
 - Registro de auditoria append-only com 30 dias (regra 4); `DELETE /historico` só com o escopo próprio (a chave-mestra e as telas continuam podendo).
