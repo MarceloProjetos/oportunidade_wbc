@@ -1,6 +1,9 @@
 # Plano — a .11 pronta para a Mira agir como agente
 
-> **Status (02/10/2026, tarde): F5 CODADA e testada no web (V118.439, `services/mira_aprovacoes.py`)** — cartão
+> **Status (02/10/2026, 13:55): F5 NO AR e exercitada.** Pedido 7460 (sincronizar OS 84455, via MCP) chegou como
+> cartão no grupo da Mira às 13:53; o Marcelo respondeu `aprovar 7460`; a .11 executou em 2 s (200), registrado
+> `decidido_por = Marcelo Miranda`, `canal = whatsapp`. A Mira pedindo (`pedir_*`) ainda não foi exercitada.
+> **Antes: F5 CODADA e testada no web (V118.439, `services/mira_aprovacoes.py`)** — cartão
 > de cada pedido no grupo da Mira, `aprovar 4821` / `recusar 4821 motivo` (texto ou áudio, só do dono, antes do
 > modelo), desfecho de volta ao grupo, e a Mira PEDE com a chave de agente `mira-agente`. **Pendem (Marcelo):** os 2
 > comandos de `docs/SEGURANCA_11.md` (seção F5), 1 linha no `.env` do .90 e o restart do backend do .90. Nenhuma
@@ -224,7 +227,7 @@ volta a quebrar calada.
   acompanhar). Reiniciar serviço (só os 6; recusa com o Controle de Produção ocupado; worker pela
   parada por arquivo).
 
-### F5 — O lado da Mira (.90) — codada 02/10 (web V118.439); pende restart do .90 + 2 comandos
+### F5 — O lado da Mira (.90) — NO AR 02/10 13:51 (web V118.439); aprovação real pelo WhatsApp OK (7460)
 *Quando fechar: você aprova pelo WhatsApp, e a Mira pede sem poder aprovar.*
 - **Feito (repo do web):** `services/mira_aprovacoes.py` — vigia (tarefa no loop principal, 30 s, só onde a
   Mira roda) que posta o cartão de cada pedido pendente e o desfecho; `detectar_decisao` (mensagem inteira:
@@ -235,7 +238,7 @@ volta a quebrar calada.
 - **Duas credenciais:** `orcaview-90` + `aprovar` decide; `mira-agente` (`--agente`) só pede. Contrato:
   `docs/APROVACOES_11.md` §F5; comandos: `docs/SEGURANCA_11.md` §F5.
 - **Conferido:** 34 testes novos no web (decisão, eco, chaves, vigia, catraca) + a suíte inteira.
-  **Não exercitado:** uma aprovação real pelo WhatsApp.
+  **Na .90 (02/10 13:53):** 7460 aprovado no grupo e executado. **Não exercitado:** a Mira pedindo.
 
 ## 5. Decisões
 
