@@ -1,9 +1,12 @@
 # Plano — a .11 pronta para a Mira agir como agente
 
-> **Status (02/10/2026, tarde): F3/F4 (aprovação fora do modelo + escritas novas) CODADAS e testadas, pendem
-> deploy e 2 comandos (`docs/SEGURANCA_11.md`).** O agente só pede; uma pessoa aprova na Central (`/inicio`) — e,
-> na F5, respondendo `aprovar 4821` no grupo privado da Mira (ideia do Marcelo, 02/10; contrato em
-> `docs/APROVACOES_11.md`). Nada de escrita nova foi exercitado de verdade ainda.
+> **Status (02/10/2026, 13:15): F3/F4 NO AR na .11 e exercitadas de verdade.** O pedido 6991 (sincronizar
+> as OS do 84455) foi pedido pelo agente (`mcp-marcelo`) às 13:08, aprovado por Marcelo Miranda na Central
+> às 13:10:36 e executado em 2 s (200); a auditoria registra a escrita com `usuario = "Marcelo Miranda -
+> aprovacao 6991"`. A 1ª tentativa (6634) falhou ANTES de executar: acento no cabeçalho HTTP (httpx só aceita
+> ASCII), corrigido em `876468e`. Os 2 comandos de `docs/SEGURANCA_11.md` foram rodados. Próximo: F5 (WhatsApp
+> da Mira; contrato em `docs/APROVACOES_11.md`). Processar pedido e reiniciar serviço ainda não foram
+> exercitados de verdade.
 > **Antes: F1 no ar e MIGRADA; F2 (leituras) NO AR na .11 e conferida pelo MCP** (5 ferramentas:
 > serviços 6/6, HANA e GitHub alcançados, destino fora da lista recusado, histórico do 84453 com pessoa × integração,
 > log do 00125348). Antes: F2 codada.
@@ -184,7 +187,7 @@ volta a quebrar calada.
 - **O registro do deploy só aparece a partir do 2º deploy** depois deste: o `.bat` roda de uma cópia
   feita antes do `git pull`, então o 1º ainda executa a versão antiga.
 
-### F3 — Aprovação fora do modelo — codada 02/10; pende deploy
+### F3 — Aprovação fora do modelo — NO AR 02/10; aprovação real conferida
 *Quando fechar: nenhuma escrita acontece sem o clique de uma pessoa identificada.*
 - **Feito:** `seguranca/aprovacoes.py` (SQLite `state/aprovacoes.db`; pedido vale 30 min, código de **4
   dígitos**, decidido uma vez por UPDATE atômico) + rotas `/aprovacoes` na 8077 + seção "Aprovações do
@@ -195,12 +198,13 @@ volta a quebrar calada.
 - **Por que 4 dígitos:** o grupo privado do .90 já trata `confirmar 1234` por código, antes do modelo, e
   voz transcrita acerta número, não letra. Contrato da F5 (WhatsApp) em `docs/APROVACOES_11.md`.
 - **Conferido:** 19 testes de aprovação + 4 da porta; a tela na prévia local (pedidos falsos, recusa com
-  nome, celular). **Não exercitado:** uma aprovação real na .11.
+  nome, celular). **Na .11 (02/10 13:10):** pedido 6991 aprovado na Central e executado; a escrita sai com
+  o cliente `chave-mestra` (a própria .11) e `usuario` = quem aprovou + o código.
 - Protocolo pedir → aprovar (pessoa, na Mira) → executar, com o token preso à pessoa e à operação.
 - `sincronizar_pedido_os` e `forcar_carga_oportunidades` passam para esse protocolo (o
   `confirmar=True` do modelo deixa de valer).
 
-### F4 — As escritas novas — codada 02/10; pende deploy
+### F4 — As escritas novas — NO AR 02/10; processar e reiniciar ainda não exercitados
 *Quando fechar: o agente processa pedido e reinicia serviço, sempre com aprovação.*
 - **Feito:** `operacao/acoes_agente.py` (catálogo fechado: sincronizar OS, forçar carga, processar
   pedido, reiniciar serviço — escopo, quem aprova, teto por hora, prévia, execução pelas rotas de
