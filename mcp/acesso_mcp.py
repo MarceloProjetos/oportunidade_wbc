@@ -47,6 +47,12 @@ ESCOPO_DA_FERRAMENTA: dict[str, str] = {
     "estado_windows_update": "leitura",
     "ultimos_erros": "leitura",
     "situacao_op": "leitura",
+    # F2 (02/10/2026): reading the .11 itself.
+    "log_orcamento_wbc": "leitura",
+    "historico_pedido": "leitura",
+    "estado_servicos": "leitura",
+    "testar_conexao": "leitura",
+    "ultimo_deploy": "leitura",
     "estado_orcamento_wbc": "leitura",
     "situacao_pedido": "leitura",
     "pedidos_bloqueados": "leitura",

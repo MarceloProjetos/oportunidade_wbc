@@ -105,6 +105,8 @@ from extract_ordens_servico_engenharia import (
 from extract_sap_to_supabase import main as sync_oportunidades
 from extract_vendas_bi import main as sync_vendas_bi
 from monitoring import SELECTABLE_CHECKS, AcompanhamentoIndisponivel, collect_status, wbc_orcamento
+from operacao import conexoes, historico_pedido, log_worker, versao
+from operacao import servicos as operacao_servicos_mod
 from pipeline_core import (
     FileLockTimeout,
     coerce_positive_int,
@@ -953,6 +955,9 @@ def status_detalhado():
     http = 503 if strict and degraded else 200
     if not _status_completo_autorizado():
         data = _status_publico(data)
+    else:
+        # Which code answers — added here, not in collect_status (a contract between repos).
+        data['versao'] = versao.versao()
     return jsonify(data), http
 
 
@@ -1508,6 +1513,78 @@ def wbc_orcamento_rota(orcnum: str):
             ok=False, orcamento=numero, motivo='fora_do_acompanhamento',
             error='O worker nunca avaliou este orcamento (em geral: mais antigo que a janela dele).',
         ), 404
+    return jsonify(ok=True, **dados)
+
+
+@app.get('/wbc/orcamentos/<orcnum>/log')
+@requer_chave('leitura')
+def wbc_orcamento_log(orcnum: str):
+    """The worker log lines that mention ONE quote, newest first (``?linhas=``, max 200).
+    Read-only; the same file the painel's "Log" tab reads (F2 of PLANO_MIRA_AGENTE_11)."""
+    numero = (orcnum or '').strip()
+    if not numero.isdigit() or len(numero) > 8:
+        return jsonify(ok=False, error='orcamento deve ter so numeros (ate 8 digitos)'), 400
+    return jsonify(ok=True, **log_worker.log_do_orcamento(
+        numero, request.args.get('linhas', log_worker.LINHAS_PADRAO, type=int)))
+
+
+# --- F2 of docs/PLANO_MIRA_AGENTE_11.md: read-only views of the .11 itself -----------------
+# Testing a connection runs ping + TCP from the server: cheap, but a loop of an agent should
+# not turn it into a probe. Same sliding window as the writes.
+_RATE_CONEXAO_MAX = 20
+
+
+@app.get('/operacao/servicos')
+@requer_chave('leitura')
+def operacao_servicos():
+    """The six NSSM services of the .11: state, automatic start, since when. Read-only."""
+    return jsonify(ok=True, **operacao_servicos_mod.estado_servicos())
+
+
+@app.get('/operacao/conexoes')
+@requer_chave('leitura')
+def operacao_conexoes():
+    """The closed list of destinations ``/operacao/conexoes/<destino>`` can test."""
+    return jsonify(ok=True, destinos=[d.publico() for d in conexoes.destinos().values()])
+
+
+@app.get('/operacao/conexoes/<destino>')
+@requer_chave('leitura')
+def operacao_testar_conexao(destino: str):
+    """DNS, ping and TCP from the .11 to ONE listed destination (``?porta=`` one of its ports).
+    Never a free host or port: an unknown name or port is 400 with the list."""
+    bloqueio = _checar_rate('conexao', _RATE_CONEXAO_MAX)
+    if bloqueio:
+        return bloqueio
+    try:
+        return jsonify(ok=True, **conexoes.testar(destino, request.args.get('porta', type=int)))
+    except conexoes.DestinoInvalido as exc:
+        return jsonify(ok=False, error=str(exc),
+                       destinos=sorted(conexoes.destinos())), 400
+
+
+@app.get('/operacao/deploy')
+@requer_chave('leitura')
+def operacao_deploy():
+    """The running commit (and whether a restart is pending) plus the last deploy's steps."""
+    return jsonify(ok=True, versao=versao.versao(), ultimo_deploy=versao.ultimo_deploy())
+
+
+@app.get('/pedidos/<numero>/historico')
+@requer_chave('leitura')
+def pedido_historico(numero: str):
+    """What changed in ONE sales order, version by version, and who saved each one (the
+    SAP change log, ADOC/ADO1). ``<numero>`` is the DocNum (``?chave=docentry`` for the
+    DocEntry); ``?versoes=`` caps how many, newest first (default 20, max 60). Read-only."""
+    n = _inteiro_positivo(numero, 'numero do pedido')
+    try:
+        dados = historico_pedido.historico(
+            n, por_docentry=_chave_docentry(),
+            limite=request.args.get('versoes', historico_pedido.VERSOES_PADRAO, type=int))
+    except historico_pedido.PedidoNaoEncontrado as exc:
+        return jsonify(ok=False, motivo='pedido_nao_encontrado', error=str(exc)), 404
+    except sit_ped_hana.SAPIndisponivel as exc:
+        return jsonify(ok=False, error=str(exc)), 503
     return jsonify(ok=True, **dados)
 
 

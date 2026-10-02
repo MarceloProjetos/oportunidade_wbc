@@ -1,9 +1,10 @@
 # Plano — a .11 pronta para a Mira agir como agente
 
-> **Status (02/10/2026, 10:20): F1 (segurança-base) NO AR na .11 e conferida só leitura** — os 3
-> serviços reiniciaram com o código novo; chave-mestra, token antigo do MCP e telas seguem valendo
-> (33/33 da API do CP, 8077 e MCP com e sem credencial). **Pende (Marcelo): migrar as chaves e,
-> depois de alguns dias de auditoria, o firewall** (`docs/SEGURANCA_11.md`). Antes: codada. Decisões 3–9 aceitas com as recomendações, retenção da
+> **Status (02/10/2026, tarde): F1 no ar e MIGRADA; F2 (leituras) CODADA e testada, pende deploy.**
+> Os 4 clientes usam a própria chave (o Altamira View precisou de `rh` a mais, acrescentado sem trocar
+> a chave). F2: 5 ferramentas novas no MCP (24 no total); o histórico de pedido foi conferido no SAP
+> real (84453, 12 versões, 0,34 s). **Pende (Marcelo): deploy da F2**; depois, apagar o `SIS_MCP_TOKEN`
+> e o firewall da 8078 (`docs/SEGURANCA_11.md`). Antes: F1 no ar 10:19 e conferida; codada. Decisões 3–9 aceitas com as recomendações, retenção da
 > auditoria em **30 dias** (Marcelo). Antes: análise feita, nada implementado. Inventário levantado no código (só
 > leitura). Escopo: **só a .11** — os outros servidores ficam para projetos seguintes.
 > **Conclusão direta:** a .11 já responde bem a perguntas (19 ferramentas no MCP), mas **não está
@@ -43,7 +44,7 @@ Leitura inclui **ping e teste de porta a partir da .11**.
 | `SIS_MCP_TOKEN` | o MCP inteiro, que por dentro usa a `OS_API_KEY` | `mcp/.env` + cada cliente MCP |
 | `STATUS_ID` | só o `/status` completo | quem monitora |
 
-### MCP — 19 ferramentas + 3 recursos
+### MCP — 19 ferramentas + 3 recursos (24 com a F2)
 
 - **Leitura (17):** saúde (`verificar_saude`, `estado_integracao_wbc`, `estado_tarefa_wbc`,
   `estado_windows_update`), OS (`listar_pedidos_com_os`, `detalhe_pedido_os`,
@@ -156,10 +157,26 @@ volta a quebrar calada.
 - **Pende:** em 1–2 dias, sem `mcp-legado` na auditoria → apagar `SIS_MCP_TOKEN` do `mcp\.env`; depois,
   firewall da 8078 com .148, .90 e .229 (reservar o .229 no DHCP).
 
-### F2 — A leitura que falta
+### F2 — A leitura que falta — codada 02/10; pende deploy
 *Quando fechar: o agente responde aos 8 casos sem ninguém abrir a .11.*
-- `estado_servicos`, `testar_conexao` (lista fechada), `historico_pedido` (ADOC/ADO1), trecho do
-  log do worker por orçamento, deploy gravando log + `ultimo_deploy` + versão no `/status`.
+- Pacote `operacao/` (só leitura) + rotas da 8077 com escopo `leitura` + 5 ferramentas no MCP:
+
+| Ferramenta MCP | Rota 8077 | O que responde |
+|---|---|---|
+| `estado_servicos` | `GET /operacao/servicos` | os 6 serviços NSSM: estado, início automático, desde quando |
+| `testar_conexao` | `GET /operacao/conexoes[/<destino>]` | DNS, ping e TCP a partir da .11 — só 9 destinos pelo nome, cada um com as suas portas; 20/min |
+| `historico_pedido` | `GET /pedidos/<n>/historico` | ADOC/ADO1: cada versão, quem salvou, pessoa × integração, o que mudou |
+| `log_orcamento_wbc` | `GET /wbc/orcamentos/<n>/log` | as linhas do log do worker sobre o orçamento (arquivo atual + o rotacionado) |
+| `ultimo_deploy` | `GET /operacao/deploy` | commit do processo × commit no disco (`reinicio_pendente`) + passos do último deploy |
+
+- O `/status` completo ganhou `versao`; o público não muda. `deploy_update.bat` grava uma linha por
+  etapa em `logs/deploy.log` (início, abortos, git, pip, health, fim) — só acrescenta, nenhum passo mudou.
+- **O que a conferência no SAP real mostrou:** com uma lista de 7 campos do cabeçalho, 4 gravações do
+  Adriano no 84453 pareciam vazias — uma tinha trocado o contato. O cabeçalho passou a ser comparado
+  inteiro (menos os campos internos que mudam a cada gravação); as linhas, num conjunto fixo (item,
+  quantidade, peso, preço, desconto, situação, entrega, depósito, OPs).
+- **O registro do deploy só aparece a partir do 2º deploy** depois deste: o `.bat` roda de uma cópia
+  feita antes do `git pull`, então o 1º ainda executa a versão antiga.
 
 ### F3 — Aprovação fora do modelo
 *Quando fechar: nenhuma escrita acontece sem o clique de uma pessoa identificada.*

@@ -63,6 +63,12 @@ Produção e Manutenção de OP; tela na porta 8080, serviço `OrcaView-Controle
 Não é o servidor RDP do SAP (192.168.7.12): esse é o servidor MCP `sap-rdp`, com tools
 próprias. Não confunda as respostas de Windows Update das duas máquinas.
 
+Diagnóstico da própria .11 (só leitura): `estado_servicos` (os 6 serviços do Windows e
+desde quando), `testar_conexao` (DNS, ping e porta a partir da .11, só destinos de uma
+lista fechada), `ultimo_deploy` (versão no ar e como foi o último deploy),
+`historico_pedido` (o que mudou num pedido e quem mudou — pessoa ou integração) e
+`log_orcamento_wbc` (o log do worker sobre um orçamento).
+
 Tudo é leitura, exceto `sincronizar_pedido_os` e `forcar_carga_oportunidades`: essas
 devolvem um preview com `confirmar=False` e só executam com `confirmar=True`, depois do
 "sim" explícito do usuário.
@@ -122,6 +128,7 @@ _TEMPO_STATUS = 60.0
 _TEMPO_LEITURA_HANA = 45.0       # /pedidos/* and /ordens-servico/*: live HANA reads
 _TEMPO_SYNC_OS = 120.0           # POST /ordens-servico/<n>/sincronizar
 _TEMPO_CARGA_OPORTUNIDADES = 180.0
+_TEMPO_CONEXAO = 30.0            # ping (2 x 1 s) + up to 4 TCP connects of 2 s, from the .11
 
 
 def _tempo_limite(metodo: str, path: str) -> float:
@@ -133,6 +140,8 @@ def _tempo_limite(metodo: str, path: str) -> float:
         proprio = _TEMPO_STATUS
     elif path.startswith(("/pedidos/", "/ordens-servico/", "/ordens-producao/")):
         proprio = _TEMPO_LEITURA_HANA
+    elif path.startswith("/operacao/conexoes/"):
+        proprio = _TEMPO_CONEXAO
     else:
         proprio = HTTP_TIMEOUT
     return max(HTTP_TIMEOUT, proprio)
@@ -490,6 +499,94 @@ def estado_orcamento_wbc(orcamento: str, eventos: int = 15) -> dict[str, Any]:
     numero = "".join(ch for ch in str(orcamento) if ch.isdigit())
     return _get(f"/wbc/orcamentos/{numero or '0'}",
                 {"eventos": max(1, min(int(eventos), 100))})
+
+
+@mcp.tool(annotations=_ANOTACAO_LEITURA)
+def log_orcamento_wbc(orcamento: str, linhas: int = 40) -> dict[str, Any]:
+    """As linhas do log do worker WBC que citam UM orçamento, mais novas primeiro. Só leitura.
+
+    Use depois de ``estado_orcamento_wbc`` quando o estado não explica o porquê: "por que o
+    00125442 deu erro?", "o que o worker fez com o 00125348 hoje?". É o mesmo log da aba
+    "Log" do painel WBC (o arquivo atual e o anterior da rotação). ``graves`` conta as
+    linhas ERROR/CRITICAL. Lista vazia = o worker não escreveu nada sobre ele nesses
+    arquivos (pode ser antigo demais), não que o orçamento não existe.
+
+    Args:
+        orcamento: número do orçamento WBC (ex.: ``00125442`` ou ``125442``).
+        linhas: quantas linhas trazer (1–200). Default 40.
+    """
+    numero = "".join(ch for ch in str(orcamento) if ch.isdigit())
+    return _get(f"/wbc/orcamentos/{numero or '0'}/log", {"linhas": max(1, min(int(linhas), 200))})
+
+
+@mcp.tool(annotations=_ANOTACAO_LEITURA)
+def historico_pedido(pedido: int, versoes: int = 20, chave: str = "docnum") -> dict[str, Any]:
+    """O que mudou em UM pedido de venda no SAP, versão por versão, e QUEM salvou cada uma.
+
+    Use para "quem mudou o pedido 84453?", "o peso do 84444 mudou quando?", "alguém mexeu
+    na quantidade?". Lê o histórico de alterações do próprio SAP (ADOC/ADO1). Cada versão
+    traz ``momento``, ``usuario`` e ``pela_integracao`` (true = gravado pelo usuário da
+    integração/worker; false = uma pessoa no SAP) e as ``mudancas`` (cabeçalho: cliente,
+    entrega, valor, situação, cancelado, vendedor, aprovado; linhas: item, quantidade,
+    peso, preço, situação; linha incluída/removida). Mais nova primeiro.
+
+    Ao responder, deixe claro quem fez cada mudança: quando ``pela_integracao`` é false, a
+    mudança foi feita por uma pessoa no SAP, não pelo software.
+
+    Args:
+        pedido: número que aparece na tela (DocNum, ex.: 84453).
+        versoes: quantas versões trazer (1–60), as mais novas. Default 20.
+        chave: ``docnum`` (padrão) ou ``docentry`` se o número em mãos for o interno.
+    """
+    params: dict[str, Any] = {"versoes": max(1, min(int(versoes), 60))}
+    if (chave or "").strip().lower() == "docentry":
+        params["chave"] = "docentry"
+    return _get(f"/pedidos/{int(pedido)}/historico", params)
+
+
+@mcp.tool(annotations=_ANOTACAO_LEITURA)
+def estado_servicos() -> dict[str, Any]:
+    """Os 6 serviços do Windows na .11 (API, MCP, agendador, painel WBC, Controle de
+    Produção, worker WBC): rodando ou não, início automático e DESDE QUANDO. Só leitura.
+
+    Use para "os serviços da .11 estão no ar?", "o worker reiniciou?", "desde quando a API
+    está rodando?". ``fora_do_ar`` lista os que não estão ``running``. Esta ferramenta não
+    liga nem reinicia nada.
+    """
+    return _get("/operacao/servicos")
+
+
+@mcp.tool(annotations=_ANOTACAO_LEITURA)
+def testar_conexao(destino: str = "", porta: int = 0) -> dict[str, Any]:
+    """Testa, A PARTIR DA .11, se um destino responde: DNS, ping e as portas. Só leitura.
+
+    Use para "a .11 alcança o HANA?", "o .90 responde?", "o deploy falhou por rede?". Só
+    destinos de uma lista fechada, pelo nome — sem ``destino`` a ferramenta devolve a lista
+    (esta-maquina, orcaview-90, altamira-view, sap-rdp-12, github, sap-hana, service-layer,
+    sql-server-wbc, supabase). ``conclusao`` resume em uma frase. Ping sem resposta com a
+    porta aberta é normal em alguns hosts (bloqueiam ping de propósito).
+
+    Args:
+        destino: nome da lista (ex.: ``sap-hana``). Vazio = só mostra a lista.
+        porta: uma das portas do destino; 0 = todas as dele.
+    """
+    nome = (destino or "").strip().lower()
+    if not nome:
+        return _get("/operacao/conexoes")
+    return _get(f"/operacao/conexoes/{nome}", {"porta": int(porta)} if porta else None)
+
+
+@mcp.tool(annotations=_ANOTACAO_LEITURA)
+def ultimo_deploy() -> dict[str, Any]:
+    """Qual versão (commit) está rodando na .11 e como foi o último deploy. Só leitura.
+
+    Use para "o deploy deu certo?", "o que aconteceu no deploy?", "qual versão está no
+    ar?". ``versao.reinicio_pendente`` = true quer dizer que o código no disco é mais novo
+    que o processo da API (atualizado, mas não reiniciado). ``ultimo_deploy.etapas`` traz
+    cada passo (fetch, git, pip, health, fim); ``resultado`` diz como terminou. Deploys
+    anteriores a 02/10/2026 não deixaram registro.
+    """
+    return _get("/operacao/deploy")
 
 
 @mcp.tool(annotations=_ANOTACAO_LEITURA)

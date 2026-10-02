@@ -69,6 +69,7 @@ do Anderson, importado em 2026-09-28) tem o histórico em `docs/controleproducao
 | `scripts/scheduled_execution.py` | Loop do agendador (APScheduler, janela 7-18, seg-sex) |
 | `mcp/` | Fachada MCP fina sobre a API 8077 — NÃO fala com banco. `acesso_mcp.py` = a porta do HTTP 8078 (token por cliente, escopo por ferramenta em `ESCOPO_DA_FERRAMENTA`, regras do agente, auditoria); importa `seguranca/` da raiz (sys.path **append**, nunca insert: a pasta `mcp/` não pode sombrear o SDK) |
 | `seguranca/` | F1 de `docs/PLANO_MIRA_AGENTE_11.md` (02/10/2026), stdlib: `credenciais.py` (cliente + escopos; `state/credenciais.json` só com SHA-256; `OS_API_KEY` = "chave-mestra" admin), `auditoria.py` (`logs/auditoria/<serviço>-AAAA-MM-DD.jsonl`, 30 dias, nunca levanta), `agente.py` (interruptor `state/agente.desligado` + escrita só seg–sex 7h–19h, só para credencial `agente`), `__main__.py` (CLI `python -m seguranca`). Operação: `docs/SEGURANCA_11.md` |
+| `operacao/` | F2 do plano da Mira (02/10/2026), **só leitura** da própria .11: `servicos.py` (os 6 NSSM via psutil), `conexoes.py` (DNS/ping/TCP a partir da .11, **lista fechada** de destinos pelo nome), `historico_pedido.py` (ADOC/ADO1: versões do pedido, quem salvou, pessoa × integração), `log_worker.py` (linhas do log do worker por orçamento), `versao.py` (commit lido do `.git` + `logs/deploy.log`). Rotas `/operacao/*`, `/pedidos/<n>/historico`, `/wbc/orcamentos/<n>/log` |
 | `web/sincronizar.html` · `web/entrar.html` · `web/entrada.html` | Painel de Sincronização (`GET /sincronizar`, template Jinja na casca `casa/`, atrás do login comum) · tela da chave da 8077 (`/entrar`) · `GET /` (sonda o painel WBC e redireciona) |
 | `tests/` | pytest; `test_<modulo>.py` espelha o módulo. `tests/wbc/` = suíte do pacote `wbcpython` (mesma árvore dele); `tests/controleproducao/` = suíte do pacote `controleproducao` (244 testes do Anderson + os da integração) |
 | `docs/` | `PLANO_*.md` (abertos e encerrados recentes — o status está no topo de cada um; os antigos em `arquivo/`); `wbc/` (README, DECISOES, APRENDIZADOS, RISCOS_PRODUCAO, RETOMADA); `controleproducao/` (README = guia; GUIA_OPERADOR = quem opera a tela; PARA_O_ANDERSON; migration_guide, decisoes, GUIA_ESTILO — históricos do pacote); `INCIDENTES.md`; `changelog/` (meses anteriores) |
@@ -115,6 +116,7 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
 | Trava pelo IP / `/Logout` no Controle de Produção | `controleproducao/core/service_layer_client.py` + `core/guardas.py` + `tests/controleproducao/test_service_layer_client.py` |
 | Variável do Controle de Produção (`CP_*`, `HANA_SCHEMA_LEGADO`, `SL_BUSINESS_PLACE_ID`, `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` do histórico) | `controleproducao/config.py` + `.env.example` (bloco CP) + `tests/controleproducao/test_config.py` + `tests/test_config_paridade_wbc.py` |
 | Check `controle_producao` do `/status` | `monitoring.py` (`_controle_producao_signal`) + `tests/test_monitoring.py` |
+| Leituras da própria .11 para o agente (serviços, conexões, histórico de pedido, log por orçamento, deploy/versão) | `operacao/` + `tests/test_operacao.py` (+ `mcp/mcp_server.py` e `ESCOPO_DA_FERRAMENTA`) |
 | Credencial, escopo, auditoria, interruptor do agente (API 8077, `/api/*` da 8080, MCP 8078) | `seguranca/` + `tests/test_seguranca.py`, `tests/test_api_seguranca.py`, `tests/test_mcp_acesso.py`, `tests/controleproducao/test_api_pedidos_wbc.py` (+ `docs/SEGURANCA_11.md`, `docs/PLANO_MIRA_AGENTE_11.md`) |
 
 ## NÃO reler (não é fonte, ou raramente muda)
@@ -312,7 +314,7 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
 
 ## Deploy
 
-`deploy_update.bat` na .11: **aborta** se o Controle de Produção tiver tarefa em andamento
+`deploy_update.bat` na .11 (cada etapa vai para `logs/deploy.log`, lido por `GET /operacao/deploy`): **aborta** se o Controle de Produção tiver tarefa em andamento
 (`/health/ocupado`), para os 6 serviços, `git pull --ff-only`, `pip` no **Python 3.14 do
 sistema** só se o hash dos `requirements*` mudou (`state\deps.sha256`), e religa (o worker só
 se estava rodando). `requirements.txt` é a fonte de instalação — não migrar deps para o

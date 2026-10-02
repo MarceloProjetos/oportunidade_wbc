@@ -26,7 +26,8 @@ def _versionados() -> list[str]:
     if shutil.which('git') is None:
         pytest.skip('git não disponível')
     proc = subprocess.run(
-        ['git', 'ls-files', 'wbcpython', 'tests/wbc', 'controleproducao', 'tests/controleproducao'],
+        ['git', 'ls-files', 'wbcpython', 'tests/wbc', 'controleproducao', 'tests/controleproducao',
+         'operacao', 'seguranca'],
         cwd=RAIZ, capture_output=True, text=True, encoding='utf-8',
     )
     if proc.returncode != 0:

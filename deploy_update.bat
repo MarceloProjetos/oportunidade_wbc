@@ -56,6 +56,11 @@ if errorlevel 1 (
   pause & exit /b 1
 )
 
+REM --- registro do deploy (02/10/2026): uma linha por etapa em logs\deploy.log, que a API le
+REM     (GET /operacao/deploy; ferramenta ultimo_deploy do MCP). Antes so ficava esta janela.
+if not exist "logs" mkdir "logs"
+call :registrar inicio "%USERNAME% em %COMPUTERNAME%"
+
 REM --- o worker WBC estava rodando? (sc query e ANSI; a saida do nssm e UTF-16 e nao parseia) ---
 set "WORKER_ATIVO="
 sc query OrcaView-WBC-Worker 2>nul | find "RUNNING" >nul 2>&1 && set "WORKER_ATIVO=1"
@@ -81,6 +86,7 @@ if "%CP_OCUPADO%"=="1" (
   echo ERRO: o Controle de Producao tem execucao em andamento ^(http://127.0.0.1:%CP_PORTA%/tarefas^).
   echo       Parar agora deixaria Ordens de Producao pela metade no SAP. Espere terminar e rode de novo.
   echo       Nada foi alterado.
+  call :registrar abortado "Controle de Producao com execucao em andamento - nada alterado"
   pause & exit /b 1
 )
 if not "%CP_OCUPADO%"=="0" (
@@ -90,6 +96,7 @@ if not "%CP_OCUPADO%"=="0" (
     echo       http://127.0.0.1:%CP_PORTA%/health/ocupado em 20 s. Pode ser uma execucao presa numa
     echo       consulta longa. Confira /tarefas e CP_PORTA no .env; se for travamento, pare a mao
     echo       ^(nssm stop OrcaView-ControleProducao^) e rode de novo. Nada foi alterado.
+    call :registrar abortado "Controle de Producao nao respondeu /health/ocupado - nada alterado"
     pause & exit /b 1
   )
   echo [cp] OrcaView-ControleProducao parado ou nao instalado: nada a proteger.
@@ -107,6 +114,7 @@ if exist ".git" (
     echo ERRO: nao foi possivel baixar o codigo do GitHub ^(rede, DNS ou proxy - veja a mensagem acima^).
     echo       NADA foi parado nem alterado: os servicos continuam no ar com a versao atual.
     echo       Confira o acesso a github.com nesta maquina e rode o deploy de novo.
+    call :registrar abortado "git fetch falhou - rede, DNS ou proxy; nada parado"
     pause & exit /b 1
   )
 )
@@ -146,12 +154,14 @@ if not exist ".git" (
   git reset --hard origin/%BRANCH%                 || goto :fail
   git branch --set-upstream-to=origin/%BRANCH% %BRANCH% >nul 2>&1
   set "REQCHANGED=1"
+  call :registrar git "1a execucao - alinhado com origin/%BRANCH%"
 ) else (
   echo [git] aplicando origin/%BRANCH% ^(ja baixado^)...
   for /f %%i in ('git rev-parse HEAD') do set "BEFORE=%%i"
   REM No network here: origin/%BRANCH% was fetched before the services stopped.
   git merge --ff-only origin/%BRANCH%              || goto :pullfail
   for /f %%i in ('git rev-parse HEAD') do set "AFTER=%%i"
+  call :registrar git "de !BEFORE! para !AFTER!"
   if not "!BEFORE!"=="!AFTER!" (
     git diff --name-only !BEFORE! !AFTER! | findstr /i "requirements" >nul && set "REQCHANGED=1"
   ) else (
@@ -197,8 +207,10 @@ if defined REQCHANGED (
   if not exist "state" mkdir "state"
   if defined REQHASH >"state\deps.sha256" echo !REQHASH!
   echo [pip] instalado; marca gravada em state\deps.sha256
+  call :registrar pip "dependencias instaladas"
 ) else (
   echo [pip] dependencias iguais as instaladas - mantidas.
+  call :registrar pip "dependencias mantidas"
 )
 
 REM --- subir servicos (API antes do MCP, que depende dela; os outros independem) ---
@@ -241,16 +253,19 @@ nssm status OrcaView-WBC-Worker
 
 echo.
 if defined FALHOU (
+  call :registrar fim "AVISOS - nao respondeu: !FALHOU!"
   echo ===== DEPLOY TERMINOU COM AVISOS: !FALHOU!nao respondeu como esperado =====
   echo       O codigo novo esta no lugar. Veja logs\ e "nssm status" acima antes de seguir.
   pause
   exit /b 2
 )
+call :registrar fim "OK"
 echo ===== DEPLOY OK =====
 pause
 exit /b 0
 
 :pipfail
+call :registrar erro "pip falhou - codigo volta para !BEFORE!"
 echo.
 echo ERRO: o pip falhou. Voltando o codigo para o commit anterior ^(!BEFORE!^) para os
 echo       servicos nao subirem com codigo novo e dependencias velhas...
@@ -262,6 +277,7 @@ if defined BEFORE (
 goto :religar
 
 :pullfail
+call :registrar erro "git merge --ff-only falhou - alteracoes locais"
 echo.
 echo ERRO: git merge --ff-only falhou. Ha alteracoes locais em arquivos versionados
 echo       nesta pasta que impedem o fast-forward. Nada foi alterado.
@@ -272,6 +288,7 @@ echo [nssm] religando os servicos para nao deixar o servidor parado...
 goto :religar
 
 :fail
+call :registrar erro "falha no deploy - ver a janela"
 echo.
 echo ERRO no deploy - veja a mensagem acima. Os servicos podem estar PARADOS.
 echo Tentando religar os servicos...
@@ -286,6 +303,7 @@ if defined WORKER_ATIVO (
   call :esperar_parar OrcaView-WBC-Worker 30
   nssm start OrcaView-WBC-Worker >nul 2>&1
 )
+call :registrar fim "ERRO - servicos religados"
 pause
 exit /b 1
 
@@ -300,6 +318,7 @@ for /l %%t in (1,1,3) do (
   )
 )
 echo [health] %~1: %2 -^> HTTP !_COD!
+call :registrar health "%~1 HTTP !_COD!"
 if not "!_COD!"=="%3" set "FALHOU=!FALHOU!%~1; "
 goto :eof
 
@@ -316,3 +335,9 @@ if %_ESPERA% geq %2 (
 )
 timeout /t 1 /nobreak >nul
 goto :esperar_parar_loop
+
+REM --- acrescenta "<data> <hora> | %1 | %~2" em logs\deploy.log (lido por operacao/versao.py).
+REM     Texto so ASCII e sem ! ^< ^> ^| ^& : passa por expansao atrasada e por echo. ---
+:registrar
+>>"logs\deploy.log" echo %DATE% %TIME% ^| %~1 ^| %~2
+goto :eof

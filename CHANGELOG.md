@@ -6,6 +6,22 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-02] — F2 do plano da Mira: a .11 se explica sozinha (só leitura)
+
+`docs/PLANO_MIRA_AGENTE_11.md`, F2. Pacote novo `operacao/`, rotas com escopo `leitura` e 5
+ferramentas no MCP (24 no total). Nada grava.
+
+- **`estado_servicos`** (`GET /operacao/servicos`): os 6 serviços NSSM, estado e desde quando.
+- **`testar_conexao`** (`GET /operacao/conexoes[/<destino>]`): DNS, ping e porta a partir da .11,
+  só para 9 destinos de uma lista fechada (nunca host ou porta livre); 20 por minuto.
+- **`historico_pedido`** (`GET /pedidos/<n>/historico`): o histórico de alterações do SAP
+  (ADOC/ADO1), versão a versão, com quem salvou e se foi pessoa ou integração. Conferido no
+  84453 real (12 versões, 0,34 s).
+- **`log_orcamento_wbc`** (`GET /wbc/orcamentos/<n>/log`): o log do worker sobre um orçamento.
+- **`ultimo_deploy`** (`GET /operacao/deploy`): commit no ar × no disco e os passos do último
+  deploy. `deploy_update.bat` grava `logs/deploy.log` (só acrescenta linhas; nenhum passo mudou —
+  vale a partir do 2º deploy, porque o 1º roda a cópia antiga). O `/status` completo traz `versao`.
+
 ## [2026-10-02] — `python -m seguranca acrescentar`: escopo a mais sem trocar a chave
 
 O Altamira View migrou para a chave própria sem o escopo `rh` e levou 44 × 403 em

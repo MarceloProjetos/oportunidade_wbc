@@ -146,7 +146,7 @@ def test_toda_ferramenta_do_servidor_tem_um_escopo():
     """A tool added to mcp_server.py without a scope here stays closed (admin) — and this fails."""
     fonte = (RAIZ / "mcp" / "mcp_server.py").read_text(encoding="utf-8")
     ferramentas = set(re.findall(r"@mcp\.tool\([^)]*\)\s*\ndef (\w+)", fonte))
-    assert len(ferramentas) == 19
+    assert len(ferramentas) == 24
     assert ferramentas == set(acesso.ESCOPO_DA_FERRAMENTA)
     assert set(acesso.ESCOPO_DA_FERRAMENTA.values()) <= set(credenciais.ESCOPOS)
     recursos = set(re.findall(r'@mcp\.resource\("([^"]+)"', fonte))
