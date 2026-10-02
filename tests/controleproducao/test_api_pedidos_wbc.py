@@ -199,6 +199,42 @@ def test_outra_origem_pode_chamar_e_o_json_e_utf8(c, ambiente):
     assert "access-control-allow-credentials" not in leitura.headers
 
 
+def test_chave_com_escopo_abre_so_a_sua_api(c, ambiente):
+    """F1 of docs/PLANO_MIRA_AGENTE_11.md: the other team's key opens /api/pedidos-wbc only."""
+    from seguranca import credenciais
+
+    chave = credenciais.criar("equipe-pedidos", ["pedidos_wbc"])
+    assert c.get(f"{API}/pedidos", headers={"X-API-Key": chave}).status_code == 200
+    outra = c.get("/api/manutencao-op/pedidos/84245/ops", headers={"X-API-Key": chave})
+    assert outra.status_code == 403
+    assert outra.json() == {"ok": False, "tipo": "sem_permissao",
+                            "motivo": "A credencial 'equipe-pedidos' não tem o escopo 'manutencao_op'."}
+
+
+def test_agente_fora_do_expediente_le_mas_nao_confere_nem_executa(c, ambiente, monkeypatch):
+    from seguranca import agente, credenciais
+
+    chave = credenciais.criar("mira-agente", ["pedidos_wbc"], agente=True)
+    monkeypatch.setattr(agente, "no_expediente", lambda agora=None: False)
+    assert c.get(f"{API}/pedidos", headers={"X-API-Key": chave}).status_code == 200
+    recusa = c.post(f"{API}/processar/conferir", json={"oportunidades": [4301]}, headers={"X-API-Key": chave})
+    assert recusa.status_code == 403 and recusa.json()["tipo"] == "agente_bloqueado"
+    agente.desligar()
+    assert c.get(f"{API}/pedidos", headers={"X-API-Key": chave}).status_code == 403
+
+
+def test_toda_chamada_da_api_vai_para_a_auditoria(c, ambiente):
+    from seguranca import auditoria, credenciais
+
+    chave = credenciais.criar("equipe-pedidos", ["pedidos_wbc"], declara_usuario=True)
+    c.get(f"{API}/pedidos?modo=novos", headers={"X-API-Key": chave, "X-SIS-Usuario": "Ana Souza"})
+    c.get(f"{API}/pedidos")
+    linhas = auditoria.ler("controleproducao")
+    assert [(l["cliente"], l["status"]) for l in linhas] == [("equipe-pedidos", 200), (None, 401)]
+    assert linhas[0]["usuario"] == "Ana Souza" and linhas[0]["escopo"] == "pedidos_wbc"
+    assert linhas[0]["rota"] == f"{API}/pedidos?modo=novos" and chave not in str(linhas)
+
+
 # ---------------------------------------------------------------------------
 # 2. The list — same rows, same page, same labels as the screen
 # ---------------------------------------------------------------------------

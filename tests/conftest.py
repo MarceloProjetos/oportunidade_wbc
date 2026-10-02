@@ -102,6 +102,17 @@ def _ambiente_sem_producao(request: pytest.FixtureRequest, monkeypatch: pytest.M
 
 
 @pytest.fixture(autouse=True)
+def _seguranca_isolada(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch):
+    """Credentials, audit and the agent switch (``seguranca/``) in a temp folder per test:
+    the suite must never read the .11's real credential file nor write its audit log."""
+    pasta = tmp_path_factory.mktemp("seguranca")
+    monkeypatch.setenv("SIS_CREDENCIAIS_ARQUIVO", str(pasta / "credenciais.json"))
+    monkeypatch.setenv("SIS_AUDITORIA_PASTA", str(pasta / "auditoria"))
+    monkeypatch.setenv("SIS_AGENTE_INTERRUPTOR", str(pasta / "agente.desligado"))
+    yield pasta
+
+
+@pytest.fixture(autouse=True)
 def _disjuntor_do_hana_fechado():
     """The HANA breaker (``sap_connection``) is process state: one test's failed connection
     would make the next test's HANA call fail at once."""

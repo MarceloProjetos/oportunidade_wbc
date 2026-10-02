@@ -1092,6 +1092,8 @@ Todo erro tem o mesmo formato:
 | --- | --- | --- | --- |
 | 400 | `invalido` | Corpo não é JSON; lista vazia ("Nenhum pedido selecionado."); número inválido; `modo`/`pagina` inválidos; sem `token`; sem `solicitante`; `force` enviado | Corrigir a chamada |
 | 401 | `sem_chave` | Sem `X-API-Key` ou chave errada | Pedir a chave de novo |
+| 403 | `sem_permissao` | A chave é válida, mas não tem o escopo desta API (desde 02/10/2026 cada cliente tem a sua chave) | Pedir ao TI a chave certa |
+| 403 | `agente_bloqueado` | Chave de **agente**: interruptor desligado, ou escrita fora do expediente (seg–sex 7h–19h) | Mostrar o `motivo`; tentar no expediente |
 | 404 | `nao_encontrada` | Execução que não existe (ou saiu do histórico das 30 mais recentes); rota errada | Parar de consultar |
 | 405 | `metodo_invalido` | GET onde é POST (ou o contrário) | Corrigir a chamada |
 | 409 | `fora_da_lista` | Pedido conferido não está mais na lista (alguém processou) | Recarregar a lista |

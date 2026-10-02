@@ -67,7 +67,8 @@ do Anderson, importado em 2026-09-28) tem o histórico em `docs/controleproducao
 | `feriados_br.py` | Feriados nacionais BR até 2030 (o agendador pula) |
 | `wake_altservidor_ia.py` | Wake-on-LAN do `.90` (tarefa `OrcaView-WOL-AltservidorIA`, `install_wol_task.ps1`). **Byte-idêntico** a `web_orcaview_V118/tools/wake_altservidor_ia.py`, stdlib-only, Python 3.8+ |
 | `scripts/scheduled_execution.py` | Loop do agendador (APScheduler, janela 7-18, seg-sex) |
-| `mcp/` | Fachada MCP fina e read-only sobre a API 8077 — NÃO fala com banco |
+| `mcp/` | Fachada MCP fina sobre a API 8077 — NÃO fala com banco. `acesso_mcp.py` = a porta do HTTP 8078 (token por cliente, escopo por ferramenta em `ESCOPO_DA_FERRAMENTA`, regras do agente, auditoria); importa `seguranca/` da raiz (sys.path **append**, nunca insert: a pasta `mcp/` não pode sombrear o SDK) |
+| `seguranca/` | F1 de `docs/PLANO_MIRA_AGENTE_11.md` (02/10/2026), stdlib: `credenciais.py` (cliente + escopos; `state/credenciais.json` só com SHA-256; `OS_API_KEY` = "chave-mestra" admin), `auditoria.py` (`logs/auditoria/<serviço>-AAAA-MM-DD.jsonl`, 30 dias, nunca levanta), `agente.py` (interruptor `state/agente.desligado` + escrita só seg–sex 7h–19h, só para credencial `agente`), `__main__.py` (CLI `python -m seguranca`). Operação: `docs/SEGURANCA_11.md` |
 | `web/sincronizar.html` · `web/entrar.html` · `web/entrada.html` | Painel de Sincronização (`GET /sincronizar`, template Jinja na casca `casa/`, atrás do login comum) · tela da chave da 8077 (`/entrar`) · `GET /` (sonda o painel WBC e redireciona) |
 | `tests/` | pytest; `test_<modulo>.py` espelha o módulo. `tests/wbc/` = suíte do pacote `wbcpython` (mesma árvore dele); `tests/controleproducao/` = suíte do pacote `controleproducao` (244 testes do Anderson + os da integração) |
 | `docs/` | `PLANO_*.md` (abertos e encerrados recentes — o status está no topo de cada um; os antigos em `arquivo/`); `wbc/` (README, DECISOES, APRENDIZADOS, RISCOS_PRODUCAO, RETOMADA); `controleproducao/` (README = guia; GUIA_OPERADOR = quem opera a tela; PARA_O_ANDERSON; migration_guide, decisoes, GUIA_ESTILO — históricos do pacote); `INCIDENTES.md`; `changelog/` (meses anteriores) |
@@ -77,7 +78,8 @@ do Anderson, importado em 2026-09-28) tem o histórico em `docs/controleproducao
 
 Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api.py` orquestra
 (importa os pipelines, `situacao_pedidos*`, `ordens_producao_sl`, `windows_update`,
-`monitoring`, `feriados_br`) · `mcp/` só chama HTTP (não importa nada da raiz).
+`monitoring`, `feriados_br`) · `seguranca/` ← api, controleproducao e mcp · `mcp/` só chama HTTP
+(da raiz importa apenas `seguranca/`).
 
 ## Tarefa → o que ler
 
@@ -113,6 +115,7 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
 | Trava pelo IP / `/Logout` no Controle de Produção | `controleproducao/core/service_layer_client.py` + `core/guardas.py` + `tests/controleproducao/test_service_layer_client.py` |
 | Variável do Controle de Produção (`CP_*`, `HANA_SCHEMA_LEGADO`, `SL_BUSINESS_PLACE_ID`, `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` do histórico) | `controleproducao/config.py` + `.env.example` (bloco CP) + `tests/controleproducao/test_config.py` + `tests/test_config_paridade_wbc.py` |
 | Check `controle_producao` do `/status` | `monitoring.py` (`_controle_producao_signal`) + `tests/test_monitoring.py` |
+| Credencial, escopo, auditoria, interruptor do agente (API 8077, `/api/*` da 8080, MCP 8078) | `seguranca/` + `tests/test_seguranca.py`, `tests/test_api_seguranca.py`, `tests/test_mcp_acesso.py`, `tests/controleproducao/test_api_pedidos_wbc.py` (+ `docs/SEGURANCA_11.md`, `docs/PLANO_MIRA_AGENTE_11.md`) |
 
 ## NÃO reler (não é fonte, ou raramente muda)
 
@@ -191,6 +194,16 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   faz **login preguiçoso** (na 1ª requisição; entrar no `with` não autentica) e `Logout` na
   saída. Não "corrija" o `__enter__` para logar cedo.
 - `config.get_settings()` é cacheado — testes usam `reset_settings()` após mexer em env.
+- ⚠️⚠️ **Segurança acrescenta, NUNCA tira função** (Marcelo, 02/10/2026): proteção nova põe identidade,
+  escopo, registro e limites EM VOLTA do que existe; cliente que migra para chave própria recebe todos os
+  escopos que usa hoje (o agente inclusive: RH, sincronizar OS, forçar carga). Tirar uma função existente
+  é decisão dele, nunca padrão. Firewall só depois de a auditoria mostrar quem usa.
+- **Toda rota protegida da 8077 declara o escopo**: `@app.get(...)` e logo abaixo `@requer_chave('leitura')`
+  (desde 02/10/2026). Rota nova sem escopo = teste vermelho (`test_toda_rota_protegida_declara_um_escopo`).
+  Ferramenta nova no MCP = acrescentar em `mcp/acesso_mcp.py:ESCOPO_DA_FERRAMENTA` (sem isso ela exige
+  `admin`, e `test_toda_ferramenta_do_servidor_tem_um_escopo` falha). Chave registrada só vale no
+  cabeçalho (nunca `?key=`); a `OS_API_KEY` mantém o `?key=` antigo. A suíte usa credenciais, auditoria e
+  interruptor em pasta temporária (`_seguranca_isolada` no `tests/conftest.py`) — nunca os da máquina.
 - **HANA fora: disjuntor de 30 s em `sap_connection.connect_sap_hana`** (01/10/2026): depois de
   uma falha de conexão, o processo inteiro falha na hora com `HanaIndisponivel` por 30 s, em
   vez de cada chamada esperar ~51 s numa thread da API. Estado de processo: o `tests/conftest.py`

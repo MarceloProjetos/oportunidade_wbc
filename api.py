@@ -82,7 +82,7 @@ from logging.handlers import TimedRotatingFileHandler
 from typing import Any
 from urllib.parse import quote, urlsplit
 
-from flask import Flask, Response, jsonify, redirect, request, send_from_directory
+from flask import Flask, Response, g, jsonify, redirect, request, send_from_directory
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 import casa
@@ -111,6 +111,9 @@ from pipeline_core import (
     oportunidades_sync_lock,
     vendas_bi_sync_lock,
 )
+from seguranca import agente as seguranca_agente
+from seguranca import auditoria, credenciais
+from seguranca.credenciais import Cliente
 
 # UTF-8 console on Windows
 try:
@@ -520,7 +523,10 @@ def _status_completo_autorizado() -> bool:
     whole (documented at the top of this file), and the diagnosis follows it rather than
     inventing a second, stricter rule for one route.
     """
-    return _autorizado() or _confere(_credencial_enviada(), get_settings().status_id)
+    if _autorizado() or _confere(_credencial_enviada(), get_settings().status_id):
+        return True
+    cliente = _cliente()
+    return bool(cliente and cliente.pode('leitura') and not seguranca_agente.recusa(cliente, escrita=False))
 
 
 def _status_publico(data: dict) -> dict:
@@ -557,28 +563,79 @@ def _status_publico(data: dict) -> dict:
     }
 
 
-def requer_chave(fn):
-    """Require ``X-API-Key`` on the route (see ``_autorizado``); missing/wrong → **401**.
+_METODOS_SEGUROS = ('GET', 'HEAD', 'OPTIONS')
 
-    Replaces the ``if not _autorizado(): return 401`` that was pasted into 11 routes. The
-    gain is not lines: it kills the **"new route without a guard"** bug class — the old
-    pattern relied on remembering, and the repo keeps growing. Now forgetting the
-    decorator leaves the route visibly without it, instead of looking like all the others.
+
+def _cabecalho_da_chave() -> str | None:
+    """The key from ``X-API-Key`` or ``Authorization: Bearer`` — never the query string."""
+    enviado = request.headers.get('X-API-Key')
+    if not enviado:
+        auth = request.headers.get('Authorization', '')
+        if auth.startswith('Bearer '):
+            enviado = auth[len('Bearer '):]
+    return enviado or None
+
+
+def _cliente() -> Cliente | None:
+    """Who is calling (F1 of docs/PLANO_MIRA_AGENTE_11.md, 02/10/2026), once per request.
+
+    - no ``OS_API_KEY`` configured → open, as documented at the top of this file;
+    - the ``OS_API_KEY`` (header or ``?key=``, as before) or the screens' login cookie →
+      "chave-mestra"/"tela", with everything — no current client breaks;
+    - a key registered with ``python -m seguranca criar`` → that client and its scopes. Only
+      in the header: a registered key in a URL would end up in logs and browser history.
+    """
+    if 'sis_cliente' in g:
+        return g.sis_cliente
+    mestra = get_settings().os_api_key
+    if not mestra:
+        cliente = Cliente('aberto', frozenset({'admin'}))
+    elif _confere(_credencial_enviada(), mestra):
+        cliente = credenciais.chave_mestra()
+    elif _por_cookie():
+        cliente = Cliente('tela', frozenset({'admin'}))
+    else:
+        cliente = credenciais.identificar(_cabecalho_da_chave())
+    g.sis_cliente = cliente
+    return cliente
+
+
+def requer_chave(escopo: str):
+    """Require a credential that holds ``escopo`` on the route — 401 without one, 403 without
+    the scope or when an agent rule refuses (``seguranca.agente``).
+
+    Was a plain "the key matches" guard until 02/10/2026; the master key and the screens'
+    cookie still pass everywhere (they hold ``admin``). The scope is declared next to the route
+    (``@requer_chave('op:status')``): a route without it is visibly unguarded, and a new
+    write route cannot be reached by a read-only client by accident.
 
     Deliberately WITHOUT it (see CLAUDE.md): ``/``, ``/favicon.ico``, ``/health`` and
-    ``/status`` — monitoring and browser use. ``/status`` is not simply open, though: it
-    has its own two-level rule (:func:`_status_completo_autorizado`), because a decorator
-    here would be all-or-nothing and the .90's watchdog polls it with no credential.
+    ``/status`` — monitoring and browser use; ``/status`` has its own two-level rule.
 
-    Order matters: ``@app.get(...)`` **on top**, ``@requer_chave`` right below — otherwise
+    Order matters: ``@app.get(...)`` **on top**, ``@requer_chave(...)`` right below — otherwise
     Flask registers the wrapper as the endpoint and the guard never runs on the request.
     """
-    @wraps(fn)   # without this, Flask uses the wrapper's name as the endpoint and collides
-    def _wrapper(*args, **kwargs):
-        if not _autorizado():
-            return jsonify(ok=False, error='unauthorized'), 401
-        return fn(*args, **kwargs)
-    return _wrapper
+    if escopo not in credenciais.ESCOPOS:
+        raise ValueError(f'escopo desconhecido: {escopo!r}')
+
+    def decorador(fn):
+        @wraps(fn)   # without this, Flask uses the wrapper's name as the endpoint and collides
+        def _wrapper(*args, **kwargs):
+            cliente = _cliente()
+            escrita = request.method not in _METODOS_SEGUROS
+            if cliente is None or (cliente.nome == 'tela' and escrita and not _mesma_origem()):
+                return jsonify(ok=False, error='unauthorized'), 401
+            g.sis_escopo = escopo
+            if not cliente.pode(escopo):
+                return jsonify(ok=False, error='forbidden', tipo='sem_permissao',
+                               motivo=f"A credencial '{cliente.nome}' nao tem o escopo '{escopo}'."), 403
+            motivo = seguranca_agente.recusa(cliente, escrita=escrita)
+            if motivo:
+                return jsonify(ok=False, error='forbidden', tipo='agente_bloqueado', motivo=motivo), 403
+            return fn(*args, **kwargs)
+        _wrapper.escopo = escopo
+        return _wrapper
+    return decorador
 
 
 def _sync_one(nped: int) -> dict:
@@ -900,7 +957,7 @@ def status_detalhado():
 
 
 @app.get('/historico')
-@requer_chave
+@requer_chave('leitura')
 def historico():
     """Latest syncs (reads the log table). Requires X-API-Key."""
     try:
@@ -917,7 +974,7 @@ def historico():
 
 
 @app.delete('/historico')
-@requer_chave
+@requer_chave('historico:apagar')
 def historico_limpar():
     """Clear the OS history (empties the log table). Requires X-API-Key."""
     try:
@@ -929,7 +986,7 @@ def historico_limpar():
 
 
 @app.get('/usuarios-ativos')
-@requer_chave
+@requer_chave('rh')
 def usuarios_ativos():
     """Nomes dos perfis ATIVOS do OrcaView (``app_profiles``). Exige X-API-Key.
 
@@ -974,7 +1031,7 @@ def usuarios_ativos():
 
 
 @app.get('/ordens-servico/disponiveis')
-@requer_chave
+@requer_chave('leitura')
 def os_disponiveis():
     """List up to 30 pedidos with an OS created in SAP (NPED + customer + date).
     Requires X-API-Key.
@@ -994,7 +1051,7 @@ def os_disponiveis():
 
 
 @app.get('/ordens-servico/<nped>')
-@requer_chave
+@requer_chave('leitura')
 def os_detalhe(nped: str):
     """Detail of ONE pedido's OS (reads the single Supabase table). Requires X-API-Key.
 
@@ -1080,7 +1137,7 @@ def _status_pedido_ordr(nped: int) -> dict:
 
 
 @app.post('/ordens-servico/<nped>/sincronizar')
-@requer_chave
+@requer_chave('os:sincronizar')
 def os_sincronizar(nped: str):
     """Sync (SAP → Supabase) ONE pedido's OS and return the resulting ``resumo``.
     Requires X-API-Key. The **write pair** of ``GET /ordens-servico/<nped>``.
@@ -1135,7 +1192,7 @@ def _limit_arg(default: int = 20, maximo: int = 100) -> int:
 
 
 @app.get('/oportunidades/historico')
-@requer_chave
+@requer_chave('leitura')
 def oport_historico():
     """Latest oportunidades syncs (reads sincronizacao_log). Requires X-API-Key."""
     try:
@@ -1147,7 +1204,7 @@ def oport_historico():
 
 
 @app.delete('/oportunidades/historico')
-@requer_chave
+@requer_chave('historico:apagar')
 def oport_historico_limpar():
     """Clear the oportunidades log. Requires X-API-Key."""
     try:
@@ -1159,7 +1216,7 @@ def oport_historico_limpar():
 
 
 @app.get('/oportunidades/info')
-@requer_chave
+@requer_chave('leitura')
 def oport_info():
     """Context for the oportunidades pipeline: total rows + schedule. Requires X-API-Key."""
     s = get_settings()
@@ -1204,7 +1261,7 @@ def _disparar_carga(bucket: str, limite: int, trava, carga, *, rotulo: str, ocup
 
 
 @app.post('/oportunidades/sincronizar')
-@requer_chave
+@requer_chave('oportunidades:carga')
 def oport_sincronizar():
     """Force the FULL oportunidades load (the scheduler's own). Requires X-API-Key.
 
@@ -1220,7 +1277,7 @@ def oport_sincronizar():
 
 
 @app.post('/vendas-bi/sincronizar')
-@requer_chave
+@requer_chave('vendas_bi:carga')
 def vendas_bi_sincronizar():
     """Recalcula os agregados do dashboard Vendas do app. Requer X-API-Key.
 
@@ -1237,7 +1294,7 @@ def vendas_bi_sincronizar():
 
 
 @app.post('/sync/ordens-servico/<nped>')
-@requer_chave
+@requer_chave('os:sincronizar')
 def sync_um(nped: str):
     """Sync **one** pedido. Requires X-API-Key. Same anti-loop guard as its pair
     ``/ordens-servico/<nped>/sincronizar`` (bucket ``sync_os``)."""
@@ -1250,7 +1307,7 @@ def sync_um(nped: str):
 
 
 @app.post('/sync/ordens-servico')
-@requer_chave
+@requer_chave('os:sincronizar')
 def sync_varios():
     """Sync several pedidos: ``{"nped": N}`` or ``{"npeds": [...]}``. Requires X-API-Key.
 
@@ -1310,6 +1367,57 @@ def _caminho_sem_chave() -> str:
     return f"{request.path}?{'&'.join(partes)}"
 
 
+_SEM_AUDITORIA = ('/health', '/favicon.ico', '/casa/')
+LIMITE_USUARIO = 80
+
+
+@app.before_request
+def _marca_inicio() -> None:
+    g.sis_inicio = time.monotonic()
+
+
+def _usuario_declarado(cliente: Cliente | None) -> str | None:
+    """``X-SIS-Usuario`` — on whose behalf a trusted backend calls (rule 3). Ignored from any
+    other client; control characters would forge lines in the audit."""
+    if not cliente or not cliente.declara_usuario:
+        return None
+    valor = (request.headers.get('X-SIS-Usuario') or '').strip()
+    if not valor or len(valor) > LIMITE_USUARIO or any(ord(c) < 32 or ord(c) == 127 for c in valor):
+        return None
+    return valor
+
+
+@app.after_request
+def _audita(resposta: Response) -> Response:
+    """One line per call in ``logs/auditoria/api-*.jsonl`` (rule 4, 30 days).
+
+    Skipped: liveness and static files, and the anonymous ``/`` and ``/status`` (the .90's
+    watchdog polls them all day, with no credential). Everything with a credential — or a
+    refused one — is recorded, reads included. Never raises."""
+    try:
+        caminho = request.path
+        if caminho.startswith(_SEM_AUDITORIA):
+            return resposta
+        cliente = g.get('sis_cliente')
+        if cliente is None and caminho in ('/', '/status') and resposta.status_code < 400:
+            return resposta
+        inicio = g.get('sis_inicio')
+        auditoria.registrar(
+            'api',
+            cliente=cliente.nome if cliente else None,
+            usuario=_usuario_declarado(cliente),
+            metodo=request.method,
+            rota=_caminho_sem_chave(),
+            escopo=g.get('sis_escopo'),
+            status=resposta.status_code,
+            ip=request.remote_addr,
+            ms=round((time.monotonic() - inicio) * 1000) if inicio else None,
+        )
+    except Exception as exc:  # noqa: BLE001 - see the docstring
+        logger.warning('Auditoria: falha ao registrar a chamada: %s', exc)
+    return resposta
+
+
 @app.after_request
 def _registra_chamada_de_op(resposta: Response) -> Response:
     """One INFO line per call to the OP routes: who called, what was asked, what came back.
@@ -1351,7 +1459,7 @@ def _resposta_op_erro(exc: op_sl.OPError) -> tuple[Any, int]:
 
 
 @app.get('/ordens-producao/<numero>')
-@requer_chave
+@requer_chave('leitura')
 def op_detalhe(numero: str):
     """Status and identification of ONE Production Order. Requires X-API-Key.
 
@@ -1375,7 +1483,7 @@ def op_detalhe(numero: str):
 
 
 @app.get('/wbc/orcamentos/<orcnum>')
-@requer_chave
+@requer_chave('leitura')
 def wbc_orcamento_rota(orcnum: str):
     """What the WBC worker knows about ONE quote. Requires X-API-Key. Read-only.
 
@@ -1401,7 +1509,7 @@ def wbc_orcamento_rota(orcnum: str):
 
 
 @app.post('/ordens-producao/<numero>/status')
-@requer_chave
+@requer_chave('op:status')
 def op_status(numero: str):
     """Change the status of ONE Production Order **in the SAP**. Requires X-API-Key.
 
@@ -1567,7 +1675,7 @@ def _campos_resumo(padrao_resumo: bool) -> bool:
 
 
 @app.get('/pedidos/situacao')
-@requer_chave
+@requer_chave('leitura')
 def situacao_pedidos_lista():
     """Recorte da Situacao dos Pedidos -- as consultas 2 e 3 do plano. Requer X-API-Key.
 
@@ -1624,7 +1732,7 @@ def situacao_pedidos_lista():
 
 
 @app.get('/pedidos/<numero>/situacao')
-@requer_chave
+@requer_chave('leitura')
 def situacao_pedido_unico(numero: str):
     """Situacao de UM pedido -- a consulta 1 do plano. Requer X-API-Key.
 
@@ -1930,7 +2038,7 @@ def _agrupar_colaboradores(linhas: list[dict]) -> list[dict]:
 
 
 @app.get('/rh/colaboradores')
-@requer_chave
+@requer_chave('rh')
 def rh_colaboradores():
     """Quadro de colaboradores das 3 empresas do Kairos. Requer X-API-Key.
 

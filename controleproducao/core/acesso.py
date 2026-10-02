@@ -27,10 +27,17 @@ Anyone holding the key may consume it (D1, 29/09/2026) — a browser page on ano
 included: ``/api/`` answers CORS for any origin (``_BordaDaApi``), without credentials. That
 opens nothing to a caller without the key, since the API never reads the cookie. The screens
 get no CORS headers and keep the same-origin rule above.
+
+Since 02/10/2026 (F1 of docs/PLANO_MIRA_AGENTE_11.md) ``/api/`` also takes the keys registered
+with ``python -m seguranca``, each limited to its scope (``/api/pedidos-wbc`` → ``pedidos_wbc``,
+``/api/manutencao-op`` → ``manutencao_op``); the ``OS_API_KEY`` keeps opening both. Agent keys
+obey the off switch and business hours (``seguranca.agente``), and every ``/api/`` call is
+recorded in ``logs/auditoria/controleproducao-*.jsonl``.
 """
 
 from __future__ import annotations
 
+import time
 from typing import Any
 from urllib.parse import quote, urlsplit
 
@@ -43,6 +50,8 @@ from casa import destinos
 from controleproducao.config import get_settings
 from controleproducao.core.tarefas import TAREFAS
 from controleproducao.core.templates import templates
+from seguranca import agente as seguranca_agente
+from seguranca import auditoria, credenciais
 from wbcpython.dashboard import acesso as painel
 
 ROTAS_ABERTAS = frozenset(
@@ -51,6 +60,42 @@ ROTAS_ABERTAS = frozenset(
 )
 
 PREFIXO_API = "/api/"
+
+#: The scope each JSON API needs (``seguranca.credenciais.ESCOPOS``); anything else under
+#: ``/api/`` needs ``admin``.
+ESCOPO_DA_API = {"/api/pedidos-wbc": "pedidos_wbc", "/api/manutencao-op": "manutencao_op"}
+LIMITE_USUARIO = 80
+
+
+def _escopo_da_api(caminho: str) -> str:
+    for prefixo, escopo in ESCOPO_DA_API.items():
+        if caminho == prefixo or caminho.startswith(prefixo + "/"):
+            return escopo
+    return "admin"
+
+
+def _usuario_declarado(request: Request, cliente: credenciais.Cliente | None) -> str | None:
+    """``X-SIS-Usuario`` from a client allowed to declare it (rule 3); else ignored."""
+    if not cliente or not cliente.declara_usuario:
+        return None
+    valor = (request.headers.get("x-sis-usuario") or "").strip()
+    if not valor or len(valor) > LIMITE_USUARIO or any(ord(c) < 32 or ord(c) == 127 for c in valor):
+        return None
+    return valor
+
+
+def _audita(request: Request, cliente: credenciais.Cliente | None, escopo: str, status: int, inicio: float) -> None:
+    auditoria.registrar(
+        "controleproducao",
+        cliente=cliente.nome if cliente else None,
+        usuario=_usuario_declarado(request, cliente),
+        metodo=request.method,
+        rota=request.url.path + (f"?{request.url.query}" if request.url.query else ""),
+        escopo=escopo,
+        status=status,
+        ip=request.client.host if request.client else None,
+        ms=round((time.monotonic() - inicio) * 1000),
+    )
 
 
 class _BordaDaApi:
@@ -99,11 +144,6 @@ def _e_chamada_de_script(request: Request) -> bool:
     return request.headers.get("accept", "").lower().startswith("application/json")
 
 
-def _chave_no_cabecalho(request: Request, chave: str) -> bool:
-    enviada = request.headers.get("x-api-key") or ""
-    return bool(enviada) and painel.igual(enviada, chave)
-
-
 def _mesma_origem(request: Request) -> bool:
     """``Origin`` (or ``Referer``) host AND port must be this server's; neither → refused.
 
@@ -132,6 +172,35 @@ def _tela_de_entrada(request: Request, *, erro: str | None, proximo: str) -> HTM
     )
 
 
+async def _porta_da_api(request: Request, call_next: Any, chave: str) -> Any:
+    """Key → client → scope → agent rules, then the route; every outcome audited."""
+    inicio = time.monotonic()
+    escopo = _escopo_da_api(request.url.path)
+    if not chave:
+        # No OS_API_KEY: open for reading, writes refused by `avisa_escrita` (as before).
+        cliente = credenciais.Cliente("aberto", frozenset({"admin"}))
+    else:
+        cliente = credenciais.identificar(request.headers.get("x-api-key"), mestra=chave)
+    recusa: JSONResponse | None = None
+    if cliente is None:
+        recusa = JSONResponse({"ok": False, "tipo": "sem_chave", "motivo": "X-API-Key ausente ou incorreta."},
+                              status_code=401)
+    elif not cliente.pode(escopo):
+        recusa = JSONResponse({"ok": False, "tipo": "sem_permissao",
+                               "motivo": f"A credencial '{cliente.nome}' não tem o escopo '{escopo}'."},
+                              status_code=403)
+    else:
+        motivo = seguranca_agente.recusa(cliente, escrita=request.method == "POST")
+        if motivo:
+            recusa = JSONResponse({"ok": False, "tipo": "agente_bloqueado", "motivo": motivo}, status_code=403)
+    if recusa is not None:
+        _audita(request, cliente, escopo, recusa.status_code, inicio)
+        return recusa
+    resposta = await call_next(request)
+    _audita(request, cliente, escopo, resposta.status_code, inicio)
+    return resposta
+
+
 def instalar(app: FastAPI) -> None:
     """Middleware + the open routes. Called once by ``main.py`` after the routers."""
 
@@ -142,12 +211,7 @@ def instalar(app: FastAPI) -> None:
             return await call_next(request)
         chave, token = _chave_e_token()
         if caminho.startswith(PREFIXO_API):
-            if chave and not _chave_no_cabecalho(request, chave):
-                return JSONResponse(
-                    {"ok": False, "tipo": "sem_chave", "motivo": "X-API-Key ausente ou incorreta."},
-                    status_code=401,
-                )
-            return await call_next(request)
+            return await _porta_da_api(request, call_next, chave)
         if not painel.autenticado(request, chave, token):
             if _e_chamada_de_script(request):
                 # A fetch (task polling, "Interromper") must SEE the refusal: a 303 would be

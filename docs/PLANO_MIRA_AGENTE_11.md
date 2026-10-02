@@ -1,6 +1,8 @@
 # Plano — a .11 pronta para a Mira agir como agente
 
-> **Status (02/10/2026): análise feita, nada implementado.** Inventário levantado no código (só
+> **Status (02/10/2026, tarde): F1 (segurança-base) codada e testada; pende o deploy e a migração
+> das chaves (`docs/SEGURANCA_11.md`).** Decisões 3–9 aceitas com as recomendações, retenção da
+> auditoria em **30 dias** (Marcelo). Antes: análise feita, nada implementado. Inventário levantado no código (só
 > leitura). Escopo: **só a .11** — os outros servidores ficam para projetos seguintes.
 > **Conclusão direta:** a .11 já responde bem a perguntas (19 ferramentas no MCP), mas **não está
 > pronta para um agente que grava**: hoje uma chave única vale tudo, o MCP não sabe quem chama nem
@@ -88,6 +90,11 @@ em HTTP puro: o token viaja em texto.
 Estas regras são o centro do plano. Cada uma vira código **e** teste automatizado — regra sem teste
 volta a quebrar calada.
 
+0. **Segurança acrescenta, nunca tira função** (Marcelo, 02/10/2026 — regra acima de todas). Tudo
+   o que existe hoje continua disponível para quem já usa, agente incluído (RH, sincronizar OS,
+   forçar carga). A segurança põe **em volta**: identidade, escopo, registro, limites, aprovação.
+   Uma proteção que exigiria tirar uma função existente vira **decisão dele**, nunca padrão.
+
 1. **O modelo nunca aprova uma escrita.** A ferramenta de escrita só **pede**: devolve o plano e
    um pedido de aprovação. Quem aprova é a **pessoa**, num botão da Mira, e esse clique — não o
    modelo — chama a .11. O modelo não tem ferramenta para aprovar. Assim, um texto malicioso que
@@ -101,7 +108,7 @@ volta a quebrar calada.
    inventar nem trocar esse nome. A .11 registra pessoa + canal ("mira-agente").
 4. **Registro de tudo, que o agente não apaga.** Toda ferramenta chamada — leitura e escrita —
    gera uma linha: quando, quem, canal, ferramenta, parâmetros, resultado, duração. Guardado na
-   .11 por **90 dias** (hoje: 6). Nenhuma credencial do agente apaga histórico: as rotas
+   .11 por **30 dias** (decisão de 02/10; antes: 6). Nenhuma credencial do agente apaga histórico: as rotas
    `DELETE /historico` ficam só para o administrador.
 5. **Listas fechadas, nunca comando livre.** Ping e porta só para destinos cadastrados (sem
    varredura de rede); reiniciar só os 6 serviços da .11; **nenhuma** ferramenta que rode comando,
@@ -115,20 +122,26 @@ volta a quebrar calada.
    tudo (leitura e escrita) ou só as escritas. Segue o padrão do arquivo de parada do worker.
 9. **Rede fechada.** 8078 (MCP) e escrita da 8077 aceitam só o .90 e a máquina do administrador
    (firewall). Depois, TLS.
-10. **Dados pessoais fora por padrão.** As ferramentas de RH (colaboradores) não entram no escopo
-    do agente até alguém decidir que devem.
-11. **Começa só lendo.** O agente entra em produção com leitura; cada escrita é ligada uma por
-    vez, depois de observada.
+10. **RH com registro.** As ferramentas de RH (colaboradores) ficam com o agente, como hoje (decisão 7);
+    cada consulta fica na auditoria, com quem pediu.
+11. **O que já existe continua; o novo entra aos poucos.** As escritas que o MCP já tem (sincronizar
+    OS, forçar carga) seguem com o agente. As **novas** (processar pedido, reiniciar serviço) entram uma
+    por vez, depois da F3 e de observadas.
 12. **O que nunca é do agente:** deploy, `.env`, reprocessar pedido, encerrar/cancelar OP, liberar
     ou replanejar OP, apagar dados, cadastro de chaves.
 
 ## 4. Fases (ordem real; cada uma depende da anterior)
 
-### F1 — Segurança-base *(pré-requisito de tudo)*
+### F1 — Segurança-base *(pré-requisito de tudo)* — codada 02/10, pende deploy
 *Quando fechar: dá para saber quem fez o quê pelo MCP, e uma credencial vazada não abre tudo.*
 - Credenciais por cliente com escopo (regra 2) e identidade nas chamadas (regra 3).
-- Registro de auditoria append-only com 90 dias (regra 4); `DELETE /historico` só para admin.
-- Interruptor do agente (regra 8). Firewall da 8078/8077 (regra 9).
+- Registro de auditoria append-only com 30 dias (regra 4); `DELETE /historico` só com o escopo próprio (a chave-mestra e as telas continuam podendo).
+- Interruptor do agente (regra 8). Firewall da 8078 (regra 9) — script `maintenance/firewall_mcp_8078.ps1`.
+- **O que mudou no caminho:** a 8077 **não** vai para firewall (as pessoas abrem a Sincronização de
+  qualquer PC); fica protegida pelas chaves com escopo. No Windows, uma regra de **bloqueio** vence a
+  liberação por programa do `python.exe` — por isso o script bloqueia todos menos os permitidos.
+- **Pende (Marcelo):** deploy; criar as chaves e trocar nos clientes (.90, outra equipe, o próprio
+  MCP, os clientes do MCP); rodar o script do firewall; reservar no DHCP o IP do notebook.
 
 ### F2 — A leitura que falta
 *Quando fechar: o agente responde aos 8 casos sem ninguém abrir a .11.*
@@ -161,8 +174,8 @@ volta a quebrar calada.
 4. **Quem pode aprovar cada escrita.** Recomendado: processar pedido = PCP e admin; sincronizar
    OS e forçar carga = qualquer usuário logado; reiniciar serviço = só admin.
 5. **Escrita só no expediente (seg–sex 7h–19h).** Recomendado: sim.
-6. **Retenção da auditoria.** Recomendado: 90 dias (1 ano se houver exigência fiscal/LGPD).
-7. **RH no agente.** Recomendado: fora até haver um caso de uso.
+6. **Retenção da auditoria — ✅ 30 dias** (Marcelo, 02/10).
+7. **RH no agente — ✅ dentro** (Marcelo, 02/10: "mantenha as funções que existem hoje").
 8. **TLS no MCP.** Recomendado: firewall já (F1); TLS numa fase seguinte.
 9. **A outra equipe deixa a chave mestra.** Recomendado: sim, na F1 ela recebe uma chave só da
    `/api/pedidos-wbc`.

@@ -6,6 +6,37 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-02] — Segurança-base: chave por cliente, auditoria de 30 dias, interruptor do agente
+
+F1 de `docs/PLANO_MIRA_AGENTE_11.md`. Entra pelo `deploy_update.bat` (API, Controle de Produção e
+MCP). **Nada quebra no deploy**: a `OS_API_KEY` e o `SIS_MCP_TOKEN` continuam valendo para tudo; a
+migração dos clientes é um passo a passo em `docs/SEGURANCA_11.md`.
+
+- **Credenciais por cliente com escopo** (`seguranca/`, `python -m seguranca`): cada cliente com
+  a sua chave, guardada só como SHA-256 em `state/credenciais.json`. Escopos: leitura, rh,
+  os:sincronizar, oportunidades:carga, vendas_bi:carga, op:status, historico:apagar,
+  pedidos_wbc, manutencao_op, mcp, admin. A 8077 declara o escopo em cada rota
+  (`@requer_chave('leitura')`); a `/api/*` da 8080 por prefixo; o MCP por ferramenta. Fora do
+  escopo → **403 `sem_permissao`**. Apagar histórico passa a exigir `historico:apagar`.
+- **Auditoria** em `logs/auditoria/{api,controleproducao,mcp}-AAAA-MM-DD.jsonl`: quem, quando,
+  rota/ferramenta, argumentos (MCP), escopo, resultado, IP, duração — **30 dias** (decisão do
+  Marcelo). Sem rota que apague. Até hoje o MCP não registrava nenhuma ferramenta chamada e a
+  8077 só registrava as rotas de OP.
+- **Identidade**: `X-SIS-Usuario` (quem pediu) é aceito só de clientes marcados para declarar
+  (o .90, o MCP) e vai para a auditoria.
+- **Regras do agente** (credencial `--agente`): interruptor `python -m seguranca
+  desligar-agente [--so-escrita]` e escrita só em dia útil das 7h às 19h → **403
+  `agente_bloqueado`**. Pessoas não são afetadas. Um agente nunca recebe `admin`.
+- **MCP**: `mcp/acesso_mcp.py` substitui o token único — token por cliente (escopo `mcp`),
+  ferramenta no seu escopo (ferramenta nova sem escopo exige `admin`).
+- **Firewall da 8078**: `maintenance/firewall_mcp_8078.ps1` (bloqueio que vence a liberação do
+  `python.exe`; mostra antes de aplicar, `-Remover` desfaz). Você roda na .11, **depois** de a
+  auditoria mostrar quais IPs usam o MCP hoje (todos entram na lista).
+- **Regra acima de todas: segurança acrescenta, nunca tira função** (Marcelo). Nenhum acesso de
+  hoje some: chave-mestra, token antigo do MCP e login das telas continuam valendo; RH e as duas
+  escritas do MCP continuam disponíveis ao agente.
+- 49 testes novos (credenciais, auditoria, agente, escopo de cada rota, porta do MCP).
+
 ## [2026-10-01] — Deploy: sem GitHub, não para nada
 
 - 01/10 ~15:53 a .11 não resolveu `github.com` ("Could not resolve host") e o `deploy_update.bat`,
