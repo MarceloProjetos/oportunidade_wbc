@@ -1,6 +1,8 @@
 # Plano — a .11 pronta para a Mira agir como agente
 
-> **Status (02/10/2026, tarde): F1 no ar e MIGRADA; F2 (leituras) CODADA e testada, pende deploy.**
+> **Status (02/10/2026, 11:48): F1 no ar e MIGRADA; F2 (leituras) NO AR na .11 e conferida pelo MCP** (5 ferramentas:
+> serviços 6/6, HANA e GitHub alcançados, destino fora da lista recusado, histórico do 84453 com pessoa × integração,
+> log do 00125348). Antes: F2 codada.
 > Os 4 clientes usam a própria chave (o Altamira View precisou de `rh` a mais, acrescentado sem trocar
 > a chave). F2: 5 ferramentas novas no MCP (24 no total); o histórico de pedido foi conferido no SAP
 > real (84453, 12 versões, 0,34 s). **Pende (Marcelo): deploy da F2**; depois, apagar o `SIS_MCP_TOKEN`
@@ -157,7 +159,7 @@ volta a quebrar calada.
 - **Pende:** em 1–2 dias, sem `mcp-legado` na auditoria → apagar `SIS_MCP_TOKEN` do `mcp\.env`; depois,
   firewall da 8078 com .148, .90 e .229 (reservar o .229 no DHCP).
 
-### F2 — A leitura que falta — codada 02/10; pende deploy
+### F2 — A leitura que falta — NO AR 02/10 11:48 (1ce861b), conferida
 *Quando fechar: o agente responde aos 8 casos sem ninguém abrir a .11.*
 - Pacote `operacao/` (só leitura) + rotas da 8077 com escopo `leitura` + 5 ferramentas no MCP:
 
