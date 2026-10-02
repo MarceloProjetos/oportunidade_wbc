@@ -148,6 +148,11 @@ volta a quebrar calada.
   notebook) criadas e trocadas; conferidas na auditoria e pelas ferramentas. O .90 sai para a .11 pelo
   IP **192.168.0.148** (não há NAT: o notebook aparece como .229). A tarefa `AltamiraView-Boot` estava
   **desabilitada** — reabilitada.
+- **Migração concluída 02/10 10:53:** auditoria mostra os 4 clientes com a própria chave (`orcaview-90`,
+  `altamira-view`, `mcp-servico`, e `mcp-marcelo` na próxima sessão do Claude); nada do .148 com `chave-mestra`
+  depois das 10:42. **O que mordeu:** a primeira troca do `mcp\.env` foi feita no arquivo do **notebook**, não no da
+  .11 — o MCP seguiu com a chave-mestra até a troca certa. E o `/status` com a chave-mestra não entrava na
+  auditoria (corrigido em `60e0d0b`, pende deploy, junto com `7aef94a`).
 - **Pende:** em 1–2 dias, sem `mcp-legado` na auditoria → apagar `SIS_MCP_TOKEN` do `mcp\.env`; depois,
   firewall da 8078 com .148, .90 e .229 (reservar o .229 no DHCP).
 
