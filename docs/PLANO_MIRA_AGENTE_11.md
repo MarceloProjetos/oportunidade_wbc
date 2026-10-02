@@ -142,8 +142,14 @@ volta a quebrar calada.
 - **O que mudou no caminho:** a 8077 **não** vai para firewall (as pessoas abrem a Sincronização de
   qualquer PC); fica protegida pelas chaves com escopo. No Windows, uma regra de **bloqueio** vence a
   liberação por programa do `python.exe` — por isso o script bloqueia todos menos os permitidos.
-- **Pende (Marcelo):** deploy; criar as chaves e trocar nos clientes (.90, outra equipe, o próprio
-  MCP, os clientes do MCP); rodar o script do firewall; reservar no DHCP o IP do notebook.
+- **Migração (02/10, manhã):** `orcaview-90` (OrçaView do .90; leitura, rh, os:sincronizar), `altamira-view`
+  (app da equipe GLMiranda no mesmo .90; leitura, os:sincronizar, pedidos_wbc — era quem ainda usava a
+  chave-mestra pelo 192.168.0.148), `mcp-servico` (a chave do MCP para a API) e `mcp-marcelo` (o
+  notebook) criadas e trocadas; conferidas na auditoria e pelas ferramentas. O .90 sai para a .11 pelo
+  IP **192.168.0.148** (não há NAT: o notebook aparece como .229). A tarefa `AltamiraView-Boot` estava
+  **desabilitada** — reabilitada.
+- **Pende:** em 1–2 dias, sem `mcp-legado` na auditoria → apagar `SIS_MCP_TOKEN` do `mcp\.env`; depois,
+  firewall da 8078 com .148, .90 e .229 (reservar o .229 no DHCP).
 
 ### F2 — A leitura que falta
 *Quando fechar: o agente responde aos 8 casos sem ninguém abrir a .11.*
