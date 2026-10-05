@@ -61,8 +61,10 @@ def passo(monkeypatch: pytest.MonkeyPatch, tmp_path):
     return worker, chamadas
 
 
-def test_simulacao_nao_tem_como_gravar(passo) -> None:
+def test_simulacao_nao_tem_como_gravar(passo, monkeypatch) -> None:
+    """``None`` is the simulation (and the rollback), whatever the constant holds today."""
     worker, chamadas = passo
+    monkeypatch.setattr(mod_worker.pesos_reescalados, "GRAVA_A_PARTIR_DE", None)
     worker._pesos_reescalados()
     assert chamadas[0]["gravar"] is None and chamadas[0]["a_partir_de"] is None
     assert chamadas[0]["memoria"] is worker._pesos
