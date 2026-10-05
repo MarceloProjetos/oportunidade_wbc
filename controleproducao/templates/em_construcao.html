@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% from "_icones.html" import icone %}
+{% block title %}{{ titulo }}{% endblock %}
+{% block content %}
+<header class="casa-titulo">
+  <span class="casa-titulo__simbolo">{{ icone('romaneio', 26) }}</span>
+  <div class="casa-titulo__texto">
+    <h1>{{ titulo }}</h1>
+    <p>Módulo {{ prioridade }} na ordem de migração —
+      <span class="ov-pill is-neutro">em construção</span></p>
+  </div>
+</header>
+
+<section class="ov-card">
+  <p>Referência no código legado: <code>{{ referencia }}</code></p>
+  <p class="ov-nota">Ver <code>controleproducao/modules/.../service.py</code> para os TODOs detalhados e
+    <code>migration_guide.md</code> para o desenho funcional completo.</p>
+</section>
+{% endblock %}

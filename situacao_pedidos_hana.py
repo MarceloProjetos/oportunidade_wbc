@@ -1,0 +1,818 @@
+"""situacao_pedidos_hana -- leitura da view de Situacao dos Pedidos no HANA (F2).
+
+A camada de I/O que falta ao :mod:`situacao_pedidos` (que e' puro de proposito e nao
+pode ganhar rede sem quebrar o teste de diffabilidade). Aqui mora o SELECT, o cache e a
+traducao de "HANA fora do ar" para uma mensagem que a F3 vira 503.
+
+**Esta e' a primeira leitura HANA sincrona servida por request neste repo.** Todas as
+rotas de leitura de hoje batem no Supabase; o ``sap_connection`` so era usado pelos
+pipelines (que rodam sozinhos, sem ninguem esperando) e pelo *ping* do ``/status``. Tres
+consequencias, todas deliberadas:
+
+1. **Uma conexao por leitura, aberta e fechada na hora.** Conexao ``hdbcli`` nao e'
+   thread-safe e o waitress atende em varias threads; compartilhar uma so pediria lock e
+   reconexao. Com o cache de 120s isso da, no pior caso, **uma** conexao a cada 2 min --
+   barato demais para justificar a complexidade.
+2. **Guarda de volume antes do SELECT.** A view devolve o recorte inteiro, sem filtro de
+   data (decisao do dono). Se um dia ela mudar de natureza e passar a devolver historico,
+   e' melhor um erro explicito que 200 mil linhas na resposta.
+3. **Erro legivel, nunca 500 cru.** :class:`SAPIndisponivel` carrega a mensagem que vai
+   para a tela de quem perguntou.
+
+O SQL e' o MESMO do ``sap_hana_client.fetch_status_pedidos`` do V117 -- e' isso que faz a
+.11 e a tela responderem igual. Ao mexer nele, mexa nos dois.
+
+Plano: ``PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29; historico no git)``.
+"""
+from __future__ import annotations
+
+import logging
+import threading
+import time
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any
+
+import sap_montagem_labels
+from config import get_settings
+from sap_connection import connect_sap_hana
+from situacao_pedidos import _MAX_LINHAS, ValidationError, now_br
+from sql_seguro import nome_simples
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "CACHE_TTL_SEGUNDOS",
+    "SAPIndisponivel",
+    "fetch_status_pedidos",
+    "fetch_udf_valid_values",
+    "idade_do_cache_s",
+    "limpar_cache",
+    "ligar_rotulos_do_sap",
+]
+
+#: 120s. O que garante que as 3 consultas do plano respondam sobre o MESMO retrato -- e
+#: o que impede um modelo em laco de martelar o HANA. Curto o bastante para "situacao
+#: agora" continuar significando agora.
+CACHE_TTL_SEGUNDOS = 120
+
+#: Nome da view. Fixo, e nao configuravel por ``.env``: e' contrato com o V117, nao
+#: preferencia de ambiente. O schema, esse sim, vem do ambiente (``SAP_SCHEMA``).
+VIEW_STATUS_PEDIDO = "VW_STATUS_PEDIDO_DDP"
+
+
+class SAPIndisponivel(RuntimeError):
+    """HANA fora do ar, credencial ausente ou consulta que estourou.
+
+    A F3 traduz para **503** com ``str(e)`` no corpo. Existe separada da
+    :class:`situacao_pedidos.ValidationError` porque as duas viram HTTP diferente:
+    parametro errado e' culpa de quem chamou (422), HANA fora nao e' (503).
+    """
+
+
+# As 23 colunas da view + o que vem dos joins. Copia fiel do V117 -- ver o docstring do
+# modulo. Prazo_Entrega e' TEXTO pronto ("21/09 A 25/09", sem ano) e vai como veio.
+STATUS_PEDIDO_COLS = (
+    'v."DocEntry", v."DocNum", v."Data_Pedido", v."CardCode", v."CardName", '
+    'v."GroupNum", v."PymntGroup", v."Integrar", v."Financeiro", v."Sinal", '
+    'v."Producao", v."Entrega", v."Data_Entrega", v."Prazo_Entrega", '
+    'v."Atrasado", v."DDO", v."Peso", v."StatusPedido", '
+    'v."Data_Lib_Fin", v."Data_Lib_Prod", v."Data_Pagto", '
+    'v."Total_OS", v."Total_OS_Fechadas", '
+    # Montagem: a view nao carrega as UDFs; elas vem da ORDR, a MESMA fonte que a tela
+    # de Pedidos usa. O nome do montador sai da UDT @INO_MONTADOR (o pedido guarda so o
+    # CNPJ). A cotacao WBC + revisao idem: a view nao tem, a ORDR tem.
+    'o."U_INO_COTWBC" AS "CotacaoWbc", '
+    'o."U_INO_VERSAOWBC" AS "VersaoWbc", '
+    'o."U_INO_TPO_MONTAGEM" AS "MontagemCod", '
+    'o."U_INO_TIPO_MT" AS "MontagemTexto", '
+    'o."U_INO_VL_MT" AS "MontagemValor", '
+    'o."U_INO_MONTADOR" AS "MontadorCnpj", '
+    'm."Name" AS "MontadorNome", '
+    # Valor e vendedor: a view nao tem nenhum dos dois. Campos PADRAO, nao UDF --
+    # `U_INO_Vendedor` da OSLP NAO existe em producao e ja quebrou um sync.
+    'o."DocTotal", o."DocCur", o."SlpCode", '
+    's."SlpName" AS "Vendedor", '
+    # Endereco de entrega (RDR12). Ver ENDERECO_COLS.
+    + ", ".join(f'a."{c}"' for c in
+                ("StrtDlvryP", "StrNoDlvrP", "BldDlvryP", "BlckDlvryP", "CityDlvryP",
+                 "StatDlvryP", "ZipDlvryP", "CntyDlvryP", "CtryDlvryP",
+                 "StreetS", "StreetNoS", "BuildingS", "BlockS", "CityS",
+                 "StateS", "ZipCodeS", "CountyS", "CountryS"))
+)
+
+#: As colunas de endereco da RDR12, por sufixo. **A grafia e' irregular e o mapa e'
+#: explicito de proposito**: ``StrNoDlvrP`` nao tem o "y", e ha ``BldDlvryP`` ao lado de
+#: ``BuildingS``. Um loop de sufixo produziria nome errado -- foi a armadilha da
+#: implementacao de 13/08 no OrcaView (``sap_hana_client._DELIVERY_PLACE_COLS``, de onde
+#: isto e' copia fiel).
+#:
+#: ``*DlvryP`` = "Local de entrega" (o campo BR que a tela marca com o selo "difere do
+#: ponto de entrega"); ``*S`` = ShipTo, o "Ponto de Entrega". Medido em 10/09 no recorte
+#: de 266 pedidos: 38 tem o Local preenchido, e em 24 deles a CIDADE difere do ShipTo.
+ENDERECO_COLS = {
+    "local": {"logradouro": "StrtDlvryP", "numero": "StrNoDlvrP",
+              "complemento": "BldDlvryP", "bairro": "BlckDlvryP",
+              "cidade": "CityDlvryP", "uf": "StatDlvryP", "cep": "ZipDlvryP",
+              "municipio_cod": "CntyDlvryP", "pais": "CtryDlvryP"},
+    "ponto": {"logradouro": "StreetS", "numero": "StreetNoS",
+              "complemento": "BuildingS", "bairro": "BlockS",
+              "cidade": "CityS", "uf": "StateS", "cep": "ZipCodeS",
+              "municipio_cod": "CountyS", "pais": "CountryS"},
+}
+
+#: LEFT, nunca INNER: pedido sem montador -- ou que suma da ORDR -- nao pode desaparecer
+#: da resposta. Os KPIs contam a VIEW, nao o join.
+#:
+#: A ``RDR12`` (endereco do documento) e' 1:1 por ``DocEntry`` e entra pelo mesmo motivo:
+#: LEFT. Medido em 10/09 nos 266 pedidos do recorte, nenhum ficou sem linha na RDR12 --
+#: mas basta um para o INNER apagar um pedido da lista sem erro nenhum.
+#:
+#: **A OCNT NAO entra aqui.** O municipio e' um codigo (``CntyDlvryP``/``CountyS`` =
+#: ``OCNT.AbsId``) e ha linha historica com o campo vazio; no plano de execucao do join o
+#: HANA avalia a conversao em linhas que o filtro descartaria e a consulta MORRE com
+#: "invalid number". Quem resolve o nome e' um SELECT a parte (F2), como o
+#: ``fetch_municipios`` do OrcaView.
+STATUS_PEDIDO_JOINS = (
+    'LEFT JOIN "{schema}"."ORDR" o ON o."DocEntry" = v."DocEntry" '
+    'LEFT JOIN "{schema}"."@INO_MONTADOR" m ON m."Code" = o."U_INO_MONTADOR" '
+    'LEFT JOIN "{schema}"."OSLP" s ON s."SlpCode" = o."SlpCode" '
+    'LEFT JOIN "{schema}"."RDR12" a ON a."DocEntry" = v."DocEntry"'
+)
+
+_cache_lock = threading.Lock()
+#: ``(timestamp, linhas)``. Entrada unica: a consulta nao tem parametro nenhum (sem
+#: filtro de data -- decisao do dono), entao a chave seria sempre a mesma.
+_cache: tuple[float, list[dict[str, Any]]] | None = None
+
+
+def limpar_cache() -> None:
+    """Esvazia o cache de linhas cruas (testes, e o ``?recarregar=1`` da F3)."""
+    global _cache
+    with _cache_lock:
+        _cache = None
+
+
+def _schema() -> str:
+    s = get_settings()
+    if not s.sap_ready():
+        raise SAPIndisponivel(
+            "Consulta ao SAP não configurada (faltam SAP_HOST/SAP_USER/SAP_PASSWORD).")
+    if not s.sap_schema:
+        raise SAPIndisponivel("Consulta ao SAP não configurada (falta SAP_SCHEMA).")
+    # O schema vem do .env e entra no SQL como "{schema}" (nome de objeto não é parâmetro):
+    # conferido pela mesma regra do resto do repo antes de virar texto de consulta.
+    try:
+        return nome_simples(s.sap_schema, what="SAP_SCHEMA")
+    except ValueError as e:
+        raise SAPIndisponivel(f"SAP_SCHEMA inválido no .env: {e}") from e
+
+
+def _conectar():
+    s = get_settings()
+    try:
+        return connect_sap_hana(
+            s.sap_host, s.sap_port, s.sap_user, s.sap_password, s.sap_database)
+    except Exception as e:
+        logger.warning("[SIT_PED] HANA inacessível: %s", e)
+        raise SAPIndisponivel(
+            "Situação dos pedidos indisponível no momento (SAP HANA fora do ar).") from e
+
+
+def _num(v: Any) -> Any:
+    """``Decimal`` do HANA → float (serializável em JSON); o resto passa intacto."""
+    return float(v) if isinstance(v, Decimal) else v
+
+
+def _data_iso(v: Any) -> str | None:
+    """Data/timestamp do HANA → ``'YYYY-MM-DD'``, que e' o que o nucleo espera."""
+    if v is None:
+        return None
+    if hasattr(v, "strftime"):
+        return v.strftime("%Y-%m-%d")
+    s = str(v)
+    return s[:10] if len(s) >= 10 and s[4:5] == "-" else s
+
+
+def _linhas(conn, sql: str, params: tuple = ()) -> list[dict[str, Any]]:
+    """SELECT → lista de dicts, com as colunas vindas do ``cursor.description``.
+
+    Direto no cursor, e nao pelo ``db_utils.read_dbapi_query`` (que e' o padrao deste
+    repo): aquele devolve ``DataFrame``, e a passagem pelo pandas transformaria ``NULL``
+    em ``NaN`` e coluna inteira com nulo em float -- o nucleo portado espera ``None`` e
+    ``int``. Os pipelines querem DataFrame porque carregam em lote; aqui a saida e' JSON.
+
+    Coluna ``CHAR`` do HANA vem preenchida com espaco a direita; o ``rstrip`` evita
+    divergencia cosmetica com a tela (que le pelo Service Layer, sem o padding).
+    """
+    cur = conn.cursor()
+    try:
+        cur.execute(sql, params)
+        cols = [d[0] for d in cur.description] if cur.description else []
+        return [
+            {c: (v.rstrip() if isinstance(v, str) else v) for c, v in zip(cols, r)}
+            for r in cur.fetchall()
+        ]
+    except Exception as e:
+        logger.error("[SIT_PED] Falha na consulta HANA: %s", e)
+        raise SAPIndisponivel(
+            "Falha ao consultar a situação dos pedidos no SAP HANA.") from e
+    finally:
+        try:
+            cur.close()
+        except Exception as e:  # cursor ja morto junto com a conexao
+            logger.debug("Falha ao fechar cursor HANA (ignorada): %s", e)
+
+
+#: Chave injetada com o NOME do municipio, por lado do endereco. Comeca com ``_`` porque
+#: nao e' coluna do SAP: e' derivada aqui, como o ``_DeliveryPlaceCountyName`` do V118.
+MUNICIPIO_CHAVES = {"local": "_MunicipioLocal", "ponto": "_MunicipioPonto"}
+
+
+def _injetar_municipios(conn, schema: str, linhas: list[dict[str, Any]]) -> None:
+    """Resolve ``CntyDlvryP``/``CountyS`` (codigos = ``OCNT.AbsId``) para o NOME da
+    cidade, **em uma consulta so**, e grava em :data:`MUNICIPIO_CHAVES`.
+
+    Tres decisoes que valem a leitura:
+
+    1. **Fora do JOIN.** Ha linha historica com o campo vazio; no plano de execucao do
+       join o HANA avalia a conversao em linhas que o filtro descartaria e a consulta
+       MORRE com "invalid number". Um ``SELECT ... WHERE AbsId IN (...)`` a parte
+       funciona — e' o padrao do ``fetch_municipios`` do OrcaView.
+    2. **Mesma conexao, mesmo ciclo, mesmo cache.** Nao abre conexao nova (uma por
+       leitura e' regra deste modulo) nem guarda cache proprio: o nome viaja dentro das
+       proprias linhas, que ja tem o cache de 120 s do recorte. Sem tabela, sem espelho,
+       sem job.
+    3. **Best-effort.** Se a OCNT falhar, o recorte inteiro NAO cai por causa do nome de
+       uma cidade: as chaves ficam ``None`` (que ja significa "nao foi possivel saber") e
+       o log registra. Medido em 10/09: ``CountyS`` vem preenchido em 266 de 266 pedidos,
+       entao na pratica isso quase nunca fica vazio.
+
+    A lista do ``IN`` e' montada com ``int()`` em cada elemento — os codigos entram como
+    numero, nunca como texto vindo de fora.
+    """
+    codigos: set[int] = set()
+    for r in linhas:
+        for lado, cols in ENDERECO_COLS.items():
+            r[MUNICIPIO_CHAVES[lado]] = None          # a chave existe sempre
+            bruto = str(r.get(cols["municipio_cod"]) or "").strip()
+            if bruto.isdigit():
+                codigos.add(int(bruto))
+    if not codigos:
+        return
+
+    lista = ",".join(str(c) for c in sorted(codigos))
+    try:
+        nomes = {
+            int(m["AbsId"]): (m.get("Name") or "").strip()
+            for m in _linhas(conn, f'SELECT "AbsId", "Name" FROM "{schema}"."OCNT" '
+                                   f'WHERE "AbsId" IN ({lista})')
+            if m.get("AbsId") is not None
+        }
+    except Exception as e:
+        # SAPIndisponivel inclusive: o nome da cidade nao vale derrubar a Situacao.
+        logger.warning("[SIT_PED] municipios da OCNT indisponiveis (%s) — seguindo sem.", e)
+        return
+
+    for r in linhas:
+        for lado, cols in ENDERECO_COLS.items():
+            bruto = str(r.get(cols["municipio_cod"]) or "").strip()
+            if bruto.isdigit():
+                r[MUNICIPIO_CHAVES[lado]] = nomes.get(int(bruto))
+    logger.info("[SIT_PED] %d municipios resolvidos na OCNT.", len(nomes))
+
+
+# ─────────────── Liberacao real + primeira NF (PLANO_DATAS_LIBERACAO_NF) ───────────────
+# As datas da view NAO sao liberacao: `Data_Lib_Prod` e' MAX(Data_Lib_Fin, Data_Pagto) + 3
+# dias corridos, `Data_Lib_Fin` e' digitada (+1 dia em 182 de 252) e `Data_Pagto` e' a
+# EMISSAO do sinal, nao o pagamento. Medido em 25/09/2026 nos 281 pedidos do recorte.
+#
+# A regra que o SAP aplica (281 de 281, zero excecao): Producao (= Entrega, sempre iguais)
+# liberada <=> Financeiro liberado E (sem sinal OU a ULTIMA Solicitacao de Adiantamento
+# nao cancelada esta fechada). Sinal reemitido re-bloqueia pedido que ja tinha pago.
+# Entao o momento real e' o mais tardio entre:
+#   - a ultima passagem de `U_INO_PedLib` de 'N' para 'S' no historico (ADOC);
+#   - o REGISTRO do recebimento que fechou a ultima ODPI (ORCT.CreateDate + CreateTS). A
+#     `DocDate` do recebimento e' contabil e vem retroativa (44 de 46 diferem).
+
+#: A view de orcamentos, a mesma do ``extract_orcamentos_espelho``. A linha do pedido e'
+#: ``TipoDoc = '17'``, com ``NumDoc`` = DocNum do pedido.
+VIEW_ORCAMENTOS = "VW_EVOL_ORCAMENTO_ALT"
+
+#: Chaves injetadas nas linhas cruas. Comecam com ``_`` porque nao sao colunas da view,
+#: como :data:`MUNICIPIO_CHAVES`. Existem sempre; ``None`` = "nao foi possivel saber".
+LIBERACAO_CHAVES = ("_LibFinEm", "_LibFinAte", "_SinalPagoEm", "_DataCriacaoPN",
+                    "_Representante", "_NfDocNum", "_NfNumeroFiscal", "_NfData")
+
+
+def momento(data: Any, hhmmss: Any) -> datetime | None:
+    """Data + hora inteira ``HHMMSS`` do B1 (``UpdateTS``, ``CreateTS``) → datetime com fuso.
+
+    O B1 grava a hora a parte, como inteiro (``165116`` = 16:51:16), no fuso do servidor,
+    que e' o de Sao Paulo. Sem data ou sem hora devolve ``None``: meia-noite inventada
+    pareceria um dado.
+    """
+    if data is None or hhmmss is None:
+        return None
+    try:
+        ts = int(hhmmss)
+        h, m, s = ts // 10000, (ts // 100) % 100, ts % 100
+        base = data if isinstance(data, date) else date.fromisoformat(str(data)[:10])
+        return datetime(base.year, base.month, base.day, h, m, s, tzinfo=now_br().tzinfo)
+    except (TypeError, ValueError):
+        return None
+
+
+def ultima_liberacao(versoes: list[tuple[Any, datetime | None]],
+                     historico_completo: bool = True) -> datetime | None:
+    """Moment of the LAST Financeiro passage to released, from the change log.
+
+    ``versoes`` = ``[(U_INO_PedLib, momento), ...]`` in ``LogInstanc`` order. An order born
+    ``'S'`` counts its first version (released since creation). Re-blocked and released
+    again (11 in the 25/09 cut) → the most recent release. Last version not released → ``None``.
+
+    ``historico_completo=False``: the SAP keeps only the last 99 versions of a document and
+    drops the oldest (30 of 295 orders on 02/10/2026). The oldest RETAINED version being
+    ``'S'`` then says nothing about when the release happened — counting it reported 84348
+    as released at 16:30 when it was 15:06, and the time drifted later with every new save.
+    Only a passage N→S visible inside the window counts; otherwise ``None``.
+    """
+    liberado_em, anterior = None, None
+    for pl, quando in versoes:
+        pl = str(pl or "").strip().upper()
+        if pl == "S" and anterior != "S" and (anterior is not None or historico_completo):
+            liberado_em = quando
+        anterior = pl
+    return liberado_em if anterior == "S" else None
+
+
+def liberado_ate(versoes: list[tuple[Any, datetime | None]]) -> datetime | None:
+    """Truncated log already released in every retained version → the release happened at
+    or before the oldest one. An upper bound for :func:`liberacao_e_nf`, never a release time.
+    """
+    if versoes and all(str(pl or "").strip().upper() == "S" for pl, _ in versoes):
+        return versoes[0][1]
+    return None
+
+
+def sinal_pago_em(odpis: list[dict[str, Any]],
+                  recebimentos: dict[int, list[datetime | None]]) -> datetime | None:
+    """Quando o sinal do pedido ficou pago, ou ``None``.
+
+    Vale so a ULTIMA Solicitacao de Adiantamento nao cancelada (maior ``DocEntry``):
+    as anteriores sao reemissoes do mesmo sinal, e uma nova aberta volta a bloquear o
+    pedido. Aberta → ``None``. Fechada → o registro mais tardio dos recebimentos dela.
+    """
+    vivas = [o for o in odpis if str(o.get("CANCELED") or "N").strip().upper() == "N"]
+    if not vivas:
+        return None
+    ultima = max(vivas, key=lambda o: int(o["DocEntry"]))
+    if str(ultima.get("DocStatus") or "").strip().upper() != "C":
+        return None
+    momentos = [m for m in recebimentos.get(int(ultima["DocEntry"]), []) if m is not None]
+    return max(momentos) if momentos else None
+
+
+def _iso(v: datetime | None) -> str | None:
+    return v.isoformat(timespec="seconds") if v is not None else None
+
+
+def _int(v: Any) -> int | None:
+    try:
+        return int(v) if v is not None and str(v).strip() != "" else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _injetar_liberacao_e_nf(conn, schema: str, linhas: list[dict[str, Any]]) -> None:
+    """Grava :data:`LIBERACAO_CHAVES` nas linhas cruas: 3 consultas para o recorte inteiro.
+
+    Mesmo desenho do :func:`_injetar_municipios`: mesma conexao, sem cache proprio (viaja
+    nas linhas, que ja tem o de 120 s) e **best-effort por consulta** — o historico fora
+    do ar nao derruba a Situacao nem apaga a NF. Custo medido em 25/09: ~1,0 s no recorte
+    de 281 pedidos.
+
+    As listas do ``IN`` sao montadas com ``int()`` em cada elemento, como no municipio.
+    """
+    for r in linhas:
+        for k in LIBERACAO_CHAVES:
+            r[k] = None
+    entries = sorted({e for e in (_int(r.get("DocEntry")) for r in linhas) if e is not None})
+    docnums = sorted({n for n in (_int(r.get("DocNum")) for r in linhas) if n is not None})
+    por_entry = {_int(r.get("DocEntry")): r for r in linhas}
+    if not entries:
+        return
+    in_entries = ",".join(str(e) for e in entries)
+
+    # 1) Financeiro: historico do pedido (ADOC, ObjType 17).
+    try:
+        versoes: dict[int, list[tuple[Any, datetime | None]]] = {}
+        primeira: dict[int, int | None] = {}
+        for h in _linhas(conn,
+                         f'SELECT "DocEntry", "UpdateDate", "UpdateTS", "U_INO_PedLib", '
+                         f'"LogInstanc" '
+                         f'FROM "{schema}"."ADOC" WHERE "ObjType" = \'17\' '
+                         f'AND "DocEntry" IN ({in_entries}) '
+                         f'ORDER BY "DocEntry", "LogInstanc"'):
+            e = int(h["DocEntry"])
+            primeira.setdefault(e, _int(h.get("LogInstanc")))
+            versoes.setdefault(e, []).append(
+                (h.get("U_INO_PedLib"), momento(h.get("UpdateDate"), h.get("UpdateTS"))))
+        for e, vs in versoes.items():
+            if e in por_entry:
+                # LogInstanc starts at 1; a higher first one means the SAP dropped the oldest.
+                completo = primeira.get(e) == 1
+                por_entry[e]["_LibFinEm"] = _iso(ultima_liberacao(vs, completo))
+                if not completo:
+                    por_entry[e]["_LibFinAte"] = _iso(liberado_ate(vs))
+    except Exception as e:
+        logger.warning("[SIT_PED] historico (ADOC) indisponivel (%s) — seguindo sem.", e)
+
+    # 2) Sinal: ultima ODPI do pedido e os recebimentos dela (RCT2 InvType 203 → ORCT).
+    try:
+        odpis: dict[int, list[dict[str, Any]]] = {}
+        for o in _linhas(conn,
+                         f'SELECT d."BaseEntry", p."DocEntry", p."DocStatus", p."CANCELED" '
+                         f'FROM "{schema}"."DPI1" d '
+                         f'JOIN "{schema}"."ODPI" p ON p."DocEntry" = d."DocEntry" '
+                         f'WHERE d."BaseType" = 17 AND d."LineNum" = 0 '
+                         f'AND d."BaseEntry" IN ({in_entries})'):
+            odpis.setdefault(int(o["BaseEntry"]), []).append(o)
+        todas = sorted({int(o["DocEntry"]) for os_ in odpis.values() for o in os_})
+        recebimentos: dict[int, list[datetime | None]] = {}
+        if todas:
+            for r in _linhas(conn,
+                             f'SELECT x."DocEntry", r."CreateDate", r."CreateTS", r."Canceled" '
+                             f'FROM "{schema}"."RCT2" x '
+                             f'JOIN "{schema}"."ORCT" r ON r."DocEntry" = x."DocNum" '
+                             f'WHERE x."InvType" = \'203\' '
+                             f'AND x."DocEntry" IN ({",".join(str(d) for d in todas)})'):
+                if str(r.get("Canceled") or "N").strip().upper() != "Y":
+                    recebimentos.setdefault(int(r["DocEntry"]), []).append(
+                        momento(r.get("CreateDate"), r.get("CreateTS")))
+        for e, os_ in odpis.items():
+            if e in por_entry:
+                por_entry[e]["_SinalPagoEm"] = _iso(sinal_pago_em(os_, recebimentos))
+    except Exception as e:
+        logger.warning("[SIT_PED] sinal (ODPI/ORCT) indisponivel (%s) — seguindo sem.", e)
+
+    # 3) View de orcamentos (linha do pedido) + numero da DANFE da primeira nota.
+    if not docnums:
+        return
+    try:
+        por_docnum: dict[int, dict[str, Any]] = {}
+        for v in _linhas(conn,
+                         f'SELECT e."NumDoc", e."DataCriacaoPN", e."Representante", '
+                         f'e."NumNF", e."DataNF", i."Serial" '
+                         f'FROM "{schema}"."{VIEW_ORCAMENTOS}" e '
+                         f'LEFT JOIN "{schema}"."OINV" i ON i."DocNum" = e."NumNF" '
+                         f'WHERE e."TipoDoc" = \'17\' '
+                         f'AND e."NumDoc" IN ({",".join(str(n) for n in docnums)})'):
+            n = _int(v.get("NumDoc"))
+            # Linha com NF ganha de linha sem NF se o pedido aparecer duas vezes.
+            if n is not None and (n not in por_docnum or _int(v.get("NumNF")) is not None):
+                por_docnum[n] = v
+        for r in linhas:
+            v = por_docnum.get(_int(r.get("DocNum")))
+            if not v:
+                continue
+            r["_DataCriacaoPN"] = _data_iso(v.get("DataCriacaoPN"))
+            r["_Representante"] = (str(v.get("Representante") or "").strip() or None)
+            r["_NfDocNum"] = _int(v.get("NumNF"))
+            r["_NfNumeroFiscal"] = _int(v.get("Serial")) if r["_NfDocNum"] else None
+            r["_NfData"] = _data_iso(v.get("DataNF")) if r["_NfDocNum"] else None
+    except Exception as e:
+        logger.warning("[SIT_PED] %s indisponivel (%s) — seguindo sem.", VIEW_ORCAMENTOS, e)
+
+
+def liberacao_e_nf(r: dict[str, Any]) -> dict[str, Any]:
+    """Linha crua (com :data:`LIBERACAO_CHAVES`) → os 10 campos do contrato.
+
+    Pura. ``lib_producao_em`` so existe com a Producao liberada AGORA e com todas as
+    condicoes datadas: sem a hora do Financeiro, ou com sinal exigido e sem a hora do
+    pagamento, vem ``None`` — um "quase" aqui seria uma data inventada.
+    ``lib_entrega_em`` e' a mesma: o SAP nao separa Producao de Entrega (281 de 281).
+    """
+    fin = r.get("_LibFinEm")
+    ate = r.get("_LibFinAte")
+    sinal = r.get("_SinalPagoEm")
+    lib_prod = None
+    if str(r.get("Producao") or "").strip().lower().startswith("liberad"):
+        if str(r.get("Sinal") or "").strip().lower().startswith("s"):
+            if sinal and fin:
+                lib_prod = max(fin, sinal, key=datetime.fromisoformat)
+            elif sinal and ate and (datetime.fromisoformat(sinal)
+                                    >= datetime.fromisoformat(ate)):
+                # Financeiro's time was lost with the old versions, but it came no later
+                # than ``ate``; the payment came after it, so the payment is the moment.
+                lib_prod = sinal
+        elif fin:
+            lib_prod = fin
+    nf = r.get("_NfDocNum")
+    return {
+        "lib_fin_em": fin,
+        "sinal_pago_em": sinal,
+        "lib_producao_em": lib_prod,
+        "lib_entrega_em": lib_prod,
+        "data_criacao_pn": r.get("_DataCriacaoPN"),
+        "representante": r.get("_Representante"),
+        "nf_doc_num": nf,
+        "nf_numero_fiscal": r.get("_NfNumeroFiscal"),
+        "nf_data": r.get("_NfData"),
+        "primeira_nf_emitida": nf is not None,
+    }
+
+
+# ─────────────────── B3: qual dos dois enderecos vale ───────────────────
+# O SAP guarda DOIS enderecos de entrega no mesmo pedido, e eles podem apontar para
+# cidades diferentes. Medido em 10/09 no recorte: 38 pedidos de 266 tem "Local de
+# Entrega" preenchido, e em 24 deles a CIDADE difere do ShipTo -- 24 pedidos em que
+# despachar pelo Ponto de Entrega manda a carga para a cidade errada.
+#
+# A API RESOLVE, quem consome nao escolhe (decisao do Marcelo, 10/09: "nao posso deixar
+# a outra equipe tomar a decisao"). O `ponto_entrega` viaja aninhado como REFERENCIA
+# CADASTRAL, nunca como alternativa de despacho.
+
+#: Minimo de caracteres para um campo contar como preenchido. Regra do Marcelo (10/09),
+#: mais estrita que a do OrcaView (`pedido_report._entrega_efetiva`, que aceita qualquer
+#: texto nao-branco). Medido antes de aplicar: das 266 linhas do recorte, ZERO tinha 1-2
+#: caracteres nesses campos -- a diferenca entre as duas reguas e' teorica hoje, e por
+#: isso ela fica so aqui, sem mexer na tela nem no PDF do V118.
+MIN_CARACTERES = 3
+
+
+def _texto(v: Any) -> str:
+    return str(v).strip() if v is not None else ""
+
+
+def _cep(valor: Any) -> str | None:
+    """CEP normalizado para ``NNNNN-NNN``; o que nao for 8 digitos passa como veio.
+
+    **Medido em 10/09: o SAP guarda os dois formatos, nas duas colunas** —
+    ``ZipDlvryP`` tinha 4 com hifen e 33 sem (``'36033000'``); ``ZipCodeS``, 147 e 117.
+    Repassar como veio daria ``36033000`` num pedido e ``30330-000`` no outro, no MESMO
+    campo, e quem consome teria de normalizar. Nao inventamos digito: so formatamos o
+    que ja tem 8.
+    """
+    bruto = _texto(valor)
+    if not bruto:
+        return None
+    so_digitos = "".join(c for c in bruto if c.isdigit())
+    if len(so_digitos) == 8:
+        return f"{so_digitos[:5]}-{so_digitos[5:]}"
+    return bruto
+
+
+def _linha_do_endereco(e: dict[str, Any]) -> str | None:
+    """``'AVENIDA DEUSDEDITH SALGADO, 4010 - SALVATERRA, 36033-000 JUIZ DE FORA-MG'``.
+
+    Uma string pronta para etiqueta/tela, montada por partes: campo vazio nao deixa
+    virgula solta nem hifen orfao.
+    """
+    rua = ", ".join(p for p in (e.get("logradouro"), e.get("numero")) if p)
+    if e.get("bairro"):
+        rua = f"{rua} - {e['bairro']}" if rua else e["bairro"]
+    cidade_uf = "-".join(p for p in (e.get("cidade"), e.get("uf")) if p)
+    local = " ".join(p for p in (e.get("cep"), cidade_uf) if p)
+    return ", ".join(p for p in (rua, local) if p) or None
+
+
+def _endereco(r: dict[str, Any], lado: str) -> dict[str, Any]:
+    """Um lado do endereco (``local`` ou ``ponto``) em campos ja limpos."""
+    cols = ENDERECO_COLS[lado]
+    e: dict[str, Any] = {
+        campo: (_texto(r.get(coluna)) or None)
+        for campo, coluna in cols.items()
+        if campo not in ("cep", "municipio_cod")
+    }
+    e["cep"] = _cep(r.get(cols["cep"]))
+    e["municipio"] = r.get(MUNICIPIO_CHAVES[lado]) or None
+    e["linha"] = _linha_do_endereco(e)
+    return e
+
+
+def _preenchido(e: dict[str, Any]) -> bool:
+    """Tem rua, cidade OU CEP com pelo menos :data:`MIN_CARACTERES`.
+
+    Os mesmos tres campos que o ``_entrega_efetiva`` do OrcaView testa — e' o que a tela
+    usa para decidir se desenha o card do Local de Entrega com o selo "difere do ponto
+    de entrega".
+    """
+    return any(len(_texto(e.get(c))) >= MIN_CARACTERES
+               for c in ("logradouro", "cidade", "cep"))
+
+
+def endereco_entrega_efetivo(r: dict[str, Any]) -> dict[str, Any]:
+    """O endereco de DESPACHO do pedido, ja resolvido — mais o ShipTo como referencia.
+
+    **Se houver Local de Entrega preenchido, e' ele.** Vazio, ou com menos de
+    :data:`MIN_CARACTERES`, conta como ausente e responde o padrao (o Ponto de Entrega),
+    que e' 86% dos casos (medido em 10/09).
+
+    A propriedade que segura a coisa: os campos do TOPO sao sempre o endereco efetivo.
+    Quem ignorar ``fonte``, ignorar o selo e ler so ``cidade``/``uf``/``linha`` **ainda
+    despacha certo** — o caminho preguicoso e' o caminho correto.
+
+    ``difere_do_ponto_de_entrega`` e' "existe Local de Entrega preenchido", **nao**
+    comparacao de cidade: a caixa das duas colunas diverge no SAP (``'BELO HORIZONTE'``
+    contra ``'Belo Horizonte'`` no 84317). E' a mesma regra do selo da tela, que aparece
+    nos 38 — inclusive nos 14 que sao outro endereco na MESMA cidade.
+    """
+    local = _endereco(r, "local")
+    ponto = _endereco(r, "ponto")
+    usa_local = _preenchido(local)
+    efetivo = local if usa_local else ponto
+    return {
+        "fonte": "local_entrega" if usa_local else "ponto_entrega",
+        "difere_do_ponto_de_entrega": usa_local,
+        **efetivo,
+        "ponto_entrega": ponto,
+    }
+
+
+def cidade_uf(e: dict[str, Any]) -> str | None:
+    """``'JUIZ DE FORA-MG'`` — o par pronto, para o perfil ``resumo`` nao ter de juntar
+    dois campos (e nao ter duas montagens do mesmo texto no repo)."""
+    return "-".join(p for p in (e.get("cidade"), e.get("uf")) if p) or None
+
+
+def fetch_endereco_do_pedido(doc_num: int) -> dict[str, Any]:
+    """A RDR12 de UM pedido, por DocNum — o caminho do pedido **CANCELADO**.
+
+    A view exclui cancelado, entao esse pedido nao passa pelo recorte e nao tem de onde
+    tirar o endereco. Cancelado tambem tem endereco, e a chave ``entrega_endereco`` nao
+    pode faltar so nele (ha teste comparando as chaves dos dois caminhos) — decisao do
+    Marcelo em 10/09 (D5): le a RDR12 daquele DocEntry em vez de emitir nulos.
+
+    Caminho raro (a rota so chega aqui quando o pedido esta fora da view), uma linha,
+    conexao aberta e fechada na hora — o mesmo desenho do recorte. Devolve ``{}`` quando
+    o DocNum nao existe; **quem chama trata SAPIndisponivel**: o endereco nao vale
+    derrubar a resposta de "este pedido esta cancelado".
+    """
+    schema = _schema()
+    conn = _conectar()
+    try:
+        sel = ", ".join(f'a."{c}"' for grupo in ENDERECO_COLS.values()
+                        for c in grupo.values())
+        linhas = _linhas(
+            conn,
+            f'SELECT {sel} FROM "{schema}"."ORDR" o '
+            f'LEFT JOIN "{schema}"."RDR12" a ON a."DocEntry" = o."DocEntry" '
+            f'WHERE o."DocNum" = ?', (int(doc_num),))
+        if not linhas:
+            return {}
+        _injetar_municipios(conn, schema, linhas)
+        return linhas[0]
+    finally:
+        try:
+            conn.close()
+        except Exception as e:
+            logger.debug("Falha ao fechar conexão HANA (ignorada): %s", e)
+
+
+def _buscar_no_hana() -> list[dict[str, Any]]:
+    """Uma ida ao HANA: conta, confere o volume, seleciona e converte os tipos."""
+    schema = _schema()
+    conn = _conectar()
+    try:
+        total = int(_linhas(
+            conn, f'SELECT COUNT(*) AS "N" FROM "{schema}"."{VIEW_STATUS_PEDIDO}"'
+        )[0].get("N") or 0)
+        if total > _MAX_LINHAS:
+            raise ValidationError(
+                f"A view devolveu {total:,} pedidos (máximo {_MAX_LINHAS:,}) — ela "
+                f"mudou de natureza; avise o suporte.".replace(",", "."))
+
+        sql = (
+            f'SELECT {STATUS_PEDIDO_COLS} '
+            f'FROM "{schema}"."{VIEW_STATUS_PEDIDO}" v '
+            f'{STATUS_PEDIDO_JOINS.format(schema=schema)} '
+            f'ORDER BY v."Producao", v."Data_Pedido"'
+        )
+        linhas = _linhas(conn, sql)
+        # Ainda com a conexao aberta: o nome do municipio entra nas MESMAS linhas, que
+        # ja vao para o cache de 120 s do recorte.
+        _injetar_municipios(conn, schema, linhas)
+        # Idem para a liberacao real e a primeira NF (PLANO_DATAS_LIBERACAO_NF).
+        _injetar_liberacao_e_nf(conn, schema, linhas)
+    finally:
+        try:
+            conn.close()
+        except Exception as e:
+            logger.debug("Falha ao fechar conexão HANA (ignorada): %s", e)
+
+    for r in linhas:
+        r["Peso"] = _num(r.get("Peso"))
+        r["MontagemValor"] = _num(r.get("MontagemValor"))
+        r["DocTotal"] = _num(r.get("DocTotal"))
+        for c in ("Data_Pedido", "Data_Entrega", "Data_Pagto",
+                  "Data_Lib_Fin", "Data_Lib_Prod"):
+            r[c] = _data_iso(r.get(c))
+    logger.info("[SIT_PED] %d pedidos lidos da view.", len(linhas))
+    return linhas
+
+
+def fetch_status_pedidos(*, recarregar: bool = False) -> list[dict[str, Any]]:
+    """Linhas cruas da view, com cache curto (:data:`CACHE_TTL_SEGUNDOS`).
+
+    Args:
+        recarregar: ignora o cache e vai ao HANA. **Nao** e' o default: as 3 consultas
+            do plano tem de ver o mesmo retrato, e um cliente MCP em laco passaria a
+            interrogar o SAP a cada frase.
+
+    Returns:
+        Copia rasa da lista cacheada -- isola o cache de um ``sort()`` acidental de quem
+        chamou. Os dicts em si continuam compartilhados: **ninguem pode muta-los**.
+        (:func:`situacao_pedidos.normalizar` nao muta; ele constroi dicts novos.)
+
+    Raises:
+        SAPIndisponivel: HANA fora, credencial ausente ou consulta que falhou.
+        ValidationError: volume acima de ``_MAX_LINHAS``.
+    """
+    global _cache
+
+    if not recarregar:
+        agora = time.monotonic()
+        with _cache_lock:
+            if _cache and (agora - _cache[0]) < CACHE_TTL_SEGUNDOS:
+                return list(_cache[1])
+
+    linhas = _buscar_no_hana()
+    with _cache_lock:
+        _cache = (time.monotonic(), linhas)
+    return list(linhas)
+
+
+def idade_do_cache_s() -> float | None:
+    """Ha quantos segundos o retrato foi tirado — ``None`` se nao ha cache.
+
+    A F3 devolve isto no corpo: quem le "bloqueado" precisa saber se o dado e' de agora
+    ou de 2 minutos atras.
+    """
+    with _cache_lock:
+        if not _cache:
+            return None
+        return round(time.monotonic() - _cache[0], 1)
+
+
+def fetch_udf_valid_values(table_id: str, alias_id: str) -> list[dict[str, str]]:
+    """Valores validos de uma UDF, como o SAP os define -- a fonte dos rotulos.
+
+    O B1 guarda a metadata da UDF em ``CUFD`` (``TableID`` + ``AliasID`` → ``FieldID``) e
+    a lista do dropdown em ``UFD1`` (``FldValue`` + ``Descr``, na ordem do ``IndexID``).
+    Ler daqui e' o que evita um mapa de rotulos chumbado no codigo.
+
+    O ``AliasID`` e' o nome do campo **sem** o prefixo ``U_``: a coluna
+    ``ORDR.U_INO_TPO_MONTAGEM`` tem ``AliasID = 'INO_TPO_MONTAGEM'``. O filtro por tabela
+    e' obrigatorio -- o mesmo alias existe em ~30 delas e a lista de valores e' por tabela.
+
+    Returns:
+        ``[{"value": ..., "descr": ...}, ...]`` na ordem do SAP; ``[]`` quando o campo
+        nao tem lista. Nunca levanta: quem chama (``sap_montagem_labels``) tem fallback,
+        e ficar sem rotulo e' pior que o rotulo de ontem.
+    """
+    try:
+        schema = _schema()
+        conn = _conectar()
+    except SAPIndisponivel as e:
+        logger.warning("[UDF] %s.U_%s indisponível: %s", table_id, alias_id, e)
+        return []
+
+    try:
+        linhas = _linhas(
+            conn,
+            f'SELECT v."FldValue", v."Descr" '
+            f'FROM "{schema}"."CUFD" c '
+            f'JOIN "{schema}"."UFD1" v '
+            f'  ON v."TableID" = c."TableID" AND v."FieldID" = c."FieldID" '
+            f'WHERE c."TableID" = ? AND c."AliasID" = ? '
+            f'ORDER BY v."IndexID"',
+            (table_id, alias_id),
+        )
+    except SAPIndisponivel as e:
+        logger.warning("[UDF] %s.U_%s falhou: %s", table_id, alias_id, e)
+        return []
+    finally:
+        try:
+            conn.close()
+        except Exception as e:
+            logger.debug("Falha ao fechar conexão HANA (ignorada): %s", e)
+
+    valores = [
+        {"value": str(r.get("FldValue") or "").strip(),
+         "descr": str(r.get("Descr") or "").strip()}
+        for r in linhas
+        if str(r.get("FldValue") or "").strip()
+    ]
+    logger.info("[UDF] %s.U_%s: %d valores válidos.", table_id, alias_id, len(valores))
+    return valores
+
+
+def ligar_rotulos_do_sap() -> None:
+    """Liga o gancho que a F1 deixou: o rotulo de montagem passa a vir do SAP.
+
+    Chamado uma vez na subida da API (F3). Sem isto, ``sap_montagem_labels`` responde
+    pelo ``FALLBACK_LABELS`` -- que esta correto, mas congelado em 27/07/2026.
+    """
+    sap_montagem_labels.registrar_fonte(fetch_udf_valid_values)
+    logger.info("[MONTAGEM] rótulos passam a vir do SAP (fallback continua de rede).")

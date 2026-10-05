@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{% from "_icones.html" import icone %}
+{% set ativo = 'pedidos' %}
+{% block title %}Integração de Pedidos (WBC){% endblock %}
+{% block content %}
+<header class="casa-titulo">
+  <span class="casa-titulo__simbolo">{{ icone('pedidos', 26) }}</span>
+  <div class="casa-titulo__texto">
+    <h1>Integração de Pedidos (WBC)</h1>
+    <p>Cria itens, recursos de rateio e a cascata de Ordens de Produção</p>
+  </div>
+</header>
+
+{% if em_execucao %}
+<div class="ov-alerta">{{ icone('execucoes', 16) }}
+  <span>Há uma execução em andamento neste módulo:
+    <a href="/tarefas/{{ em_execucao.id }}">{{ em_execucao.nome }}</a>.
+    Uma nova só é aceita depois que ela terminar — duas ao mesmo tempo disputariam os
+    mesmos pedidos e OPs.</span></div>
+{% endif %}
+
+{% if erro_busca %}
+<div class="ov-alerta is-warn">{{ icone('alerta', 16) }}<span>{{ erro_busca }}</span></div>
+{% endif %}
+
+{# Search and numbers on one line (29/09/2026). Search first: it is what is used first and
+   the only card before the first search, so it keeps its place when the numbers appear. #}
+<div class="ov-linha-topo">
+  {# No "Buscar" button (owner, 30/09/2026): picking a mode loads it right away. The button
+     survives only for a browser without JavaScript, where nothing else would submit. #}
+  <form method="get" action="/pedidos-wbc" class="ov-filtros" id="form-modo">
+    <input type="hidden" name="buscar" value="1">
+    <label class="ov-opcao"><input type="radio" name="modo" value="novos"
+      {% if modo != 'integrados' %}checked{% endif %}> Pedidos novos</label>
+    <label class="ov-opcao"><input type="radio" name="modo" value="integrados"
+      {% if modo == 'integrados' %}checked{% endif %}> Pedidos integrados</label>
+    <span class="ov-nota" id="modo-carregando" hidden>Carregando…</span>
+    <noscript><button type="submit" class="ov-btn">{{ icone('buscar') }} Buscar</button></noscript>
+  </form>
+  <script>
+    (function () {
+      var form = document.getElementById("form-modo");
+      form.addEventListener("change", function (evento) {
+        if (evento.target.name !== "modo") { return; }
+        // The HANA read takes a few seconds: say so, and block a second pick meanwhile.
+        document.getElementById("modo-carregando").hidden = false;
+        Array.prototype.forEach.call(form.querySelectorAll('input[name="modo"]'), function (r) {
+          if (r !== evento.target) { r.disabled = true; }
+        });
+        form.submit();
+      });
+      // Back button: the page comes from the cache still "loading" — undo it.
+      window.addEventListener("pageshow", function () {
+        document.getElementById("modo-carregando").hidden = true;
+        Array.prototype.forEach.call(form.querySelectorAll('input[name="modo"]'), function (r) {
+          r.disabled = false;
+        });
+      });
+    })();
+  </script>
+  {% if buscou %}
+  <div class="ov-kpi">
+    <b>{{ total }}</b><span>{{ 'Integrados' if modo == 'integrados' else 'Novos' }}</span>
+  </div>
+  <div class="ov-kpi" style="--ov-cor: var(--color-info)">
+    <b>{{ pagina }}/{{ paginas }}</b><span>Página</span>
+  </div>
+  {% endif %}
+</div>
+
+{# Both modes select: "novos" → Processar, "integrados" → Reprocessar (back on the screen
+   since 30/09/2026 — D8 reversed by the owner). #}
+{% set selecionavel = true %}
+{% set reprocessar = modo == 'integrados' %}
+{% set verbo = 'Reprocessar' if reprocessar else 'Processar' %}
+<form method="post" id="form-pedidos"
+      action="/pedidos-wbc/{{ 'reprocessar' if reprocessar else 'processar' }}/conferir">
+  <section class="ov-table-card">
+    <div class="ov-scroll">
+      <table class="ov-table">
+        <thead>
+          <tr>
+            {% if selecionavel %}<th></th>{% endif %}<th>Pedido</th><th>Oportunidade</th><th>WBC</th>
+            <th>Cliente</th><th class="num">Total</th><th>Criado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in pedidos %}
+          <tr>
+            {% if selecionavel %}<td><input type="checkbox" name="opp_ids" value="{{ p.opp_id }}"
+              aria-label="Selecionar o pedido {{ p.doc_num }}"></td>{% endif %}
+            <td class="num"><strong>{{ p.doc_num }}</strong></td>
+            <td class="num">{{ p.opp_id }}</td>
+            <td><span class="ov-pill is-aberto">{{ p.orc_num_masc }}</span></td>
+            <td>{{ p.cod_cliente }} — {{ p.nome_cliente }}</td>
+            <td class="num">{{ p.total_pedido | moeda }}</td>
+            <td class="data">{{ p.data_lancamento[:10] }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="{{ 7 if selecionavel else 6 }}" class="vazio">
+            {% if buscou %}Nenhum pedido neste modo.{% else %}Escolha "Pedidos novos" ou "Pedidos integrados" para carregar a lista.{% endif %}
+          </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {% if buscou and total %}
+  <div class="ov-paginacao">
+    <span><b>{{ primeiro }}–{{ ultimo }}</b> de <b>{{ total }}</b> pedido(s)</span>
+    {% if paginas > 1 %}
+    <span class="paginas">
+      {% if pagina > 1 %}
+      <a href="/pedidos-wbc?modo={{ modo }}&buscar=1&pagina={{ pagina - 1 }}">‹ anterior</a>
+      {% endif %}
+      página <b>{{ pagina }}</b> de <b>{{ paginas }}</b>
+      {% if pagina < paginas %}
+      <a href="/pedidos-wbc?modo={{ modo }}&buscar=1&pagina={{ pagina + 1 }}">próxima ›</a>
+      {% endif %}
+    </span>
+    {% if selecionavel %}
+    <span class="ov-nota-inline">A seleção vale só para esta página — mudar de página a perde.</span>
+    {% endif %}
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="ov-acoes-lote">
+    {# Starts disabled; the script below enables it with at least one pedido marked. The
+       server still refuses an empty selection ("Nenhum pedido selecionado."). #}
+    <button type="submit" class="ov-btn ov-btn--perigo" id="btn-processar" disabled
+            data-verbo="{{ verbo }}" title="Marque ao menos um pedido"
+            aria-describedby="dica-processar">{{ icone('raio' if reprocessar else 'play') }}
+      <span id="rotulo-processar">{{ verbo }} selecionados…</span></button>
+    <span class="ov-nota-inline" id="dica-processar" aria-live="polite">
+      {%- if pedidos %}Marque ao menos um pedido.
+      {%- elif buscou %}Nenhum pedido para {{ verbo | lower }}.
+      {%- else %}Busque os pedidos para selecionar.{% endif -%}
+    </span>
+    {% if not reprocessar %}
+    <label class="ov-opcao" style="padding-bottom:0"><input type="checkbox" name="force" value="1"
+      id="forcar" disabled> forçar (ignora as checagens de reprocessamento)</label>
+    {% endif %}
+  </div>
+  {% if reprocessar %}
+  {# Said on the page, not only on the confirmation screen: this is the button that cancels
+     OPs of any origin and recreates none. #}
+  <div class="ov-alerta is-warn">{{ icone('alerta', 16) }}<span><strong>Reprocessar</strong> cancela
+    todas as OPs <strong>planejadas</strong> do pedido — de qualquer origem, inclusive as do addon —
+    e <strong>não recria</strong>: o pedido volta para "Pedidos novos" e precisa ser processado
+    de novo.</span></div>
+  {% endif %}
+</form>
+
+{# "Cancelar as OPs de um pedido" moved to Manutenção de OP (owner, 01/10/2026); the route
+   stays /pedidos-wbc/cancelar-ops/* — it is still this module's operation and task lock. #}
+
+<script>
+(function () {
+  // "Processar/Reprocessar selecionados…" only with at least one pedido marked, and the
+  // label counts them: the number is the last check before the confirmation screen.
+  // "forçar" (Processar only) follows the button and is cleared when nothing is marked — it
+  // duplicates OPs, so it must never stay checked unnoticed from an earlier selection.
+  var form = document.getElementById("form-pedidos");
+  var botao = document.getElementById("btn-processar");
+  if (!form || !botao) { return; }
+  var caixas = Array.prototype.slice.call(form.querySelectorAll("input[name=opp_ids]"));
+  var rotulo = document.getElementById("rotulo-processar");
+  var dica = document.getElementById("dica-processar");
+  var forcar = document.getElementById("forcar");      // absent in "integrados"
+  var verbo = botao.dataset.verbo;
+
+  function pinta() {
+    var n = caixas.filter(function (c) { return c.checked; }).length;
+    botao.disabled = n === 0;
+    botao.title = n ? "" : "Marque ao menos um pedido";
+    rotulo.textContent = n ? verbo + " selecionados (" + n + ")…" : verbo + " selecionados…";
+    dica.hidden = n > 0;
+    if (forcar) {
+      forcar.disabled = n === 0;
+      if (!n) { forcar.checked = false; }
+    }
+  }
+
+  caixas.forEach(function (c) { c.addEventListener("change", pinta); });
+  // Back/forward can restore the marks from the page cache: recount, never trust the HTML.
+  window.addEventListener("pageshow", pinta);
+  pinta();
+})();
+</script>
+{% endblock %}

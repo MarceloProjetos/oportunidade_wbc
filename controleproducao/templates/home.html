@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% from "_icones.html" import icone %}
+{% block content %}
+<header class="casa-titulo">
+  <span class="casa-titulo__simbolo">{{ icone('fabrica', 26) }}</span>
+  <div class="casa-titulo__texto">
+    <h1>Controle de Produção — WBC</h1>
+    <p>Reescrita do addon SAP B1 como aplicação web</p>
+  </div>
+</header>
+
+<ul class="ov-lista">
+  <li><a href="/pedidos-wbc">{{ icone('pedidos') }} 2. Integração de Pedidos (WBC)</a></li>
+  <li><a href="/manutencao-op">{{ icone('ops') }} 3. Manutenção de OP</a></li>
+</ul>
+
+<p class="ov-nota" style="margin-top:var(--space-6)">A numeração começa no 2 de propósito:
+  é a mesma do addon legado e a do <code>migration_guide.md</code>. O módulo 1
+  (Oportunidades) foi removido do porte em 22/09/2026 — renumerar quebraria a
+  correspondência com toda a documentação.</p>
+{% endblock %}

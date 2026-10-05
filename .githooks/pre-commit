@@ -1,0 +1,26 @@
+#!/bin/sh
+# Gate local do ServidorIntegracaoSAP: ruff + pytest antes de todo commit.
+# Nao ha CI neste repo; este hook e' o unico gate automatico (PLANO_DX_AGENTE, F2).
+# Ativar num clone novo:  git config core.hooksPath .githooks
+# A suite nao alcanca producao (tests/conftest.py trava os drivers) e leva ~40 s.
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+if python -m ruff --version >/dev/null 2>&1; then
+    RUFF="python -m ruff"
+elif command -v uvx >/dev/null 2>&1; then
+    RUFF="uvx ruff@0.15.20"
+elif [ -x "$HOME/.local/bin/uvx.exe" ] || [ -x "$HOME/.local/bin/uvx" ]; then
+    RUFF="$HOME/.local/bin/uvx ruff@0.15.20"
+else
+    RUFF=""
+    echo "[pre-commit] ruff indisponivel (pip install -r requirements-dev.txt) - lint PULADO" >&2
+fi
+
+if [ -n "$RUFF" ]; then
+    $RUFF check . || { echo "[pre-commit] ruff reprovou - commit barrado" >&2; exit 1; }
+fi
+
+python -m pytest -q -x -p no:cacheprovider || {
+    echo "[pre-commit] pytest reprovou - commit barrado" >&2
+    exit 1
+}

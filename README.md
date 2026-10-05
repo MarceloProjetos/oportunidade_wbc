@@ -1,0 +1,1034 @@
+# ServidorIntegracaoSAP — Integração SAP B1 → Supabase e WBC → SAP
+
+**Pipeline de integração da Altamira** que extrai a evolução de oportunidades de uma
+view do **SAP B1 (HANA)**, enriquece com a situação do orçamento vinda do **SQL Server
+(WBCcad)** e carrega tudo numa tabela do **Supabase (PostgreSQL)** — e, desde 2026-09-08,
+também a **Integração WBC → SAP** (`wbcpython/`): o worker que cria cotação e pedido no SAP
+a partir dos orçamentos do WBC, com o painel que é a porta de entrada das outras duas telas.
+
+![Python](https://img.shields.io/badge/Python-3.14-blue)
+![SAP HANA](https://img.shields.io/badge/SAP-HANA-orange)
+![SQL Server](https://img.shields.io/badge/SQL%20Server-2016-red)
+![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-darkgreen)
+
+---
+
+## Sumário
+
+- [Como Funciona](#como-funciona)
+- [Pré-requisitos](#pré-requisitos)
+- [Instalação](#instalação)
+  - [1. Clonar o repositório](#1-clonar-o-repositório)
+  - [2. Ambiente virtual + dependências](#2-ambiente-virtual--dependências)
+  - [3. ODBC Driver 18 (SQL Server)](#3-odbc-driver-18-para-sql-server)
+  - [4. Variáveis de ambiente (.env)](#4-variáveis-de-ambiente-env)
+- [Banco de Dados (Supabase)](#banco-de-dados-supabase)
+- [Como Rodar](#como-rodar)
+- [Ordens de Produção — escrita de status no SAP](#ordens-de-produção--escrita-de-status-no-sap)
+- [Integração WBC → SAP (wbcpython)](#integração-wbc--sap-wbcpython)
+- [Controle de Produção (controleproducao)](#controle-de-produção-controleproducao)
+- [Agendamento (Automático)](#agendamento-automático)
+- [Monitoramento](#monitoramento)
+- [Versionamento (GitHub)](#versionamento-github)
+- [Estrutura de Diretórios](#estrutura-de-diretórios)
+- [Troubleshooting](#troubleshooting)
+- [Licença](#licença)
+
+---
+
+## Como Funciona
+
+```text
+┌──────────────────────┐        ┌────────────────────────┐
+│   SAP B1 (HANA)      │        │   SQL Server (WBCcad)  │
+│  VW_EVOL_OPORTUNI-   │        │  INTEGRACAO_ORCSIT     │
+│  DADE_ALT (29 cols)  │        │  ORCNUM · SITCOD ·     │
+│                      │        │  ORCALTDTH             │
+└──────────┬───────────┘        └───────────┬────────────┘
+           │ hdbcli                          │ pyodbc
+           ▼                                 ▼
+        ┌──────────────────────────────────────────┐
+        │     extract_sap_to_supabase.py (pandas)   │
+        │  merge  N_WBC  =  ORCNUM   (LEFT JOIN)     │
+        │  + id_execucao + data_hora_extracao       │
+        └─────────────────────┬─────────────────────┘
+                              │ supabase-py (service_role)
+                              ▼
+                  ┌────────────────────────────┐
+                  │      Supabase (Postgres)   │
+                  │  oportunidades  ──FK──►    │
+                  │  situacoes_orcamento       │
+                  └────────────────────────────┘
+```
+
+1. **Extrai** a view `VW_EVOL_OPORTUNIDADE_ALT` do SAP HANA (schema `SBOALTAMIRAPROD`),
+   limitando aos **últimos 6 meses** por `CreateDate` (filtro aplicado na própria query).
+2. **Enriquece** com `SITCOD` e `ORCALTDTH` do SQL Server, casando `N_WBC = ORCNUM`.
+3. **Adiciona** os campos de rastreio `id_execucao` (UUID) e `data_hora_extracao`.
+4. **Carrega** no Supabase usando a chave `service_role` (ignora RLS), inserindo em
+   **lotes** e, no modo `snapshot` (default), removendo as execuções anteriores ao final.
+
+> Robustez (24/6): timeouts e *retry* com backoff nas conexões SAP/SQL/Supabase, inserção
+> em lotes, e estratégia *snapshot* **carrega-depois-poda** — se a carga falhar, os dados
+> antigos permanecem intactos. Parâmetros no topo de `extract_sap_to_supabase.py`
+> (`MESES_RETROATIVOS`, `INSERT_BATCH_SIZE`, timeouts, `RETRY_*`).
+
+---
+
+## Pré-requisitos
+
+| Componente | Versão | Obrigatório | Observação |
+|------------|--------|:-----------:|------------|
+| Python | 3.14 | ✅ | |
+| SAP HANA (`hdbcli`) | — | ✅ | Leitura da view de oportunidades |
+| Supabase | Free/Pro | ✅ | Destino dos dados (PostgreSQL) |
+| SQL Server (`pyodbc`) | 2016+ | ⬜ | Apenas para `SITCOD`/`ORCALTDTH` |
+| **ODBC Driver 18** | 18.x | ⬜ | Necessário se usar o SQL Server |
+
+> ⬜ = opcional. Sem o SQL Server / ODBC Driver, o pipeline ainda roda — as colunas
+> `SITCOD` e `ORCALTDTH` simplesmente ficam nulas (LEFT JOIN com fallback).
+
+---
+
+## Instalação
+
+### 1. Clonar o repositório
+
+```bash
+# O repositório no GitHub ainda se chama "oportunidade_wbc"; clonamos na pasta nova.
+git clone https://github.com/MarceloProjetos/oportunidade_wbc.git ServidorIntegracaoSAP
+cd ServidorIntegracaoSAP
+```
+
+### 2. Ambiente virtual + dependências
+
+```bash
+# Criar e ativar venv
+python -m venv venv
+venv\Scripts\activate          # Windows
+# source venv/bin/activate      # Linux/Mac
+
+# Instalar dependências Python
+pip install -r requirements.txt
+```
+
+### 3. ODBC Driver 18 (para SQL Server)
+
+> Só é necessário se você for usar o enriquecimento com `SITCOD`/`ORCALTDTH`.
+> O `pyodbc` (instalado via `requirements.txt`) precisa de um driver ODBC nativo do
+> sistema operacional — ele **não** vem junto.
+
+**Windows** — instale via `winget` (recomendado):
+
+```powershell
+winget install --id Microsoft.msodbcsql.18 --exact `
+  --accept-source-agreements --accept-package-agreements
+```
+
+Ou baixe o instalador `.msi` oficial da Microsoft:
+🔗 <https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server>
+
+**Linux (Debian/Ubuntu):**
+
+```bash
+curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
+curl https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+sudo apt-get update
+sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18
+```
+
+**Verificar a instalação** (deve listar `ODBC Driver 18 for SQL Server`):
+
+```bash
+python -c "import pyodbc; print([d for d in pyodbc.drivers() if 'SQL Server' in d])"
+```
+
+> O script tenta os drivers em ordem (`18 → 17 → Native Client 11.0 → SQL Server`) e usa
+> o primeiro que conectar — então, instalado o Driver 18, ele é usado automaticamente.
+
+### 4. Variáveis de ambiente (.env)
+
+Copie o template e preencha com seus dados:
+
+```bash
+copy .env.example .env          # Windows
+# cp .env.example .env           # Linux/Mac
+```
+
+| Variável | Descrição |
+|----------|-----------|
+| `SAP_HOST` / `SAP_PORT` | Host e porta do SAP HANA (porta típica: `30015`) |
+| `SAP_USER` / `SAP_PASSWORD` | Credenciais do SAP HANA |
+| `SAP_DATABASE` | Database tenant (ex.: `B1P`) — opcional |
+| `SAP_SCHEMA` | Schema da view (ex.: `SBOALTAMIRAPROD`) |
+| `SAP_VIEW_NAME` | View de origem (ex.: `VW_EVOL_OPORTUNIDADE_ALT`) |
+| `SUPABASE_URL` | URL do projeto (`https://xxx.supabase.co`) |
+| `SUPABASE_KEY` | Chave **anon** (leitura) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Chave **service_role** (escrita — ignora RLS) |
+| `TABLE_NAME` | Tabela de destino (default: `oportunidades`) |
+| `SQL_HOST` / `SQL_PORT` | Host e porta do SQL Server (porta típica: `1433`) |
+| `SQL_USER` / `SQL_PASSWORD` | Credenciais do SQL Server |
+| `SQL_DATABASE` | Database (ex.: `WBCCAD`) |
+| `SQL_DRIVER` | Opcional — força um driver ODBC específico (ex.: `ODBC Driver 18 for SQL Server`) |
+
+> Variáveis do **agendamento** (`INTERVALO_MINUTOS`, `JANELA_HORAS`,
+> `EXECUTION_MODE`) e do **log** (`SYNC_LOG_TABLE_NAME`) são opcionais e têm defaults —
+> ver [Agendamento](#agendamento-automático) e [Banco de Dados](#banco-de-dados-supabase).
+
+> ⚠️ **Segurança:** o `.env` contém a `service_role` (acesso total ao banco). Ele está no
+> [.gitignore](.gitignore) e **nunca** deve ir para o GitHub. Compartilhe credenciais por
+> canal seguro, nunca no repositório.
+
+---
+
+## Banco de Dados (Supabase)
+
+Execute os SQLs abaixo no **SQL Editor** do Supabase, na ordem.
+
+> ℹ️ **Hardening do Supabase (2026-06-22).** O projeto Supabase é **único e compartilhado**
+> (web, mobile e este extrator). Numa rodada de endurecimento via Advisor, foram otimizadas
+> policies RLS (Auth Init Plan), adicionados índices em FKs e revogado o `EXECUTE` público da
+> função `update_followup`. **Este pipeline não foi afetado:** ele escreve com a
+> **`service_role`**, que **ignora RLS** e não depende daquela função. Plano completo em
+> `web_orcaview_V117/docs/SUPABASE_ADVISOR_PLANO_2026-06-22.md`.
+
+> 💡 **Por que as colunas têm aspas?** No PostgreSQL identificadores sem aspas viram
+> minúsculas. Como o script insere usando o case exato da view SAP (`CreateDate`,
+> `N_WBC`, `NumOport`…), as colunas **precisam** ser criadas com aspas duplas para o
+> PostgREST encontrá-las na inserção.
+
+### 1. Tabela principal `oportunidades`
+
+```sql
+create table public.oportunidades (
+  id                    bigint generated always as identity primary key,
+  "CreateDate"          timestamp,
+  "Cotacao"             integer,
+  "TipoDoc"             text,
+  "NumDoc"              integer,
+  "NumOport"            integer,
+  "StatusWBC"           text,
+  "N_WBC"               text,
+  "CodPN"               text,
+  "NomePN"              text,
+  "FirstName"           text,
+  "E_MailL"             text,
+  "Representante"       text,
+  "DataOport"           timestamp,
+  "DataCotacao"         timestamp,
+  "Valor"               numeric(21,2),
+  "UF"                  text,
+  "Municipio"           text,
+  "Usuario"             text,
+  "DataContatoCliente"  timestamp,
+  "AcaoContato"         text,
+  "Lead"                text,
+  "SituacaoCliente"     text,
+  "N_Bitrix"            text,
+  "PctComissao"         numeric(21,2),
+  "Retorno"             text,
+  "Indice"              text,
+  "Negociacao"          text,
+  "rn"                  bigint,
+  "DataCriacaoPN"       timestamp,
+  -- Enriquecimento vindo do SQL Server (INTEGRACAO_ORCSIT)
+  "SITCOD"              integer,
+  "ORCALTDTH"           timestamp,
+  -- Campos de rastreio adicionados pelo script
+  id_execucao           uuid,
+  data_hora_extracao    timestamp,
+  inserted_at           timestamptz default now()
+);
+
+create index idx_oportunidades_numoport    on public.oportunidades ("NumOport");
+create index idx_oportunidades_id_execucao on public.oportunidades (id_execucao);
+
+-- Leitura liberada para a chave anon
+alter table public.oportunidades enable row level security;
+create policy "leitura_anon" on public.oportunidades for select to anon using (true);
+```
+
+### 2. Tabela de domínio `situacoes_orcamento`
+
+Traduz o código `SITCOD` para a descrição da situação do orçamento (WBCcad):
+
+```sql
+create table public.situacoes_orcamento (
+  sitcod    integer primary key,
+  descricao text not null
+);
+
+insert into public.situacoes_orcamento (sitcod, descricao) values
+  (0,'Entrada'), (5,'Em Liberação'), (6,'Incompleto'), (7,'Urgente'),
+  (8,'Prioridade'), (10,'Cálculo/Projeto'), (20,'Aprovação Técnica'),
+  (30,'Cálculo Financeiro'), (40,'Emissão p/ Cliente'), (45,'Pro Forma'),
+  (50,'Negociação/Aprovação'), (55,'Alteração Projeto/Orçam'),
+  (60,'Fechado/Pedido'), (70,'Suspenso'), (90,'Perdido'), (99,'Cancelado')
+on conflict (sitcod) do nothing;
+
+alter table public.situacoes_orcamento enable row level security;
+create policy "leitura_anon" on public.situacoes_orcamento for select to anon using (true);
+
+-- Chave estrangeira (integridade SITCOD)
+alter table public.oportunidades
+  add constraint fk_oportunidades_sitcod
+  foreign key ("SITCOD") references public.situacoes_orcamento (sitcod);
+```
+
+### 3. Tabela de log `sincronizacao_log`
+
+Registra hora, duração e status de cada sincronização. O script grava uma linha ao final
+de cada carga e mantém só os **6 registros mais recentes** (poda os antigos). É auxiliar —
+falhas ao gravar este log são apenas registradas e **não** afetam a carga principal.
+
+```sql
+create table public.sincronizacao_log (
+  id                       bigint generated always as identity primary key,
+  data_hora_sincronizacao  timestamptz,
+  duracao_segundos         numeric(10,2),
+  status                   text,            -- 'sucesso' | 'falha'
+  qtd_registros            integer          -- data_hora_sincronizacao já registra o horário; sem inserted_at
+);
+
+alter table public.sincronizacao_log enable row level security;
+create policy "leitura_anon" on public.sincronizacao_log for select to anon using (true);
+```
+
+> O nome da tabela é configurável via `SYNC_LOG_TABLE_NAME` (default: `sincronizacao_log`).
+
+### Consultar com a descrição da situação
+
+```sql
+select o."N_WBC", o."NomePN", o."Valor", o."SITCOD", s.descricao
+from public.oportunidades o
+left join public.situacoes_orcamento s on s.sitcod = o."SITCOD"
+limit 100;
+```
+
+---
+
+## Como Rodar
+
+### Executar a extração
+
+```bash
+python extract_sap_to_supabase.py
+```
+
+Ou de forma programática, com controle de modo:
+
+```python
+from extract_sap_to_supabase import main
+
+main(view_name='VW_EVOL_OPORTUNIDADE_ALT', execution_mode='snapshot')  # default
+main(view_name='VW_EVOL_OPORTUNIDADE_ALT', execution_mode='insert')    # acumula histórico
+```
+
+| Modo | Comportamento |
+| --- | --- |
+| `snapshot` (default) | Insere a nova carga e remove as execuções anteriores (carrega-depois-poda). A tabela reflete o estado atual e nunca fica vazia se algo falhar. |
+| `insert` | Apenas insere (acumula histórico por `id_execucao`; pode duplicar). |
+
+> O modo `upsert` foi **removido**: a tabela não tinha índice UNIQUE de negócio e o
+> PostgREST não conseguia resolver conflitos (só duplicava linhas). Para manter o
+> estado atual, use `snapshot`.
+
+> No modo `snapshot` (default), a tabela mantém sempre os **últimos 6 meses** de
+> oportunidades (janela deslizante recalculada a cada execução).
+
+---
+
+## Testes unitários
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Cobertura atual: `config`, validação SQL, erro de tenant SAP, modos de execução e janela
+do agendador. Não exige credenciais reais (sem integração com SAP/Supabase em CI).
+
+---
+
+## Pipeline de Ordens de Serviço
+
+Pipeline **independente** do de oportunidades, que sincroniza a view SAP HANA
+**consolidada** `VW_OS_INTEGRACAO` (OS + estrutura/árvore de produto + orçamento,
+56 colunas) para uma **única** tabela Supabase `vw_os_integracao`, **sob demanda,
+por `N_PED`**. Usa a **mesma conexão SAP** e reaproveita o núcleo compartilhado
+[pipeline_core.py](pipeline_core.py) (`SupabaseLoader`, `prepare_data`, etc.).
+**Não** faz enriquecimento com SQL Server nem usa `SITCOD`.
+
+> Consolidação 2026-07-14: substituiu os 6 espelhos separados (OS engenharia, lookup
+> de status, 3 views de impressão, solda e árvore WBC) e seus 3 logs por esta tabela
+> única. A view usa `"N_PED"` (com underscore) como chave.
+
+**1. Criar a tabela** — execute [vw_os_integracao.sql (removido em 2026-09-29; historico no git)](vw_os_integracao.sql (removido em 2026-09-29; historico no git))
+no SQL Editor do Supabase (dropa as tabelas antigas, cria `vw_os_integracao` com
+RLS + policy de leitura `anon`, e o log `sincronizacao_log_os_integracao`).
+
+> ⚠️ **Coluna nova na view = ALTER obrigatório, senão a sync PARA.** A extração é
+> `SELECT *` e o insert casa a coluna **por nome**: coluna que existe na view e não
+> existe na tabela derruba o INSERT inteiro com `PGRST204` — nenhum pedido sincroniza
+> até o ALTER rodar. Já aconteceu **três** vezes (15/07 `U_INO_ORCITM` + as 4 flags de
+> processo; 05/08 `U_INO_D_Adicionais`; 05/08 a 5ª flag `Compras`). A view muda com
+> frequência — **confira as colunas antes de culpar o código.** Para tabela que já existe
+> use um `sql/alter_*.sql`
+> (o DDL base começa com `drop table ... cascade` e apagaria a produção), e gere o
+> ALTER a partir das colunas **reais** da view, nunca de uma lista transcrita à mão:
+>
+> ```sql
+> SELECT "COLUMN_NAME", "DATA_TYPE_NAME", "LENGTH", "POSITION" FROM "SYS"."VIEW_COLUMNS"
+> WHERE "SCHEMA_NAME" = 'SBOALTAMIRAPROD' AND "VIEW_NAME" = 'VW_OS_INTEGRACAO' ORDER BY "POSITION";
+> ```
+
+**2. Sincronizar um ou mais pedidos:**
+
+```bash
+python extract_ordens_servico_engenharia.py 84080            # um pedido
+python extract_ordens_servico_engenharia.py 84080 84095      # vários
+```
+
+Ou de forma programática:
+
+```python
+from extract_ordens_servico_engenharia import main, run_npeds
+main(84080)                 # um NPED
+run_npeds([84080, 84095])   # vários
+```
+
+| Modo (`OS_EXECUTION_MODE`) | Comportamento |
+| --- | --- |
+| `replace_nped` (default) | Carrega-depois-poda **escopado ao `N_PED`**: insere as linhas do pedido e remove só as linhas antigas **daquele** pedido. A tabela acumula vários pedidos, cada um atualizável de forma independente; um pedido nunca fica vazio se a carga falhar. |
+| `insert` | Apenas insere (acumula histórico por `id_execucao`; pode duplicar). |
+
+> Se a view retornar **0 linhas** para o `N_PED` (pedido inexistente), a tabela é
+> **mantida inalterada** — não apaga um pedido válido já carregado.
+
+A tabela tem os campos de controle `id_execucao`, `data_hora_extracao`, `origem_view`
+e `inserted_at`. Consulta simples:
+
+```sql
+select * from public.vw_os_integracao where "N_PED" = 84080;
+```
+
+> Códigos de `Status` na view: `P` Planejado · `R` Liberado · `L` Encerrado ·
+> `C` Cancelado (a API traduz via dicionário estático, sem tabela de lookup).
+
+**3. Disparar pela API (do app)** — um endpoint HTTP que o app chama para sincronizar
+um pedido sob demanda (a escrita continua via `service_role`):
+
+```bash
+# subir o serviço (produção, Windows): waitress
+waitress-serve --listen=0.0.0.0:8077 api:app
+# ou, para dev:  python api.py
+
+# disparar a sync de um pedido:
+curl -X POST http://localhost:8077/sync/ordens-servico/84080 -H "X-API-Key: SUA_CHAVE"
+# vários: curl -X POST .../sync/ordens-servico -H "Content-Type: application/json" \
+#              -H "X-API-Key: SUA_CHAVE" -d '{"npeds":[84080,84095]}'
+```
+
+| Rota | Método | O que faz |
+| --- | --- | --- |
+| `/` | GET | **Painel** unificado: OS (sob demanda) + Oportunidades (agendado). |
+| `/health` | GET | Liveness (`{"status":"ok"}`). |
+| `/historico` | GET · DELETE | Histórico de OS (lê o log) · limpar. Requer `X-API-Key`; `?limit=N`. |
+| `/sync/ordens-servico/<nped>` | POST | Sincroniza um pedido. |
+| `/sync/ordens-servico` | POST | Corpo `{"nped":N}` ou `{"npeds":[...]}`. |
+| `/oportunidades/historico` | GET · DELETE | Histórico do pipeline agendado · limpar. Requer `X-API-Key`. |
+| `/oportunidades/info` | GET | Total de linhas na tabela + agenda (intervalo/janela). Requer `X-API-Key`. |
+| `/oportunidades/sincronizar` | POST | **Força** a carga completa de oportunidades (lock cross-process; `409` se já houver uma rodando). |
+
+> 🖱️ **Jeito mais fácil:** abra `http://<servidor>:8077/sincronizar` no navegador — uma telinha
+> ([web/sincronizar.html](web/sincronizar.html)) com campo do pedido, chave (com "lembrar")
+> e botão **Sincronizar** (aceita vários pedidos). Sem curl/DevTools.
+
+**Notas operacionais:**
+
+- 🔑 Defina `OS_API_KEY` no `.env` para exigir o header `X-API-Key` (ou `Authorization:
+  Bearer`). Sem ela, o endpoint fica aberto e o serviço **loga um aviso no startup** —
+  use só em rede interna/dev.
+- 🔒 As cargas são **serializadas** (nunca duas ao mesmo tempo — evita conexões SAP
+  concorrentes).
+- 🧹 O log do `httpx` é rebaixado para `WARNING` (sem a URL gigante a cada requisição).
+- 📒 A API grava em **`logs/api.log`** (rotação diária, 12 dias) além do console — o log
+  persiste mesmo fechando a janela / rodando como serviço.
+- 🚀 `api.py` usa **waitress** (produção); se ele não estiver instalado, cai no servidor
+  de **dev do Flask**. Host/porta vêm de `OS_API_HOST`/`OS_API_PORT` (default `0.0.0.0:8077`).
+
+**Subir a API no boot (Windows).** Use o wrapper [run_api.bat](run_api.bat). Pré-requisitos:
+`python -m pip install waitress` e definir `OS_API_KEY` no `.env`.
+
+Opção recomendada — **NSSM** (serviço dedicado, reinicia sozinho, aparece em `services.msc`):
+
+```bat
+nssm install OrcaView-OS-API "C:\caminho\ServidorIntegracaoSAP\run_api.bat"
+nssm set OrcaView-OS-API AppDirectory "C:\caminho\ServidorIntegracaoSAP"
+nssm set OrcaView-OS-API Start SERVICE_AUTO_START
+nssm start OrcaView-OS-API
+```
+
+Alternativa — **Task Scheduler** (gatilho ONSTART; marque "Reiniciar se a tarefa falhar"):
+
+```bat
+schtasks /Create /TN "OrcaView-OS-API" /SC ONSTART /RL HIGHEST /RU SYSTEM /F ^
+  /TR "C:\caminho\ServidorIntegracaoSAP\run_api.bat"
+```
+
+Liberar a porta no firewall (acesso de outras máquinas):
+
+```bat
+netsh advfirewall firewall add rule name="OrcaView OS API 8077" dir=in action=allow protocol=TCP localport=8077
+```
+
+Conferir: abra `http://127.0.0.1:8077/health` (ou de outra máquina `http://<ip-servidor>:8077/health`)
+→ `{"status":"ok"}`. **Não** deixe o `run_api.bat` aberto manualmente junto com o serviço
+(brigam pela porta 8077).
+
+---
+
+## Ordens de Produção — escrita de status no SAP
+
+⚠️ **É um dos três caminhos deste serviço que mudam dado DENTRO do SAP** — os outros são o
+worker `wbcpython` e o `controleproducao` — e o **único pela API 8077**; aponta para a base de **produção** `SBOALTAMIRAPROD`. Vai pelo
+**Service Layer** (REST, porta 50000), não pelo HANA. Módulo:
+[ordens_producao_sl.py](ordens_producao_sl.py) · plano: [docs/PLANO_OP_STATUS.md](docs/PLANO_OP_STATUS.md).
+
+**Liga só na .11.** Desde 28/09/2026 não há chave no `.env`: as rotas funcionam na máquina
+que tem o IP da .11 (`wbcpython/safety.py`, `PRODUCTION_MACHINE_IP`); em qualquer outra
+respondem `503` e não abrem socket. `OP_SL_ENABLED` é ignorada.
+
+### O que dá para fazer
+
+Por default, só **Liberar** (`boposReleased`). **Encerrar saiu do default em 28/09/2026
+(D9 de `docs/PLANO_CONTROLE_PRODUCAO_11.md`):** um PATCH de status fecha a OP **sem** a saída
+de insumos e a entrada do produto; quem encerra com estoque é a tela Manutenção de OP do
+Controle de Produção (8080). Cancelar e voltar para Planejada continuam fora de escopo. Um
+pedido fora da allowlist é recusado com `400` **antes** de qualquer chamada ao SAP
+(`OP_STATUS_PERMITIDOS_DEFAULT` no `config.py`; `OP_STATUS_PERMITIDOS=boposReleased,boposClosed`
+no `.env` é o rollback, não o normal).
+
+| Status atual | → `liberada` | → `encerrada` (só com a allowlist ampliada no `.env`) |
+| --- | --- | --- |
+| Planejada | ✅ | ✅ |
+| Liberada | 200 `ja_estava` (sem PATCH) | ✅ |
+| Encerrada | ⛔ 409 | 200 `ja_estava` (sem PATCH) |
+| Cancelada | ⛔ 409 | ⛔ 409 |
+
+### Endpoints
+
+```bash
+# consultar (DocNum = o número da tela do SAP)
+curl "http://192.168.7.11:8077/ordens-producao/129850" -H "X-API-Key: SUA_CHAVE"
+
+# liberar, conferindo antes que ela ainda está Planejada (compare-and-swap)
+curl -X POST "http://192.168.7.11:8077/ordens-producao/129850/status" \
+     -H "X-API-Key: SUA_CHAVE" -H "Content-Type: application/json" \
+     -d '{"status":"liberada","status_atual":"planejada"}'
+
+# pelo DocEntry (chave interna) em vez do DocNum
+curl "http://192.168.7.11:8077/ordens-producao/126599?chave=docentry" -H "X-API-Key: SUA_CHAVE"
+```
+
+O `GET` devolve `transicoes_permitidas` já filtrado pelo status da OP e pela allowlist —
+é com ele que uma tela desabilita o botão errado antes do usuário clicar.
+
+Status: `200` mudou (ou `ja_estava: true`) · `400` número/status inválido ou fora da
+allowlist · `401` sem `X-API-Key` · `404` OP inexistente · `409` status terminal, DocNum
+ambíguo ou `status_atual` divergente · `429` trava anti-loop · `502` Service Layer fora do
+ar ou SAP recusou · `503` feature desligada ou API sem chave configurada.
+
+### Três coisas que valem saber antes de consumir
+
+- **`DocEntry` ≠ `DocNum`.** A OP 125060 é o DocEntry 126599. O default é DocNum;
+  `?chave=docentry` troca. DocNum que casa com mais de uma ordem é **recusado** (409), não
+  resolvido pelo primeiro resultado.
+- **O `POST` é fail-closed.** Sem `OS_API_KEY` definida no servidor ele responde `503`.
+  As outras rotas ficam abertas quando não há chave (documentado em [api.py](api.py)); esta
+  não fica, porque escreve em SAP de produção.
+- **Repetir a chamada é seguro.** Alvo igual ao status atual devolve `ja_estava: true` e
+  **não** manda PATCH nenhum.
+
+Variáveis: ver o bloco `OP_SL_*` no [.env.example](.env.example).
+
+---
+
+## Integração WBC → SAP (wbcpython)
+
+Desde 2026-09-08 este repositório também é a **Integração WBC → SAP** (ex-projeto
+WBCPython, reescrita Python do `WBCServConsole`): o worker lê os orçamentos do WBC (SQL
+Server, **só leitura**), decide pela máquina de estados do `SitCode` e cria/atualiza/cancela
+**cotação e pedido no SAP** pelo Service Layer, espelha o status na oportunidade e grava o
+`OrcDetalhe`. O painel (FastAPI + HTMX, porta `PAINEL_PORTA`, 8079) é a **porta de entrada**. Desde
+01/10/2026 as três telas (painel, Controle de Produção 8080 e Sincronização 8077) dividem a mesma
+casca, a **"Central Integração SAP"** (`casa/`): mesma barra com as cinco telas, mesmo tema
+(cookie `casa_tema`) e o mesmo login (cookie `wbc_painel`).
+
+| Peça | Comando (na raiz) | Serviço NSSM |
+| --- | --- | --- |
+| Worker — ciclo a cada `WORKER_INTERVAL_SECONDS`, no expediente | `python -m wbcpython worker` | `OrcaView-WBC-Worker` (manual até a virada) |
+| Painel | `python -m wbcpython dashboard` | `OrcaView-WBC-Painel` |
+| Prévia — o que o ciclo faria, só leitura | `python -m wbcpython pendentes --exportar state/wbc_previsao.json` | — |
+| Diagnóstico | `python -m wbcpython doctor` · `check-sap` · `check-hana` · `env` | — |
+
+- **Configuração:** bloco "Integração WBC → SAP" do `.env.example` (mesmo `.env`;
+  `OS_API_KEY` é a chave do painel também — sem ela o painel fica aberto, como a API).
+- **Banco de acompanhamento:** `state/wbc_tracking.db` (SQLite), **criado pelo próprio
+  serviço** na primeira subida (worker ou painel), com as 4 tabelas. O
+  `/status?checks=wbc_worker` lê esse banco para dizer se o worker está vivo, e a tool MCP
+  `estado_integracao_wbc` responde a mesma pergunta em linguagem natural.
+- **Guia, regras e histórico:** `docs/wbc/README.md` (como rodar), `docs/wbc/DECISOES.md`,
+  `docs/wbc/RISCOS_PRODUCAO.md`. Plano da integração: `PLANO_INTEGRACAO_WBCPYTHON.md (removido em 2026-09-29; historico no git)`.
+
+> ⚠️ O worker **escreve em produção** (`SBOALTAMIRAPROD`) — só na .11, pelo IP da máquina
+> (sem chave no `.env` desde 28/09/2026; antes era `WBC_BLOCK_PRODUCTION_WRITES=false`). Cotação cancelada e pedido
+> criado não se desfazem. Só pode ligar com o integrador legado (tarefa "Integração WBC" do
+> Task Scheduler) **desligado**: dois integradores pela mesma chave `U_INO_COTWBC` duplicam
+> documento.
+
+---
+
+## Controle de Produção (controleproducao)
+
+Desde 2026-09-28 o pacote **ControleProducao** do Anderson (reescrita Python do addon C#
+"Controle de Produção — WBC") mora aqui como `controleproducao/`, no mesmo molde do
+`wbcpython/`: um Python, um `.env`, o mesmo cookie de login do painel WBC, trava de escrita
+em produção pelo IP da .11 e deploy pelo `deploy_update.bat`. Ele **não cria pedido de
+venda** (isso é o worker): pega um pedido que já existe e cria por cima dele OrcDetalhe,
+itens, recursos de rateio `GGF_` e as **Ordens de Produção** (módulo 2, *Pedidos WBC*); o
+módulo 3 (*Manutenção de OP*) libera, replaneja e **encerra com movimentação de estoque**.
+
+| Peça | Comando (na raiz) | Serviço NSSM |
+| --- | --- | --- |
+| Tela (FastAPI, porta `CP_PORTA`, 8080) | `python -m controleproducao web` | `OrcaView-ControleProducao` |
+| Pedidos pendentes de OP — só leitura | `python -m controleproducao pedidos-wbc buscar` | — |
+| Criar OPs de um orçamento — **grava** | `python -m controleproducao pedidos-wbc processar-novos <orc>` | — |
+| Cancelar as OPs de um pedido — **grava** | `python -m controleproducao pedidos-wbc cancelar-ops <DocNum>` | — |
+| Manutenção de OP (liberar/replanejar/encerrar) — **grava** | `python -m controleproducao manutencao-op …` | — |
+| Diagnóstico | `python -m controleproducao conexoes testar` · `diag entidade <Nome>` | — |
+
+- **Configuração:** bloco "Controle de Produção" do `.env.example` (`CP_HOST`, `CP_PORTA`,
+  `CP_LOG_FILE`, `CP_CLI_LOG_FILE`, `HANA_SCHEMA_LEGADO`, `SL_BUSINESS_PLACE_ID`); as
+  credenciais são as `SL_*`/`HANA_*`/`WBC_SQL_*` do bloco WBC, com os mesmos fallbacks.
+  `HANA_SCHEMA` **não** é lido: o pacote lê ORDR/OWOR na company de `SL_COMPANY_DB`. O SQL
+  Server do WBC é lido por `pymssql` desde 29/09/2026 (o mesmo driver do worker) — sem ODBC;
+  `WBC_SQL_DRIVER` ficou sem efeito. O serviço lê o `.env` na subida: linha nova = `nssm
+  restart OrcaView-ControleProducao`.
+- **Links:** a barra comum (`casa/`) liga as telas: no painel e na 8077,
+  `/controle-producao/<pedidos|ops|tarefas>` → `/pedidos-wbc`, `/manutencao-op`, `/tarefas` da
+  8080 (com `CP_URL` ou o host da requisição na `CP_PORTA`, regra única em `casa/destinos.py`).
+  Uma entrada com a `OS_API_KEY` vale para as três telas (cookie compartilhado,
+  `casa/acesso.py`).
+- **Rede (F6, 28/09/2026):** `CP_HOST=0.0.0.0` no `.env` da .11 + regra de firewall da 8080
+  **só para a LAN** (mesmo alcance da regra da 8079) + `nssm restart OrcaView-ControleProducao`.
+  Com `CP_HOST=127.0.0.1` (default do código) o serviço só escuta em loopback: de fora a 8080
+  **recusa conexão** (não é queda) e na .11 o painel tem de ser aberto por
+  `http://localhost:8079/` para os botões e o cookie valerem. Receita da regra (PowerShell,
+  Administrador; copia o alcance da regra da 8079 e cai em `LocalSubnet` se ela não existir):
+
+  ```powershell
+  $molde = Get-NetFirewallRule -DisplayName '*8079*' -ErrorAction SilentlyContinue | Where-Object { $_.Direction -eq 'Inbound' -and $_.Action -eq 'Allow' -and $_.Enabled -eq 'True' } | Select-Object -First 1
+  $alcance = 'LocalSubnet'
+  if ($molde) { $alcance = ($molde | Get-NetFirewallAddressFilter).RemoteAddress }
+  "molde: $($molde.DisplayName) / alcance: $alcance"
+  New-NetFirewallRule -Name 'OrcaView-ControleProducao-8080' -DisplayName 'OrcaView ControleProducao 8080' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8080 -RemoteAddress $alcance -Profile Any | Out-Null
+  Get-NetFirewallRule -Name 'OrcaView-ControleProducao-8080' | Get-NetFirewallAddressFilter | Select-Object RemoteAddress
+  ```
+
+  Se `alcance` sair `Any`, a regra da 8079 já era aberta a tudo e a da 8080 copiou isso —
+  "igual à da 8079", mas não "só a LAN"; trocar as duas para `LocalSubnet` é decisão do
+  Marcelo. Nunca `CP_HOST=<IP da máquina>`: o `deploy_update.bat` e o `/status` sondam
+  `127.0.0.1:CP_PORTA`.
+- **Módulo 3:** `Liberar`, `Replanejar` (de volta à tela desde 29/09 — D4) e `Encerrar` pela
+  tela; `Replanejar` também pela CLI (`python -m controleproducao manutencao-op replanejar`) e
+  pela API JSON — os três recusando OP
+  com saída de insumo lançada ou produto apontado (o lançamento se cancela no SAP antes). O "Interromper" do Encerrar para
+  depois da OP em curso, nunca no meio dela. A API 8077 deixou de encerrar OP (seção "Ordens de
+  Produção" acima): encerrar com estoque é só aqui.
+- **API JSON do módulo 3 (29/09/2026):** `/api/manutencao-op` na mesma porta (8080) e no mesmo
+  processo da tela — buscar, liberar, replanejar, conferir/executar o encerramento, acompanhar e
+  interromper.
+  Aberta a qualquer um com a chave (D1): só `X-API-Key` no cabeçalho (a mesma `OS_API_KEY`),
+  CORS aberto em `/api/*` (sem cookie) e JSON com `charset=utf-8`; `solicitante` obrigatório em toda
+  gravação, erros `{ok, tipo, motivo}`, mesma fila de uma execução por vez e mesmo histórico de
+  Execuções ("por *fulano* · API"). Guia para quem consome, com receitas e exemplos em Python,
+  PowerShell e JavaScript: [API_MANUTENCAO_OP.md](API_MANUTENCAO_OP.md);
+  plano: `docs/PLANO_API_MANUTENCAO_OP.md`.
+- **Módulo 2:** `Reprocessar` em "Pedidos integrados" (saiu da tela em 28/09 — D8 — e voltou
+  em 30/09, decisão do Marcelo): cancela **todas** as OPs planejadas do pedido, de qualquer
+  origem, e **não recria** — o pedido volta para "Pedidos novos" e precisa ser processado de
+  novo. Os comandos da CLI que gravam registram o que fizeram em
+  `logs/controleproducao_cli.log` (`CP_CLI_LOG_FILE`), com a linha de comando.
+- **Execuções (29/09):** as 30 últimas terminadas ficam no Supabase
+  `controle_producao_execucoes` (só na .11; DDL em `sql/controle_producao_execucoes.sql`) e
+  sobrevivem ao restart. Conferência: `GET :8080/health` → `"historico": "supabase"`.
+- **Quem opera a tela:** `docs/controleproducao/GUIA_OPERADOR.md` (1 página).
+- **Pré-voo do piloto (só leitura, PROD):** `python maintenance/pre_voo_controleproducao.py
+  <orçamento>` — lista os pedidos pendentes de OP, as duas localizações do pedido, as flags
+  INO, linhas/grupos, `GGF_`, `@INO_LOG`, OPs existentes, quem criou OP nos últimos dias
+  (addon vivo?) e a auditoria de OPs órfãs.
+- **Monitoração:** `/status?checks=controle_producao` (aliases `cp`, `producao`) sonda
+  `127.0.0.1:CP_PORTA/health`; sem alerta enquanto o serviço nunca subiu na máquina.
+- **Histórico e regras:** `docs/controleproducao/migration_guide.md` (§7 é o diário),
+  `docs/controleproducao/decisoes.md`. Plano da implantação e riscos:
+  `docs/PLANO_CONTROLE_PRODUCAO_11.md`.
+
+> ⚠️ Grava em **produção** pelo Service Layer, só na .11. `processar-novos` carimba o pedido
+> **antes** da primeira OP e não tem rollback (queda no meio = `cancelar-ops` e processar de
+> novo, **sem `--force`**); `encerrar` lança saída e entrada de estoque, irreversíveis. O
+> `deploy_update.bat` **aborta** se houver execução em andamento — nunca pare o serviço no
+> meio de uma tarefa.
+
+---
+
+## Agendamento (Automático)
+
+### Opção A — APScheduler (multiplataforma)
+
+Já incluído em [scripts/scheduled_execution.py](scripts/scheduled_execution.py): roda uma carga **ao
+iniciar** (startup) e depois **em intervalo fixo dentro da janela comercial** — por
+padrão **a cada 30 min, das 07h às 18h59, seg–sex** (sem sábado, domingo nem
+feriados nacionais brasileiros — calendário até 2030):
+
+```bash
+python scripts/scheduled_execution.py
+```
+
+Os horários são configuráveis por variáveis de ambiente:
+
+| Variável | Default | Descrição |
+|----------|---------|-----------|
+| `INTERVALO_MINUTOS` | `30` | Minutos entre cargas (piso de 5; aceita valores > 59). |
+| `JANELA_HORAS` | `7-18` | Faixa de horas inclusiva (ex.: `7-18` = 07h às 18h59). |
+| `EXECUTION_MODE` | `snapshot` | Modo de carga (`snapshot` ou `insert`). |
+
+> **Dias úteis:** o agendador não roda em sábados, domingos nem feriados nacionais
+> (fixos e móveis: Carnaval, Sexta-feira Santa, Corpus Christi etc.), calendário
+> pré-carregado até **2030** em `feriados_br.py`. A carga de startup também respeita
+> essa regra (só ignora a faixa de horas em dia útil).
+
+> Robustez 24/7: um *lock* global serializa as cargas (nunca há duas simultâneas, nem
+> com a do startup); `coalesce` + `misfire_grace_time` de 1h toleram servidor desligado;
+> log com rotação diária (`logs/scheduled_execution.log`, 12 dias) e *heartbeat* horário;
+> `SIGTERM` para parada limpa ao rodar como serviço.
+
+Para rodar no boot do servidor (24/6), registre o wrapper [run_scheduler.bat](run_scheduler.bat)
+no Task Scheduler (gatilho "Ao iniciar o sistema") ou via NSSM — ver
+[Opção B](#opção-b--serviço-no-boot-windows).
+
+### Opção B — Serviço no boot (Windows)
+
+Para o agendador subir sozinho quando o servidor liga, registre o wrapper
+[run_scheduler.bat](run_scheduler.bat) com gatilho **ONSTART** (ajuste o caminho):
+
+```powershell
+schtasks /Create /TN "OrcaView-ETL" /SC ONSTART /RL HIGHEST /RU SYSTEM /F ^
+  /TR "C:\caminho\ServidorIntegracaoSAP\run_scheduler.bat"
+```
+
+Depois, em *Propriedades da tarefa → Configurações*, marque **"Reiniciar se a tarefa
+falhar"**. Alternativa: instalar como serviço dedicado via **NSSM** (`nssm install
+OrcaView-ETL ...`), que aparece em `services.msc`.
+
+### Opção C — Linux/Mac cron
+
+```cron
+0 8 * * * cd /caminho/ServidorIntegracaoSAP && /caminho/venv/bin/python extract_sap_to_supabase.py >> logs/execution.log 2>&1
+```
+
+---
+
+## Operação (iniciar / parar / serviços)
+
+No servidor rodam **seis processos** 24/7 (os cinco abaixo + a fachada MCP, que tem
+instalador próprio — `install_mcp_service.bat`):
+
+| Processo | O que faz | Sobe com | Serviço NSSM |
+| --- | --- | --- | --- |
+| **Agendador** | carga de **oportunidades** a cada 30 min (07–18h, dias úteis) | `run_scheduler.bat` | `OrcaView-Scheduler` |
+| **API / Painel de Sincronização** | endpoints em `:8077`; `GET /` leva ao painel WBC (a entrada), a página de OS/Oportunidades fica em `/sincronizar` | `run_api.bat` | `OrcaView-OS-API` |
+| **Painel WBC** | a porta de entrada, em `:8079` (`PAINEL_PORTA`) — lê só o acompanhamento | `run_wbc_painel.bat` | `OrcaView-WBC-Painel` |
+| **Worker WBC** | cotação/pedido no SAP a partir do WBC, a cada 3 min no expediente — **escreve em produção** | `python.exe -m wbcpython worker` (sem wrapper) | `OrcaView-WBC-Worker` |
+| **Controle de Produção** | Pedidos WBC → OPs e Manutenção de OP em `:8080` (`CP_PORTA`; escuta em `CP_HOST`) — **escreve em produção** (OPs, itens, recursos, estoque), só pelo IP da .11 | `run_controleproducao.bat` | `OrcaView-ControleProducao` |
+
+**Entrada única:** abrir `http://192.168.7.11:8077` leva ao painel WBC (ou, se o serviço dele
+estiver parado, mostra o aviso e os caminhos para as outras telas). A Sincronização vive em
+`http://192.168.7.11:8077/sincronizar` e, com `OS_API_KEY`, pede a mesma chave das outras telas
+(`/entrar` na 8077) — quem já entrou no painel abre direto. Os links "Pedidos WBC",
+"Manutenção de OP" e "Execuções" da barra só alcançam o Controle de Produção pelo IP com
+`CP_HOST=0.0.0.0` + regra de firewall da 8080 (F6); com `127.0.0.1`, só na própria .11 e
+abrindo o painel por `http://localhost:8079/`.
+
+### Iniciar
+
+- **Como serviço (recomendado, 24/7)** — rode **uma vez**, como Administrador, com o
+  [NSSM](https://nssm.cc) no PATH:
+  ```bat
+  install_services.bat
+  ```
+  Registra só `OrcaView-Scheduler` e `OrcaView-OS-API` (auto-start no boot, restart se cair,
+  log em `logs/`). Os demais têm instalador próprio: `install_mcp_service.bat` (`OrcaView-MCP`)
+  e `install_wbc_services.bat` (`OrcaView-WBC-Painel` e `OrcaView-ControleProducao`, auto-start,
+  o 1º `nssm start` é à mão; `OrcaView-WBC-Worker` nasce **manual, parado** — só liga na virada,
+  com o legado desligado: `nssm set OrcaView-WBC-Worker Start SERVICE_AUTO_START` e
+  `nssm start`). Gerencie em `services.msc`.
+- **Atualizar** (git pull + pip se preciso + religar tudo): `deploy_update.bat` como
+  Administrador. O worker WBC só religa se estava rodando.
+- **Manual (teste/temporário)** — cada um isolado em sua janela: `run_scheduler.bat`
+  (agendador) e `run_api.bat` (API).
+
+### Parar
+
+- **Serviço:** `nssm stop <serviço>` (ou pelo `services.msc`). Parada **limpa** — o agendador
+  **espera** uma carga em andamento terminar, e o worker WBC **termina o ciclo** em andamento
+  (9–14 s; o serviço dá até 60 s, `AppStopMethodConsole`).
+- **Janela manual:** `Ctrl+C` na janela (a da API ainda pergunta *Terminate batch job? Y*).
+  O Ctrl+C de uma janela para **só** aquele processo.
+
+> ⚠️ Não misture: se registrou como serviço, **não** deixe janelas manuais abertas também
+> (brigam pela porta 8077).
+
+### Fim do dia / reinício do servidor
+
+- É **24/7** — **não** se encerra no fim do dia. Fora do horário (07–18h), fins de semana e
+  feriados, o agendador fica **ocioso** e volta sozinho no próximo dia útil às 07h.
+- Se o servidor desligar/reiniciar (backup, Windows Update): como **serviço**, encerra limpo e
+  **religa no boot**.
+- **Integridade garantida:** OS (`replace_nped`) e Oportunidades (`snapshot`) usam
+  *carrega-depois-poda* — se interrompidos no meio, **permanece a versão anterior** (nunca
+  tabela vazia/corrompida). O lock de arquivo é liberado quando o processo termina.
+
+### Logs
+
+| Arquivo | Conteúdo |
+| --- | --- |
+| `logs/scheduled_execution.log` | agendador (rotação diária, 12 dias) |
+| `logs/api.log` | API (rotação diária, 12 dias) |
+| `logs/wbcpython.log` | worker + CLI do WBC (o mesmo texto da aba "Log" do painel; 5 MB × 3) |
+| `logs/controleproducao.log` | tela do Controle de Produção (`python -m controleproducao web`; 5 MB × 3) — é a marca "já subiu" do check `controle_producao` do `/status`; a CLI do pacote escreve só no console |
+| `logs/scheduler_service.log` · `logs/api_service.log` · `logs/wbc_painel_service.log` · `logs/wbc_worker_service.log` · `logs/controleproducao_service.log` | saída bruta dos serviços (via NSSM) |
+
+> Os logs são gravados em **UTF-8**. No **PowerShell**, leia com `-Encoding utf8`,
+> senão os acentos saem trocados (ex.: `execuÃ§Ã£o`):
+> `Get-Content .\logs\scheduled_execution.log -Tail 30 -Encoding utf8`
+
+---
+
+## Monitoramento
+
+Dois endpoints para checagem (exemplos no PowerShell):
+
+- **`GET /health`** — *liveness* leve (a API está de pé?). Sem chave, sem checagem externa —
+  rápido e sempre disponível.
+- **`GET /status`** — diagnóstico **sob demanda**, em **dois níveis** (roda só quando
+  chamado, sem polling; veja a seção seguinte): conexões com **SAP**, **SQL Server (WBC)** e **Supabase** (com
+  latência `ms`), **sinal indireto do agendador** (idade da última carga de oportunidades;
+  `stale` se > 35 min na janela comercial → `OrcaView-Scheduler` pode ter caído), **tarefa
+  legada "Integração WBC"** (`scheduled_task`: desativada em 08/09/2026, vem `retired=true` e
+  nunca alarma; `WBC_TASK_MONITOR=true` religa o monitor), **estado do
+  worker WBC** (`wbc_worker`: lê `state/wbc_tracking.db`; `stale` se silenciou além de 2×
+  `WORKER_INTERVAL_SECONDS` dentro do expediente **do worker** → `OrcaView-WBC-Worker` pode ter
+  caído; não alarma antes do 1º ciclo registrado na máquina), **alerta de disco** e métricas
+  do sistema (CPU/memória via `psutil` se instalado; disco/IP/host/uptime via stdlib).
+
+```powershell
+# diagnóstico completo (aberto — funciona no navegador também)
+curl.exe -s "http://192.168.7.11:8077/status" | ConvertFrom-Json
+
+# só algumas checagens (aliases: sql/wbc -> sql_server, hana -> sap, agendador -> scheduler,
+# worker/integracao_wbc -> wbc_worker; atenção: `wbc` é o SQL Server, não o worker)
+curl.exe -s "http://192.168.7.11:8077/status?checks=sap,sql"
+curl.exe -s "http://192.168.7.11:8077/status?checks=worker"
+
+# alertar por código de status: 503 se houver falha de conexão OU alerta
+curl.exe -s -o NUL -w "%{http_code}" "http://192.168.7.11:8077/status?strict=1"
+```
+
+Campos úteis do JSON: `ok` (conexões verdes), `healthy` (`ok` e sem `alerts`),
+`checks.*.ms` (latência), `scheduler.stale`, `system.disk_low`, `alerts[]`.
+
+### `STATUS_ID` — quem vê o quê no `/status`
+
+Desde 10/09/2026 o `/status` responde em **dois níveis**. Quem chega **sem credencial**
+recebe a **visão mínima**; o payload completo pede a `OS_API_KEY` **ou** o `STATUS_ID`.
+
+| Quem | Credencial | Recebe |
+| --- | --- | --- |
+| Monitor, watchdog, navegador anônimo | nenhuma | `ok`, `healthy`, `restrito: true`, um booleano por check e `alerts` como **contagem** |
+| Outra equipe, OrçaView, você | **`STATUS_ID`** | O payload completo |
+| Quem já tem a chave da API | `OS_API_KEY` | O payload completo (nada mudou) |
+
+**Por que:** o payload completo publica o `host:porta` do HANA e do SQL Server, a URL do
+Supabase, hostname/IP/versão do Windows e do Python, o caminho de instalação e o nível de
+patch da máquina — um mapa da integração para qualquer um na LAN.
+
+**O `STATUS_ID` abre o `/status` e mais nada.** Em qualquer outra rota ele responde
+**401**; é por isso que ele pode ser entregue a quem só precisa monitorar, sem dar junto
+a chave que escreve no SAP e abre o painel WBC. Trocá-lo também não derruba os cookies do
+painel, como a troca da `OS_API_KEY` derruba.
+
+```powershell
+# gerar (uma vez), e gravar como STATUS_ID no .env da .11
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+
+# visão mínima — é o que o monitor precisa, e não vaza topologia
+curl.exe -s "http://192.168.7.11:8077/status"
+
+# completo, com o ID (o header, o Bearer e o ?key= valem, como na chave da API)
+curl.exe -s -H "X-API-Key: SEU_STATUS_ID" "http://192.168.7.11:8077/status"
+```
+
+> **O código HTTP não depende da credencial.** `?strict=1` responde 503 para servidor
+> degradado com ou sem ID — é o que mantém funcionando o monitor que decide pelo código
+> (o watchdog do `.90` chama `?checks=worker&strict=1` sem credencial nenhuma).
+
+> [!WARNING]
+> **A falta do ID não dá erro — dá campo vazio.** Sem credencial a resposta continua
+> `200`, com `ok` e `healthy` certos; o que some é o `system` (CPU, memória, disco,
+> host), o `ms` de cada check, o `windows_update` e o texto dos `alerts` (vira contagem).
+> Quem monta tela com esses campos vê **"—"** e um `✅` ao lado, o que parece problema de
+> tela e não de credencial.
+>
+> Aconteceu conosco em 10/09/2026: o painel de servidores do OrçaView ficou com
+> `CPU: —` e `Memória: — usada` porque um dos caminhos de chamada ainda ia sem
+> credencial. **Se a sua tela lê `system`, `ms` ou `windows_update`, você precisa do
+> `STATUS_ID`.** Se você só olha o código HTTP, não precisa de nada.
+>
+> O campo `restrito: true` na resposta é justamente o sinal de que você está na visão
+> reduzida — dá para tratar isso na sua tela em vez de mostrar vazio.
+>
+> **Sem `STATUS_ID` no `.env`**, só a `OS_API_KEY` abre o completo. E, como no resto da
+> API, **sem `OS_API_KEY` configurada tudo cai aberto** — o campo `api_auth` do payload é
+> quem denuncia esse estado.
+
+> **No navegador:** `/status` abre direto (`http://192.168.7.11:8077/status`), na visão
+> mínima. Os **demais**
+> endpoints exigem a chave — no navegador, passe por query string `?key=SUA_CHAVE` (ex.:
+> `…/oportunidades/info?key=SUA_CHAVE`). O `-H "X-API-Key: ..."` é parâmetro do **curl**
+> (terminal) e **não** funciona colado na barra de endereço do navegador.
+
+> CPU e memória exigem **`psutil`** (`python -m pip install psutil`). Sem ele o `/status`
+> funciona normalmente, apenas com CPU/memória indisponíveis.
+
+---
+
+## Versionamento (GitHub)
+
+Repositório: **<https://github.com/MarceloProjetos/oportunidade_wbc>** — o repo no GitHub mantém o nome `oportunidade_wbc`; a pasta local do projeto é `ServidorIntegracaoSAP`.
+
+Fluxo de trabalho do dia a dia:
+
+```bash
+git pull                       # trazer atualizações antes de começar
+# ... editar arquivos ...
+git add -A
+git commit -m "feat: descrição da mudança"
+git push
+```
+
+> ⚠️ **O `.env` nunca é versionado** — está no [.gitignore](.gitignore) (contém a
+> `service_role` e senhas de produção). Antes de qualquer commit, confirme com
+> `git status` que ele **não** aparece. Se um segredo vazar para o histórico, **rotacione
+> as chaves** no Supabase/SAP — o git guarda todo o histórico.
+>
+> 💡 O repositório está **público**. Sendo dados internos (oportunidades/clientes),
+> avalie torná-lo privado em *Settings → General → Danger Zone → Change visibility*.
+
+---
+
+## Estrutura de Diretórios
+
+```text
+ServidorIntegracaoSAP/
+├── config.py                    # Configuração centralizada (.env)
+├── sap_connection.py            # Conexão SAP HANA compartilhada
+├── db_utils.py                  # Leitura DB-API (SAP/SQL) → DataFrame
+├── feriados_br.py               # Calendário de feriados nacionais (até 2030)
+├── pipeline_core.py             # Núcleo compartilhado (SupabaseLoader, prepare_data, …)
+├── extract_sap_to_supabase.py   # Pipeline de oportunidades (SAP + SQL Server → Supabase)
+├── extract_ordens_servico_engenharia.py  # Sync de OS por N_PED (VW_OS_INTEGRACAO, replace_nped)
+├── extract_vendas_bi.py         # Agregados de Vendas BI (VW_PEDIDO_ALTA + VW_FATO_FATURAMENTO → bi_vendas_*)
+├── extract_orcamentos_espelho.py  # Espelho de VW_EVOL_ORCAMENTO_ALT no Supabase
+├── situacao_pedidos.py          # /pedidos/situacao: regra pura (porte do web, diffável)
+├── situacao_pedidos_hana.py     # /pedidos/*: leitura HANA + cache + endereço de entrega
+├── sap_montagem_labels.py       # Rótulos de montagem (porte do web)
+├── pedidos_bloqueados.py        # Pedidos fora dos agregados (hardcode; 3 cópias: SIS, web, app)
+├── ordens_producao_sl.py        # Status de OP no SAP via Service Layer (escrita; nasce desligado)
+├── windows_update.py            # Reboot/updates pendentes (porte do SAP_RDP)
+├── retry.py                     # Retry compartilhado (SAP e Supabase)
+├── wake_altservidor_ia.py       # Wake-on-LAN do .90 (byte-idêntico ao do web)
+├── monitoring.py                # Diagnóstico do /status (conexões, agendador, tarefa)
+├── api.py                       # API HTTP de disparo + /status (Flask, porta 8077)
+├── wbcpython/                   # Integração WBC → SAP: worker + painel + CLI (python -m wbcpython)
+├── controleproducao/            # Controle de Produção: Pedidos WBC → OPs + Manutenção de OP (python -m controleproducao; porta CP_PORTA=8080)
+├── web/                         # Páginas servidas pela API (entrada.html = GET /, sincronizar.html = /sincronizar)
+├── sql/                         # DDL + policies do Supabase
+├── scripts/
+│   └── scheduled_execution.py   # Agendamento via APScheduler (IntervalTrigger)
+├── mcp/                         # Fachada MCP read-only sobre a API (stdio no cliente; HTTP 8078 na .11)
+├── maintenance/                 # Conferidor de Vendas BI + scripts de disco e logs do servidor
+├── monitor_wbc_task.ps1         # Monitora a tarefa "Integração WBC" → state/*.json
+├── install_monitor_task.ps1     # Registra a tarefa do monitor (a cada 10 min, SYSTEM)
+├── run_scheduler.bat            # Wrapper p/ Task Scheduler / NSSM (agendador, boot 24/7)
+├── run_api.bat                  # Wrapper p/ Task Scheduler / NSSM (API, boot 24/7)
+├── run_wbc_painel.bat           # Wrapper NSSM do painel WBC (PAINEL_HOST:PAINEL_PORTA)
+├── run_controleproducao.bat     # Wrapper NSSM do Controle de Produção (CP_HOST:CP_PORTA)
+├── run_mcp.bat                  # Wrapper NSSM da fachada MCP HTTP (porta 8078)
+├── install_services.bat         # Registra agendador + API no NSSM
+├── install_mcp_service.bat      # Registra a fachada MCP HTTP no NSSM
+├── install_wbc_services.bat     # Registra painel WBC, worker WBC (python.exe absoluto) e Controle de Produção
+├── install_wol_task.ps1         # Registra a tarefa de Wake-on-LAN do .90
+├── deploy_update.bat            # Atualiza a .11: aborta se o Controle de Produção estiver ocupado, para os 6 serviços, git pull, pip se preciso, religa
+├── docs/                        # Planos deste repo · docs/wbc/ = guia, decisões e histórico do WBC
+├── requirements.txt             # Dependências Python
+├── requirements-dev.txt         # pytest + ruff
+├── tests/                       # Suíte pytest (tests/wbc/ = a do wbcpython; tests/controleproducao/ = a do controleproducao)
+├── .env.example                 # Template de variáveis de ambiente
+├── API_*.md                     # Contratos HTTP entregues a outras equipes (OS, OP, RH, pedidos, Manutenção de OP)
+├── CLAUDE.md                    # Guia para agentes
+├── CHANGELOG.md                 # Histórico de mudanças
+└── README.md                    # Este arquivo
+```
+
+---
+
+## Troubleshooting
+
+### `getaddrinfo failed` no Supabase
+URL inválida no `.env`. Confirme `SUPABASE_URL` (formato `https://xxx.supabase.co`, sem
+`/rest/v1/`). Em **Project Settings → Data API**.
+
+### `Could not find the table 'public.xxx' in the schema cache`
+A tabela não existe ou o nome em `TABLE_NAME` está errado. Crie a tabela (ver
+[Banco de Dados](#banco-de-dados-supabase)).
+
+### `invalid input syntax for type integer: "1234.0"`
+Coluna inteira recebendo float (pandas converte inteiros com `NaN` para float). O script
+já trata isso convertendo inteiros-exatos de volta para `int` em `prepare_data`.
+
+### Anon lê `0 registros` mas a tabela tem dados
+RLS ativo sem policy de leitura para a `anon`. Crie a policy (ver SQLs acima) ou consuma
+via `service_role` no servidor (**nunca** exponha a `service_role` no front-end).
+
+### `Data source name not found` / driver ODBC não encontrado
+Pipeline de oportunidades: nenhum driver ODBC do SQL Server instalado — ele tenta
+`18 → 17 → Native Client 11.0 → SQL Server` sozinho, então instale o Driver 18, ver
+[passo 3 da Instalação](#3-odbc-driver-18-para-sql-server). O `controleproducao`
+não usa ODBC desde 29/09/2026 (`pymssql`).
+
+### SQL Server: conexão recusada (10061)
+Host/porta errados ou serviço inacessível. Teste a porta:
+```powershell
+Test-NetConnection -ComputerName <host> -Port <porta>
+```
+
+### Acentos quebrados no console (Windows)
+O console usa cp1252. Os scripts já forçam UTF-8 (`sys.stdout.reconfigure`). Os dados no
+banco são gravados corretamente — é só exibição local.
+
+---
+
+## Licença
+
+Software proprietário — uso interno Altamira.

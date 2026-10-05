@@ -1,0 +1,293 @@
+# Fachada MCP — ServidorIntegracaoSAP
+
+Camada **fina e read-only** que expõe, como *tools* MCP, os endpoints que a API REST
+(porta 8077) já oferece. Um cliente MCP (Claude Desktop, Claude Code) passa a
+operar/consultar o servidor de integração **em linguagem natural**.
+
+> **Não altera nada do que roda hoje.** Não fala com SAP/SQL/Supabase direto, não roda
+> agendador — só chama a API existente (que continua sendo a única a tocar o banco).
+
+## Tools (leitura)
+
+| Tool | Endpoint | Chave? | Fase |
+|---|---|---|---|
+| `verificar_saude(checks?, strict?)` | `GET /status` (sem a chave vem **reduzido**, desde 10/09/2026) | sim | 0 |
+| `listar_sincronizacoes_os(limit?)` | `GET /historico` | sim | 0 |
+| `listar_sincronizacoes_oportunidades(limit?)` | `GET /oportunidades/historico` | sim | 0 |
+| `info_oportunidades()` | `GET /oportunidades/info` | sim | 0 |
+| `listar_pedidos_com_os(limit?)` | `GET /ordens-servico/disponiveis` | sim | 0 |
+| `detalhe_pedido_os(nped, incluir_linhas?)` | `GET /ordens-servico/<nped>` | sim | 1 |
+| `estado_tarefa_wbc()` | `GET /status?checks=scheduled_task` — tarefa LEGADA, desativada em 2026-09-08: vem `retired=true` (não é falha); use `estado_integracao_wbc` | sim | 1 |
+| `estado_integracao_wbc()` | `GET /status?checks=wbc_worker` (worker da Integração WBC → SAP; não alarma antes do 1º ciclo na máquina) | sim | WBC F3 |
+| `ultimos_erros(limit?)` | `GET /historico` (filtra falhas) | sim | 1 |
+| `estado_orcamento_wbc(orcamento, eventos?)` | `GET /wbc/orcamentos/<orcnum>` — o acompanhamento do worker para UM orçamento (status, regra, documentos, último erro, eventos); `404 fora_do_acompanhamento` = o worker nunca o avaliou | sim | 01/10/2026 |
+| `situacao_op(op, chave?)` | `GET /ordens-producao/<n>` — status de UMA OP e as transições permitidas (só leitura) | sim | 01/10/2026 |
+| `estado_windows_update()` | `GET /status?checks=windows_update` (updates pendentes, último patch, reboot) | sim | — |
+| `listar_colaboradores(empresa?, setor?, somente_ativos?, limite?)` | `GET /rh/colaboradores` (espelho do Kairos) | sim | F5 |
+| `resumo_colaboradores(empresa?, somente_ativos?)` | `GET /rh/colaboradores` (contagens) | sim | F5 |
+
+> As três tools de bloco do `/status` (`estado_tarefa_wbc`, `estado_integracao_wbc`,
+> `estado_windows_update`) dizem **"diagnóstico reduzido por falta de credencial"** quando
+> a chave não chega (01/10/2026) — antes repassavam o `/status` reduzido sem explicar.
+>
+> **Tempo de espera por rota (01/10/2026):** `/status` 60 s, leituras do HANA
+> (`/pedidos/*`, `/ordens-servico/*`) 45 s, sync de OS 120 s, carga de oportunidades 180 s;
+> o resto, `SIS_HTTP_TIMEOUT` (12 s). Estourar o tempo devolve "a API demorou", nunca
+> "inacessível" — e, numa escrita, manda conferir o histórico antes de repetir.
+
+## Tools — Situação dos Pedidos
+
+> ✅ **No ar na `.11` desde 24/08/2026** — conferidas por um cliente MCP de verdade
+> (handshake Streamable HTTP + Bearer contra `192.168.7.11:8078`): 14 tools servidas, as
+> três presentes com `readOnlyHint=True`. Contrato congelado em **2026-08-24** (F0 do
+> plano `PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29; historico no git)`).
+
+Leem a view `VW_STATUS_PEDIDO_DDP` (a mesma que desenha a tela **Situação dos Pedidos**
+do OrçaView), com montador, valor e vendedor vindos de `ORDR` / `@INO_MONTADOR` / `OSLP`.
+Todas **read-only**, todas com `X-API-Key` injetada server-side.
+
+| Tool | Endpoint | Chave? | Responde a |
+|---|---|---|---|
+| `situacao_pedido(pedido, chave?)` | `GET /pedidos/<numero>/situacao` | sim | "o pedido 84260 está preso onde?" |
+| `pedidos_bloqueados(bloqueio?, status?, limite?)` | `GET /pedidos/situacao?bloqueio=…` (lista com teto de 40, como o panorama) | sim | "o que está travado?" |
+| `panorama_pedidos(campos?, limite?, montador?, vendedor?, so_atrasados?)` | `GET /pedidos/situacao` | sim | "como está a carteira?", "o que a Barros tem em aberto?" |
+
+As três declaram `readOnlyHint=True` — o cliente MCP mostra ao usuário que são consulta,
+não ação. (As 9 tools de leitura anteriores não declaram; retrofitá-las é mexer no que
+funciona e fica para quando houver motivo.)
+
+**Para "o que está preso há tempo demais"** não há tool própria: chame
+`pedidos_bloqueados(bloqueio="financeiro")` e leia o campo `alerta_liberacao` de cada
+pedido. São poucos, e a regra fica num lugar só.
+
+**Custo medido (2026-08-24, 237 pedidos):** a rota devolve ~**74 KB** de JSON no
+`resumo` e ~**237 KB** no `completo` — 3,2×. Por isso, desde **2026-09-07**,
+`panorama_pedidos` aplica um **teto na fachada** (`limite`, default 40; a lista vem
+ordenada por atrasado → mais etapas bloqueadas → mais antigo) e filtros de conversa
+(`montador`, `vendedor`, `so_atrasados`, substring sem acento). `kpis` e `montadores`
+continuam do recorte inteiro; quando corta, a resposta traz `truncado`, `mostrando`,
+`total_filtrado` e `aviso`. Medido contra a `.11` com 259 pedidos: default **13 KB
+(~3,4 k tokens)** em vez de 73 KB (~18,7 k). `montador`/`vendedor` só existem no
+`completo`, então a fachada busca o completo e projeta de volta às colunas do resumo.
+
+**Parâmetros da rota de lista** — além dos defaults congelados abaixo: `montador`
+(CNPJ ou `__sem__`), `busca` (cliente, código, número do pedido ou cotação WBC),
+`so_atrasados_fin=1` (só quem passou dos 10 dias no financeiro) e `recarregar=1`
+(ignora o cache de 120 s).
+
+**Defaults congelados** (mudá-los depois de publicado quebra quem já usa):
+
+| Parâmetro | Valores | Default | Por quê |
+|---|---|---|---|
+| `chave` | `docnum` \| `docentry` | `docnum` | é o número que aparece na tela (84260). `DocEntry ≠ DocNum` |
+| `bloqueio` | `qualquer` \| `financeiro` \| `producao` \| `entrega` \| `nenhum` | `qualquer` | — |
+| `status` | `todos` \| `aberto` \| `fechado` | **`aberto`** em `pedidos_bloqueados` | quem pergunta "o que está travado?" quer o que trava hoje. **Diverge da tela de propósito** (ela usa `todos` porque espelha o Power BI) |
+| `campos` | `resumo` \| `completo` | `resumo` na lista, `completo` no pedido único | 236 pedidos × ~40 campos não cabe no contexto |
+
+**Campos do `resumo`** (as 10 colunas da tela + o alerta): `data_pedido` · `card_name` ·
+`doc_num` · `sinal` · `financeiro` · `producao` · `entrega` · `prazo_entrega` ·
+`atrasado` · `pymnt_group` · `alerta_liberacao`.
+
+**`alerta_liberacao`** é `null` ou o texto `"Mais de 10 dias preso no financeiro (N
+dias)"` — a mesma regra do alerta financeiro do V117 (`Financeiro = Bloqueado` há mais de
+10 dias da data do pedido; pedido fechado nunca alarma).
+
+**Respostas de erro:** `400` = número não é inteiro positivo; `404` = pedido fora do
+recorte da view (ela só tem os correntes — **não** é "sem bloqueio"); `409` = DocNum
+casando com mais de um pedido; `422` = parâmetro fora do domínio (tentar de novo não
+adianta); `503` = HANA indisponível (tentar de novo adianta). A mensagem vai inteira no
+corpo — é ela que o modelo lê, em vez de um "HTTP 503" genérico.
+
+**Na lista, filtro que não casa com nada é `200` com a lista vazia**, nunca 404: "não há
+nada bloqueado" é resposta legítima.
+
+**Os KPIs e a lista de montadores são sempre do recorte inteiro**, nunca do filtrado —
+igual à tela, onde o card diz quantos existem e o filtro diz quais aparecem. Quantos
+voltaram está em `total_filtrado`. Além do contrato congelado, as respostas trazem
+`cache_idade_s`: há quantos segundos o retrato foi tirado.
+
+## Resources (Fase 1 — contexto anexável)
+
+Recursos que o cliente MCP lê como "arquivos de contexto", **sem gastar uma tool-call**:
+
+| Resource (URI) | Conteúdo |
+|---|---|
+| `sap-integracao://status` | snapshot do `/status` (JSON) |
+| `sap-integracao://historico-os` | últimas 20 sincronizações de OS (JSON) |
+| `sap-integracao://colaboradores` | resumo do quadro de colaboradores (JSON) |
+
+## Tools de escrita (Fase 4 — com confirmação humana)
+
+Escrita real (SAP → Supabase), com **confirmação em 2 camadas**: (1) `annotations`
+(`readOnlyHint=False`, `idempotentHint=True`, `openWorldHint=True`) fazem o cliente MCP sinalizar
+que é ação de escrita; (2) **preview-então-confirma** — com `confirmar=False` (default) a tool
+**NÃO escreve**: devolve um *preview* do estado atual e a instrução; o modelo mostra ao usuário e só
+chama com `confirmar=True` após o "sim" explícito.
+
+| Tool | Endpoint | Chave? |
+|---|---|---|
+| `sincronizar_pedido_os(nped, confirmar?)` | `POST /ordens-servico/<nped>/sincronizar` (sync + resumo) | sim |
+| `forcar_carga_oportunidades(confirmar?)` | `POST /oportunidades/sincronizar` (`409` se ocupado) | sim |
+
+> A sync de OS é **idempotente** (`replace_nped`) e só roda se o pedido tiver OS gerada e não
+> cancelada (avisos `sem_os`/`pedido_cancelado`/`pedido_nao_encontrado`/`cancelada`, com
+> `status_pedido` da ORDR). A carga de oportunidades usa **lock** (nunca 2 juntas).
+>
+> **Trava anti-loop:** as escritas têm rate-limit **generoso** no lado da API (default **60** syncs
+> de OS/min e **6** cargas completas/min; env `RATE_SYNC_OS_MAX` / `RATE_FORCE_OPORT_MAX`). Se
+> estourar, a API responde **`429`** com `Retry-After` e o motivo — o `_post` repassa isso à tool.
+
+## Onde roda (topologia recomendada — Opção A)
+
+**Do lado do cliente** (a máquina onde o Claude Desktop/Code roda), alcançando a `8077`
+pela LAN. Assim **não há exposição nova** no servidor `.11` e a `SIS_API_KEY` fica só aqui.
+
+## Instalação
+
+```bash
+cd mcp
+python -m venv .venv && .venv\Scripts\activate      # Windows (ou: source .venv/bin/activate)
+pip install -r requirements.txt
+copy .env.example .env                               # e preencha SIS_API_KEY
+```
+
+Teste rápido (o server fica aguardando no stdio; Ctrl+C para sair):
+
+```bash
+python mcp_server.py
+```
+
+### `mcp` 2.x quebra o import ("Connection closed" no cliente)
+
+O SDK `mcp` 2.x renomeou `FastMCP` para `MCPServer` e mudou a API. Este server importa
+`mcp.server.fastmcp`; com o 2.x instalado o processo morre no import e o cliente MCP só
+mostra **"Connection closed"**, sem stack trace. Por isso o `requirements.txt` pina
+`mcp>=1.2,<2` (a `.11` roda 1.28.1). Para conferir qual está ativo e se o server sobe:
+
+```bash
+python -c "import importlib.metadata as m; print(m.version('mcp'))"
+python -c "import mcp_server"        # dentro de mcp/: sem saída = ok
+```
+
+Se o import falhar, reinstale com `pip install "mcp<2"` — ou registre só o modo remoto
+HTTP da `.11` (abaixo), que não depende do Python da máquina cliente.
+
+## Registrar no cliente MCP
+
+### Claude Code (CLI)
+
+```bash
+claude mcp add servidor-integracao-sap -- python D:\ProjetoAltamira\MCPs\ServidorIntegracaoSAP\mcp\mcp_server.py
+```
+
+> Use o Python do venv se criou um (ex.: `...\mcp\.venv\Scripts\python.exe`).
+
+### Claude Desktop
+
+Edite `claude_desktop_config.json` (Windows: `%APPDATA%\Claude\claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "servidor-integracao-sap": {
+      "command": "python",
+      "args": ["D:\\ProjetoAltamira\\MCPs\\ServidorIntegracaoSAP\\mcp\\mcp_server.py"],
+      "env": {
+        "SIS_API_BASE": "http://192.168.7.11:8077",
+        "SIS_API_KEY": "COLOQUE_A_CHAVE_AQUI"
+      }
+    }
+  }
+}
+```
+
+Reinicie o Claude Desktop. Depois é só perguntar: *"o servidor de integração está saudável?"*,
+*"últimas sincronizações de OS?"*, *"quais pedidos têm OS disponível?"*, *"mostra a OS do pedido 84080"*,
+*"a tarefa WBC rodou hoje?"*, *"teve falha de sync hoje?"*.
+
+## Modo remoto (Fase 3 — serviço HTTP na `.11`)
+
+Em vez do stdio-por-cliente (acima), a fachada pode rodar como **serviço HTTP central na
+`.11`** (porta **8078**), e os clientes apontam para **uma URL só**, autenticando com um
+**token estático** (o plano da fase foi encerrado; o histórico está no git).
+
+**Entrypoint:** [serve_http.py](serve_http.py) — serve o mesmo FastMCP via *Streamable HTTP*
+(uvicorn) atrás de um middleware que exige `Authorization: Bearer <SIS_MCP_TOKEN>`.
+
+**Config no `mcp/.env` da `.11`:**
+
+```
+SIS_API_BASE=http://192.168.7.11:8077   # IP da própria .11 (ver Gotcha); a chave não sai da máquina
+SIS_API_KEY=<a OS_API_KEY>
+SIS_MCP_TOKEN=<token forte p/ os clientes>
+SIS_MCP_HOST=0.0.0.0
+SIS_MCP_PORT=8078
+```
+
+> **Gotcha (LocalSystem + loopback):** o ideal seria `SIS_API_BASE=http://127.0.0.1:8077` (loopback,
+> a chave nem toca a rede). Mas o serviço `OrcaView-MCP` roda como **LocalSystem (Sessão 0)** e, nesta
+> `.11`, esse contexto **não alcança a pseudo-interface de loopback** — dá `WinError 10061 "conexão
+> recusada"` **mesmo com a API no ar** e o `curl`/`verificar_saude` **interativos funcionando** (a
+> diferença é só o contexto do serviço, não o código/proxy/venv). Solução: apontar para o **IP da
+> própria máquina** (`http://192.168.7.11:8077`) — a API escuta em `0.0.0.0:8077`, o pacote continua
+> **local** (não sai da `.11`) e o serviço passa a conectar. Alternativa: rodar o serviço como um
+> usuário normal em vez de LocalSystem (`nssm set OrcaView-MCP ObjectName .\<user> <senha>`) — aí o
+> loopback volta a funcionar.
+
+**Subir** (na `.11`): `run_mcp.bat` diretamente, ou como serviço via `install_mcp_service.bat`
+(NSSM `OrcaView-MCP`, boot automático). Libere a porta no firewall — **restringindo por IP** às
+máquinas que rodam o **Claude** (NÃO o `.90`, que consome a REST 8077, não o MCP):
+
+```bat
+netsh advfirewall firewall add rule name="OrcaView MCP 8078" dir=in action=allow ^
+  protocol=TCP localport=8078 remoteip=<ip-do-micro-que-roda-o-Claude>
+```
+
+> Vários clientes: `remoteip=192.168.0.203,192.168.0.XXX`. Loopback (`127.0.0.1`) não é filtrado
+> pelo firewall, então os testes locais na `.11` seguem funcionando. IP por DHCP que muda → atualizar
+> a regra (ou reservar o IP no roteador).
+
+**Registrar o cliente (transporte HTTP):**
+
+```bash
+claude mcp add --transport http servidor-integracao-sap \
+  http://192.168.7.11:8078/mcp \
+  --header "Authorization: Bearer <SIS_MCP_TOKEN>" --scope user
+claude mcp list      # deve dar "✓ Connected"
+```
+
+**Validar (na `.11`, loopback):**
+
+```powershell
+nssm status OrcaView-MCP                                             # SERVICE_RUNNING
+netstat -ano | findstr :8078                                        # LISTENING
+curl.exe -s -o NUL -w "%{http_code}`n" http://127.0.0.1:8078/mcp    # 401 (sem token)
+curl.exe -s -o NUL -w "%{http_code}`n" -H "Authorization: Bearer <TOKEN>" http://127.0.0.1:8078/mcp   # 406/400 = passou o auth
+```
+
+> **Nota (DNS-rebinding):** o SDK do MCP valida o header `Host` e, por default no `mcp` 1.28.1,
+> só aceita loopback — um cliente pela LAN levaria **421 "Invalid Host header"**. O `serve_http.py`
+> desliga essa checagem (`transport_security`, seguro aqui: já barrado pelo Bearer + rede interna).
+
+**Rollback:**
+
+```powershell
+nssm stop OrcaView-MCP & nssm remove OrcaView-MCP confirm
+netsh advfirewall firewall delete rule name="OrcaView MCP 8078"
+```
+
+> Vantagem: a `OS_API_KEY` passa a viver **só na `.11`** (o MCP chama a API por loopback),
+> em vez de estar no `.env` de cada cliente.
+
+## Segurança
+
+- **Saída (MCP → API):** a `SIS_API_KEY` fica **no servidor MCP**, injetada server-side no
+  header `X-API-Key` — **nunca** é enviada ao modelo. No modo remoto (Fase 3), roda na `.11`
+  e chama a API por `127.0.0.1`, então a chave **não trafega na LAN**.
+- **Entrada (cliente → MCP, só no modo remoto):** `Authorization: Bearer <SIS_MCP_TOKEN>`.
+  Sobre HTTP puro na LAN o token vai em cleartext — **restrinja a porta 8078 por IP** no
+  firewall (TLS via reverse-proxy fica como hardening futuro).
+- **Leitura vs escrita:** as tools de **leitura** (Fases 0–1) + resources não tocam o SAP. As de
+  **escrita** (Fase 4: `sincronizar_pedido_os`, `forcar_carga_oportunidades`) só executam com
+  `confirmar=True` **após** o preview + confirmação do usuário, e são marcadas com
+  `readOnlyHint=False` para o cliente MCP sinalizar a ação.

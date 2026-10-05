@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+{% from "_icones.html" import icone %}
+{% set ativo = 'ops' %}
+{% block title %}Manutenção de OP{% endblock %}
+
+{#
+  Estado é pílula com cor SEMÂNTICA (§4.8 e §5.5), não um segundo acento: o coral
+  da marca continua sendo o único acento da tela. A associação é de significado —
+  âmbar = ainda não liberada, azul-info = liberada (pode ser apontada), verde =
+  encerrada, vermelho = cancelada. É a mesma leitura da grade do SAP.
+#}
+{% set classe_do_status = {'P': 'is-warn', 'R': 'is-info', 'L': 'is-ok', 'C': 'is-erro'} %}
+{# Encerrada já teve a movimentação de estoque lançada; cancelada foi descartada. Nenhuma
+   das duas admite liberar, replanejar ou encerrar — a caixa some para não oferecer uma
+   ação que só levaria a uma recusa. A regra vale também no servidor (`STATUS_TERMINAIS`):
+   a tela é sugestão, o POST é que precisa ser barrado. #}
+{% set STATUS_TERMINAIS = ['L', 'C'] %}
+{% set cor_do_status = {'P': 'warning', 'R': 'info', 'L': 'success', 'C': 'danger'} %}
+{% block content %}
+<header class="casa-titulo">
+  <span class="casa-titulo__simbolo">{{ icone('ops', 26) }}</span>
+  <div class="casa-titulo__texto">
+    <h1>Manutenção de OP</h1>
+    <p>Liberar, replanejar e encerrar Ordens de Produção</p>
+  </div>
+</header>
+
+{% if em_execucao %}
+<div class="ov-alerta">{{ icone('execucoes', 16) }}
+  <span>Há uma execução em andamento neste módulo:
+    <a href="/tarefas/{{ em_execucao.id }}">{{ em_execucao.nome }}</a>.</span></div>
+{% endif %}
+
+{% if buscou and ops %}
+<section class="ov-kpis">
+  <div class="ov-kpi"><b>{{ ops|length }}</b><span>{{ 'OPs no filtro' if filtrado else 'OPs do pedido' }}</span></div>
+  {% for codigo, descricao in status_op.items() %}
+  {% set quantas = ops | selectattr('Status', 'equalto', codigo) | list | length %}
+  {% if quantas %}
+  <div class="ov-kpi" style="--ov-cor: var(--color-{{ cor_do_status.get(codigo, 'info') }})">
+    <b>{{ quantas }}</b><span>{{ descricao }}</span>
+  </div>
+  {% endif %}
+  {% endfor %}
+</section>
+{% endif %}
+
+<form method="post" action="/manutencao-op/buscar" class="ov-filtros">
+  <div class="ov-field"><label for="f-pedido">Nº Pedido*</label>
+    <input class="ov-input" id="f-pedido" type="text" name="doc_num" value="{{ doc_num }}" required
+           inputmode="numeric" autocomplete="off"></div>
+  {% set f = filtros or {} %}
+  <div class="ov-field"><label for="f-opde">OP de</label>
+    <input class="ov-input ov-input--curto" id="f-opde" type="text" name="op_de" value="{{ f.op_de or '' }}"
+           inputmode="numeric" autocomplete="off"></div>
+  <div class="ov-field"><label for="f-opate">até</label>
+    <input class="ov-input ov-input--curto" id="f-opate" type="text" name="op_ate" value="{{ f.op_ate or '' }}"
+           inputmode="numeric" autocomplete="off"></div>
+  <div class="ov-field"><label for="f-stde">Status de</label>
+    <select class="ov-select" id="f-stde" name="status_de">
+      <option value="">—</option>
+      {% for cod, desc in status_op.items() %}<option value="{{ cod }}"{% if f.status_de == cod %} selected{% endif %}>{{ cod }} — {{ desc }}</option>{% endfor %}
+    </select></div>
+  <div class="ov-field"><label for="f-state">até</label>
+    <select class="ov-select" id="f-state" name="status_ate">
+      <option value="">—</option>
+      {% for cod, desc in status_op.items() %}<option value="{{ cod }}"{% if f.status_ate == cod %} selected{% endif %}>{{ cod }} — {{ desc }}</option>{% endfor %}
+    </select></div>
+  <button type="submit" class="ov-btn">{{ icone('buscar') }} Buscar</button>
+  <p class="ov-nota">O intervalo de status é <strong>alfabético</strong> (C &lt; L &lt; P &lt; R),
+    não a ordem do ciclo de vida: "de P até C" não devolve nada e é recusado.</p>
+</form>
+
+<form method="post" id="form-ops">
+  <section class="ov-table-card">
+    <div class="ov-scroll">
+      <table class="ov-table">
+        <thead>
+          <tr>
+            <th></th>
+            {#  "Status" vira pílula com a descrição dentro, e a coluna
+                "Status (descrição)" some: mostrar `P` e `Planejada` em duas colunas é a
+                mesma informação duas vezes, e era ela que empurrava as datas para fora
+                da tela. #}
+            {% for coluna in (ops[0].keys() if ops else []) if coluna not in ('Status (descrição)', 'Baixada') %}
+            <th{% if coluna.startswith('Qtde') or coluna == 'Número OP' %} class="num"{% endif %}>{{ coluna }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {# `replanejar` (router): Liberada OP → None when it can go back to Planejada, or the
+             reason it cannot. The checkbox carries it so the button knows before the POST. #}
+          {% set pode_replanejar = replanejar | default({}) %}
+          {% for op in ops %}
+          {% set terminal = op['Status'] in STATUS_TERMINAIS %}
+          {% set chave = op['Número OP'] | string %}
+          {% set motivo = pode_replanejar.get(chave) %}
+          <tr{% if terminal %} class="is-terminal"{% endif %}>
+            <td>
+              {% if terminal %}
+              <input type="checkbox" disabled
+                     title="OP {{ op['Status (descrição)'] }} — não admite mudança de status"
+                     aria-label="OP {{ op['Número OP'] }} está {{ op['Status (descrição)'] }} e não pode ser selecionada">
+              {% else %}
+              <input type="checkbox" name="op_docnums" value="{{ op['Número OP'] }}"
+                     data-replanejar="{{ 'na' if chave not in pode_replanejar else ('nao' if motivo else 'sim') }}"
+                     aria-label="Selecionar a OP {{ op['Número OP'] }}">
+              {% endif %}
+            </td>
+            {% for coluna, valor in op.items() if coluna not in ('Status (descrição)', 'Baixada') %}
+              {% if coluna.startswith('Data') %}
+            {# Datas vêm do HANA como "AAAA-MM-DD 00:00:00": a hora é sempre zero,
+               ocupa espaço e empurrava o dia para a linha de baixo. #}
+            <td class="data">{{ (valor | string)[:10] }}</td>
+              {% elif coluna == 'Status' %}
+            <td><span class="ov-pill {{ classe_do_status.get(valor, 'is-neutro') }}">{{
+              op['Status (descrição)'] }}</span>
+              {%- if motivo %}
+              <span class="ov-motivo" title="Não pode voltar para Planejada: {{ motivo }}. O lançamento se cancela no SAP antes.">{{ icone('alerta', 12) }} {{ motivo }}</span>
+              {%- endif %}</td>
+              {% elif coluna.startswith('Qtde') %}
+            <td class="num">{{ valor | qtd }}</td>
+              {% elif coluna == 'Número OP' %}
+            {# Nº de OP é identificador, não grandeza: separador de milhar ali viraria
+               "156.378" e o operador procuraria esse número no SAP sem achar. #}
+            <td class="num">{{ valor }}</td>
+              {% else %}
+            <td>{{ valor }}</td>
+              {% endif %}
+            {% endfor %}
+          </tr>
+          {% else %}
+          <tr><td colspan="14" class="vazio">
+            {% if buscou %}Nenhuma OP encontrada para este pedido e filtros.{% else %}Informe o pedido e clique em Buscar.{% endif %}
+          </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="ov-acoes-lote">
+    {% set selecionaveis = ops | rejectattr('Status', 'in', STATUS_TERMINAIS) | list | length %}
+    <button type="button" class="ov-btn-ghost" id="btn-selecionar" {% if not selecionaveis %}disabled{% endif %}>
+      <span id="icone-selecionar">{{ icone('marcar-tudo') }}</span>
+      <span id="texto-selecionar">Selecionar todas</span></button>
+    <span class="ov-separador" aria-hidden="true"></span>
+    {# Both start disabled; the script below enables them with at least one OP marked
+       (Liberar writes on the first click). The server still refuses an empty selection. #}
+    <button type="submit" class="ov-btn-ghost" formaction="/manutencao-op/status" name="acao" value="l"
+            data-exige-selecao disabled title="Marque ao menos uma OP" aria-describedby="dica-ops">
+      {{ icone('check') }} Liberar selecionadas</button>
+    {# Back on the screen since 29/09/2026 (D4): only a Liberada with nothing issued and nothing
+       received goes back; the script keeps it disabled while such an OP is marked. #}
+    <button type="submit" class="ov-btn-ghost" formaction="/manutencao-op/status" name="acao" value="p"
+            data-exige-selecao id="btn-replanejar" disabled title="Marque ao menos uma OP"
+            aria-describedby="dica-ops dica-replanejar">
+      {{ icone('voltar') }} Replanejar selecionadas</button>
+    <button type="submit" class="ov-btn ov-btn--perigo" formaction="/manutencao-op/encerrar/conferir"
+            data-exige-selecao disabled title="Marque ao menos uma OP" aria-describedby="dica-ops">
+      {{ icone('raio') }} Encerrar selecionadas…</button>
+    <span class="ov-nota-inline" id="dica-ops" aria-live="polite">
+      {%- if selecionaveis %}Marque ao menos uma OP.
+      {%- elif buscou and ops %}Nenhuma OP deste pedido pode ser liberada ou encerrada.
+      {%- else %}Busque um pedido para selecionar as OPs.{% endif -%}
+    </span>
+    <span class="ov-nota-inline ov-motivo-texto" id="dica-replanejar" aria-live="polite" hidden></span>
+  </div>
+  <p class="ov-nota">Liberar muda apenas o status (Planejada → Liberada).
+    <strong>Replanejar</strong> faz o caminho de volta (Liberada → Planejada), só para a OP
+    sem insumo baixado e sem produto apontado — o lançamento se cancela no SAP antes.
+    <strong>Encerrar</strong> gera saída de insumos e entrada do produto — a próxima tela
+    mostra a ordem calculada e pede confirmação.</p>
+</form>
+
+<h2>Encerrar todas as OPs de um pedido</h2>
+{# `data-exige-numero` (script in base.html): Conferir… only with an order number typed. #}
+<form method="post" action="/manutencao-op/encerrar/conferir" class="ov-filtros" data-exige-numero>
+  <div class="ov-field"><label for="e-pedido">Nº Pedido</label>
+    <input class="ov-input" id="e-pedido" type="text" name="pedido" inputmode="numeric"
+           autocomplete="off" data-numero></div>
+  <button type="submit" class="ov-btn ov-btn--perigo" disabled aria-describedby="dica-encerrar-pedido"
+          title="Informe o nº do pedido">{{ icone('escudo') }} Conferir…</button>
+  <p class="ov-nota" id="dica-encerrar-pedido" data-dica aria-live="polite">Informe o nº do pedido (só números).</p>
+  <p class="ov-nota">Age recursivamente sobre a hierarquia: a OP filha é encerrada antes da
+    mãe, porque a saída de insumo da mãe consome o item que a filha produz.</p>
+</form>
+
+<h2>Cancelar as OPs de um pedido</h2>
+{# Moved here from Pedidos WBC (owner, 01/10/2026). It still posts to the Pedidos WBC route:
+   the operation, its task lock and its CLI twin belong to that module. #}
+<form method="post" action="/pedidos-wbc/cancelar-ops/conferir" class="ov-filtros" data-exige-numero>
+  <div class="ov-field"><label for="c-doc">Nº Pedido</label>
+    <input class="ov-input" id="c-doc" type="text" name="doc_num" inputmode="numeric"
+           autocomplete="off" data-numero></div>
+  <span class="ov-ou">ou</span>
+  <div class="ov-field"><label for="c-orc">Nº Orçamento</label>
+    <input class="ov-input" id="c-orc" type="text" name="orc_num" inputmode="numeric"
+           autocomplete="off" data-numero></div>
+  <button type="submit" class="ov-btn ov-btn--perigo" disabled aria-describedby="dica-cancelar"
+          title="Informe o nº do pedido ou do orçamento">{{ icone('escudo') }} Conferir…</button>
+  <p class="ov-nota" id="dica-cancelar" data-dica aria-live="polite">Informe o nº do pedido ou do orçamento (só números).</p>
+</form>
+
+<script>
+(function () {
+  // Marcar/desmarcar tudo de uma vez. O botão alterna e diz quantas estão marcadas —
+  // num pedido de 68 OPs, "Selecionar todas" e "Limpar seleção (68)" são informações
+  // diferentes, e saber o número ANTES de clicar em Encerrar é o que evita a surpresa.
+  var form = document.getElementById("form-ops");
+  var botao = document.getElementById("btn-selecionar");
+  if (!form || !botao) { return; }
+  var caixas = Array.prototype.slice.call(form.querySelectorAll('input[name="op_docnums"]:not(:disabled)'));
+  var texto = document.getElementById("texto-selecionar");
+  var icone = document.getElementById("icone-selecionar");
+  var marcarTudo = {{ icone('marcar-tudo')|tojson }};
+  var desmarcarTudo = {{ icone('desmarcar-tudo')|tojson }};
+  var acoes = Array.prototype.slice.call(form.querySelectorAll("button[data-exige-selecao]"));
+  var dica = document.getElementById("dica-ops");
+  var replanejar = document.getElementById("btn-replanejar");
+  var dicaReplanejar = document.getElementById("dica-replanejar");
+
+  function marcadas() { return caixas.filter(function (c) { return c.checked; }).length; }
+
+  function pinta() {
+    var n = marcadas();
+    var todas = n === caixas.length && caixas.length > 0;
+    texto.textContent = todas ? "Limpar seleção (" + n + ")"
+                              : (n ? "Selecionar todas (" + n + " marcada" + (n > 1 ? "s" : "") + ")"
+                                   : "Selecionar todas");
+    icone.innerHTML = todas ? desmarcarTudo : marcarTudo;
+    // Liberar / Encerrar only with a selection. The count already sits on the toggle right
+    // beside them, so the buttons keep their labels.
+    acoes.forEach(function (b) {
+      b.disabled = n === 0;
+      b.title = n ? "" : "Marque ao menos uma OP";
+    });
+    dica.hidden = n > 0;
+    pintaReplanejar();
+  }
+
+  // Replanejar: a marked Liberada with material issued or product received would make the
+  // server refuse the whole batch, so the button says so before the click (the grid shows
+  // the reason on each such OP). Planejadas marked alongside are harmless: already there.
+  function pintaReplanejar() {
+    var presas = caixas.filter(function (c) { return c.checked && c.dataset.replanejar === "nao"; });
+    var voltam = caixas.filter(function (c) { return c.checked && c.dataset.replanejar === "sim"; });
+    var motivo = "";
+    if (presas.length) {
+      motivo = presas.length === 1
+        ? "A OP " + presas[0].value + " não pode voltar para Planejada — desmarque-a para replanejar as outras."
+        : presas.length + " OPs marcadas não podem voltar para Planejada ("
+          + presas.map(function (c) { return c.value; }).join(", ") + ") — desmarque-as.";
+    } else if (marcadas() && !voltam.length) {
+      motivo = "Nenhuma OP marcada está Liberada: não há o que replanejar.";
+    }
+    replanejar.disabled = !!motivo || marcadas() === 0;
+    if (marcadas()) { replanejar.title = motivo; }
+    dicaReplanejar.textContent = motivo;
+    dicaReplanejar.hidden = !motivo;
+  }
+
+  botao.addEventListener("click", function () {
+    var todas = marcadas() === caixas.length && caixas.length > 0;
+    caixas.forEach(function (c) { c.checked = !todas; });
+    pinta();
+  });
+  // Marcar uma a uma também atualiza o rótulo: o contador precisa ser confiável para
+  // servir de conferência, e um número que só muda pelo botão não é.
+  caixas.forEach(function (c) { c.addEventListener("change", pinta); });
+  // Back/forward can restore the marks from the page cache: recount, never trust the HTML.
+  window.addEventListener("pageshow", pinta);
+  pinta();
+})();
+</script>
+{% endblock %}

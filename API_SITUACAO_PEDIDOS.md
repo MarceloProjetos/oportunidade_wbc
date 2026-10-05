@@ -1,0 +1,982 @@
+# API — Situação dos Pedidos (SAP)
+
+Documento para **quem vai consumir** os dados. Escrito para ser lido sem nos perguntar
+nada: tudo que você precisa saber está aqui, inclusive o que costuma dar errado.
+
+Ele descreve as duas formas de ler a **situação dos pedidos de venda no SAP** — se estão
+liberados ou bloqueados no **Financeiro**, na **Produção** e na **Entrega**, com prazo,
+sinal, condição de pagamento, montador, vendedor, valor — e **para onde a mercadoria
+vai** (§2.7):
+
+- **API REST** (`192.168.7.11:8077`) — para código: script, integração, painel.
+- **MCP** (`192.168.7.11:8078`) — para assistente de IA (Claude Desktop, Claude Code)
+  responder em linguagem natural.
+
+As duas leem exatamente a mesma coisa; a MCP é uma camada fina sobre a REST.
+
+> **Novidade de 25/09/2026:** data e hora reais de liberação e a primeira nota fiscal.
+> Guia de atualização: [`docs/API_SITUACAO_PEDIDOS_NOVOS_CAMPOS.md`](docs/API_SITUACAO_PEDIDOS_NOVOS_CAMPOS.md).
+
+> Os endpoints de **Ordens de Serviço** (`/ordens-servico/...`) e de **Ordens de
+> Produção** (`/ordens-producao/...`) são outra coisa e estão em `API_OS_INTEGRACAO.md` e
+> `API_ORDENS_PRODUCAO.md`.
+
+---
+
+## 1. O que é, e o que **não** é
+
+**É** uma leitura ao vivo do SAP HANA, da mesma view que desenha a tela "Situação dos
+Pedidos" do OrçaView. O que você recebe é o que a tela mostra, com a mesma lógica de
+normalização — não é um espelho, não é uma fila, não passa por banco intermediário.
+
+**Não é:**
+
+- **Não escreve nada.** Todos os endpoints deste documento são **somente leitura**.
+- **Não é o histórico da empresa.** A view carrega apenas os **pedidos correntes**
+  (≈237 em 24/08/2026). Um pedido de 2024 **não está lá** — veja a armadilha nº 2.
+- **Não é tempo real ao segundo.** Há um cache de **120 segundos** (§9).
+
+---
+
+## 2. Antes de tudo: as oito armadilhas
+
+Leia esta seção inteira. Cada item aqui já custou caro para alguém.
+
+### 2.1 `DocNum` ≠ `DocEntry`
+
+O mesmo pedido tem **dois números** no SAP:
+
+| | O que é | Exemplo |
+| --- | --- | --- |
+| **DocNum** | O número que aparece na tela do SAP. É o que as pessoas falam. | `84260` |
+| **DocEntry** | A chave interna da tabela. Ninguém decora. | `19244` |
+
+**Usamos DocNum por padrão.** Se você tem o DocEntry, acrescente `?chave=docentry`.
+A resposta sempre traz os dois (`doc_num` e `doc_entry`), então dá para conferir.
+
+Trocar um pelo outro **não dá erro** — devolve outro pedido, ou um 404.
+
+### 2.2 Pedido **cancelado** responde `200` dizendo `"Cancelado"`
+
+Pedido cancelado no SAP **não está na view** — e mesmo assim você recebe a situação dele,
+lida da ORDR na hora:
+
+```json
+{
+  "ok": true,
+  "fonte": "ordr",
+  "status_pedido": "Cancelado",
+  "pedido_cancelado": true,
+  "aviso": {"tipo": "pedido_cancelado", "motivo": "Pedido cancelado no SAP - nao ha etapa a liberar; nao produza nem entregue por ele."},
+  "pedido": {"doc_num": 84282, "card_name": "DIVENA AUTOMOVEIS LTDA",
+             "financeiro": "Cancelado", "producao": "Cancelado", "entrega": "Cancelado", "...": "..."}
+}
+```
+
+**Formato idêntico ao de qualquer outro pedido** — nenhuma chave falta, nada muda de
+tipo. As três etapas dizem `"Cancelado"` em vez de `Liberado`/`Bloqueado`, então quem já
+desenha a etapa na tela escreve "Cancelado" **sem mudar uma linha**.
+
+> Até 03/09/2026 esses pedidos davam `404` seco e apareciam como "sem situação" na tela
+> de quem consome — foi o caso dos pedidos 84282, 84305 e 84314, cancelados no SAP com
+> as Ordens de Produção ainda vivas. Cancelado **é** uma situação, e agora ela vem.
+
+### 2.3 `404` quer dizer "não sei", **nunca** "está liberado"
+
+Sobrou `404` para o que realmente não dá para afirmar — e ele **nunca vem mudo**: o campo
+`motivo` diz qual dos três casos é. É por ele que seu código decide, não pelo texto.
+
+| `motivo` | O que é | O que mostrar |
+| --- | --- | --- |
+| `fora_do_recorte` | O pedido **existe** no SAP, mas a view carrega só os correntes (um pedido de 2024 não está lá). Vem com `status_pedido` (`"Aberto"` \| `"Fechado"`) | "fora do período" — e, se quiser, o `status_pedido` |
+| `pedido_nao_encontrado` | Não existe DocNum assim na ORDR. Quase sempre é DocEntry mandado sem `chave=docentry` (2.1) | "pedido não encontrado" |
+| `indeterminado` | O SAP não respondeu agora. `pedido_cancelado` vem `null` = **não se sabe** | "indisponível, tente de novo" |
+
+A diferença importa: tratar 404 como "liberado" faz um sistema afirmar que um pedido está
+livre quando ninguém sabe. A própria mensagem de erro diz isso, com essas palavras.
+
+### 2.4 Bloqueado hoje ≠ bloqueado algum dia
+
+Pedido **fechado** que já esteve bloqueado continua no recorte. Se você quer "o que está
+travado **agora**", filtre por `status=aberto`.
+
+⚠️ **Os defaults diferem entre a REST e a MCP, de propósito:**
+
+| | Default de `status` |
+| --- | --- |
+| **REST** `GET /pedidos/situacao` | `todos` — espelha a tela do OrçaView |
+| **MCP** `pedidos_bloqueados()` | **`aberto`** — quem pergunta "o que está travado?" quer o de hoje |
+
+Se um número seu não bate com a tela, **é quase sempre isto**. Passe `status=todos` para
+igualar.
+
+### 2.5 O status vem canonizado
+
+No SAP o gênero muda por coluna: "Liberad**o**" no Financeiro, "Liberad**a**" na Produção
+e na Entrega. **A API entrega sempre `"Liberado"` ou `"Bloqueado"`**, nas três.
+
+Se um dia aparecer um terceiro valor (o SAP mudou), ele passa **como veio**, sem ser
+traduzido — é proposital, para o valor estranho ficar visível em vez de virar "Liberado"
+por descuido. Não assuma que só existem dois valores; trate o desconhecido.
+
+### 2.6 `prazo_entrega` é texto e **não tem ano**
+
+Vem do SAP assim: `"21/09 A 25/09"`. Não dá para subtrair data disso.
+
+Para conta, use **`prazo_fim`** (`"2026-09-25"`, ISO), que já calculamos, e **`dias_atraso`**
+(positivo = passou do prazo, negativo = ainda há prazo). `prazo_fim` pode vir `null`
+quando o texto não casa com o formato — `null` significa "não dá para afirmar", e é melhor
+que um número inventado.
+
+---
+
+### 2.7 O endereço da resposta **já é** o de despacho ⭐ (10/09/2026)
+
+O SAP guarda **dois** endereços de entrega no mesmo pedido, e eles podem apontar para
+cidades diferentes:
+
+| Na tela de Pedidos | Na RDR12 | No pedido 84348 |
+| --- | --- | --- |
+| **Ponto de Entrega — ENTREGA** (o cadastro do cliente) | colunas `*S` | AV NOSSA SENHORA DO CARMO, 279 — **BELO HORIZONTE-MG** |
+| **Local de Entrega** (marcado com o selo "difere do ponto de entrega") | colunas `*DlvryP` | AVENIDA DEUSDEDITH SALGADO, 4010 — **JUIZ DE FORA-MG** |
+
+**Nós resolvemos isso por você.** O `entrega_endereco` (perfil `completo`) e os campos
+`entrega_*` (perfil `resumo`) são **sempre o endereço para onde a mercadoria vai**.
+
+> [!WARNING]
+> **`entrega_endereco.ponto_entrega` é referência cadastral, NÃO destino.** Ele existe
+> para você poder mostrar os dois na tela e para auditoria. Despachar por ele erra a
+> cidade em **24 dos 268 pedidos de hoje** (9%) — no 84348 seria uma carga 250 km fora
+> do lugar.
+
+Se você ignorar `fonte`, ignorar `difere_do_ponto_de_entrega` e ler só `cidade`, `uf` e
+`linha`, **você ainda despacha certo**. O caminho preguiçoso é o correto, de propósito.
+
+**`difere_do_ponto_de_entrega: true` é para AVISAR, não para escolher.** Ele diz "este
+pedido tem um local de entrega separado do cadastro" — é o mesmo selo da tela. Ele NÃO
+é comparação de cidade: dos 38 pedidos com o selo, 24 mudam de cidade e 14 são outro
+endereço na mesma cidade. E não tente comparar as cidades você mesmo — o SAP grava
+`'BELO HORIZONTE'` num campo e `'Belo Horizonte'` no outro.
+
+### 2.8 Quando foi liberado: use os campos `*_em`, **nunca** `data_lib_*` ⭐ (25/09/2026)
+
+`data_lib_fin`, `data_lib_prod` e `data_pagto` vêm da view do SAP e **nenhuma é o
+momento da liberação**:
+
+- `data_lib_prod` é **calculada**: a maior entre `data_lib_fin` e `data_pagto`, mais 3
+  dias corridos. Por isso caía em sábado, domingo e no futuro.
+- `data_lib_fin` é **digitada** à mão, e em 188 de 264 pedidos está 1 dia depois do real.
+- `data_pagto` é a **emissão** da Solicitação de Adiantamento (o sinal), paga ou não.
+
+Os campos **`lib_fin_em`**, **`sinal_pago_em`**, **`lib_producao_em`** e
+**`lib_entrega_em`** (perfil `completo`, §6.2) trazem **data e hora reais**, lidas do
+histórico de alterações do pedido e do registro do recebimento do sinal no SAP. Exemplo
+real, o pedido 84348: a view dizia Produção em 12/09 (um sábado); a liberação de verdade
+foi em **25/09 às 08:13**, quando o recebimento do sinal entrou no SAP.
+
+A regra que o SAP aplica, medida em 281 de 281 pedidos: **a Produção libera quando o
+Financeiro liberou e, se o pedido tem sinal, a ÚLTIMA Solicitação de Adiantamento está
+paga.** Sinal reemitido faz um pedido que já tinha pago voltar a bloquear. **Produção e
+Entrega têm sempre o mesmo status no SAP**, então `lib_entrega_em` é igual a
+`lib_producao_em`.
+
+Quando não dá para afirmar a hora, o campo vem **`null`**. O caso mais comum (desde
+02/10/2026): **o SAP guarda só as 99 últimas versões de cada pedido** e descarta as mais
+antigas. Em pedido muito alterado, a versão em que o Financeiro liberou já foi descartada,
+e `lib_fin_em` vem `null`. Os outros casos são pedido sem histórico e sinal quitado por
+outro caminho. Hoje são 18 de 284 pedidos com a Produção liberada e sem `lib_producao_em`.
+Não caia de volta em `data_lib_prod` para preencher: ela é uma estimativa, não um fato.
+
+Passo a passo para atualizar o seu projeto, com tipos e exemplos:
+[`docs/API_SITUACAO_PEDIDOS_NOVOS_CAMPOS.md`](docs/API_SITUACAO_PEDIDOS_NOVOS_CAMPOS.md).
+
+---
+
+## 3. Qual dos dois usar
+
+| Você quer... | Use |
+| --- | --- |
+| Um script, um painel, uma integração | **REST** (§5) |
+| Um assistente de IA respondendo em português | **MCP** (§8) |
+| Os dois | Pode. A MCP chama a REST por baixo. |
+
+---
+
+## 4. O que você precisa pedir para nós
+
+Mande um único pedido com estes três itens — nada aqui é auto-serviço:
+
+1. **Liberação de rede** para `192.168.7.11`, portas **8077** (REST) e/ou **8078** (MCP),
+   a partir do IP de origem que você vai usar.
+2. **A chave da API** (`X-API-Key`), se for usar REST. Desde 02/10/2026 **cada equipe
+   tem a sua chave**, com o escopo `leitura` (é o que estas rotas pedem), e toda chamada
+   fica registrada por 30 dias. A chave da equipe **só vale no cabeçalho**: na URL
+   (`?key=`) ela é recusada.
+3. **O token do MCP** (`Bearer`), se for usar MCP.
+4. **O `STATUS_ID`**, se você for **monitorar** a saúde do servidor (§5.3). É uma
+   credencial separada e de baixo privilégio: abre o diagnóstico completo e **só ele** —
+   nas rotas de dados responde `401`.
+
+> **A chave e o token não estão neste documento e nunca devem estar.** Guarde-os em
+> variável de ambiente ou cofre de segredos — **nunca** em código versionado, e **nunca**
+> na URL de um navegador (fica no histórico).
+
+Não há usuário/senha, não há OAuth. É só o cabeçalho.
+
+---
+
+## 5. REST — os dois endpoints
+
+**Base:** `http://192.168.7.11:8077`
+**Autenticação:** cabeçalho `X-API-Key: <sua-chave>` em toda chamada.
+(Também aceitamos `Authorization: Bearer <chave>`.)
+
+### 5.1 `GET /pedidos/<numero>/situacao` — um pedido
+
+| Parâmetro | Onde | Valores | Default |
+| --- | --- | --- | --- |
+| `numero` | caminho | inteiro positivo — o **DocNum** | — |
+| `chave` | query | `docnum` \| `docentry` | `docnum` |
+| `campos` | query | `resumo` \| `completo` | **`completo`** |
+| `recarregar` | query | `1` = ignora o cache | — |
+
+**Resposta `200` — real, do pedido 84348, em 10/09/2026.** Nada foi cortado: é
+exatamente o que sai no perfil `completo` (o default desta rota).
+
+```json
+{
+  "ok": true,
+  "gerado_em": "2026-09-10T16:06:03-03:00",
+  "cache_idade_s": 0.0,
+  "fonte": "view",
+  "status_pedido": "Aberto",
+  "pedido_cancelado": false,
+  "pedido": {
+    "doc_num": 84348,
+    "doc_entry": 19763,
+    "data_pedido": "2026-09-08",
+    "card_code": "C011439",
+    "card_name": "MG VIDROS AUTOMOTIVOS LTDA",
+    "group_num": 1190,
+    "pymnt_group": "15% SINAL / 85% A 28DDL",
+    "financeiro": "Liberado",
+    "producao": "Bloqueado",
+    "entrega": "Bloqueado",
+    "sinal": true,
+    "ddo": false,
+    "integrar": true,
+    "status_pedido": "Aberto",
+    "prazo_entrega": "09/11 A 13/11",
+    "prazo_fim": "2026-11-13",
+    "data_entrega": "2026-11-12",
+    "dias_atraso": -64,
+    "atrasado": false,
+    "atrasado_sap": false,
+    "dias_desde_pedido": 2,
+    "fin_liberacao_atrasada": false,
+    "alerta_liberacao": null,
+    "data_lib_fin": "2026-09-09",
+    "data_lib_prod": null,
+    "data_pagto": null,
+    "valor_total": 550812.11,
+    "moeda": "R$",
+    "vendedor": "Edson Stefano",
+    "cotacao_wbc": "00124945",
+    "versao_wbc": "G",
+    "peso": 30281.0,
+    "total_os": 68,
+    "total_os_fechadas": 0,
+    "montagem": {
+      "tipo": "MONTAGEM POR CONTA DE TERCEIROS",
+      "tipo_cod": "3",
+      "valor": 135800.0,
+      "montador": "FABIANO MONTAGEM",
+      "montador_cnpj": "39.695.222/0001-01"
+    },
+    "entrega_endereco": {
+      "fonte": "local_entrega",
+      "difere_do_ponto_de_entrega": true,
+      "logradouro": "AVENIDA DEUSDEDITH SALGADO",
+      "numero": "4010",
+      "complemento": null,
+      "bairro": "SALVATERRA",
+      "cidade": "JUIZ DE FORA",
+      "uf": "MG",
+      "cep": "36033-000",
+      "pais": "BR",
+      "municipio": "Juiz de Fora",
+      "linha": "AVENIDA DEUSDEDITH SALGADO, 4010 - SALVATERRA, 36033-000 JUIZ DE FORA-MG",
+      "ponto_entrega": {
+        "logradouro": "AV NOSSA SENHORA DO CARMO",
+        "numero": "279",
+        "complemento": null,
+        "bairro": "CARMO",
+        "cidade": "BELO HORIZONTE",
+        "uf": "MG",
+        "cep": "30330-000",
+        "pais": "BR",
+        "municipio": "Belo Horizonte",
+        "linha": "AV NOSSA SENHORA DO CARMO, 279 - CARMO, 30330-000 BELO HORIZONTE-MG"
+      }
+    }
+  }
+}
+```
+
+> **Repare neste pedido:** a entrega é em **Juiz de Fora** e o `ponto_entrega` é em
+> **Belo Horizonte**. Quem despachasse pelo cadastro do cliente mandaria a carga 250 km
+> para o lado errado. Leia a armadilha **2.7**.
+
+**A mesma rota com `?campos=resumo`** devolve o `pedido` assim — 14 campos, e o endereço
+continua resolvido:
+
+```json
+{
+  "doc_num": 84348,
+  "data_pedido": "2026-09-08",
+  "card_name": "MG VIDROS AUTOMOTIVOS LTDA",
+  "sinal": true,
+  "financeiro": "Liberado",
+  "producao": "Bloqueado",
+  "entrega": "Bloqueado",
+  "prazo_entrega": "09/11 A 13/11",
+  "atrasado": false,
+  "pymnt_group": "15% SINAL / 85% A 28DDL",
+  "alerta_liberacao": null,
+  "entrega_linha": "AVENIDA DEUSDEDITH SALGADO, 4010 - SALVATERRA, 36033-000 JUIZ DE FORA-MG",
+  "entrega_cidade_uf": "JUIZ DE FORA-MG",
+  "entrega_difere": true
+}
+```
+
+Os três campos do topo respondem "que pedido é esse?" antes de você olhar as etapas —
+são **o mesmo par** de `GET /ordens-servico/<nped>`, com o mesmo sentido:
+
+| Campo | Valores | Para quê |
+| --- | --- | --- |
+| `status_pedido` | `"Aberto"` \| `"Fechado"` \| `"Cancelado"` \| `null` | O estado do pedido no SAP. `null` = não se sabe |
+| `pedido_cancelado` | `true` \| `false` \| `null` | **Cheque antes de oferecer "Liberar"**. `null` **não** é "não cancelado" |
+| `fonte` | `"view"` \| `"ordr"` | De onde veio a situação. `"ordr"` = pedido cancelado, lido ao vivo (2.2) |
+
+Quando `pedido_cancelado` é `true`, vem também `aviso` (`{"tipo": "pedido_cancelado",
+"motivo": "..."}`) — o mesmo `tipo` que os endpoints de OS já usam.
+
+### 5.2 `GET /pedidos/situacao` — lista
+
+Um endpoint só, porque é o mesmo recorte; o que muda é o filtro.
+
+| Parâmetro | Valores | Default | Para quê |
+| --- | --- | --- | --- |
+| `bloqueio` | `qualquer` \| `financeiro` \| `producao` \| `entrega` \| `nenhum` | *(sem filtro)* | `qualquer` = travado em **pelo menos uma** etapa |
+| `status` | `todos` \| `aberto` \| `fechado` | `todos` | ver armadilha 2.4 |
+| `montador` | CNPJ, ou `__sem__` | *(todos)* | `__sem__` = pedidos **sem** montador definido |
+| `busca` | texto livre | — | casa com cliente, código do cliente, nº do pedido e cotação WBC |
+| `so_atrasados_fin` | `1` | — | só os que passaram dos 10 dias no Financeiro (§7) |
+| `campos` | `resumo` \| `completo` | **`resumo`** | ver §9 |
+| `recarregar` | `1` | — | ignora o cache |
+
+Os filtros se **somam** (E lógico).
+
+**Resposta `200` — real, de `?bloqueio=qualquer` em 10/09/2026**, cortada só na
+quantidade (vieram 11 pedidos e 8 montadores; mostramos 1 e 2):
+
+```json
+{
+  "ok": true,
+  "gerado_em": "2026-09-10T16:06:03-03:00",
+  "cache_idade_s": 0.0,
+  "kpis": {
+    "total": 268,
+    "atrasados": 21,
+    "financeiro_bloqueado": 6,
+    "producao_bloqueada": 11,
+    "entrega_bloqueada": 11
+  },
+  "total_no_recorte": 268,
+  "total_filtrado": 11,
+  "pedidos": [
+    {
+      "doc_num": 83832,
+      "data_pedido": "2026-04-02",
+      "card_name": "FUNDACAO BRADESCO",
+      "sinal": true,
+      "financeiro": "Liberado",
+      "producao": "Bloqueado",
+      "entrega": "Bloqueado",
+      "prazo_entrega": "04/05 A 08/05",
+      "atrasado": true,
+      "pymnt_group": "20% a 30 DDP / 30% a 30 DDL / 50% 60DDL",
+      "alerta_liberacao": null,
+      "entrega_linha": "FUNDACAO BRADESCO, 466 - FUNDACAO BRADESCO, 44900-000 IRECE-BA",
+      "entrega_cidade_uf": "IRECE-BA",
+      "entrega_difere": false
+    }
+  ],
+  "montadores": [
+    { "cnpj": "73.165.516/0001-60", "nome": "BARROS MONTAGENS", "qtd": 27 },
+    { "cnpj": "52.892.552/0001-55", "nome": "DAPPER CROSS", "qtd": 2 }
+  ]
+}
+```
+
+Este pedido é o caso comum (**86%**): sem Local de Entrega próprio, `entrega_difere` é
+`false` e o endereço veio do cadastro do cliente. Você não precisa saber disso para usar
+— `entrega_linha` já é o destino nos dois casos.
+
+⚠️ **Dois pontos que confundem quem lê pela primeira vez:**
+
+- **`kpis` e `montadores` são sempre do recorte INTEIRO**, nunca do filtro. É igual à
+  tela: o indicador diz **quantos existem**, o filtro diz **quais aparecem**. Quantos
+  voltaram na sua chamada está em **`total_filtrado`**.
+- **Filtro que não casa com nada devolve `200` com `"pedidos": []`**, nunca 404. "Não há
+  nada bloqueado" é uma resposta legítima.
+
+### 5.3 Saúde: `GET /health` e `GET /status`
+
+Duas rotas fora do fluxo de dados, para quem monitora.
+
+| Rota | Para que serve | Credencial |
+| --- | --- | --- |
+| `GET /health` | "A API está de pé?" — resposta minúscula e rápida | **nenhuma** |
+| `GET /status` | Diagnóstico: SAP HANA, SQL Server, Supabase, latências, agendador, disco | **dois níveis** (abaixo) |
+
+O `/status` responde em **dois níveis**, desde 10/09/2026:
+
+- **Sem credencial** vem a visão mínima — `ok`, `healthy`, um booleano por check,
+  `alerts` como **número** (não a lista) e `restrito: true`. Dá para monitorar com isso.
+- **Com credencial** vem o payload completo. Serve a `X-API-Key` desta API **ou** o
+  `STATUS_ID`.
+
+```bash
+curl -s http://192.168.7.11:8077/health
+curl -s -H "X-API-Key: $STATUS_ID" http://192.168.7.11:8077/status
+curl -s "http://192.168.7.11:8077/status?checks=sap&strict=1" -o /dev/null -w '%{http_code}\n'
+```
+
+⚠️ **O código HTTP não muda com a credencial.** Com `?strict=1` o `/status` responde
+**503** quando algo está degradado e **200** quando não — igual nos dois níveis. Se o seu
+monitor decide pelo status code, ele funciona **sem credencial nenhuma**; o `STATUS_ID` só
+muda o que você lê no corpo. `?checks=sap,sql_server,...` limita o diagnóstico ao que
+interessa e deixa a resposta mais rápida.
+
+---
+
+## 6. Dicionário de campos
+
+### 6.1 Perfil `resumo` — 14 campos
+
+São as colunas da tela, mais o alerta e o endereço de entrega. É o default da lista,
+e serve para quase tudo.
+
+`data_pedido` · `card_name` · `doc_num` · `sinal` · `financeiro` · `producao` ·
+`entrega` · `prazo_entrega` · `atrasado` · `pymnt_group` · `alerta_liberacao` ·
+**`entrega_linha`** · **`entrega_cidade_uf`** · **`entrega_difere`**
+
+| Campo | Tipo | O que é |
+| --- | --- | --- |
+| `entrega_linha` | str \| null | O endereço de despacho **pronto para imprimir**. Ex.: `"AVENIDA DEUSDEDITH SALGADO, 4010 - SALVATERRA, 36033-000 JUIZ DE FORA-MG"` |
+| `entrega_cidade_uf` | str \| null | `"JUIZ DE FORA-MG"` — para agrupar por cidade sem quebrar a linha |
+| `entrega_difere` | bool | O pedido tem um Local de Entrega separado do cadastro (o selo da tela). **Informação, não escolha** — ver 2.7 |
+
+Aqui **não** vem o `ponto_entrega`: no default você não tem sequer como escolher
+errado. Se precisar dele, peça `campos=completo`.
+
+As três etapas (`financeiro`, `producao`, `entrega`) trazem `"Liberado"`, `"Bloqueado"`
+ou — em pedido cancelado no SAP — `"Cancelado"` (2.2).
+
+### 6.2 Perfil `completo` — 47 campos
+
+| Campo | Tipo | O que é |
+| --- | --- | --- |
+| `doc_num` | int | **O número do pedido** (o da tela do SAP). Ex.: `84260` |
+| `doc_entry` | int | Chave interna do SAP. Ex.: `19244` |
+| `data_pedido` | str \| null | Data do pedido, ISO `YYYY-MM-DD` |
+| `card_code` | str | Código do cliente no SAP. Ex.: `C011840` |
+| `card_name` | str | Nome do cliente |
+| `group_num` | int \| null | Código do grupo de condição de pagamento |
+| `pymnt_group` | str | Condição de pagamento **por extenso**. Ex.: `30% SINAL / 20% ENTREGA / 30% 45DDL` |
+| **`financeiro`** | str | `"Liberado"` \| `"Bloqueado"` — ver 2.4 |
+| **`producao`** | str | `"Liberado"` \| `"Bloqueado"` |
+| **`entrega`** | str | `"Liberado"` \| `"Bloqueado"`. **A Entrega nunca vem liberada antes da Produção** (desde 25/09/2026): se `producao` está `"Bloqueado"`, `entrega` também vem, e as duas liberam juntas |
+| `entrega_sap` | str | O valor **cru** da Entrega no SAP, sem a regra acima. É o único lugar onde aparece "Entrega liberada com Produção bloqueada" |
+| `sinal` | bool | O pedido exige sinal |
+| `ddo` | bool | Condição 100% DDP, **sem** sinal |
+| `integrar` | bool | Marcado para integração |
+| `status_pedido` | str | `"Aberto"` \| `"Fechado"` (como o SAP escreve) \| `"Cancelado"` (2.2) |
+| `prazo_entrega` | str | **TEXTO, sem ano.** Ex.: `"21/09 A 25/09"` — ver 2.5 |
+| `prazo_fim` | str \| null | Fim da janela, ISO. **Use este para conta** |
+| `data_entrega` | str \| null | Data de entrega registrada, ISO |
+| `dias_atraso` | int \| null | Dias desde o fim do prazo. **Positivo = atrasado**; negativo = ainda há prazo |
+| **`atrasado`** | bool | Está atrasado **hoje**. Pedido fechado é sempre `false` |
+| `atrasado_sap` | bool | O valor **cru** do SAP. Fica `true` em pedido fechado que foi entregue com atraso — é o que permite dizer "foi entregue atrasado" |
+| `dias_desde_pedido` | int \| null | Dias corridos desde `data_pedido` |
+| `fin_liberacao_atrasada` | bool | Passou dos 10 dias no Financeiro — ver §7 |
+| **`alerta_liberacao`** | str \| null | O texto pronto: `"Mais de 10 dias preso no financeiro (12 dias)"`, ou `null` |
+| `data_lib_fin` | str \| null | Quando o Financeiro liberou, ISO |
+| `data_lib_prod` | str \| null | ⚠️ **Não é o dia em que a Produção liberou.** A view do SAP a *calcula*: a maior entre `data_lib_fin` e `data_pagto`, **+ 3 dias corridos** — e nenhuma das duas é o momento real (`data_lib_fin` é digitada; `data_pagto` é a emissão do sinal). Por isso cai em sábado/domingo e pode estar no futuro. Não há, nesta API, a data real da liberação da Produção. ISO |
+| `data_pagto` | str \| null | ⚠️ **Não é a data do pagamento.** É a data de emissão da Solicitação de Adiantamento (sinal) no SAP, paga ou não. ISO |
+| **`lib_fin_em`** | str \| null | **Quando o Financeiro liberou, com hora** (ISO com fuso). Última passagem de bloqueado para liberado no histórico do pedido. `null` quando essa versão já saiu do histórico (o SAP guarda só as 99 últimas) — ver 2.8 |
+| `sinal_pago_em` | str \| null | Quando o sinal ficou pago: o registro no SAP do recebimento que quitou a **última** Solicitação de Adiantamento. `null` sem sinal, com sinal em aberto ou reemitido |
+| **`lib_producao_em`** | str \| null | **Quando a Produção foi liberada, com hora.** O mais tardio entre `lib_fin_em` e `sinal_pago_em` (este só se o pedido tem sinal). `null` se a Produção está bloqueada ou se falta uma das horas — exceto quando dá para provar que o sinal foi pago depois do Financeiro: aí vem `sinal_pago_em` mesmo com `lib_fin_em` `null` |
+| **`lib_entrega_em`** | str \| null | Quando a Entrega foi liberada. **Igual a `lib_producao_em`**: o SAP não separa as duas |
+| `data_criacao_pn` | str \| null | Data de criação do cliente (PN) no SAP, ISO |
+| `representante` | str \| null | Representante do pedido na view de orçamentos do SAP. Quase sempre igual a `vendedor` (1 de 280 difere) |
+| `nf_doc_num` | int \| null | Número **interno** no SAP da **primeira** nota fiscal do pedido |
+| `nf_numero_fiscal` | int \| null | Número **da DANFE** dessa mesma nota — é o que está impresso no papel |
+| `nf_data` | str \| null | Data da primeira nota fiscal, ISO |
+| **`primeira_nf_emitida`** | bool | `true` quando a primeira nota fiscal do pedido já foi emitida |
+| `valor_total` | float | Valor do pedido |
+| `moeda` | str | Ex.: `"R$"` |
+| `vendedor` | str | Nome do vendedor |
+| `cotacao_wbc` | str | Cotação WBC que originou o pedido. **Zero à esquerda faz parte** (`"00125283"`) — trate como texto |
+| `versao_wbc` | str | Revisão da cotação (letra). Vem vazio em pedidos antigos |
+| `peso` | float | Peso |
+| `total_os` | int | Quantas Ordens de Serviço o pedido tem |
+| `total_os_fechadas` | int | Quantas já foram fechadas |
+| `montagem` | objeto | Ver abaixo |
+| **`entrega_endereco`** | objeto | **Para onde a mercadoria vai**, já resolvido. Ver **6.3** — e a armadilha **2.7** antes |
+
+**`montagem`:**
+
+| Campo | Tipo | O que é |
+| --- | --- | --- |
+| `tipo` | str | Rótulo oficial do SAP. Ex.: `"MONTAGEM POR CONTA DE TERCEIROS"` |
+| `tipo_cod` | str | Código (`"1"`, `"2"`, `"3"`, `"5"`, `"6"`, `"EXP"`) |
+| `valor` | float | Valor da montagem |
+| `montador` | str | Nome do montador; cai para o CNPJ se o cadastro não resolver |
+| `montador_cnpj` | str | **É a chave** do filtro `montador=` — o nome se repete |
+
+> **Datas:** todas as datas são `YYYY-MM-DD` (sem hora), exceto `gerado_em` e os campos
+> terminados em **`_em`** (`lib_fin_em`, `sinal_pago_em`, `lib_producao_em`,
+> `lib_entrega_em`), que são ISO completo com fuso: `2026-09-25T08:13:35-03:00`. Campo sem
+> valor vem **`null`**, nunca `""` nem `0`.
+>
+> **Os campos da nota e do cliente** (`data_criacao_pn`, `representante`, `nf_*`) vêm da
+> view de orçamentos do SAP, que começa em 06/01/2025: pedido mais antigo vem com eles
+> `null` e `primeira_nf_emitida: false`.
+
+---
+
+
+### 6.3 `entrega_endereco` — o bloco de entrega (perfil `completo`)
+
+Leia a **armadilha 2.7** antes de usar. Os campos do topo são o endereço **efetivo**;
+`ponto_entrega` é o cadastro.
+
+```jsonc
+"entrega_endereco": {
+  "fonte": "local_entrega",              // ou "ponto_entrega" — de onde veio o de cima
+  "difere_do_ponto_de_entrega": true,    // o selo da tela; AVISO, não escolha
+  "logradouro": "AVENIDA DEUSDEDITH SALGADO",
+  "numero": "4010",
+  "complemento": null,
+  "bairro": "SALVATERRA",
+  "cidade": "JUIZ DE FORA",
+  "uf": "MG",
+  "cep": "36033-000",
+  "pais": "BR",
+  "municipio": "Juiz de Fora",           // nome oficial (OCNT); pode diferir de `cidade`
+  "linha": "AVENIDA DEUSDEDITH SALGADO, 4010 - SALVATERRA, 36033-000 JUIZ DE FORA-MG",
+  "ponto_entrega": {
+    "logradouro": "AV NOSSA SENHORA DO CARMO",
+    "numero": "279",
+    "complemento": null,
+    "bairro": "CARMO",
+    "cidade": "BELO HORIZONTE",
+    "uf": "MG",
+    "cep": "30330-000",
+    "pais": "BR",
+    "municipio": "Belo Horizonte",
+    "linha": "AV NOSSA SENHORA DO CARMO, 279 - CARMO, 30330-000 BELO HORIZONTE-MG"
+  }
+}
+```
+
+O `ponto_entrega` tem **as mesmas chaves**, menos `fonte`, `difere_do_ponto_de_entrega` e
+`ponto_entrega` (não aninha duas vezes). Ele é o cadastro do cliente — **neste pedido,
+outra cidade.**
+
+| Campo | Tipo | O que é |
+| --- | --- | --- |
+| `fonte` | str | `"local_entrega"` (o pedido tem local próprio) ou `"ponto_entrega"` (caiu no cadastro — **86%** dos casos) |
+| `difere_do_ponto_de_entrega` | bool | O mesmo que `entrega_difere` do resumo |
+| `logradouro` · `numero` · `complemento` · `bairro` | str \| null | Como o SAP guarda, sem reformatar |
+| `cidade` · `uf` | str \| null | Do próprio endereço |
+| `cep` | str \| null | **Normalizado para `NNNNN-NNN`** quando tem 8 dígitos. O SAP guarda os dois formatos na mesma coluna; nós padronizamos. O que não tiver 8 dígitos passa como veio — não inventamos CEP |
+| `municipio` | str \| null | Nome oficial do município (tabela `OCNT`). Use para conferência; para mostrar, `cidade` basta |
+| `linha` | str \| null | Tudo junto, pronto para etiqueta |
+| `ponto_entrega` | objeto | **Cadastro do cliente, não destino.** Ver 2.7 |
+
+**Nunca vem vazio:** medido em 10/09, nenhum dos 268 pedidos do recorte está sem os dois
+endereços. Mesmo assim, trate `null` — é o contrato desta API para "não foi possível
+saber".
+
+**Pedido cancelado também tem endereço:** a resposta de um cancelado (2.2, `fonte:
+"ordr"`) traz o `entrega_endereco` igual, lido do pedido no SAP.
+
+> **Peso:** o bloco custa ~0,7 KB por pedido, quase tudo no `ponto_entrega`. Na lista
+> inteira isso levou o `campos=completo` de ~237 KB para **435 KB**. Se você não precisa
+> do cadastro, fique no `resumo` (120 KB) — ele já traz o endereço certo.
+
+---
+
+## 7. A regra dos 10 dias
+
+Um pedido ganha `fin_liberacao_atrasada = true` (e o texto em `alerta_liberacao`) quando
+as **três** condições valem ao mesmo tempo:
+
+1. `financeiro == "Bloqueado"`;
+2. o pedido está **em aberto** (fechado nunca alarma);
+3. passaram **mais de 10 dias** desde a `data_pedido` — estritamente mais: no 10º dia
+   ainda não alarma.
+
+É a mesma regra do alerta interno do OrçaView — **uma regra, uma implementação**. Não a
+recalcule do seu lado: se o limite mudar, ele muda aqui e a sua tela acompanha sozinha.
+
+Para listar só esses: `GET /pedidos/situacao?so_atrasados_fin=1`.
+
+---
+
+## 8. MCP
+
+A fachada MCP expõe as mesmas consultas como **tools**, para um assistente de IA usar.
+
+**Endpoint:** `http://192.168.7.11:8078/mcp` (transporte *Streamable HTTP*)
+**Autenticação:** cabeçalho `Authorization: Bearer <token>`
+
+### 8.1 Registrar no cliente
+
+No Claude Desktop / Claude Code, adicione ao arquivo de configuração de MCP:
+
+```json
+{
+  "mcpServers": {
+    "sap-pedidos": {
+      "type": "http",
+      "url": "http://192.168.7.11:8078/mcp",
+      "headers": { "Authorization": "Bearer SEU_TOKEN_AQUI" }
+    }
+  }
+}
+```
+
+O servidor expõe outras tools além destas três (saúde da integração, sincronizações). As
+que interessam aqui:
+
+### 8.2 As três tools
+
+| Tool | Responde a | Argumentos |
+| --- | --- | --- |
+| `situacao_pedido` | "o pedido 84260 está preso onde?" | `pedido` (DocNum), `chave` = `docnum` \| `docentry` |
+| `pedidos_bloqueados` | "o que está travado?" | `bloqueio` (default `qualquer`), `status` (default **`aberto`**) |
+| `panorama_pedidos` | "como está a carteira?" | `campos` = `resumo` (default) \| `completo` |
+
+As três são **somente leitura** e declaram `readOnlyHint`, então o cliente sinaliza ao
+usuário que são consulta, não ação.
+
+### 8.3 Perguntas que funcionam
+
+- *"O pedido 84260 está preso onde?"* → `situacao_pedido`
+- *"Quais pedidos estão bloqueados no financeiro?"* → `pedidos_bloqueados(bloqueio="financeiro")`
+- *"Tem alguma coisa presa na produção?"* → `pedidos_bloqueados(bloqueio="producao")`
+- *"Quantos pedidos estão atrasados?"* → `panorama_pedidos` (leia `kpis.atrasados`)
+- *"O que está preso há mais de 10 dias?"* → `pedidos_bloqueados(bloqueio="financeiro")`
+  e leia o campo `alerta_liberacao` de cada pedido. **Não existe tool separada para
+  isso** — são poucos pedidos e o texto já vem pronto.
+
+### 8.4 Cuidados com IA
+
+- **Prefira a tool específica.** `panorama_pedidos` traz a carteira (120 KB no `resumo`,
+  435 KB no `completo`) e gasta contexto à toa quando a pergunta era sobre um pedido.
+- **Não deixe o modelo concluir "está liberado" a partir de um 404** (armadilha 2.2). A
+  descrição da tool avisa, mas vale reforçar no seu prompt.
+- **`cache_idade_s`** diz de quantos segundos atrás é o retrato. Se a resposta precisa ser
+  do instante, diga isso ao usuário em vez de afirmar que é tempo real.
+- **Não deixe o modelo responder o endereço pelo `ponto_entrega`** (armadilha 2.7). As
+  descrições das tools já dizem que o endereço da resposta é o de despacho e que o
+  `ponto_entrega` é cadastro, mas em pergunta do tipo "para onde vai o pedido X?" vale
+  reforçar: o campo certo é o `entrega_linha` (resumo) ou o `entrega_endereco.linha`
+  (completo).
+
+---
+
+## 9. Limites e boas práticas
+
+| | |
+| --- | --- |
+| **Cache** | 120 s, compartilhado por todos os clientes. Duas chamadas seguidas veem o **mesmo** retrato. `recarregar=1` força ida ao SAP — **use com parcimônia** |
+| **Tamanho** | Carteira inteira: ~**74 KB** em `resumo`, ~**237 KB** em `completo` (3,2×). Prefira `resumo` |
+| **Volume** | ~237 pedidos hoje. Não há paginação: o recorte cabe numa resposta |
+| **Rate limit** | Não há nas leituras. O cache é a proteção — **não faça polling mais rápido que 120 s**, não adianta nada e só ocupa o servidor |
+| **Escrita** | Nenhuma. Se precisar mudar algo no SAP, fale conosco |
+| **Disponibilidade** | Se o SAP HANA cair, respondemos **503** com a explicação. Não é erro seu; tente de novo |
+
+**Sugestão de uso saudável:** consulte sob demanda. Se precisar de painel que atualiza
+sozinho, um ciclo de **2 a 5 minutos** é mais que suficiente — o dado por trás não muda
+mais rápido que isso.
+
+---
+
+## 10. Erros
+
+| Código | O que aconteceu | O que fazer |
+| --- | --- | --- |
+| **400** | O número não é inteiro positivo | Corrija o valor |
+| **401** | Chave ausente ou errada | Confira o cabeçalho `X-API-Key` |
+| **403** | `tipo: "sem_permissao"`: a chave é válida, mas não tem o escopo `leitura` | Mande-nos o `motivo` da resposta; acrescentamos o escopo **sem trocar a chave** |
+| **404** | Não dá para afirmar a situação: veja o campo **`motivo`** | **Não é "sem bloqueio"** (2.3). Pedido cancelado NÃO cai aqui — ele vem `200` (2.2) |
+| **409** | O número casa com mais de um pedido | Consulte por `chave=docentry`. Não deve acontecer — se acontecer, **avise-nos** |
+| **422** | Parâmetro fora do domínio (ex.: `bloqueio=comercial`) | A mensagem lista os valores aceitos. Tentar de novo não adianta |
+| **502** | Falha inesperada do nosso lado | Tente de novo; se persistir, avise-nos |
+| **503** | SAP HANA indisponível | Tente de novo em alguns minutos |
+
+Todo erro vem com corpo JSON e **mensagem em português explicando o caso**:
+
+```json
+{
+  "ok": false,
+  "motivo": "fora_do_recorte",
+  "error": "pedido 70000 fora do recorte da view (ela carrega so os pedidos correntes) - isto NAO quer dizer que ele esteja sem bloqueio",
+  "pedido": 70000,
+  "chave": "doc_num",
+  "status_pedido": "Fechado",
+  "pedido_cancelado": false
+}
+```
+
+No `404` desta rota, decida pelo **`motivo`** (chave estável, tabela em 2.3); o `error` é
+texto para gente ler.
+
+Sempre teste `ok` antes de ler o resto. **Não trate erro por código HTTP só** — a
+mensagem carrega a informação que evita a conclusão errada.
+
+---
+
+## 11. Exemplos
+
+Nos exemplos abaixo a chave vem de variável de ambiente. **Não cole a chave no código.**
+
+### 11.1 `curl`
+
+```bash
+curl -s -H "X-API-Key: $SAP_API_KEY" \
+  "http://192.168.7.11:8077/pedidos/84260/situacao"
+```
+
+```bash
+curl -s -H "X-API-Key: $SAP_API_KEY" \
+  "http://192.168.7.11:8077/pedidos/situacao?bloqueio=qualquer&status=aberto"
+```
+
+```bash
+curl -s -H "X-API-Key: $SAP_API_KEY" \
+  "http://192.168.7.11:8077/pedidos/situacao?so_atrasados_fin=1"
+```
+
+### 11.2 PowerShell
+
+```powershell
+$H = @{ "X-API-Key" = $env:SAP_API_KEY }
+$r = Invoke-RestMethod -Uri "http://192.168.7.11:8077/pedidos/situacao?bloqueio=financeiro" -Headers $H
+$r.pedidos | Select-Object doc_num, card_name, financeiro, alerta_liberacao | Format-Table
+```
+
+### 11.3 Python
+
+```python
+import os
+import requests
+
+BASE = "http://192.168.7.11:8077"
+SESSAO = requests.Session()
+SESSAO.headers["X-API-Key"] = os.environ["SAP_API_KEY"]
+
+
+def situacao_do_pedido(doc_num: int) -> dict | None:
+    """Situação de um pedido — None quando não dá para afirmar nada sobre ele.
+
+    None significa "não sei", NUNCA "está liberado" (ver §2.3 do documento).
+    Pedido CANCELADO não cai aqui: vem 200, com as etapas em "Cancelado" (§2.2).
+    """
+    r = SESSAO.get(f"{BASE}/pedidos/{doc_num}/situacao", timeout=45)
+    if r.status_code == 404:
+        print(f"  {doc_num}: {r.json()['motivo']}")   # fora_do_recorte | ... | indeterminado
+        return None
+    r.raise_for_status()
+    return r.json()["pedido"]
+
+
+def travados_agora() -> list[dict]:
+    """Pedidos em aberto bloqueados em pelo menos uma etapa."""
+    r = SESSAO.get(f"{BASE}/pedidos/situacao", timeout=60,
+                   params={"bloqueio": "qualquer", "status": "aberto"})
+    r.raise_for_status()
+    return r.json()["pedidos"]
+
+
+p = situacao_do_pedido(84260)
+if p is None:
+    print("84260: não dá para afirmar nada sobre ele")
+else:
+    print(f"{p['doc_num']} {p['card_name']} [{p['status_pedido']}]")
+    # as 3 etapas dizem "Liberado", "Bloqueado" ou "Cancelado" — imprimir já basta
+    print(f"  financeiro={p['financeiro']} producao={p['producao']} entrega={p['entrega']}")
+    if p["alerta_liberacao"]:
+        print(f"  ⚠ {p['alerta_liberacao']}")
+    # o endereço já vem RESOLVIDO — não escolha entre os dois, só imprima (§2.7)
+    e = p["entrega_endereco"]
+    print(f"  entrega: {e['linha']}"
+          + ("  [tem local próprio]" if e["difere_do_ponto_de_entrega"] else ""))
+
+for x in travados_agora():
+    # na lista o perfil é `resumo`: o endereço vem em 3 campos, também resolvidos
+    print(f"{x['data_pedido']}  {x['doc_num']:<7} {x['card_name'][:34]:<34} "
+          f"F={x['financeiro']:<9} P={x['producao']:<9} E={x['entrega']}  "
+          f"-> {x['entrega_cidade_uf']}")
+```
+
+### 11.4 Resposta de um pedido **cancelado**
+
+O caso que mais confunde (armadilha 2.2): a view não carrega cancelado, então a situação
+vem da `ORDR` ao vivo — mas no **mesmo formato**, com as três etapas em `"Cancelado"`.
+Real, do pedido 84282 em 10/09/2026:
+
+```json
+{
+  "ok": true,
+  "gerado_em": "2026-09-10T16:06:03-03:00",
+  "cache_idade_s": 0.0,
+  "fonte": "ordr",
+  "status_pedido": "Cancelado",
+  "pedido_cancelado": true,
+  "aviso": {
+    "tipo": "pedido_cancelado",
+    "motivo": "Pedido cancelado no SAP - nao ha etapa a liberar; nao produza nem entregue por ele."
+  },
+  "pedido": {
+    "doc_num": 84282,
+    "doc_entry": null,
+    "data_pedido": "2026-08-18",
+    "card_code": "C011388",
+    "card_name": "DIVENA AUTOMOVEIS LTDA",
+    "financeiro": "Cancelado",
+    "producao": "Cancelado",
+    "entrega": "Cancelado",
+    "status_pedido": "Cancelado",
+    "valor_total": 7001.04,
+    "moeda": "R$",
+    "dias_desde_pedido": 23,
+    "alerta_liberacao": null,
+    "fin_liberacao_atrasada": false,
+    "prazo_entrega": "",
+    "prazo_fim": null,
+    "data_entrega": null,
+    "montagem": { "tipo": "SEM MONTAGEM", "tipo_cod": "", "valor": 0, "montador": "", "montador_cnpj": "" },
+    "entrega_endereco": {
+      "fonte": "ponto_entrega",
+      "difere_do_ponto_de_entrega": false,
+      "logradouro": "DR RICARDO JAFET",
+      "numero": "2419",
+      "complemento": null,
+      "bairro": "IPIRANGA",
+      "cidade": "SAO PAULO",
+      "uf": "SP",
+      "cep": "04123-030",
+      "pais": "BR",
+      "municipio": "São Paulo",
+      "linha": "DR RICARDO JAFET, 2419 - IPIRANGA, 04123-030 SAO PAULO-SP",
+      "ponto_entrega": { "...": "as mesmas chaves" }
+    },
+    "...": "as demais chaves do §6.2, vazias ou zeradas"
+  }
+}
+```
+
+Três coisas para reparar:
+
+1. **As chaves são as MESMAS** do caminho normal — nenhum `if` a mais no seu código.
+2. **`doc_entry` vem `null`**: a chave interna sai da view, e cancelado não está nela.
+   O `doc_num` continua certo.
+3. **O endereço vem preenchido.** Cancelado também tem endereço, e nós lemos direto do
+   pedido no SAP para essa chave não faltar só aqui.
+
+---
+
+### 11.5 Receita: usar o endereço sem errar
+
+O jeito certo é o mais curto. **Não escreva `if` sobre `fonte` nem sobre
+`difere_do_ponto_de_entrega`** — nós já decidimos.
+
+```python
+# Etiqueta / romaneio — perfil `resumo` (o default da lista)
+for pedido in resposta["pedidos"]:
+    imprimir(pedido["entrega_linha"])            # já é o destino
+    if pedido["entrega_difere"]:                 # opcional: só para MOSTRAR o selo
+        marcar("difere do ponto de entrega")
+
+# Campos separados — perfil `completo`
+e = pedido["entrega_endereco"]
+destino = {
+    "logradouro": e["logradouro"], "numero": e["numero"],
+    "bairro": e["bairro"], "cidade": e["cidade"], "uf": e["uf"], "cep": e["cep"],
+}
+# e["ponto_entrega"] é o CADASTRO do cliente. Não use para despachar.
+```
+
+```javascript
+// JavaScript — mesma ideia
+const destino = pedido.entrega_linha ?? pedido.entrega_endereco?.linha;
+const temLocalProprio = pedido.entrega_difere
+  ?? pedido.entrega_endereco?.difere_do_ponto_de_entrega;
+```
+
+**O anti-padrão**, que é justamente o que a armadilha 2.7 existe para evitar:
+
+```python
+# ERRADO — manda a carga para a cidade do cadastro em 24 dos 268 pedidos de hoje
+destino = pedido["entrega_endereco"]["ponto_entrega"]["linha"]
+
+# ERRADO — o SAP grava 'BELO HORIZONTE' num campo e 'Belo Horizonte' no outro
+if e["cidade"] != e["ponto_entrega"]["cidade"]:
+    ...
+```
+
+---
+
+## 12. Combinado de compatibilidade
+
+- **Campos novos podem aparecer sem aviso.** Escreva um cliente que **ignora o que não
+  conhece** — não quebre com chave a mais.
+- **Campo existente não muda de nome nem de tipo sem avisarmos antes.**
+- **Os defaults dos parâmetros são contrato** (`chave=docnum`, `campos=resumo` na lista,
+  `status=aberto` na tool MCP). Se você depende de um deles, **passe explícito** — custa
+  nada e blinda seu código.
+- **Trate `null`.** Vários campos são legitimamente nulos (`prazo_fim`, `data_pagto`,
+  `alerta_liberacao`, as datas de liberação, e os campos do endereço).
+- **Nós resolvemos o endereço de entrega por você** (2.7). Se um dia a regra mudar,
+  avisamos antes — mas o contrato é que o topo do `entrega_endereco` é sempre o
+  destino de despacho.
+
+---
+
+## 13. Antes de nos chamar
+
+| Sintoma | Quase sempre é |
+| --- | --- |
+| "Meu número não bate com a tela" | O `status` (armadilha 2.4). Tente `status=todos` |
+| "Esse pedido existe, mas dá 404" | Veja o `motivo` (2.3): ele não está no recorte da view (só os correntes), **ou** você mandou DocEntry sem `chave=docentry` |
+| "A tela mostra 'sem situação'" | Pedido **cancelado** no SAP responde `200` com `status_pedido: "Cancelado"` desde 03/09/2026 (2.2). Se ainda vier vazio, é o `404` — leia o `motivo` |
+| "O dado está velho" | Cache de 120 s. Veja `cache_idade_s` |
+| "Deu 401" | Cabeçalho `X-API-Key` ausente, com espaço, ou chave errada — ou a chave foi na URL (`?key=`), que não vale para chave de equipe |
+| "Deu 403" | A chave não tem o escopo `leitura`. Mande-nos o `motivo` da resposta |
+| "Deu 503" | O SAP HANA está fora. Espere e tente de novo |
+| "A resposta está enorme" | Você está em `campos=completo` (435 KB na lista). Use `resumo` (120 KB) — ele já traz o endereço de entrega |
+| "O endereço não é o do cadastro do cliente" | É assim mesmo: o pedido tem um **Local de Entrega** próprio (2.7). Despache pelo que veio |
+
+**Vale nos avisar na hora:** um `409`, um `503` que não passa em ~15 minutos, um campo que
+mudou de tipo, ou qualquer número que divirja da tela do OrçaView de forma consistente.
+
+---
+
+*Servidor de Integração SAP · `192.168.7.11` · atualizado em 2026-10-02.*
+*Runbook interno: `PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29; historico no git)`.*

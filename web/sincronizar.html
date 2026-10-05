@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+{#
+  Painel de Sincronização (API 8077) — SAP → Supabase: Ordens de Serviço by pedido, and the
+  full Oportunidades load. Since 01/10/2026 (PLANO_CASA_COMUM_11, F3) it wears the shared
+  shell of the .11 screens ("Central Integração SAP"): the same bar, palette, theme cookie and
+  login as the painel WBC and the Controle de Produção. The calls below are the same as
+  before; they now ride on the login cookie instead of a key pasted into the page.
+#}
+<html lang="pt-BR" data-theme="{{ 'light' if casa_tema(request.cookies) == 'claro' else 'dark' }}">
+{% import "casa/_casa.html" as casa_ui %}
+{% macro mini(nome) -%}
+<svg class="mini" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+{%- if nome == 'atualizar' -%}<path d="M21 12a9 9 0 0 0-15-6.7L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 15 6.7l3-2.7"/><path d="M21 21v-5h-5"/>
+{%- elif nome == 'limpar' -%}<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/>
+{%- elif nome == 'lista' -%}<path d="M9 4h6v3H9z"/><path d="M15 5h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h3"/><path d="M9 12h6M9 16h4"/>
+{%- elif nome == 'x' -%}<path d="M18 6 6 18M6 6l12 12"/>
+{%- endif -%}
+</svg>
+{%- endmacro %}
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sincronização SAP → Supabase</title>
+  {{ casa_ui.cabeca() }}
+  <style>
+    /* Page tokens: the base comes from casa.css; these are the semantic colours of this page
+       (same hues as the painel WBC) and its inner surfaces. No color-mix: older Chrome/Edge
+       paint nothing for it (30/09/2026). */
+    :root {
+      --s-ok: #48b77f; --s-ok-bg: rgb(72 183 127 / .15);
+      --s-err: #f2726a; --s-err-bg: rgb(242 114 106 / .15);
+      --s-warn: #e0a82e; --s-warn-bg: rgb(224 168 46 / .15);
+      --s-cabeca: #262626; --s-superficie: #333333; --s-campo: #3a3a3a;
+      --s-sombra: 0 4px 10px rgb(0 0 0 / .30), 0 1px 3px rgb(0 0 0 / .22);
+    }
+    :root[data-theme="light"] {
+      --s-ok: #1c7a4c; --s-ok-bg: #e4f3ea;
+      --s-err: #b42318; --s-err-bg: #fbe6e4;
+      --s-warn: #92620a; --s-warn-bg: #fbf0d8;
+      --s-cabeca: #f6f8fb; --s-superficie: #f8fafc; --s-campo: #ffffff;
+      --s-sombra: 0 1px 2px rgb(0 0 0 / .05), 0 6px 20px rgb(0 0 0 / .05);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--casa-pagina); color: var(--casa-texto);
+      font: 400 15px/1.5 var(--casa-fonte); -webkit-font-smoothing: antialiased; }
+    main { max-width: 1800px; margin: 0 auto; padding: 24px 20px 56px; }
+    /* Same title size as the Controle de Produção, whose content renders at zoom 1.125. */
+    main > .casa-titulo { zoom: 1.125; }
+    a { color: var(--casa-acento-texto); }
+    :focus-visible { outline: 2px solid var(--casa-acento-texto); outline-offset: 2px; }
+    .mini { flex: none; }
+
+    .grade { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+    @media (max-width: 980px) { .grade { grid-template-columns: minmax(0, 1fr); } }
+    .coluna { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+
+    /* Card = the painel's .bloco: header strip with the small-caps title and the accent square. */
+    .bloco { background: var(--casa-cartao); border: 1px solid var(--casa-borda); border-radius: 14px;
+      box-shadow: var(--s-sombra); overflow: hidden; }
+    .bloco > header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 13px 20px;
+      background: var(--s-cabeca); border-bottom: 1px solid var(--casa-borda); }
+    .bloco > header h2 { display: inline-flex; align-items: center; gap: 10px; margin: 0 auto 0 0;
+      font-size: .8125rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+      color: var(--casa-texto-2); }
+    .bloco > header h2::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--casa-acento); }
+    .bloco > header .contexto { font-size: .8125rem; color: var(--casa-texto-2); }
+    .corpo { padding: 18px 20px; }
+
+    label.rotulo { display: block; margin: 0 0 6px; font-size: .75rem; letter-spacing: .05em;
+      text-transform: uppercase; color: var(--casa-texto-2); }
+    .rotulo .dica { text-transform: none; letter-spacing: 0; }
+    textarea { width: 100%; min-height: 64px; resize: vertical; padding: 10px 12px; font: inherit;
+      font-variant-numeric: tabular-nums; color: var(--casa-texto); background: var(--s-campo);
+      border: 1px solid var(--casa-borda-forte); border-radius: 9px; transition: border-color .15s, box-shadow .15s; }
+    textarea::placeholder { color: var(--casa-texto-2); }
+    textarea:focus { outline: none; border-color: var(--casa-acento); box-shadow: 0 0 0 3px var(--casa-a20); }
+    .campo-topo { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; }
+    .erro-campo { color: var(--s-err); font-size: .8125rem; margin-top: 6px; }
+
+    /* Buttons: the house relief (coral) and the ghost, as on the other two screens. */
+    .acoes { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 10px 18px; border-radius: 10px; font: 600 .9375rem/1 var(--casa-fonte); cursor: pointer;
+      border: 1px solid transparent; transition: background .15s, border-color .15s, color .15s, box-shadow .15s; }
+    .btn-primario { color: #fff; border-color: #b04e30; text-shadow: 0 1px 2px rgb(0 0 0 / .25);
+      background: linear-gradient(to bottom, #e08060, #c45a3a);
+      box-shadow: 0 3px 8px rgb(196 90 58 / .30), inset 0 1px 0 rgb(255 255 255 / .22); }
+    .btn-primario:hover:not(:disabled) { background: linear-gradient(to bottom, #e8956e, #da7756); }
+    .btn-fantasma { color: var(--casa-texto); background: var(--casa-cartao); border-color: var(--casa-borda); }
+    .btn-fantasma:hover:not(:disabled) { color: var(--casa-acento-texto); border-color: var(--casa-acento); background: var(--casa-a08); }
+    .btn:disabled { opacity: .6; cursor: progress; }
+    .btn-largo { flex: 1; }
+    .link { display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; cursor: pointer;
+      padding: 4px 8px; border-radius: 7px; font: 500 .8125rem/1.2 var(--casa-fonte); color: var(--casa-texto-2); }
+    .link:hover { background: var(--casa-a08); color: var(--casa-acento-texto); }
+    .link.perigo:hover { background: var(--s-err-bg); color: var(--s-err); }
+    .giro { width: 15px; height: 15px; border: 2px solid rgb(255 255 255 / .45); border-top-color: #fff;
+      border-radius: 50%; animation: giro .7s linear infinite; }
+    @keyframes giro { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .giro { animation-duration: 2s; } }
+
+    /* State pills: the painel's (uppercase, dot, translucent hue). */
+    .pilula { display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 3px 9px; border-radius: 999px;
+      font-size: .6875rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+    .pilula::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .p-ok { color: var(--s-ok); background: var(--s-ok-bg); }
+    .p-err { color: var(--s-err); background: var(--s-err-bg); }
+    .p-warn { color: var(--s-warn); background: var(--s-warn-bg); }
+
+    .resultado { margin-top: 16px; }
+    .resumo { font-weight: 600; margin: 0 0 10px; }
+    .linha { display: flex; align-items: center; gap: 10px; padding: 9px 12px; margin-bottom: 8px;
+      border: 1px solid var(--casa-borda); border-radius: 10px; background: var(--s-superficie); }
+    .linha .alvo { font-weight: 600; font-variant-numeric: tabular-nums; }
+    .linha .msg { margin-left: auto; text-align: right; color: var(--casa-texto-2); font-size: .8125rem; }
+    .aviso { margin-top: 14px; padding: 11px 13px; border-radius: 10px; font-size: .875rem; border: 1px solid transparent; }
+    .aviso.err { color: var(--s-err); background: var(--s-err-bg); }
+    .aviso.warn { color: var(--s-warn); background: var(--s-warn-bg); }
+    .aviso.ok { color: var(--s-ok); background: var(--s-ok-bg); }
+
+    /* Oportunidades: the context as two figures, not a sentence with emoji. */
+    .numeros { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 14px; }
+    .numero { padding: 12px 14px; border: 1px solid var(--casa-borda); border-left: 4px solid var(--casa-acento);
+      border-radius: 10px; background: var(--s-superficie); }
+    .numero b { display: block; font-size: 1.5rem; line-height: 1.15; font-variant-numeric: tabular-nums; }
+    .numero span { font-size: .75rem; letter-spacing: .05em; text-transform: uppercase; color: var(--casa-texto-2); }
+    .nota { margin: 0 0 14px; color: var(--casa-texto-2); font-size: .875rem; }
+
+    .historico { padding: 4px 20px 10px; }
+    .hist-linha { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--casa-borda); }
+    .hist-linha:last-child { border-bottom: 0; }
+    /* One pill width: "OK" and "Falha" side by side would push the pedido column out of line. */
+    .hist-linha .pilula { min-width: 68px; justify-content: center; }
+    .hist-linha .alvo { font-weight: 600; font-variant-numeric: tabular-nums; }
+    .hist-linha .meta { color: var(--casa-texto-2); font-size: .8125rem; font-variant-numeric: tabular-nums; }
+    .hist-linha .hora { margin-left: auto; color: var(--casa-texto-2); font-size: .8125rem; white-space: nowrap;
+      font-variant-numeric: tabular-nums; }
+    .vazio { margin: 12px 0; color: var(--casa-texto-2); font-size: .875rem; }
+
+    /* "Buscar na lista" dialog. */
+    .modal { position: fixed; inset: 0; z-index: 2000; display: grid; place-items: center; padding: 16px;
+      background: rgb(0 0 0 / .55); }
+    .modal-cartao { width: 100%; max-width: 560px; max-height: 85vh; display: flex; flex-direction: column;
+      background: var(--casa-cartao); border: 1px solid var(--casa-borda); border-radius: 14px; box-shadow: var(--s-sombra); }
+    .modal-cartao > header { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 14px 18px; border-bottom: 1px solid var(--casa-borda); background: var(--s-cabeca); border-radius: 14px 14px 0 0; }
+    .modal-cartao h3 { margin: 0; font-size: 1rem; }
+    .modal-ferramentas { display: flex; align-items: center; justify-content: space-between; padding: 10px 18px;
+      border-bottom: 1px solid var(--casa-borda); }
+    .marcar-todos { display: flex; align-items: center; gap: 8px; font-size: .875rem; color: var(--casa-texto-2); cursor: pointer; }
+    .modal-corpo { padding: 6px 10px; overflow: auto; }
+    .escolha { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 9px; cursor: pointer; }
+    .escolha:hover { background: var(--casa-a08); }
+    .escolha .np { font-weight: 700; flex: none; font-variant-numeric: tabular-nums; }
+    .escolha .cli { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .escolha .meta { margin-left: auto; color: var(--casa-texto-2); font-size: .8125rem; white-space: nowrap; }
+    .modal-cartao > footer { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 14px 18px; border-top: 1px solid var(--casa-borda); }
+    input[type="checkbox"] { accent-color: var(--casa-acento); width: 16px; height: 16px; }
+  </style>
+</head>
+<body>
+  {{ casa_ui.barra(casa_itens(CASA_HREFS, "sincronizacao"), "/orcaview", ambiente, mostrar_sair=exige_chave,
+                   inicio_href="/inicio") }}
+
+  <main>
+    <header class="casa-titulo">
+      <span class="casa-titulo__simbolo">{{ casa_ui.icone('sincronizar', 26) }}</span>
+      <div class="casa-titulo__texto">
+        <h1>Sincronização SAP → Supabase</h1>
+        <p>Ordens de Serviço sob demanda e Oportunidades no agendador</p>
+      </div>
+    </header>
+
+    <div class="grade">
+      <!-- ===================== Ordens de Serviço ===================== -->
+      <section class="coluna" aria-labelledby="tituloOs">
+        <form class="bloco" id="osForm" autocomplete="off">
+          <header><h2 id="tituloOs">Ordens de Serviço · Engenharia</h2></header>
+          <div class="corpo">
+            <div class="campo-topo">
+              <label class="rotulo" for="nped">Nº do pedido (NPED) <span class="dica">— um ou vários, separados por espaço ou vírgula</span></label>
+              <button type="button" class="link perigo" id="osClearNped" title="Limpar o campo">{{ mini('limpar') }} limpar</button>
+            </div>
+            <textarea id="nped" placeholder="Ex.: 84080  ou  84080, 84095" inputmode="numeric"></textarea>
+            <div class="erro-campo" id="npedErr" hidden></div>
+            <div class="acoes">
+              <button type="button" class="btn btn-fantasma" id="osPick">{{ mini('lista') }} Buscar na lista</button>
+              <button type="submit" class="btn btn-primario btn-largo" id="osGo">
+                <span class="giro" id="osSpin" hidden></span><span id="osGoTxt">Sincronizar</span>
+              </button>
+            </div>
+            <div class="resultado" id="osResults" hidden></div>
+          </div>
+        </form>
+
+        <div class="bloco">
+          <header>
+            <h2>Últimas sincronizações</h2>
+            <button type="button" class="link" id="osRefresh">{{ mini('atualizar') }} atualizar</button>
+            <button type="button" class="link perigo" id="osClear" title="Limpar o histórico">{{ mini('limpar') }} limpar</button>
+          </header>
+          <div class="historico" id="osHistBody"><p class="vazio">Carregando…</p></div>
+        </div>
+      </section>
+
+      <!-- ===================== Oportunidades ===================== -->
+      <section class="coluna" aria-labelledby="tituloOport">
+        <div class="bloco">
+          <header><h2 id="tituloOport">Oportunidades · agendado</h2></header>
+          <div class="corpo">
+            <div class="numeros">
+              <div class="numero"><b id="oportTotal">—</b><span>linhas na tabela</span></div>
+              <div class="numero"><b id="oportRitmo">—</b><span id="oportJanela">no agendador</span></div>
+            </div>
+            <p class="nota">Roda a <strong>carga completa</strong> de oportunidades — a mesma do agendador,
+              últimos 6 meses. Pode levar até cerca de 1&nbsp;minuto.</p>
+            <button type="button" class="btn btn-primario" id="oportGo" style="width:100%">
+              <span class="giro" id="oportSpin" hidden></span><span id="oportGoTxt">Forçar sincronismo</span>
+            </button>
+            <div class="aviso" id="oportBanner" hidden></div>
+          </div>
+        </div>
+
+        <div class="bloco">
+          <header>
+            <h2>Últimos sincronismos</h2>
+            <button type="button" class="link" id="oportRefresh">{{ mini('atualizar') }} atualizar</button>
+            <button type="button" class="link perigo" id="oportClear" title="Limpar o log">{{ mini('limpar') }} limpar</button>
+          </header>
+          <div class="historico" id="oportHistBody"><p class="vazio">Carregando…</p></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- "Buscar na lista": pedidos with an OS created in the SAP -->
+  <div class="modal" id="pickModal" hidden>
+    <div class="modal-cartao" role="dialog" aria-modal="true" aria-labelledby="pickTitle">
+      <header>
+        <h3 id="pickTitle">Pedidos com OS criada</h3>
+        <button type="button" class="link" id="pickClose" aria-label="Fechar">{{ mini('x') }}</button>
+      </header>
+      <div class="modal-ferramentas">
+        <label class="marcar-todos"><input type="checkbox" id="pickAll" /> selecionar todos</label>
+        <button type="button" class="link" id="pickRefresh">{{ mini('atualizar') }} atualizar</button>
+      </div>
+      <div class="modal-corpo" id="pickBody"><p class="vazio">Carregando…</p></div>
+      <footer>
+        <span class="vazio" id="pickCount" style="margin:0">0 selecionado(s)</span>
+        <button type="button" class="btn btn-primario" id="pickAdd" disabled>Adicionar selecionados</button>
+      </footer>
+    </div>
+  </div>
+
+  <script>
+  {% raw %}
+    const $ = (id) => document.getElementById(id);
+
+    // Escape EVERY server value before it goes into innerHTML (text and attribute). Without
+    // it there was stored XSS: `cliente` comes from the SAP's ORDR.CardName, and a company
+    // name like <img src=x onerror=...> ran in the browser of whoever opened "Buscar na lista".
+    // Also covers `motivo` and unparseable dates (fmtTime returns the raw ISO).
+    const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ESC_MAP[c]);
+
+    // The calls ride on the shared login cookie (same origin → the browser sends it). A 401
+    // means it expired or the key changed: back to the key prompt, then here again.
+    function entrarDeNovo() {
+      location.href = '/entrar?proximo=' + encodeURIComponent('/sincronizar');
+    }
+    function fmtTime(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      return isNaN(d) ? iso : d.toLocaleString('pt-BR',
+        { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    }
+    function mostrarAviso(el, cls, msg) { el.className = 'aviso ' + cls; el.textContent = msg; el.hidden = false; }
+    const vazio = (msg) => `<p class="vazio">${esc(msg)}</p>`;
+
+    // ---------- history (OS and Oportunidades share it) ----------
+    async function carregarHist(endpoint, bodyEl, comNped) {
+      bodyEl.innerHTML = vazio('Carregando…');
+      try {
+        const resp = await fetch(endpoint + '?limit=20');
+        if (resp.status === 401) { entrarDeNovo(); return; }
+        const data = await resp.json().catch(() => null);
+        if (!data || !data.ok) { bodyEl.innerHTML = vazio('Não foi possível carregar o histórico.'); return; }
+        if (!(data.items || []).length) { bodyEl.innerHTML = vazio('Nenhuma sincronização registrada ainda.'); return; }
+        bodyEl.innerHTML = data.items.map((it) => {
+          const ok = it.status === 'sucesso';
+          const qtd = (it.qtd_registros != null) ? `${esc(it.qtd_registros)} linhas` : '';
+          const dur = (it.duracao_segundos != null) ? `${Number(it.duracao_segundos).toFixed(1)} s` : '';
+          const meta = [qtd, dur].filter(Boolean).join(' · ');
+          const alvo = comNped ? `Pedido ${it.nped != null ? esc(it.nped) : '—'}` : 'Carga total';
+          return `<div class="hist-linha"><span class="pilula ${ok ? 'p-ok' : 'p-err'}">${ok ? 'OK' : 'Falha'}</span>`
+               + `<span class="alvo">${alvo}</span><span class="meta">${meta}</span>`
+               + `<span class="hora">${esc(fmtTime(it.data_hora_sincronizacao))}</span></div>`;
+        }).join('');
+      } catch (e) {
+        bodyEl.innerHTML = vazio('Não foi possível carregar o histórico (a API está no ar?).');
+      }
+    }
+    async function limparHist(endpoint, bodyEl, recarregar) {
+      if (!confirm('Limpar todo o histórico? Esta ação não pode ser desfeita.')) return;
+      bodyEl.innerHTML = vazio('Limpando…');
+      try {
+        const resp = await fetch(endpoint, { method: 'DELETE' });
+        if (resp.status === 401) { entrarDeNovo(); return; }
+        if (!resp.ok) { bodyEl.innerHTML = vazio('Não foi possível limpar.'); return; }
+        recarregar();
+      } catch (e) {
+        bodyEl.innerHTML = vazio('Não foi possível limpar (a API está no ar?).');
+      }
+    }
+
+    // ===================== OS =====================
+    const osForm = $('osForm'), npedEl = $('nped'), npedErr = $('npedErr'),
+          osGo = $('osGo'), osGoTxt = $('osGoTxt'), osSpin = $('osSpin'),
+          osResults = $('osResults'), osHistBody = $('osHistBody');
+
+    const loadOsHist = () => carregarHist('/historico', osHistBody, true);
+    $('osRefresh').addEventListener('click', loadOsHist);
+    $('osClear').addEventListener('click', () => limparHist('/historico', osHistBody, loadOsHist));
+    $('osClearNped').addEventListener('click', () => {
+      npedEl.value = ''; npedErr.hidden = true; npedEl.focus();
+    });
+
+    function parseNpeds(raw) {
+      const partes = raw.split(/[\s,;]+/).filter(Boolean), npeds = [], invalidos = [];
+      for (const p of partes) { if (/^\d+$/.test(p) && Number(p) > 0) npeds.push(Number(p)); else invalidos.push(p); }
+      return { npeds, invalidos };
+    }
+    function erroNoCampo(msg) { npedErr.textContent = msg; npedErr.hidden = false; }
+    function setOsLoading(on) { osGo.disabled = on; osSpin.hidden = !on; osGoTxt.textContent = on ? 'Sincronizando…' : 'Sincronizar'; }
+
+    osForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      npedErr.hidden = true; osResults.hidden = true;
+      const { npeds, invalidos } = parseNpeds(npedEl.value);
+      if (invalidos.length) { erroNoCampo(`Valor inválido: ${invalidos.join(', ')} (use só números positivos).`); return; }
+      if (!npeds.length) { erroNoCampo('Informe ao menos um nº de pedido.'); return; }
+      setOsLoading(true);
+      try {
+        const resp = await fetch('/sync/ordens-servico', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ npeds }),
+        });
+        if (resp.status === 401) { entrarDeNovo(); return; }
+        osResults.hidden = false;
+        const data = await resp.json().catch(() => null);
+        if (!data) { osResults.innerHTML = `<div class="aviso err">Resposta inesperada (HTTP ${resp.status}).</div>`; return; }
+        const s = data.summary || {};
+        let html = `<p class="resumo">${esc(s.sucesso || 0)} de ${esc(s.total || 0)} pedido(s) sincronizado(s)`
+                 + `${s.falha ? ` · ${esc(s.falha)} não sincronizado(s)` : ''}</p>`;
+        for (const r of (data.results || [])) {
+          let cls = 'p-err', txt = 'Falha', msg = r.motivo || 'não sincronizou';
+          if (r.ok) { cls = 'p-ok'; txt = 'OK'; msg = 'atualizado no Supabase'; }
+          else if (r.tipo === 'sem_os') { cls = 'p-warn'; txt = 'Sem OS'; }
+          else if (r.tipo === 'pedido_cancelado') { cls = 'p-warn'; txt = 'Pedido cancelado'; }
+          else if (r.tipo === 'pedido_nao_encontrado') { cls = 'p-warn'; txt = 'Não encontrado'; }
+          else if (r.tipo === 'cancelada') { cls = 'p-warn'; txt = 'OS cancelada'; }
+          else if (r.tipo === 'ocupado') { cls = 'p-warn'; txt = 'Em andamento'; }
+          html += `<div class="linha"><span class="pilula ${cls}">${txt}</span>`
+                + `<span class="alvo">Pedido ${esc(r.nped)}</span><span class="msg">${esc(msg)}</span></div>`;
+        }
+        osResults.innerHTML = html;
+      } catch (err) {
+        osResults.hidden = false;
+        osResults.innerHTML = '<div class="aviso err">Não foi possível falar com a API.</div>';
+      } finally {
+        setOsLoading(false);
+        loadOsHist();
+      }
+    });
+
+    // -------- "Buscar na lista" (pedidos with an OS created in the SAP) --------
+    const osPick = $('osPick'), pickModal = $('pickModal'), pickBody = $('pickBody'),
+          pickClose = $('pickClose'), pickRefresh = $('pickRefresh'), pickAll = $('pickAll'),
+          pickAdd = $('pickAdd'), pickCount = $('pickCount');
+
+    function fmtDia(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      return isNaN(d) ? '' : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    }
+    const pickSelecionados = () => [...pickBody.querySelectorAll('input.pk:checked')].map(c => c.value);
+    function atualizaPickFoot() {
+      const n = pickSelecionados().length, boxes = pickBody.querySelectorAll('input.pk').length;
+      pickCount.textContent = `${n} selecionado(s)`;
+      pickAdd.disabled = n === 0;
+      pickAll.checked = boxes > 0 && n === boxes;
+    }
+    const fecharPick = () => { pickModal.hidden = true; osPick.focus(); };
+
+    async function carregarPick() {
+      pickBody.innerHTML = vazio('Carregando…');
+      pickAll.checked = false; atualizaPickFoot();
+      try {
+        const resp = await fetch('/ordens-servico/disponiveis?limit=30');
+        if (resp.status === 401) { entrarDeNovo(); return; }
+        const data = await resp.json().catch(() => null);
+        if (!data || !data.ok) { pickBody.innerHTML = vazio('Não foi possível carregar a lista (o SAP está no ar?).'); return; }
+        if (!(data.items || []).length) { pickBody.innerHTML = vazio('Nenhum pedido com OS encontrado.'); return; }
+        pickBody.innerHTML = data.items.map((it) => {
+          // `cliente` = the SAP's ORDR.CardName: third-party data, the most exposed sink here.
+          const cli = esc(it.cliente || '—');
+          const meta = [it.os != null ? `OS ${esc(it.os)}` : '', esc(fmtDia(it.data))].filter(Boolean).join(' · ');
+          return `<label class="escolha"><input type="checkbox" class="pk" value="${esc(it.nped)}" />`
+               + `<span class="np">${esc(it.nped)}</span><span class="cli">${cli}</span>`
+               + `<span class="meta">${meta}</span></label>`;
+        }).join('');
+        pickBody.querySelectorAll('input.pk').forEach(c => c.addEventListener('change', atualizaPickFoot));
+        atualizaPickFoot();
+      } catch (e) {
+        pickBody.innerHTML = vazio('Não foi possível falar com a API.');
+      }
+    }
+
+    osPick.addEventListener('click', () => {
+      npedErr.hidden = true;
+      pickModal.hidden = false;
+      pickClose.focus();
+      carregarPick();
+    });
+    pickRefresh.addEventListener('click', carregarPick);
+    pickClose.addEventListener('click', fecharPick);
+    pickModal.addEventListener('click', (e) => { if (e.target === pickModal) fecharPick(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !pickModal.hidden) fecharPick(); });
+    pickAll.addEventListener('change', () => {
+      pickBody.querySelectorAll('input.pk').forEach(c => { c.checked = pickAll.checked; });
+      atualizaPickFoot();
+    });
+    pickAdd.addEventListener('click', () => {
+      const escolhidos = pickSelecionados().map(Number);
+      if (!escolhidos.length) return;
+      const atuais = parseNpeds(npedEl.value).npeds;                       // keep what is typed
+      npedEl.value = [...new Set([...atuais, ...escolhidos])].join(', ');  // add without repeats
+      fecharPick();
+      npedEl.focus();
+    });
+
+    // ================= OPORTUNIDADES =================
+    const oportGo = $('oportGo'), oportGoTxt = $('oportGoTxt'), oportSpin = $('oportSpin'),
+          oportBanner = $('oportBanner'), oportHistBody = $('oportHistBody');
+
+    const loadOportHist = () => carregarHist('/oportunidades/historico', oportHistBody, false);
+    $('oportRefresh').addEventListener('click', loadOportHist);
+    $('oportClear').addEventListener('click', () => limparHist('/oportunidades/historico', oportHistBody, loadOportHist));
+
+    async function loadOportInfo() {
+      try {
+        const resp = await fetch('/oportunidades/info');
+        if (resp.status === 401) { entrarDeNovo(); return; }
+        if (!resp.ok) return;
+        const d = await resp.json();
+        if (!d.ok) return;
+        $('oportTotal').textContent = (d.total != null) ? Number(d.total).toLocaleString('pt-BR') : '—';
+        $('oportRitmo').textContent = d.intervalo_minutos ? `a cada ${d.intervalo_minutos} min` : '—';
+        const jh = String(d.janela_horas || '').split('-').map(x => x.padStart(2, '0')).join('–');
+        $('oportJanela').textContent = jh ? `${jh} h · dias úteis` : 'no agendador';
+      } catch (e) { /* the figures stay as "—" */ }
+    }
+
+    function setOportLoading(on) { oportGo.disabled = on; oportSpin.hidden = !on; oportGoTxt.textContent = on ? 'Sincronizando… (pode demorar)' : 'Forçar sincronismo'; }
+
+    oportGo.addEventListener('click', async () => {
+      oportBanner.hidden = true;
+      if (!confirm('Forçar a carga COMPLETA de oportunidades agora? Pode levar até cerca de 1 minuto.')) return;
+      setOportLoading(true);
+      try {
+        const resp = await fetch('/oportunidades/sincronizar', { method: 'POST' });
+        if (resp.status === 401) { entrarDeNovo(); return; }
+        if (resp.status === 409) { const d = await resp.json().catch(() => ({})); mostrarAviso(oportBanner, 'warn', d.motivo || 'Já há uma sincronização em andamento.'); return; }
+        if (resp.status === 429) { mostrarAviso(oportBanner, 'warn', 'Muitas cargas seguidas — espere um pouco e tente de novo.'); return; }
+        const data = await resp.json().catch(() => null);
+        if (!data) { mostrarAviso(oportBanner, 'err', `Resposta inesperada (HTTP ${resp.status}).`); return; }
+        if (data.ok) { mostrarAviso(oportBanner, 'ok', 'Oportunidades sincronizadas com sucesso.'); }
+        else { mostrarAviso(oportBanner, 'err', data.motivo || 'Não foi possível sincronizar.'); }
+      } catch (err) {
+        mostrarAviso(oportBanner, 'err', 'Não foi possível falar com a API.');
+      } finally {
+        setOportLoading(false);
+        loadOportHist();
+        loadOportInfo();  // the total changes after the load
+      }
+    });
+
+    // The page only opens logged in: load the histories and the context right away.
+    loadOsHist(); loadOportHist(); loadOportInfo();
+  {% endraw %}
+  </script>
+</body>
+</html>

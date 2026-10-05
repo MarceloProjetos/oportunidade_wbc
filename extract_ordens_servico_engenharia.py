@@ -1,0 +1,542 @@
+"""On-demand ETL: CONSOLIDATED SAP view ``VW_OS_INTEGRACAO`` (per N_PED) → Supabase.
+
+Mirrors the single HANA view ``VW_OS_INTEGRACAO`` (OS + tree/structure + quote,
+54 columns) into a single Supabase table — it replaced the old separate mirrors for
+engineering OS, WBC tree and print views (2026-07-14 consolidation). The view keys on
+``"N_PED"`` (with underscore).
+
+Unlike ``extract_sap_to_supabase.py`` (oportunidades), this pipeline:
+
+* is triggered **on demand** for one or more ``N_PED`` (it is not scheduled);
+* does **not** enrich from SQL Server nor validate ``SITCOD``;
+* uses the **``replace_nped``** strategy (replace per pedido): load-then-prune **scoped
+  to the N_PED**, so the table accumulates several pedidos and each is updated
+  independently, without affecting the others.
+
+Reuses the generic core in ``pipeline_core`` (``SupabaseLoader``, ``prepare_data``,
+``build_view_query``) and the shared connection in ``sap_connection``.
+
+Usage (CLI)::
+
+    python extract_ordens_servico_engenharia.py 84080
+    python extract_ordens_servico_engenharia.py 84080 84095 84100   # several pedidos
+"""
+
+from __future__ import annotations
+
+import logging
+import sys
+import time
+from collections.abc import Iterable
+
+import pandas as pd
+
+from config import (
+    OS_EXECUTION_MODES,
+    OS_SYNC_LOG_MAX_REGISTROS,
+    get_settings,
+)
+from pipeline_core import (
+    FileLockTimeout,
+    SupabaseLoader,
+    agora_iso,
+    build_view_query,
+    coerce_positive_int,
+    os_sync_lock,
+    prepare_data,
+)
+from sap_connection import SAPExtractor
+from sql_seguro import sql
+
+# UTF-8 console on Windows
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except AttributeError:
+    pass
+
+logger = logging.getLogger(__name__)
+
+
+def _configure_logging() -> None:
+    """Basic console logging. Called only by the entrypoint (CLI), never on import —
+    as a lib (imported by the API) it must not touch global logging."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    )
+    # httpx logs every request (URL with all columns) at INFO — noisy in production.
+    logging.getLogger('httpx').setLevel(logging.WARNING)
+
+
+def extract_os_to_dataframe(nped: object) -> pd.DataFrame | None:
+    """Extract the OS view rows for a single ``NPED``.
+
+    Args:
+        nped: Pedido number (integer or numeric string).
+
+    Returns:
+        DataFrame with the pedido's rows, an empty ``DataFrame`` if the pedido does not
+        exist, or ``None`` on connection/query failure.
+
+    Raises:
+        ValueError: if ``nped`` is not a valid integer.
+    """
+    settings = get_settings()
+    nped_int = coerce_positive_int(nped, what='NPED')  # propagates ValueError to the caller
+
+    if not settings.sap_ready():
+        logger.error("Faltam variáveis de ambiente obrigatórias do SAP")
+        return None
+
+    sap = SAPExtractor(
+        settings.sap_host,
+        settings.sap_port,
+        settings.sap_user,
+        settings.sap_password,
+        settings.sap_database,
+    )
+    if not sap.connect():
+        return None
+
+    base = build_view_query(settings.os_sap_view_name, settings.sap_schema)
+    # VW_OS_INTEGRACAO uses "N_PED". The NPED goes as a bind parameter (sql_seguro).
+    df = sap.execute_query(*sql(t'SELECT * FROM {base:ident} WHERE "N_PED" = {nped_int}'))
+    sap.close()
+
+    if df is None:
+        logger.error("Falha ao extrair OS do NPED %s", nped_int)
+        return None
+
+    logger.info("OS extraídas do SAP (NPED %s): %s linhas", nped_int, len(df))
+    return df
+
+
+def diagnosticar_nped(nped: object) -> dict:
+    """Classify an NPED by querying OWOR (production order) and ORDR (pedido) in SAP.
+
+    Rule (SAP B1): the OS exists when there is a row in ``OWOR`` with ``OriginNum`` = the
+    pedido number. No row → OS not generated yet. If **all** rows have ``Status`` =
+    ``'C'`` → OS cancelled. ``ORDR`` adds the **pedido** status (best-effort): it tells
+    "pedido cancelled" and "pedido not found" apart from "open pedido that has not
+    generated an OS yet".
+
+    Returns:
+        ``{'tem_os': bool, 'cancelada': bool, 'status': [...],
+        'pedido_existe': bool|None, 'pedido_cancelado': bool|None,
+        'pedido_status': 'Aberto'|'Cancelado'|'Fechado'|None}``
+        (the ``pedido_*`` keys stay ``None`` if the ORDR query fails) or
+        ``{'erro': '<reason>'}`` if OWOR cannot be queried.
+
+    Raises:
+        ValueError: if ``nped`` is not a positive integer.
+    """
+    settings = get_settings()
+    nped_int = coerce_positive_int(nped, what='NPED')
+
+    if not settings.sap_ready():
+        return {'erro': 'sap_config'}
+
+    sap = SAPExtractor(
+        settings.sap_host, settings.sap_port, settings.sap_user,
+        settings.sap_password, settings.sap_database,
+    )
+    if not sap.connect():
+        return {'erro': 'sap_conexao'}
+
+    base = build_view_query('OWOR', settings.sap_schema)  # "SCHEMA"."OWOR"
+    # GROUP BY → only the DISTINCT statuses (few rows), instead of one row per OP.
+    df = sap.execute_query(*sql(
+        t'SELECT "Status" FROM {base:ident} WHERE "OriginNum" = {nped_int} GROUP BY "Status"'
+    ))
+    if df is None:
+        sap.close()
+        return {'erro': 'consulta'}
+
+    # Pedido (ORDR), on the SAME connection — best-effort: a failure here does not
+    # invalidate the OS diagnosis.
+    ordr = build_view_query('ORDR', settings.sap_schema)  # "SCHEMA"."ORDR"
+    df_ped = sap.execute_query(*sql(
+        t'SELECT "CANCELED", "DocStatus" FROM {ordr:ident} WHERE "DocNum" = {nped_int}'
+    ))
+    sap.close()
+
+    statuses = [str(s).strip() for s in df['Status'].tolist()] if len(df) else []
+    tem_os = len(statuses) > 0
+    cancelada = tem_os and all(s == 'C' for s in statuses)
+
+    pedido_existe = pedido_cancelado = pedido_status = None
+    if df_ped is not None:
+        pedido_existe = len(df_ped) > 0
+        pedido_cancelado = False
+        if pedido_existe:
+            row = df_ped.iloc[0]
+            pedido_cancelado, pedido_status = classificar_pedido(
+                row.get('CANCELED'), row.get('DocStatus'))
+
+    return {'tem_os': tem_os, 'cancelada': cancelada, 'status': statuses,
+            'pedido_existe': pedido_existe, 'pedido_cancelado': pedido_cancelado,
+            'pedido_status': pedido_status}
+
+
+def classificar_pedido(canceled: object, doc_status: object) -> tuple[bool, str]:
+    """``ORDR.CANCELED`` + ``ORDR.DocStatus`` → ``(pedido_cancelado, pedido_status)``.
+
+    SAP B1: ``CANCELED`` = ``'Y'`` cancelled, ``'C'`` reversal document (cancellation);
+    ``DocStatus = 'C'`` without cancellation = pedido closed (fully delivered/invoiced).
+    Single source for the three readers (``diagnosticar_nped``, ``listar_pedidos_com_os``
+    and ``consultar_status_pedido``) so they never disagree on what "cancelled" means.
+
+    Incident 2026-09-03: pedidos 84282/84305/84314 were cancelled in SAP but still had
+    live OPs, so they showed up in the OS list/detail with no hint of cancellation, while
+    ``VW_STATUS_PEDIDO_DDP`` (which drops cancelled pedidos) answered 404 for them — the
+    consumer read "sem situação". This flag is what lets the consumer tell the two apart.
+    """
+    cancelado = str(canceled or '').strip() in ('Y', 'C')
+    if cancelado:
+        return True, 'Cancelado'
+    if str(doc_status or '').strip() == 'C':
+        return False, 'Fechado'
+    return False, 'Aberto'
+
+
+def consultar_status_pedido(nped: object) -> dict | None:
+    """Pedido status straight from ``ORDR`` (one row, own connection, no OWOR).
+
+    The light read behind ``GET /ordens-servico/<nped>``: the detail comes from Supabase
+    and knows nothing about cancellation, and the cancelled pedido keeps its synced OS
+    rows forever. Best-effort by contract — the caller must survive ``None``.
+
+    It also brings the pedido's **identity** (customer, date, value): a cancelled pedido
+    is not in ``VW_STATUS_PEDIDO_DDP``, so ``GET /pedidos/<n>/situacao`` has no other
+    place to read the customer name from when it answers "Cancelado" (2026-09-03). Same
+    row, same connection — the extra columns cost nothing.
+
+    Returns:
+        ``{'pedido_existe': bool, 'pedido_cancelado': bool, 'pedido_status': str|None,
+        'card_code': str, 'card_name': str, 'data_pedido': str|None (ISO),
+        'valor_total': float, 'moeda': str}`` (``pedido_status`` is ``None`` when the
+        pedido is not in ORDR, and the identity keys come empty), or ``None`` when SAP is
+        not configured/reachable or the query fails.
+
+    Raises:
+        ValueError: if ``nped`` is not a positive integer.
+    """
+    settings = get_settings()
+    nped_int = coerce_positive_int(nped, what='NPED')
+
+    if not settings.sap_ready():
+        return None
+
+    sap = SAPExtractor(
+        settings.sap_host, settings.sap_port, settings.sap_user,
+        settings.sap_password, settings.sap_database,
+    )
+    if not sap.connect():
+        return None
+
+    ordr = build_view_query('ORDR', settings.sap_schema)  # "SCHEMA"."ORDR"
+    df_ped = sap.execute_query(*sql(
+        t'SELECT "CANCELED", "DocStatus", "CardCode", "CardName", "DocDate", '
+        t'"DocTotal", "DocCur" FROM {ordr:ident} WHERE "DocNum" = {nped_int}'
+    ))
+    sap.close()
+    if df_ped is None:
+        logger.error("Falha ao consultar o status do pedido %s na ORDR", nped_int)
+        return None
+
+    vazio = {'card_code': '', 'card_name': '', 'data_pedido': None,
+             'valor_total': 0.0, 'moeda': ''}
+    if len(df_ped) == 0:
+        return {'pedido_existe': False, 'pedido_cancelado': False, 'pedido_status': None,
+                **vazio}
+    row = df_ped.iloc[0]
+    cancelado, status = classificar_pedido(row.get('CANCELED'), row.get('DocStatus'))
+    return {'pedido_existe': True, 'pedido_cancelado': cancelado, 'pedido_status': status,
+            'card_code': str(row.get('CardCode') or '').strip(),
+            'card_name': str(row.get('CardName') or '').strip(),
+            'data_pedido': _data_iso(row.get('DocDate')),
+            'valor_total': float(row.get('DocTotal') or 0.0),
+            'moeda': str(row.get('DocCur') or '').strip()}
+
+
+def _data_iso(valor: object) -> str | None:
+    """``ORDR.DocDate`` (datetime/date/str) → ``'YYYY-MM-DD'``, ou ``None``.
+
+    A view ja entrega data ISO; a ORDR crua vem como ``Timestamp`` do pandas. Quem
+    consome os dois caminhos nao pode receber formatos diferentes no mesmo campo.
+    """
+    if valor is None or valor != valor:  # NaT/NaN nunca e' igual a si mesmo
+        return None
+    data = getattr(valor, 'date', None)
+    if callable(data):
+        return data().isoformat()
+    texto = str(valor).strip()
+    return texto[:10] or None
+
+
+def listar_pedidos_com_os(limit: int = 30) -> list[dict] | None:
+    """List up to ``limit`` pedidos (NPED) with an OS created in SAP, newest first.
+
+    Rule (same as ``diagnosticar_nped``): the OS exists when there is a row in ``OWOR``
+    with ``OriginNum`` = the pedido number. Pedidos whose OS is **fully cancelled** (every
+    row with ``Status = 'C'``) are excluded — we filter ``Status <> 'C'`` before grouping.
+    LEFT JOINs ``OWOR`` with ``ORDR`` (pedido) to bring in the customer name
+    (``CardName``) and the pedido's own status (``CANCELED``/``DocStatus``).
+
+    A **cancelled pedido with live OPs stays in the list, flagged** — it is not dropped,
+    because the OS really exists in SAP and the consumer may need to see it to act
+    (cancel the OPs, stop showing "Liberar"). Dropping it would hide the problem; the flag
+    exposes it. See ``classificar_pedido`` for the incident.
+
+    Args:
+        limit: maximum number of pedidos to return.
+
+    Returns:
+        List of ``{'nped': int, 'cliente': str|None, 'os': int|None, 'data': str|None,
+        'status_pedido': 'Aberto'|'Cancelado'|'Fechado'|None, 'pedido_cancelado':
+        bool|None}`` sorted newest to oldest, or ``None`` on failure. The two status keys
+        are ``None`` when the pedido is not in ORDR (OS orphaned from its pedido).
+    """
+    settings = get_settings()
+    limit_int = coerce_positive_int(limit, what='limit')
+
+    if not settings.sap_ready():
+        logger.error("Faltam variáveis de ambiente obrigatórias do SAP")
+        return None
+
+    sap = SAPExtractor(
+        settings.sap_host, settings.sap_port, settings.sap_user,
+        settings.sap_password, settings.sap_database,
+    )
+    if not sap.connect():
+        return None
+
+    owor = build_view_query('OWOR', settings.sap_schema)  # "SCHEMA"."OWOR"
+    ordr = build_view_query('ORDR', settings.sap_schema)  # "SCHEMA"."ORDR"
+    # OriginNum > 0 discards manual OPs (no originating pedido). MAX(DocEntry) sorts by
+    # the newest OS. LIMIT takes no bind parameter in HANA → validated int literal (:int).
+    df = sap.execute_query(*sql(
+        t'SELECT T0."OriginNum" AS "NPED", MAX(T1."CardName") AS "Cliente", '
+        t'MAX(T0."DocNum") AS "OS", MAX(T0."PostDate") AS "Data", '
+        t'MAX(T1."CANCELED") AS "Canceled", MAX(T1."DocStatus") AS "DocStatus", '
+        t'COUNT(T1."DocEntry") AS "PedidoExiste" '
+        t'FROM {owor:ident} T0 LEFT JOIN {ordr:ident} T1 ON T1."DocNum" = T0."OriginNum" '
+        t"WHERE T0.\"OriginNum\" > 0 AND T0.\"Status\" <> 'C' "
+        t'GROUP BY T0."OriginNum" '
+        t'ORDER BY MAX(T0."DocEntry") DESC '
+        t'LIMIT {limit_int:int}'
+    ))
+    sap.close()
+
+    if df is None:
+        logger.error("Falha ao listar pedidos com OS no SAP")
+        return None
+
+    pedidos: list[dict] = []
+    for _, row in df.iterrows():
+        if pd.isna(row.get('NPED')):
+            continue
+        data = row.get('Data')
+        cliente = row.get('Cliente')
+        os_num = row.get('OS')
+        # COUNT of the LEFT JOIN side: 0 = OS without a pedido in ORDR → status unknown.
+        existe = row.get('PedidoExiste')
+        if pd.notna(existe) and int(existe) > 0:
+            cancelado, status_ped = classificar_pedido(row.get('Canceled'), row.get('DocStatus'))
+        else:
+            cancelado, status_ped = None, None
+        pedidos.append({
+            'nped': int(row['NPED']),
+            'cliente': str(cliente).strip() if pd.notna(cliente) else None,
+            'os': int(os_num) if pd.notna(os_num) else None,
+            'data': data.isoformat() if hasattr(data, 'isoformat') else (
+                str(data) if pd.notna(data) else None),
+            'status_pedido': status_ped,
+            'pedido_cancelado': cancelado,
+        })
+    logger.info("Pedidos com OS listados do SAP: %s", len(pedidos))
+    return pedidos
+
+
+def main(
+    nped: object,
+    execution_mode: str | None = None,
+    execution_id: str | None = None,
+) -> bool:
+    """Sync a single ``NPED`` into the Ordens de Serviço (Engenharia) table.
+
+    Args:
+        nped: Pedido to sync.
+        execution_mode: ``'replace_nped'`` (replaces that NPED's rows) or ``'insert'``
+            (accumulate only, keeping history by ``id_execucao``). ``None`` (default)
+            reads ``OS_EXECUTION_MODE`` from the env — see the Note.
+        execution_id: Custom ID (UUID generated automatically if ``None``).
+
+    Returns:
+        ``True`` if it completed successfully; ``False`` otherwise.
+
+    Note:
+        The default used to be the ``OS_EXECUTION_MODE_DEFAULT`` **constant**, so
+        ``settings.os_execution_mode`` was never read and the ``OS_EXECUTION_MODE`` env
+        var did nothing — while `.env.example` and the README documented it as working.
+        Setting it in production changed nothing, silently. Now it is resolved at CALL
+        time (not as a default argument, which would freeze `get_settings()` at import and
+        break `reset_settings()` in tests), matching what the oportunidades pipeline
+        already does via ``scheduled_execution.py``.
+    """
+    settings = get_settings()
+    if execution_mode is None:
+        execution_mode = settings.os_execution_mode
+
+    if execution_mode not in OS_EXECUTION_MODES:
+        logger.error(
+            "execution_mode inválido: %r. Valores aceitos: %s",
+            execution_mode, ', '.join(OS_EXECUTION_MODES),
+        )
+        return False
+
+    if not settings.supabase_ready():
+        logger.error("Faltam variáveis de ambiente obrigatórias do Supabase")
+        return False
+
+    inicio = time.monotonic()
+    qtd_registros = 0
+    resultado = False
+    ocupado = False
+    nped_int: int | None = None
+    loader: SupabaseLoader | None = None
+
+    try:
+        nped_int = coerce_positive_int(nped, what='NPED')
+    except ValueError:
+        logger.error("NPED inválido (esperado inteiro): %r", nped)
+        return False
+
+    try:
+        logger.info("Extraindo OS do NPED %s...", nped_int)
+        df = extract_os_to_dataframe(nped_int)
+        if df is None:
+            logger.error("Extração falhou para o NPED %s", nped_int)
+            return False
+
+        if len(df) == 0:
+            # Pedido missing/with no rows in the view: do NOT delete what is already
+            # there, so a valid pedido already loaded is not removed by mistake.
+            logger.warning(
+                "NPED %s não retornou linhas na view; tabela mantida inalterada.",
+                nped_int,
+            )
+            return False
+
+        logger.info("Carregando %s linha(s) do NPED %s no Supabase...", len(df), nped_int)
+        loader = SupabaseLoader(settings.supabase_url, settings.supabase_write_key)
+
+        data_to_insert, exec_id = prepare_data(df, execution_id)
+        qtd_registros = len(data_to_insert)
+
+        # Cross-process PER-PEDIDO lock around insert+prune: the two together are what
+        # must be exclusive. Without it, the API and the CLI could write the same N_PED
+        # and each prune the other's rows, DELETING the pedido (api.py's `_sync_lock` is
+        # a threading.Lock and cannot see another process). See `os_sync_lock`.
+        with os_sync_lock(nped_int):
+            success = loader.insert_data(
+                settings.os_table_name, data_to_insert,
+                batch_size=settings.os_insert_batch_size,
+            )
+
+            # replace_nped: load-then-prune SCOPED to the NPED — THIS pedido's old rows
+            # are only removed after the insert succeeds (the pedido is never empty).
+            if success and execution_mode == 'replace_nped':
+                if not loader.delete_other_executions(
+                    settings.os_table_name, exec_id, where_eq={'N_PED': nped_int}
+                ):
+                    # NOT a success: the replace_nped contract ("replaces, does not
+                    # duplicate") was not met. The table holds TWO executions of the
+                    # pedido and reads sum both (inflated total_orcamento). This used to
+                    # be a WARNING with the function returning True — the log said
+                    # 'sucesso' with a corrupted table. Re-syncing consolidates it.
+                    logger.error(
+                        "Inserção OK mas a PODA do NPED %s falhou: a tabela está com DUAS "
+                        "execuções deste pedido e a leitura vai somar em dobro. "
+                        "Re-sincronize para consolidar.", nped_int,
+                    )
+                    return False
+
+        if success:
+            logger.info("✓ NPED %s sincronizado (id_execucao: %s)", nped_int, exec_id)
+            resultado = True
+            return True
+
+        logger.error("✗ Erro ao carregar o NPED %s no Supabase", nped_int)
+        return False
+
+    except FileLockTimeout:
+        # Another process is loading this same NPED: nothing was changed here. Re-raised so
+        # the API answers 409 'ocupado' — the generic `except` below used to swallow it into
+        # `False`, the API answered 502 'erro' and the history got a "falha" row (01/10/2026
+        # review).
+        ocupado = True
+        raise
+    except Exception as exc:
+        logger.error("Erro ao sincronizar o NPED %s: %s", nped_int, exc)
+        return False
+    finally:
+        # Auxiliary log (never affects the main result). None for a busy NPED: this call did
+        # not run, and a "falha" row would send someone hunting a problem that does not exist.
+        if not ocupado:
+            _registrar_sincronizacao(
+                settings, loader, nped_int, resultado, qtd_registros, time.monotonic() - inicio
+            )
+
+
+def _registrar_sincronizacao(
+    settings, loader: SupabaseLoader | None, nped_int: int | None, resultado: bool,
+    qtd_registros: int, duracao: float,
+) -> None:
+    """The sync-log row of one NPED. Never raises: the log must not change the outcome."""
+    try:
+        data_hora_pc = agora_iso()   # with offset: the column is timestamptz (see agora_iso)
+        status = 'sucesso' if resultado else 'falha'
+        log_loader = loader or SupabaseLoader(
+            settings.supabase_url, settings.supabase_write_key
+        )
+        log_loader.registrar_sincronizacao(
+            settings.os_sync_log_table,
+            data_hora_pc,
+            duracao,
+            status,
+            qtd_registros,
+            max_registros=OS_SYNC_LOG_MAX_REGISTROS,
+            extra_fields={'nped': nped_int},
+        )
+    except Exception as log_exc:
+        logger.error("Falha ao registrar log de sincronização (ignorada): %s", log_exc)
+
+
+def run_npeds(npeds: Iterable[object]) -> dict:
+    """Sync several NPEDs in sequence. Returns ``{nped: bool}`` with the outcome."""
+    resultados: dict = {}
+    for n in npeds:
+        resultados[n] = main(n)
+    ok = sum(1 for v in resultados.values() if v)
+    logger.info("Concluído: %s/%s NPED(s) sincronizado(s) com sucesso", ok, len(resultados))
+    return resultados
+
+
+def _parse_args(argv: list[str]) -> list[str]:
+    return [a for a in argv if a.strip()]
+
+
+if __name__ == "__main__":
+    _configure_logging()
+    args = _parse_args(sys.argv[1:])
+    if not args:
+        print(
+            "Uso: python extract_ordens_servico_engenharia.py <NPED> [<NPED> ...]\n"
+            "Ex.: python extract_ordens_servico_engenharia.py 84080 84095"
+        )
+        raise SystemExit(2)
+    resultados = run_npeds(args)
+    # exit code 0 only if every one succeeded
+    raise SystemExit(0 if all(resultados.values()) else 1)

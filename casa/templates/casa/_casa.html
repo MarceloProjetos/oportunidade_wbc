@@ -1,0 +1,119 @@
+{#
+  The shell of the "Central Integração SAP" screens (casa/__init__.py). Rendered by the three
+  processes of the .11 — keep it free of anything one app has and the others do not: every
+  value comes in through the macro arguments or the globals `casa.instalar` registers.
+#}
+
+{% macro icone(nome, tamanho=16) -%}
+<svg class="casa-icone" width="{{ tamanho }}" height="{{ tamanho }}" viewBox="0 0 24 24" fill="none"
+     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+     aria-hidden="true" focusable="false">
+{%- if nome == 'marca' -%}
+<circle cx="12" cy="12" r="2.6"/><circle cx="12" cy="3.6" r="1.6"/><circle cx="4.7" cy="16.6" r="1.6"/><circle cx="19.3" cy="16.6" r="1.6"/><path d="M12 5.2v4.2M6.1 15.8l3.7-2.4M17.9 15.8l-3.7-2.4"/>
+{%- elif nome == 'voltar' -%}
+<path d="M19 12H5M12 19l-7-7 7-7"/>
+{%- elif nome == 'integracao' -%}
+<path d="M4 8h14l-4-4"/><path d="M20 16H6l4 4"/>
+{%- elif nome == 'pedidos' -%}
+<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>
+{%- elif nome == 'ops' -%}
+<path d="M12 2v4M12 18v4M4.9 4.9l2.9 2.9M16.2 16.2l2.9 2.9M2 12h4M18 12h4M4.9 19.1l2.9-2.9M16.2 7.8l2.9-2.9"/><circle cx="12" cy="12" r="3"/>
+{%- elif nome == 'sincronizar' -%}
+<path d="M21 12a9 9 0 0 0-15-6.7L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 15 6.7l3-2.7"/><path d="M21 21v-5h-5"/>
+{%- elif nome == 'execucoes' -%}
+<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+{%- elif nome == 'sair' -%}
+<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>
+{%- elif nome == 'sol' -%}
+<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
+{%- elif nome == 'lua' -%}
+<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
+{%- elif nome == 'escudo' -%}
+<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+{%- endif -%}
+</svg>
+{%- endmacro %}
+
+{#
+  For <head>. The theme attribute itself is written by the server on <html> (from the
+  cookie), so there is no flash; the script below only runs once per browser, for whoever
+  chose a theme before the cookie existed (each screen kept it in its own localStorage).
+#}
+{% macro cabeca() -%}
+<link rel="stylesheet" href="/casa/casa.css?v={{ casa.versao }}">
+<script>
+  (function () {
+    try {
+      if (document.cookie.indexOf("{{ casa.cookie_tema }}=") !== -1) { return; }
+      var claro = localStorage.getItem("orcaview-theme") === "light"
+               || localStorage.getItem("wbc-tema") === "claro";
+      var tema = claro ? "claro" : "escuro";
+      document.cookie = "{{ casa.cookie_tema }}=" + tema + "; Path=/; Max-Age=31536000; SameSite=Lax";
+      // Only an old light choice changes the page; otherwise the server's attribute stands.
+      if (claro) { document.documentElement.setAttribute("data-theme", "light"); }
+    } catch (e) { /* blocked storage: the server-side default stands */ }
+  })();
+</script>
+<script src="/casa/casa.js?v={{ casa.versao }}" defer></script>
+{%- endmacro %}
+
+{#
+  The top bar. `itens` = casa_itens(hrefs, ativa) — empty on the key prompt, where only the
+  way back to the OrçaView makes sense. `ambiente` = {"em_producao", "company_db", "ambiente"}
+  and optionally "dica", the pill's tooltip when the screen does not write into the SAP.
+#}
+{% macro barra(itens, voltar_href, ambiente, mostrar_sair=false, inicio_href=none, no_inicio=false) -%}
+<header class="casa-barra">
+  {# The brand is the way to the Central's home page (F5): the state of the three screens.
+     A link only where the app wired it; on the home page itself it is marked current. #}
+  {% if inicio_href %}
+  <a class="casa-marca" href="{{ inicio_href }}" title="Início da {{ casa.marca }} — o estado das telas"
+     {%- if no_inicio %} aria-current="page"{% endif %}>
+  {% else %}
+  <span class="casa-marca" title="{{ casa.marca }}">
+  {% endif %}
+    <span class="casa-marca__simbolo">{{ icone('marca', 20) }}</span>
+    <span class="casa-marca__nome"><small>Central</small><b>Integração SAP</b></span>
+  {% if inicio_href %}</a>{% else %}</span>{% endif %}
+
+  <nav class="casa-nav" aria-label="Telas da {{ casa.marca }}">
+    {# The way back: these screens open in a new tab from the OrçaView cards. Green arrow
+       (owner's call, 30/09/2026). #}
+    <a class="casa-item casa-item--voltar" href="{{ voltar_href }}" title="Voltar à página inicial do OrçaView">
+      {{ icone('voltar') }}<span>OrçaView</span></a>
+    {% if itens %}
+    <span class="casa-nav__sep" aria-hidden="true"></span>
+    {% for item in itens %}
+    <a class="casa-item" href="{{ item.href }}" title="{{ item.dica }}"
+       {%- if item.ativa %} aria-current="page"{% endif %}>
+      {{ icone(item.icone) }}<span>{{ item.rotulo }}</span></a>
+    {% endfor %}
+    {% endif %}
+  </nav>
+
+  <div class="casa-direita">
+    {% if ambiente.em_producao %}
+    <span class="casa-ambiente casa-ambiente--producao"
+          title="{{ ambiente.dica or 'Produção: as gravações vão para o SAP de verdade' }}">{{ ambiente.company_db }}</span>
+    {% else %}
+    <span class="casa-ambiente" title="{{ ambiente.ambiente }}">{{ ambiente.company_db }}</span>
+    {% endif %}
+    {% if mostrar_sair %}
+    <form method="post" action="/sair" class="casa-sair">
+      <button class="casa-botao" type="submit" title="Esquecer a chave neste navegador">
+        {{ icone('sair', 15) }}<span>Sair</span></button>
+    </form>
+    {% endif %}
+    <button class="casa-tema" type="button" data-casa-tema
+            aria-label="Alternar tema claro/escuro" title="Alternar tema (claro/escuro)">
+      <span class="casa-tema__ir-claro">{{ icone('sol', 18) }}</span>
+      <span class="casa-tema__ir-escuro">{{ icone('lua', 18) }}</span>
+    </button>
+  </div>
+</header>
+{% if not ambiente.em_producao %}
+{# Off production the strip stays (owner's decision 3): mixing the two bases was a real
+   mistake on 21/09. In production the pill in the bar is enough. #}
+<div class="casa-faixa" role="note">{{ icone('escudo', 13) }} Ambiente: {{ ambiente.ambiente }}</div>
+{% endif %}
+{%- endmacro %}

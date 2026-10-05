@@ -1,0 +1,65 @@
+{#
+  Os números do topo — que são também os filtros da lista.
+
+  Cada indicador é uma pergunta ("quais deram erro?"), e o número sozinho só diz
+  quantos são. Clicar abre a lista daqueles, usando a **mesma** definição que
+  contou: o indicador que diz 8 abre uma lista de 8.
+
+  "Avaliados" e "com ação" são coisas diferentes, e a distinção é o motivo de
+  este bloco existir: o ciclo lê a janela inteira de propósito, e contar tudo
+  como integrado anunciava centenas de orçamentos tratados quando nenhum havia
+  sido tocado.
+#}
+{% set semaforo = {
+  "com_erro": "critico" if kpis.com_erro else "ok",
+  "com_acao": "acento",
+} %}
+<div class="bloco">
+  <header>
+    <h2>Situação da integração</h2>
+    <span class="selo {{ saude_classe }}">{{ saude_texto }}</span>
+    <span class="carimbo"><span class="pulso"></span>{{ atualizado }}</span>
+  </header>
+  <div class="corpo">
+    <div class="faixa-kpi">
+      {% for r in recortes %}
+        {# `button` e não `div`: é acionável, então precisa ser alcançável pelo
+           teclado e anunciado como botão — não é enfeite clicável. #}
+        <button
+          type="button"
+          class="kpi {{ semaforo.get(r.id, '') }} {{ 'ativo' if r.id == ativo }}"
+          hx-get="/fragmentos/oportunidades?recorte={{ r.id }}{{ '&tudo=1' if tudo else '' }}"
+          hx-target="#conteudo"
+          hx-push-url="/?aba=oportunidades&recorte={{ r.id }}{{ '&tudo=1' if tudo else '' }}"
+          onclick="marcarAbaPorNome('Oportunidades'); marcarIndicador(this)"
+          aria-pressed="{{ 'true' if r.id == ativo else 'false' }}"
+          title="{{ r.explicacao or r.rotulo }} — clique para listar"
+        >
+          <span class="rotulo">{{ r.rotulo }}</span>
+          <span class="valor">{{ valores[r.id] | numero }}</span>
+          {% if r.id == "com_erro" %}
+            <span class="detalhe">{{ '%.1f'|format(kpis.taxa_de_erro) }}% dos avaliados</span>
+          {% elif r.id == "com_pedido" %}
+            <span class="detalhe">{{ kpis.valor_em_pedidos | moeda }}</span>
+          {% elif r.explicacao %}
+            <span class="detalhe">{{ r.explicacao }}</span>
+          {% endif %}
+        </button>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<script>
+  // Marca o indicador clicado na hora, sem esperar o servidor: o clique troca
+  // o conteúdo da página, e o topo só repinta no próximo ciclo de 30 s. Quando
+  // repintar, o servidor devolve a mesma marca — o recorte está no endereço.
+  function marcarIndicador(botao) {
+    document.querySelectorAll(".kpi").forEach(function (k) {
+      k.classList.remove("ativo");
+      k.setAttribute("aria-pressed", "false");
+    });
+    botao.classList.add("ativo");
+    botao.setAttribute("aria-pressed", "true");
+  }
+</script>

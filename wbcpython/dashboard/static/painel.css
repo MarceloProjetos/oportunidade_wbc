@@ -1,0 +1,1134 @@
+/* Painel de acompanhamento — folha de estilo única.
+ *
+ * Sem fonte de web e sem CDN: a máquina do worker não tem saída para a
+ * internet, e um painel que depende de baixar algo é um painel que abre em
+ * branco justamente no dia em que alguém precisa dele. Tudo aqui é pilha de
+ * fontes do sistema e CSS puro — inclusive as barras dos gráficos.
+ */
+
+/* "Central Integração SAP" (01/10/2026, PLANO_CASA_COMUM_11 F2): the top bar, the page title,
+ * the theme and the base palette come from casa/static/casa.css, loaded before this file and
+ * shared with the Controle de Produção and the Sincronização. The tokens below that have a
+ * house equivalent only POINT at it (one definition); the rest are this painel's own.
+ * Dark is the default; light is `data-theme="light"`, written by the server from the
+ * `casa_tema` cookie (it replaced the per-port `wbc-tema` localStorage key).
+ *
+ * Surface ladder: page < card header < card < inner surface (KPIs) < input.
+ * `--acento` fills and borders; `--acento-texto` is the accent as TEXT (lighter coral in
+ * dark, for contrast on the card). Semantic colours keep their tuned hues; their
+ * backgrounds are translucent so they sit on any surface. */
+:root {
+  --fundo: var(--casa-pagina);
+  --painel: var(--casa-cartao);
+  --painel-2: #262626;
+  --superficie: #333333;
+  --campo: #3a3a3a;
+  --traco: var(--casa-borda);
+  --traco-forte: #5c5c5c;
+  --tinta: var(--casa-texto);
+  --tinta-fraca: var(--casa-texto-2);
+  --tinta-fraquissima: #959ca8; /* 4.6:1 on --superficie (30/09/2026: was 3.3:1) */
+
+  --acento: var(--casa-acento);
+  --acento-texto: var(--casa-acento-texto);
+  --acento-fraco: rgb(218 119 86 / 14%);
+
+  --ok: #48b77f;
+  --ok-fundo: rgb(72 183 127 / 15%);
+  --atencao: #e0a82e;
+  --atencao-fundo: rgb(224 168 46 / 15%);
+  --critico: #f2726a;
+  --critico-fundo: rgb(242 114 106 / 15%);
+  --neutro: #9ca3af;
+  --neutro-fundo: rgb(156 163 175 / 14%);
+
+  /* Blue for themed log lines ("[porta-paletes] ..."): what the integration DECIDED
+   * about the line — neither warning nor error, so neither coral, amber nor red. */
+  --tema: #6aaaf2;
+  --tema-fundo: rgb(106 170 242 / 15%);
+
+  --sombra: 0 4px 10px rgb(0 0 0 / 30%), 0 1px 3px rgb(0 0 0 / 22%);
+  --raio: 12px;
+  --raio-item: 10px;
+
+  --ui: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Monospace only where it is content: log lines, commands, console output. */
+  --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", "Cascadia Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+:root[data-theme="light"] {
+  --painel-2: #f6f8fb;
+  --superficie: #f8fafc;
+  --campo: #ffffff;
+  --traco-forte: #b8c3d1;
+  --tinta-fraquissima: #667180; /* 4.9:1 on white */
+  --acento-fraco: rgb(196 90 58 / 10%);
+  --ok: #1c7a4c;
+  --ok-fundo: #e4f3ea;
+  --atencao: #92620a;
+  --atencao-fundo: #fbf0d8;
+  --critico: #b42318;
+  --critico-fundo: #fbe6e4;
+  --neutro: #5c6b79;
+  --neutro-fundo: #eaeef1;
+  --tema: #1f5fa8;
+  --tema-fundo: #e3edf9;
+  --sombra: 0 1px 2px rgb(0 0 0 / 5%), 0 6px 20px rgb(0 0 0 / 5%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--fundo);
+  color: var(--tinta);
+  font: 400 15px/1.5 var(--ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  text-wrap: balance;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+a {
+  color: var(--acento-texto);
+}
+
+:focus-visible {
+  outline: 2px solid var(--acento);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* ------------------------------------------------------------- título e abas */
+
+/* The page title is the shared .casa-titulo. The Controle de Produção renders its content at
+ * zoom 1.125 (owner, 30/09/2026); the same factor here makes the two titles identical. */
+main > .casa-titulo {
+  zoom: 1.125;
+}
+
+/* The tab row stays under the shared bar while the list scrolls (it used to live in the
+ * sticky header). Full width of <main>: the negative margins reach its padding, so rows
+ * scrolling underneath never show beside it. Solid background — no color-mix here: older
+ * Chrome/Edge paint nothing for it (30/09/2026). */
+.abas-linha {
+  position: sticky;
+  top: var(--casa-barra-altura);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0 -20px 20px;
+  padding: 0 20px;
+  background: var(--fundo);
+  border-bottom: 1px solid var(--traco);
+}
+
+.abas-linha .caixa {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------- abas */
+
+.abas {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.aba {
+  appearance: none;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: 500 0.9375rem/1 var(--ui);
+  color: var(--tinta-fraca);
+  padding: 11px 16px 12px;
+  border-bottom: 2px solid transparent;
+  border-radius: var(--raio-item) var(--raio-item) 0 0;
+  white-space: nowrap;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.aba:hover {
+  color: var(--tinta);
+  background: var(--acento-fraco);
+}
+
+.aba[aria-current="page"] {
+  color: var(--acento-texto);
+  border-bottom-color: var(--acento);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------ estrutura */
+
+main {
+  padding: 24px 20px 56px;
+  max-width: 1800px;
+  margin: 0 auto;
+}
+
+/* Card: background + 1px border + radius + soft shadow, no glass (OrçaView kit). */
+.bloco {
+  background: var(--painel);
+  border: 1px solid var(--traco);
+  border-radius: 14px;
+  box-shadow: var(--sombra);
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+
+.bloco > header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--traco);
+  background: var(--painel-2);
+}
+
+/* Section title = small caps, muted, with the accent's little square (OrçaView kit). */
+.bloco > header h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--tinta-fraca);
+  margin-right: auto;
+}
+
+.bloco > header h2::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--acento);
+}
+
+.corpo {
+  padding: 18px 20px;
+}
+
+.nota {
+  color: var(--tinta-fraquissima);
+  font-size: 0.8125rem;
+  margin: 8px 0 0;
+}
+
+.vazio {
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--tinta-fraca);
+}
+
+/* --------------------------------------------------------------- indicadores */
+
+/* grid + auto-fit, not flex: no empty strip on the right (the classic complaint). */
+.faixa-kpi {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+/* The KPI is a button (it opens the list of those quotes), hence the explicit
+ * `text-align`, `font` and `width`. The 4px LEFT rule carries the traffic-light, like the
+ * OrçaView summary cards; the number itself stays neutral. */
+.kpi {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: var(--superficie);
+  border: 1px solid var(--traco);
+  border-left: 4px solid var(--traco-forte);
+  border-radius: var(--raio-item);
+  padding: 14px 16px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.kpi:hover {
+  box-shadow: 0 4px 14px rgb(0 0 0 / 25%);
+  background: color-mix(in srgb, var(--superficie) 90%, var(--acento) 10%);
+}
+
+.kpi.ativo {
+  border-color: var(--acento);
+  box-shadow: 0 0 0 1px var(--acento);
+}
+
+.kpi .rotulo {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--tinta-fraca);
+  display: block;
+  margin-bottom: 8px;
+}
+
+.kpi .valor {
+  font: 700 1.875rem/1.1 var(--ui);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  color: var(--tinta);
+}
+
+.kpi .detalhe {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: var(--tinta-fraquissima);
+}
+
+.kpi.ok {
+  border-left-color: var(--ok);
+}
+.kpi.atencao {
+  border-left-color: var(--atencao);
+}
+.kpi.critico {
+  border-left-color: var(--critico);
+}
+.kpi.acento {
+  border-left-color: var(--acento);
+}
+.kpi.critico .valor {
+  color: var(--critico);
+}
+
+.selo {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  padding: 6px 12px;
+  border-radius: 999px;
+}
+
+.selo::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentcolor;
+}
+
+.selo.ok {
+  color: var(--ok);
+  background: var(--ok-fundo);
+}
+.selo.atencao {
+  color: var(--atencao);
+  background: var(--atencao-fundo);
+}
+.selo.critico {
+  color: var(--critico);
+  background: var(--critico-fundo);
+}
+.selo.neutro {
+  color: var(--neutro);
+  background: var(--neutro-fundo);
+}
+
+/* ------------------------------------------------------------------ formulários */
+
+.filtros {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.campo > span {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--tinta-fraca);
+}
+
+input[type="text"],
+input[type="number"],
+input[type="search"],
+input[type="password"],
+select {
+  font: 400 0.9375rem/1.2 var(--ui);
+  color: var(--tinta);
+  background: var(--campo);
+  border: 1px solid var(--traco-forte);
+  border-radius: 9px;
+  padding: 9px 12px;
+  min-width: 160px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="search"]:focus,
+input[type="password"]:focus,
+select:focus {
+  outline: none;
+  border-color: var(--acento);
+  box-shadow: 0 0 0 3px var(--acento-fraco);
+}
+
+input::placeholder {
+  color: var(--tinta-fraquissima);
+}
+
+input[type="search"].largo {
+  min-width: 300px;
+}
+
+.caixa {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: var(--tinta-fraca);
+  cursor: pointer;
+}
+
+.caixa input {
+  accent-color: var(--acento);
+  width: 16px;
+  height: 16px;
+}
+
+/* Primary action = OrçaView relief button (coral gradient); `.discreta` = ghost button. */
+button.acao,
+a.acao {
+  appearance: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 0.875rem/1 var(--ui);
+  color: #fff;
+  background: linear-gradient(to bottom, #e08060, #c45a3a);
+  border: 1px solid #b04e30;
+  border-radius: var(--raio-item);
+  padding: 10px 16px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 15%), inset 0 1px 0 rgb(255 255 255 / 18%);
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+}
+
+button.acao:hover,
+a.acao:hover {
+  background: linear-gradient(to bottom, #e8956e, #da7756);
+}
+
+button.acao.discreta,
+a.acao.discreta {
+  background: var(--painel);
+  color: var(--tinta);
+  border-color: var(--traco-forte);
+  box-shadow: none;
+  font-weight: 500;
+}
+
+button.acao.discreta:hover,
+a.acao.discreta:hover {
+  color: var(--acento-texto);
+  border-color: var(--acento);
+  background: var(--acento-fraco);
+}
+
+a.acao {
+  text-decoration: none;
+}
+
+
+/* ------------------------------------------------------------- entrada */
+
+/* A tela da chave. Existe só quando há OS_API_KEY no .env; sem ela o painel
+ * abre direto, como sempre abriu. */
+.bloco.entrada {
+  max-width: 440px;
+  margin: 48px auto;
+  padding: 20px;
+}
+
+.bloco.entrada form {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+/* Only the monospace font: size, border, radius and focus ring come from the global field
+ * style (the old block kept a 5 px radius and a second focus outline). */
+.bloco.entrada input[type="password"] {
+  font-family: var(--mono);
+}
+
+.entrada-ajuda {
+  color: var(--tinta-fraca);
+  font-size: 14.5px;
+  margin: 6px 0;
+}
+
+.entrada-erro {
+  color: var(--critico);
+  background: var(--critico-fundo);
+  padding: 8px 10px;
+  border-radius: 5px;
+  font-size: 14.5px;
+  margin: 6px 0;
+}
+
+/* -------------------------------------------------------------------- tabelas */
+
+.rolagem {
+  overflow-x: auto;
+  max-height: 62vh;
+  overflow-y: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--painel-2);
+  text-align: left;
+  font: 600 0.75rem/1 var(--ui);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--tinta-fraca);
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--traco);
+  white-space: nowrap;
+}
+
+tbody td {
+  padding: 11px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--traco) 70%, transparent);
+  white-space: nowrap;
+}
+
+tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--tinta) 2.5%, transparent);
+}
+
+tbody tr:hover td {
+  background: var(--acento-fraco);
+}
+
+/* Identifiers and quantities line up with tabular figures (same font as the page, as in
+ * OrçaView): scanning a column top to bottom for the odd number keeps working. */
+td.mono,
+th.mono {
+  font-variant-numeric: tabular-nums;
+}
+
+td.mono {
+  color: var(--tinta-fraca);
+}
+
+/* Header and cell align together: a left title over right-aligned numbers makes the
+ * column look crooked. */
+th.num,
+td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The quote number opens its history: link in accent text, no underline until hover. */
+a.orcamento {
+  color: var(--acento-texto);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+a.orcamento:hover {
+  text-decoration: underline;
+}
+
+/* Status pill: translucent background + text in the same hue (OrçaView kit). */
+.pilula {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font: 600 0.75rem/1.4 var(--ui);
+  color: var(--neutro);
+  background: var(--neutro-fundo);
+}
+
+.pilula::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentcolor;
+}
+
+.pilula.ok {
+  color: var(--ok);
+  background: var(--ok-fundo);
+}
+.pilula.atencao {
+  color: var(--atencao);
+  background: var(--atencao-fundo);
+}
+.pilula.critico {
+  color: var(--critico);
+  background: var(--critico-fundo);
+}
+
+/* The row that loads the next page when it scrolls into view (also clickable). */
+tbody tr.mais td {
+  text-align: center;
+  padding: 16px;
+  color: var(--tinta-fraca);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  background: var(--painel-2);
+}
+
+tbody tr.mais:hover td {
+  color: var(--acento-texto);
+}
+
+tbody tr.mais .pulso {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+
+/* --------------------------------------------------------------------- barras */
+
+.barras {
+  display: grid;
+  gap: 7px;
+}
+
+.barra {
+  display: grid;
+  grid-template-columns: minmax(120px, 34%) 1fr auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+/* `display: block` nos dois não é detalhe de gosto: são `<span>`, e uma caixa
+ * inline ignora `height` — o trilho aparecia e o preenchimento não. */
+.barra .trilho {
+  display: block;
+  height: 9px;
+  background: var(--neutro-fundo);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.barra .preenche {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  background: var(--acento);
+  border-radius: 2px;
+}
+
+.barra .n {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--tinta-fraca);
+  min-width: 3ch;
+  text-align: right;
+}
+
+.duas-colunas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+/* ------------------------------------------------------------------------ log */
+
+.log {
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.45;
+  max-height: 60vh;
+  overflow: auto;
+  background: var(--painel-2);
+}
+
+.log-linha {
+  display: grid;
+  grid-template-columns: 9ch 8ch minmax(0, 27ch) minmax(0, 1fr);
+  gap: 12px;
+  padding: 3px 12px 3px 9px;
+  border-left: 3px solid transparent;
+  border-bottom: 1px solid color-mix(in srgb, var(--traco) 40%, transparent);
+}
+
+.log-linha .hora,
+.log-linha .origem {
+  color: var(--tinta-fraquissima);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-linha .nivel {
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--tinta-fraca);
+}
+
+.log-linha .msg {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.log-linha.WARNING {
+  border-left-color: var(--atencao);
+  background: color-mix(in srgb, var(--atencao-fundo) 55%, transparent);
+}
+.log-linha.WARNING .nivel {
+  color: var(--atencao);
+}
+
+/* Linha com tema ("[porta-paletes] ..."): o que a integração decidiu sobre a
+ * linha do orçamento. Vem ANTES das regras de erro de propósito — um ERROR
+ * com tema continua vermelho. Um WARNING com tema fica azul na borda e no
+ * fundo, mas mantém o nível em âmbar: é atenção, não é falha. */
+.log-linha.tema {
+  border-left-color: var(--tema);
+  background: color-mix(in srgb, var(--tema-fundo) 60%, transparent);
+}
+
+.selo-tema {
+  display: inline-block;
+  vertical-align: baseline;
+  margin: 0 8px 0 0;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--tema) 55%, transparent);
+  border-radius: 999px;
+  background: var(--tema-fundo);
+  color: var(--tema);
+  font: 600 11px/1.6 var(--ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.selo-tema:hover {
+  background: var(--tema);
+  color: var(--painel);
+}
+
+.log-linha.ERROR,
+.log-linha.CRITICAL {
+  border-left-color: var(--critico);
+  background: color-mix(in srgb, var(--critico-fundo) 60%, transparent);
+}
+.log-linha.ERROR .nivel,
+.log-linha.CRITICAL .nivel {
+  color: var(--critico);
+}
+
+/* --------------------------------------------------------------------- avisos */
+
+.aviso {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 11px 13px;
+  border-radius: var(--raio);
+  border: 1px solid;
+  font-size: 14.5px;
+  margin-bottom: 12px;
+}
+
+.aviso.ok {
+  color: var(--ok);
+  background: var(--ok-fundo);
+  border-color: color-mix(in srgb, var(--ok) 30%, transparent);
+}
+.aviso.atencao {
+  color: var(--atencao);
+  background: var(--atencao-fundo);
+  border-color: color-mix(in srgb, var(--atencao) 30%, transparent);
+}
+.aviso.erro {
+  color: var(--critico);
+  background: var(--critico-fundo);
+  border-color: color-mix(in srgb, var(--critico) 30%, transparent);
+}
+.aviso.info {
+  color: var(--tinta-fraca);
+  background: var(--neutro-fundo);
+  border-color: var(--traco);
+}
+
+code,
+.cmd {
+  font-family: var(--mono);
+  font-size: 13px;
+  background: var(--neutro-fundo);
+  border: 1px solid var(--traco);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.pares {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 20px;
+  margin: 0;
+}
+
+/* Item de grade tem `min-width: auto`: sem isto a célula cresce para caber o
+ * conteúdo em vez de o conteúdo quebrar dentro dela. */
+.pares > div {
+  min-width: 0;
+}
+
+.pares dt {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--tinta-fraquissima);
+}
+
+.pares dd {
+  margin: 2px 0 0;
+  font-family: var(--mono);
+  /* Um valor longo tem de quebrar dentro da própria coluna. Nomes de regra são
+   * uma palavra só para o navegador (`cancela_cotacao_no_encerramento`), e sem
+   * isto a linha atravessa o campo vizinho — o leitor vê o texto por cima do
+   * rótulo ao lado e não sabe mais de quem é qual valor. */
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+/* As regras aplicadas são uma lista, e não uma frase: mostrá-las como
+ * etiquetas separadas diz onde cada nome começa e termina, o que a emenda com
+ * "+" escondia. Quebram em coluna quando não cabem lado a lado. */
+.regras {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.regras .regra {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid var(--traco);
+  border-radius: 10px;
+  background: var(--painel-2);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------------ atualização */
+
+.carimbo {
+  font: 400 12px/1 var(--mono);
+  color: var(--tinta-fraquissima);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* O pulso mostra que o bloco está vivo. Quem olha um monitor precisa
+ * distinguir "nada aconteceu" de "a página congelou". */
+.pulso {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  animation: pulsar 2.4s ease-in-out infinite;
+}
+
+@keyframes pulsar {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.pulso.parado {
+  background: var(--tinta-fraquissima);
+  animation: none;
+}
+
+.htmx-request .pulso {
+  opacity: 1;
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulso {
+    animation: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .log-linha {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  main {
+    padding: 12px 10px 40px;
+  }
+  .abas-linha {
+    position: static;
+    flex-wrap: wrap;
+    margin: 0 -10px 16px;
+    padding: 0 10px;
+  }
+  .abas-linha .caixa {
+    margin-left: 0;
+    padding-bottom: 10px;
+  }
+}
+
+/* ------------------------------------------------------------------ comandos */
+
+.grade-comandos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  gap: 12px;
+}
+
+.comando {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 13px;
+  border: 1px solid var(--traco);
+  border-radius: var(--raio);
+  background: var(--painel-2);
+}
+
+/* O filete lateral separa o que escreve do que só lê antes de qualquer
+ * leitura: é a distinção que evita o clique errado. */
+.comando:has(.etiqueta.perigo) {
+  border-left: 3px solid var(--critico);
+}
+
+.comando:has(.etiqueta.atencao) {
+  border-left: 3px solid var(--atencao);
+}
+
+.comando-cabeca {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.comando-cabeca h3 {
+  font-size: 15.5px;
+  margin-right: auto;
+}
+
+.comando .resumo {
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--tinta-fraca);
+}
+
+.comando .alerta {
+  margin: 0;
+  font-size: 14px;
+  color: var(--critico);
+}
+
+.comando .filtros {
+  margin-top: auto;
+}
+
+.comando input[type="text"],
+.comando input[type="password"] {
+  min-width: 130px;
+  background: var(--painel);
+}
+
+.etiqueta {
+  font: 600 11px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 7px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.etiqueta.perigo {
+  color: var(--critico);
+  background: var(--critico-fundo);
+}
+.etiqueta.atencao {
+  color: var(--atencao);
+  background: var(--atencao-fundo);
+}
+.etiqueta.calma {
+  color: var(--ok);
+  background: var(--ok-fundo);
+}
+.etiqueta.tempo {
+  color: var(--tinta-fraquissima);
+  background: var(--neutro-fundo);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Vermelho, e não o coral do acento: um botão que cria pedido no SAP não pode parecer o
+ * botão que aplica um filtro. A fixed dark red in both themes (30/09/2026): `--critico` in
+ * the now-default dark theme was white on #f2726a (2.8:1) and ~11° from the coral primary. */
+button.acao.perigosa {
+  background: #b42318; /* 6.6:1 with white */
+}
+
+button.acao:disabled {
+  background: var(--neutro-fundo);
+  color: var(--tinta-fraquissima);
+  border-color: var(--traco);
+  cursor: not-allowed;
+  filter: none;
+}
+
+input:disabled {
+  background: var(--neutro-fundo);
+  color: var(--tinta-fraquissima);
+  cursor: not-allowed;
+  /* O fundo cinza sozinho quase não se distingue do cartão; a opacidade é o
+   * que faz o campo desligado parecer desligado. */
+  opacity: 0.55;
+}
+
+/* O htmx marca o elemento durante a requisição; o botão fica desabilitado por
+ * `hx-disabled-elt`, e isto deixa isso visível em vez de parecer travamento. */
+.htmx-request button.acao,
+button.acao.htmx-request {
+  opacity: 0.6;
+}
+
+/* ------------------------------------------------------------------- console */
+
+pre.console {
+  margin: 0;
+  padding: 12px 14px;
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--tinta);
+  background: var(--painel-2);
+  border-top: 1px solid var(--traco);
+  max-height: 42vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+pre.console.alta {
+  max-height: 66vh;
+}
+
+
+/* --------------------------------------------------------- recorte da lista */
+
+/* A etiqueta do recorte ativo, no cabeçalho da lista. Uma lista filtrada que
+ * não diz que está filtrada é a forma mais fácil de alguém concluir que
+ * faltam orçamentos no painel. */
+.recorte {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 13px/1 var(--ui);
+  padding: 5px 6px 5px 10px;
+  border-radius: 999px;
+  color: var(--acento-texto);
+  background: var(--acento-fraco);
+  border: 1px solid color-mix(in srgb, var(--acento) 35%, transparent);
+}
+
+.recorte .sair {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  text-decoration: none;
+  font-size: 14.5px;
+  line-height: 1;
+  color: var(--acento-texto);
+  background: color-mix(in srgb, var(--acento) 16%, transparent);
+}
+
+.recorte .sair:hover {
+  background: var(--acento);
+  color: var(--painel);
+}
+
+/* Os dois botoes de resposta ficam lado a lado, e nao empilhados: sao as duas
+ * metades de uma pergunta so.
+ *
+ * `bottom` e nao `top`: um dos formularios tem campos com rotulo em cima e o
+ * outro so tem o botao. Alinhados pelo topo, os dois botoes saiam em alturas
+ * diferentes — e duas respostas a mesma pergunta em degrau leem como duas
+ * coisas sem relacao. */
+#janela .comando {
+  display: inline-block;
+  vertical-align: bottom;
+  margin-right: 12px;
+}
+
+/* A segunda metade de um cartao compartilhado (SAP+HANA, Ambiente+doctor).
+ *
+ * O traco existe para separar dois comandos DIFERENTES que dividem a mesma
+ * caixa: sem ele, o segundo titulo parece subtitulo do primeiro.
+ *
+ * `.comando-duplo` existe para DESLIGAR o `margin-top: auto` que o `.filtros`
+ * de um cartao normal usa para alinhar os botoes pelo rodape. Num cartao de
+ * duas secoes esse empurrao se divide entre as duas e abre um vao no meio --
+ * visto na .11 em 14/09, com a grade em quatro colunas: o "Executar" do SAP
+ * ficava longe do texto dele e colado no titulo do HANA. Aqui o conteudo flui
+ * de cima para baixo, e a sobra fica embaixo, como em qualquer cartao. */
+.comando-duplo .filtros {
+  margin-top: 12px;
+}
+
+.comando-duplo .comando-extra {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--traco);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}

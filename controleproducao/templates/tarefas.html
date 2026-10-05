@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% from "_icones.html" import icone %}
+{% set ativo = 'tarefas' %}
+{% block title %}Execuções{% endblock %}
+{% block content %}
+<header class="casa-titulo">
+  <span class="casa-titulo__simbolo">{{ icone('execucoes', 26) }}</span>
+  <div class="casa-titulo__texto">
+    <h1>Execuções</h1>
+    {% if guardado %}
+    <p>As {{ maximo }} execuções mais recentes, guardadas no Supabase — reiniciar o serviço
+      não apaga esta lista</p>
+    {% else %}
+    <p>Histórico em memória do processo — reiniciar o serviço zera esta lista (as gravações
+      já feitas no SAP permanecem). Só a .11 guarda as execuções no Supabase.</p>
+    {% endif %}
+  </div>
+</header>
+
+{% if aviso %}
+<div class="ov-alerta is-warn" role="status">{{ icone('alerta', 16) }}<span>{{ aviso }}</span></div>
+{% endif %}
+
+<section class="ov-table-card">
+  <div class="ov-scroll">
+    <table class="ov-table">
+      <thead>
+        <tr><th>Quando</th><th>Operação</th><th>Situação</th><th class="num">Duração</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for t in tarefas %}
+        <tr>
+          <td class="data">{{ t.criada_em.strftime('%d/%m %H:%M:%S') }}</td>
+          <td><strong>{{ t.nome }}</strong><br><span class="ov-nota">{{ t.descricao }}</span>{%
+            if t.origem == 'api' %}<br><span class="ov-nota">por {{ t.solicitante or '—' }} · API</span>{% endif %}</td>
+          <td>
+            <span class="ov-pill {{ CLASSE_DA_PILULA[t.desfecho] }}">{{ t.situacao }}{%
+              if t.desfecho == 'falhas' %} com falhas{% endif %}</span>
+          </td>
+          <td class="num">{{ (t.duracao_segundos ~ ' s') if t.duracao_segundos is not none else '' }}</td>
+          <td><a href="/tarefas/{{ t.id }}">abrir</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="vazio">Nenhuma execução registrada{{ '' if guardado else ' neste processo' }}.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

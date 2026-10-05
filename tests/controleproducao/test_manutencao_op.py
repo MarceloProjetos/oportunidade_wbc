@@ -1,0 +1,396 @@
+"""Testes de `manutencao-op liberar` / `replanejar` (módulo 3, implementado em 16/09/2026).
+
+Porte de `ManutencaoOp.mudaStatus` + `updateOP` (ManutencaoOp.b1f.cs, linhas ~241 e ~278).
+No legado o usuário via os status na grade e clicava em Liberar/Planejar; na CLI a tabela
+impressa antes da confirmação faz esse papel.
+
+O `replanejar` tem um uso prático além da paridade com o legado: é o caminho para destravar
+um pedido cujo `pedidos-wbc cancelar-ops` foi barrado por OP liberada.
+"""
+import asyncio
+import re
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from typer.testing import CliRunner
+
+from controleproducao.cli import app
+from controleproducao.modules.manutencao_op import service as svc
+
+
+def _op(doc_entry, doc_num, item, status, planejada=2, apontada=0, baixada=0):
+    # "Baixada" = issued quantity; the OP queries carry it since 29/09/2026 (Replanejar rule).
+    return {
+        "DocEntry": doc_entry, "DocNum": doc_num, "Status": status, "ItemCode": item,
+        "PlannedQty": planejada, "CmpltQty": apontada, "OriginNum": 84245, "Baixada": baixada,
+    }
+
+
+def _executa(ops, argumentos):
+    """Roda o comando com HANA e Service Layer simulados; devolve (resultado, escritas)."""
+    escritas = []
+
+    with patch("controleproducao.cli.get_settings") as cfg, patch("controleproducao.cli.HanaDirectReader") as leitor, \
+            patch("controleproducao.cli.ServiceLayerClient") as cliente_sl:
+        # Sem isto, `settings.is_production` seria um MagicMock (verdadeiro) e a trava de
+        # escrita em produção recusaria o comando antes de ele fazer qualquer coisa.
+        cfg.return_value.is_production = False
+        leitor.return_value.fetch_all = MagicMock(return_value=ops)
+        leitor.return_value.close = MagicMock()
+
+        async def update_entity(entity, key, fields, **_kw):
+            escritas.append((entity, key, fields))
+
+        cliente_sl.return_value.__aenter__.return_value.update_entity = AsyncMock(
+            side_effect=update_entity
+        )
+        resultado = CliRunner().invoke(app, ["manutencao-op"] + argumentos)
+    return resultado, escritas
+
+
+# ---------------------------------------------------------------------------
+# Liberar
+# ---------------------------------------------------------------------------
+def test_liberar_altera_so_as_planejadas():
+    """Pular as que já estão no destino evita chamadas inúteis à Service Layer — que é o
+    recurso mais caro da execução (52% do tempo, seção 7.14 do guia)."""
+    resultado, escritas = _executa(
+        [_op(101, 9001, "I000002", "P"), _op(102, 9002, "ESTPRT", "R")],
+        ["liberar", "9001", "9002", "--sim"],
+    )
+
+    assert resultado.exit_code == 0
+    assert [chave for _e, chave, _f in escritas] == [101]
+    assert escritas[0][2] == {"ProductionOrderStatus": "boposReleased"}
+
+
+def test_liberar_por_pedido():
+    _resultado, escritas = _executa(
+        [_op(101, 9001, "A", "P"), _op(102, 9002, "B", "P")],
+        ["liberar", "--pedido", "84245", "--sim"],
+    )
+    assert sorted(chave for _e, chave, _f in escritas) == [101, 102]
+
+
+# ---------------------------------------------------------------------------
+# Replanejar
+# ---------------------------------------------------------------------------
+def test_replanejar_devolve_liberada_para_planejada():
+    _resultado, escritas = _executa(
+        [_op(101, 9001, "I000002", "P"), _op(102, 9002, "ESTPRT", "R")],
+        ["replanejar", "--pedido", "84245", "--sim"],
+    )
+
+    assert [chave for _e, chave, _f in escritas] == [102]
+    assert escritas[0][2] == {"ProductionOrderStatus": "boposPlanned"}
+
+
+def test_replanejar_recusa_op_com_saida_de_insumo_lancada():
+    """29/09/2026 (F6): an OP whose components were issued cannot go back to Planejada —
+    the stock movement would sit on a planned OP. The issue must be cancelled first."""
+    resultado, escritas = _executa(
+        [_op(101, 9001, "A", "R", baixada=3.5), _op(102, 9002, "B", "R")],
+        ["replanejar", "9001", "9002", "--sim"],
+    )
+    assert [chave for _e, chave, _f in escritas] == [102]
+    # The test terminal is 80 columns wide and Rich wraps the cell: read it as one text.
+    lido = " ".join(re.sub(r"[│─┌┐└┘├┤┬┴┼]", " ", resultado.output).split())
+    assert "insumo baixado — cancele a saída no SAP antes" in lido
+
+
+def test_replanejar_recusa_op_com_produto_apontado():
+    """D6 (29/09/2026): product received on the OP is the same problem as material issued."""
+    resultado, escritas = _executa(
+        [_op(101, 9001, "A", "R", apontada=1), _op(102, 9002, "B", "R")],
+        ["replanejar", "9001", "9002", "--sim"],
+    )
+    assert [chave for _e, chave, _f in escritas] == [102]
+    lido = " ".join(re.sub(r"[│─┌┐└┘├┤┬┴┼]", " ", resultado.output).split())
+    assert "produto apontado — cancele a entrada no SAP antes" in lido
+
+
+def test_replanejar_nada_a_fazer_quando_todas_tem_estoque_lancado():
+    resultado, escritas = _executa(
+        [_op(101, 9001, "A", "R", baixada=2), _op(102, 9002, "B", "R", apontada=1)],
+        ["replanejar", "9001", "9002", "--sim"],
+    )
+    assert escritas == [] and resultado.exit_code == 0
+    assert "saída de insumo ou produto apontado lançados" in " ".join(resultado.output.split())
+
+
+def test_replanejar_rele_as_ops_antes_de_gravar():
+    """The confirmation may stay open for minutes: an issue posted meanwhile still stops it."""
+    leituras = iter([
+        [_op(101, 9001, "A", "R")],                 # the table: nothing issued yet
+        [_op(101, 9001, "A", "R", baixada=2)],      # right before writing: issued meanwhile
+    ])
+    with patch("controleproducao.cli.get_settings") as cfg, \
+         patch("controleproducao.cli.HanaDirectReader") as leitor, \
+         patch("controleproducao.cli.ServiceLayerClient") as cliente_sl:
+        cfg.return_value.is_production = False
+        leitor.return_value.fetch_all = MagicMock(side_effect=lambda *_a, **_k: next(leituras))
+        atualiza = AsyncMock()
+        cliente_sl.return_value.__aenter__.return_value.update_entity = atualiza
+        resultado = CliRunner().invoke(app, ["manutencao-op", "replanejar", "9001", "--sim"])
+
+    atualiza.assert_not_called()
+    assert "Não alterada" in resultado.output and "saída de insumo lançada" in resultado.output
+
+
+def test_servico_recusa_replanejar_sem_saber_se_houve_saida():
+    """Fail-closed: an OP dict without the issued quantity is not sent back to Planejada."""
+    sl = AsyncMock()
+    resultado = asyncio.run(svc.muda_status(
+        sl, [{"doc_entry": 1, "doc_num": 9001, "item_code": "X", "status": "R"}], "p"
+    ))
+    sl.update_entity.assert_not_called()
+    assert "não foi possível saber" in resultado["ignoradas"][0]["motivo"]
+
+
+@pytest.mark.parametrize("baixada,acoes", [
+    (0, ["replanejar", "encerrar"]),
+    (4, ["encerrar"]),
+    (None, ["encerrar"]),                            # unknown issued quantity: not offered
+])
+def test_replanejar_so_aparece_sem_saida_lancada(baixada, acoes):
+    assert svc.acoes_possiveis("R", 10, 0, baixada) == acoes
+
+
+def test_replanejar_nao_aparece_com_produto_apontado():
+    assert svc.acoes_possiveis("R", 10, 3, 0) == ["encerrar"]
+    assert svc.acoes_possiveis("R", 10, 10, 0) == []
+
+
+@pytest.mark.parametrize("apontada,trecho", [
+    (2, "já tem produto apontado (entrada lançada) — cancele a entrada no SAP"),
+    (None, "não foi possível saber se há produto apontado"),
+])
+def test_servico_recusa_replanejar_com_produto_apontado(apontada, trecho):
+    """The last guard, for anyone calling the service directly (D6, 29/09/2026)."""
+    sl = AsyncMock()
+    resultado = asyncio.run(svc.muda_status(
+        sl, [{"doc_entry": 1, "doc_num": 9001, "item_code": "X", "status": "R",
+              "baixada": 0.0, "apontada": apontada}], "p"
+    ))
+    sl.update_entity.assert_not_called()
+    assert trecho in resultado["ignoradas"][0]["motivo"]
+
+
+# ---------------------------------------------------------------------------
+# Guardas
+# ---------------------------------------------------------------------------
+def test_nao_chama_nada_se_todas_ja_estao_no_destino():
+    resultado, escritas = _executa([_op(101, 9001, "X", "R")], ["liberar", "9001", "--sim"])
+    assert escritas == []
+    assert resultado.exit_code == 0
+
+
+def test_exige_confirmacao():
+    _resultado, escritas = _executa([_op(101, 9001, "X", "P")], ["liberar", "9001"])
+    assert escritas == []
+
+
+def test_recusa_ops_e_pedido_ao_mesmo_tempo():
+    resultado, escritas = _executa([], ["liberar", "9001", "--pedido", "84245", "--sim"])
+    assert escritas == []
+    assert resultado.exit_code == 1
+
+
+def test_recusa_sem_ops_e_sem_pedido():
+    resultado, escritas = _executa([], ["liberar", "--sim"])
+    assert escritas == []
+    assert resultado.exit_code == 1
+
+
+def test_sem_ops_encontradas_sai_sem_erro():
+    resultado, escritas = _executa([], ["liberar", "9999", "--sim"])
+    assert escritas == []
+    assert resultado.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# A camada de serviço
+# ---------------------------------------------------------------------------
+def test_transicoes_correspondem_ao_updateop_original():
+    """`updateOP` (linha ~278): p=Planned, c=Cancelled, l=Released, f=Closed — e o "f"
+    também grava ClosingDate."""
+    assert svc.TRANSICOES["p"]["sl"] == "boposPlanned"
+    assert svc.TRANSICOES["c"]["sl"] == "boposCancelled"
+    assert svc.TRANSICOES["l"]["sl"] == "boposReleased"
+    assert svc.TRANSICOES["f"]["sl"] == "boposClosed"
+    assert svc.TRANSICOES["f"].get("fecha") is True
+
+
+def test_encerrar_grava_data_de_fechamento():
+    """Fiel ao `OrdemPrducao.ClosingDate = DateTime.Now` do original. O "f" não é exposto
+    na CLI (precisa da movimentação de estoque antes), mas a transição está correta para
+    quando `finalizar_ops` for implementado."""
+    sl = AsyncMock()
+    asyncio.run(svc.muda_status(sl, [{"doc_entry": 1, "doc_num": 9001, "item_code": "X", "status": "R"}], "f"))
+
+    campos = sl.update_entity.await_args.args[2]
+    assert campos["ProductionOrderStatus"] == "boposClosed"
+    assert "ClosingDate" in campos
+
+
+def test_status_invalido_e_recusado():
+    sl = AsyncMock()
+    with pytest.raises(ValueError):
+        asyncio.run(svc.muda_status(sl, [], "z"))
+
+
+def test_erro_numa_op_nao_impede_as_demais():
+    sl = AsyncMock()
+
+    async def update_entity(_entity, key, _fields, **_kw):
+        if key == 102:
+            raise RuntimeError("status não permite a transição")
+
+    sl.update_entity = AsyncMock(side_effect=update_entity)
+    ops = [
+        {"doc_entry": 101, "doc_num": 9001, "item_code": "A", "status": "P"},
+        # Planejada like the others: a terminal OP (22/09) and one already Liberada
+        # (29/09) are refused BEFORE the Service Layer, and this test is about a failure
+        # COMING FROM THE SAP not stopping the batch — not about the local refusals.
+        {"doc_entry": 102, "doc_num": 9002, "item_code": "B", "status": "P"},
+        {"doc_entry": 103, "doc_num": 9003, "item_code": "C", "status": "P"},
+    ]
+
+    resultado = asyncio.run(svc.muda_status(sl, ops, "l"))
+
+    assert [op["doc_entry"] for op in resultado["alteradas"]] == [101, 103]
+    assert len(resultado["com_erro"]) == 1
+    assert resultado["com_erro"][0]["doc_entry"] == 102
+
+
+def test_op_ja_no_destino_nao_gasta_patch():
+    """29/09/2026: the screen PATCHed a Liberada to Liberada — a write that changed nothing,
+    repeated for the whole batch on every retry of the JSON API. The CLI and the 8077 route
+    already skipped it; now the service does, for everyone."""
+    sl = AsyncMock()
+    sl.update_entity = AsyncMock()
+    ops = [
+        {"doc_entry": 101, "doc_num": 9001, "item_code": "A", "status": "R"},
+        {"doc_entry": 102, "doc_num": 9002, "item_code": "B", "status": "P"},
+    ]
+
+    resultado = asyncio.run(svc.muda_status(sl, ops, "l"))
+
+    assert [c.args[1] for c in sl.update_entity.await_args_list] == [102]
+    assert [op["doc_entry"] for op in resultado["alteradas"]] == [102]
+    assert resultado["com_erro"] == []
+    assert resultado["ignoradas"][0]["motivo"] == "OP 9001 já estava Liberada — nada a fazer."
+
+
+def test_fechar_uma_op_liberada_continua_mandando_o_patch():
+    """`finalizar_ops` closes with `muda_status(..., "f")` an OP whose status it set to "R":
+    the "already there" skip compares with the TARGET ("L"), so the close still happens."""
+    sl = AsyncMock()
+    resultado = asyncio.run(svc.muda_status(
+        sl, [{"doc_entry": 7, "doc_num": 9007, "item_code": "X", "status": "R"}], "f"
+    ))
+    assert [c.args[1] for c in sl.update_entity.await_args_list] == [7]
+    assert resultado["ignoradas"] == []
+
+
+@pytest.mark.parametrize("status,planejada,apontada,acao,processa", [
+    ("P", 10, 0, "LIBERAR + saída + entrada + encerrar", True),
+    ("R", 10, 3, "saída + entrada + encerrar", True),
+    ("R", 10, 10, "ignorada (apontada = planejada)", False),
+    ("L", 10, 0, "já encerrada — ignorada", False),
+    ("C", 10, 0, "cancelada — não pode ser encerrada", False),
+    ("p", 10, 0, "LIBERAR + saída + entrada + encerrar", True),   # lower case from a caller
+])
+def test_classifica_encerramento(status, planejada, apontada, acao, processa):
+    assert svc.classifica_encerramento(status, planejada, apontada) == (acao, processa)
+
+
+@pytest.mark.parametrize("status,planejada,apontada,esperado", [
+    ("P", 10, 0, ["liberar", "encerrar"]),
+    ("R", 10, 0, ["encerrar"]),        # Liberar on a Liberada would be ignored: not offered
+    ("R", 10, 10, []),
+    ("L", 10, 0, []),
+    ("C", 10, 0, []),
+])
+def test_acoes_possiveis_seguem_as_mesmas_regras(status, planejada, apontada, esperado):
+    assert svc.acoes_possiveis(status, planejada, apontada) == esperado
+
+
+def test_levantamento_exige_ops_ou_pedido():
+    with pytest.raises(ValueError):
+        svc.levanta_ops(MagicMock())
+
+
+# ---------------------------------------------------------------------------
+# OP cancelada é estado final (21/09/2026)
+# ---------------------------------------------------------------------------
+def test_cancelada_nao_e_liberada():
+    """O SAP não libera nem replaneja OP cancelada. A grade do legado nunca mostrava
+    canceladas (`OPS_MANUTENCAO` filtra `Status != 'C'`), mas o `OPS_POR_DOCNUM` — usado
+    quando o usuário informa os números — não filtra: a OP chegava até a Service Layer e
+    falhava com mensagem obscura."""
+    resultado, escritas = _executa(
+        [_op(101, 9001, "X", "C")], ["liberar", "9001", "--sim"]
+    )
+    assert escritas == []
+    assert resultado.exit_code == 0
+    assert "cancelada" in resultado.output
+
+
+def test_cancelada_aparece_na_tabela_em_vez_de_desaparecer():
+    """Sumir com um número que o usuário digitou é pior que explicar por que ele não entra."""
+    resultado, _escritas = _executa(
+        [_op(101, 9001, "X", "C")], ["liberar", "9001", "--sim"]
+    )
+    assert "9001" in resultado.output
+
+
+def test_cancelada_no_meio_do_lote_nao_impede_as_demais():
+    _resultado, escritas = _executa(
+        [_op(101, 9001, "A", "C"), _op(102, 9002, "B", "P")],
+        ["liberar", "--pedido", "84245", "--sim"],
+    )
+    assert [chave for _e, chave, _f in escritas] == [102]
+
+
+# ---------------------------------------------------------------------------
+# Status terminal (22/09/2026)
+# ---------------------------------------------------------------------------
+def test_op_encerrada_ou_cancelada_nao_muda_de_status():
+    """Encerrada já teve a movimentação lançada; cancelada foi descartada.
+
+    Quarta vez no projeto em que a proteção que morava na grade precisa virar regra em
+    código. A tela desabilita a caixa dessas linhas, mas a tela é sugestão — o número
+    chega por POST e pode ser qualquer um. Vai para `ignoradas`, não `com_erro`: não é
+    falha, é recusa.
+    """
+    sl = AsyncMock()
+    sl.update_entity = AsyncMock()
+    ops = [
+        {"doc_entry": 101, "doc_num": 9001, "item_code": "A", "status": "P"},
+        {"doc_entry": 102, "doc_num": 9002, "item_code": "B", "status": "L"},
+        {"doc_entry": 103, "doc_num": 9003, "item_code": "C", "status": "C"},
+    ]
+
+    resultado = asyncio.run(svc.muda_status(sl, ops, "l"))
+
+    assert [op["doc_entry"] for op in resultado["alteradas"]] == [101]
+    assert resultado["com_erro"] == []
+    assert [op["doc_entry"] for op in resultado["ignoradas"]] == [102, 103]
+    # E a Service Layer nem foi chamada para elas — a recusa é local.
+    assert [c.args[1] for c in sl.update_entity.await_args_list] == [101]
+    assert "Encerrada" in resultado["ignoradas"][0]["motivo"]
+
+
+@pytest.mark.parametrize("op,codigo,rotulo", [
+    ({"baixada": 0, "apontada": 0}, None, None),
+    ({"baixada": 3.5, "apontada": 2}, "saida_lancada", "insumo baixado"),       # issue first
+    ({"baixada": 0, "apontada": 2}, "entrada_lancada", "produto apontado"),
+    ({"baixada": None, "apontada": 0}, "saida_lancada", "não foi possível conferir o insumo"),
+    ({"baixada": 0, "apontada": None}, "entrada_lancada", "não foi possível conferir o produto apontado"),
+])
+def test_impedimento_replanejar_e_a_regra_unica(op, codigo, rotulo):
+    """30/09/2026: the screen, the API, the CLI and `muda_status` read the rule here."""
+    assert svc.impedimento_replanejar(op) == codigo
+    if codigo:
+        assert svc.rotulo_impedimento(op, codigo) == rotulo

@@ -1,0 +1,446 @@
+/* =============================================================================
+   Painel Controle de Produção — WBC
+   Estilo conforme o GUIA_ESTILO_ORCAVIEW, seção 5 ("a aproximação"), que é o kit
+   destinado a equipe de fora produzindo uma tela irmã das três do OrçaView.
+
+   Não copiamos status/Usuarios/Pedidos: seguimos o alicerce (§1), as regras de
+   padrão (§4) e o kit (§5). As três divergências conscientes estão anotadas no
+   fim deste bloco.
+
+   Regras da casa aplicadas (§4):
+     1. escuro é o default; claro é override por `data-theme` no <html>;
+     2. toda cor e todo tamanho de fonte saem de var(--token);
+     3. UM acento por tela (coral), com parcimônia — nunca fundo de área grande;
+     4. escada de superfície: página < painel < cartão < superfície interna;
+     5. cartão = fundo + borda 1px + raio 14 + sombra suave, sem vidro;
+     6. título de seção = caps pequeno, .08em, cor apagada, quadradinho do acento;
+     7. tabela = cabeçalho caps apagado, régua 1px, hover translúcido, tabular-nums;
+     8. estado = pílula 999px, fundo translúcido + texto na mesma matiz;
+     9. foco = outline 2px + offset 2px, sempre;
+    10. translucidez por color-mix sobre o acento, nunca rgba() à mão;
+    12. translateY de hover só em (hover:hover) and (pointer:fine).
+
+   DIVERGÊNCIAS conscientes, por falta de acesso aos assets do OrçaView:
+     a) Ícones: SVG inline (controleproducao/templates/_icones.html) em vez de Bootstrap Icons
+        — a fonte de ícones não está vendorizada aqui. Respeita a regra que
+        importa (§1.1): nada de CDN, porque o app roda em LAN.
+     b) Botão de tema: fica na barra de navegação, não `position:fixed` no canto.
+        A posição fixa do guia pressupõe o drawer do menu.js, que este app não
+        tem — aqui a própria barra é o menu.
+     c) Sem Bootstrap: as classes .ov-* do kit são autossuficientes.
+   ========================================================================== */
+
+/* ── Paleta da página (escuro = default) ──────────────────────────────────────
+   Escada de superfície (§4.4): página < painel < cartão < superfície interna.
+   `--ov-accent` é preenchimento e borda; `--ov-accent-text` é glifo (texto e
+   ícone) — o terracota sobre a superfície dá 3,7:1 e reprova em texto pequeno,
+   o clareado dá 4,9:1. `--ov-border-strong` é contorno de CONTROLE (3:1), mais
+   forte que a borda decorativa de cartão.
+   Since 01/10/2026 (PLANO_CASA_COMUM_11, F1) the palette itself lives in
+   casa/static/casa.css, shared with the painel WBC and the Sincronização: the --ov-*
+   names below only point at it, and the light/dark switch happens there. */
+body{--ov-page:var(--casa-pagina);--ov-panel:var(--casa-painel);--ov-card:var(--casa-cartao);--ov-surface:var(--casa-superficie);--ov-border:var(--casa-borda);--ov-border-strong:var(--casa-borda-forte);--ov-text:var(--casa-texto);--ov-text-2:var(--casa-texto-2);--ov-accent:var(--casa-acento);--ov-accent-text:var(--casa-acento-texto);--ov-on-solid:var(--casa-sobre-solido)}
+/* css-token-ok: hex-color-literal — semânticas do shared.css, valem nos dois temas (§1.5) */
+:root{--color-success:#28a745;--color-danger:#dc3545;--color-warning:#ffc107;--color-info:#0dcaf0}
+
+/* Derivados da paleta — sem literal de cor, todos por color-mix sobre o acento */
+body {
+  --ov-shadow: 0 4px 10px rgb(0 0 0 / .30), 0 1px 3px rgb(0 0 0 / .22);
+  --ov-a08: color-mix(in srgb, var(--ov-accent) 8%, transparent);
+  --ov-a13: color-mix(in srgb, var(--ov-accent) 13%, transparent);
+  --ov-a20: color-mix(in srgb, var(--ov-accent) 20%, transparent);
+  --ov-a40: color-mix(in srgb, var(--ov-accent) 40%, transparent);
+  --ov-r-card: 14px; --ov-r-item: 10px; --ov-r-input: 9px; --ov-r-pill: 999px;
+}
+:root[data-theme="light"] body {
+  --ov-shadow: 0 1px 2px rgb(0 0 0 / .05), 0 6px 20px rgb(0 0 0 / .05);
+}
+
+/* Nativos (rolagem, popup de <select>) seguem o tema */
+:root { color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }
+
+/* ── Escala tipográfica (§1.3) — tamanho de fonte NUNCA é literal ─────────── */
+:root {
+  --fs-2xs: .625rem; --fs-xs: .75rem; --fs-sm: .8125rem; --fs-base: .9375rem;
+  --fs-md: 1.0625rem; --fs-section: 1.2rem; --fs-lg: 1.25rem;
+  --fs-h3: 1.4rem; --fs-h2: 1.6rem; --fs-h1: 1.8rem;
+  --fs-xl: 1.5rem; --fs-2xl: 1.875rem; --fs-3xl: 2.25rem;
+  --fs-kpi: 2.5rem; --fs-4xl: 3rem;
+
+  /* Espaço, camada, movimento (§1.4) — não existem 7, 9 e 11 */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 20px;
+  --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px;
+  --z-base: 1; --z-raised: 10; --z-sticky: 1055;
+  --duration-fast: .15s; --duration-normal: .25s; --duration-slow: .35s;
+  --easing-out: cubic-bezier(.23, 1, .32, 1);
+  --relief-transition: transform var(--duration-fast) var(--easing-out),
+                       box-shadow var(--duration-fast) var(--easing-out),
+                       border-color var(--duration-fast) var(--easing-out),
+                       color var(--duration-fast) var(--easing-out);
+}
+
+/* Nativos (rolagem, popup de <select>) seguem o tema */
+:root { color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }
+
+* { box-sizing: border-box; }
+
+/* `[hidden]` precisa vencer as classes que definem `display`.
+   A regra do navegador para [hidden] é `display:none` com especificidade de UA, então
+   qualquer `.classe{display:flex}` do autor a derrota — foi assim que o painel de erro,
+   marcado como `hidden`, apareceu VAZIO e VERMELHO sobre uma execução bem-sucedida.
+   Erro de leitura caro: a tela dizia "deu ruim" quando não tinha dado. */
+[hidden] { display: none !important; }
+
+body {
+  margin: 0; background: var(--ov-page); color: var(--ov-text);
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: var(--fs-base); line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--ov-accent-text); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--fs-sm); background: var(--ov-surface);
+  border: 1px solid var(--ov-border); border-radius: var(--space-1); padding: 1px 5px;
+}
+
+/* Foco: §1.7 — não negociável, e o anel é do glifo (contraste), não do sólido */
+:focus-visible { outline: 2px solid var(--ov-accent-text); outline-offset: 2px; }
+
+.icone { flex: none; vertical-align: -.15em; }
+
+/* ── Casca e cabeçalho (§5.2) ─────────────────────────────────────────────── */
+/* zoom NA CASCA, jamais no body: no body ele encolhe os position:fixed.
+   30/09/2026 (owner): the screens read "muito encolhido", mostly on notebooks — 25% larger
+   (.9 → 1.125) and wider (1400 → 1600px). Phones keep the old scale: their layout was
+   tuned with it. The top bar is casa.css's and is sized there, the same on every screen. */
+.ov-shell {
+  max-width: 1600px; margin: 0 auto;
+  padding: var(--space-6) var(--space-4) var(--space-12); zoom: 1.125;
+}
+@media (max-width: 760px) {
+  .ov-shell { zoom: .9; }
+}
+/* Page title = .casa-titulo (casa.css). "Voltar" of the execution page, pushed to the right
+   of the title (29/09/2026). */
+.casa-titulo .ov-voltar { margin-left: auto; text-decoration: none; }
+@media (max-width: 760px) {
+  .casa-titulo:has(.ov-voltar) { flex-wrap: wrap; }
+  .casa-titulo .ov-voltar { margin-left: 0; }
+}
+
+/* ── Faixa de KPI (§5.3) ──────────────────────────────────────────────────── */
+/* grid + auto-fit — NUNCA flex+min-width (deixa buraco à direita) */
+.ov-kpis {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3); margin-bottom: var(--space-6);
+}
+.ov-kpi {
+  background: var(--ov-card); border: 1px solid var(--ov-border);
+  border-left: 4px solid var(--ov-cor, var(--ov-accent));
+  border-radius: var(--ov-r-item); padding: var(--space-3) var(--space-4);
+}
+.ov-kpi b {
+  display: block; font-size: var(--fs-2xl); font-weight: 700;
+  color: var(--ov-text); line-height: 1.1; font-variant-numeric: tabular-nums;
+}
+.ov-kpi span {
+  font-size: var(--fs-xs); text-transform: uppercase;
+  letter-spacing: .06em; color: var(--ov-text-2);
+}
+
+/* Search card + KPIs on one line (Pedidos WBC, 29/09/2026). The search track is `auto`
+   and comes first: before the first search it is the only card, and it keeps the same
+   place and width when the KPIs appear. One column on phones. */
+.ov-linha-topo {
+  display: grid; grid-template-columns: auto 1fr 1fr; gap: var(--space-3);
+  align-items: stretch; margin-bottom: var(--space-4);
+}
+.ov-linha-topo .ov-filtros { margin: 0; align-items: center; }
+/* Side by side with the search card, the KPIs take its corners and shadow. */
+.ov-linha-topo .ov-kpi { border-radius: var(--ov-r-card); box-shadow: var(--ov-shadow); }
+/* The mode choice ("Pedidos novos / integrados") is what the operator reads first: larger
+   text and radio than the other options of the screen (asked by the owner, 29/09/2026). */
+.ov-linha-topo .ov-opcao {
+  padding-bottom: 0; gap: var(--space-2); cursor: pointer;
+  font-size: var(--fs-md); font-weight: 600; color: var(--ov-text);
+}
+.ov-linha-topo .ov-opcao input[type="radio"] {
+  width: 20px; height: 20px; margin: 0; accent-color: var(--ov-accent); cursor: pointer;
+}
+@media (max-width: 760px) {
+  .ov-linha-topo { grid-template-columns: 1fr; }
+}
+
+/* ── Cartão e título de seção (§5.3) ──────────────────────────────────────── */
+.ov-card {
+  background: var(--ov-card); border: 1px solid var(--ov-border);
+  border-radius: var(--ov-r-card); padding: var(--space-5) 22px;
+  box-shadow: var(--ov-shadow);
+}
+
+h2 {
+  display: flex; align-items: center; gap: var(--space-2); margin: var(--space-8) 0 var(--space-3);
+  font-size: var(--fs-sm); font-weight: 700; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--ov-text-2);
+}
+h2::before {
+  content: ''; width: 6px; height: 6px; background: var(--ov-accent); flex-shrink: 0;
+}
+
+/* ── Tabela (§5.4) ────────────────────────────────────────────────────────── */
+.ov-table-card {
+  background: var(--ov-card); border: 1px solid var(--ov-border);
+  border-radius: var(--ov-r-card); overflow: hidden; margin: var(--space-4) 0;
+}
+.ov-table-card > .ov-scroll { overflow: auto; }   /* a rolagem é INTERNA ao card */
+/* `max-content` com piso de 100%: a tabela usa a largura natural do conteúdo e o
+   excedente rola DENTRO do cartão (§7). Com `width:100%` a descrição do produto
+   quebrava em seis linhas e a linha da tabela virava um bloco. */
+.ov-table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: var(--fs-base); }
+.ov-table thead th {
+  background: var(--ov-surface); padding: var(--space-2) 14px; text-align: left;
+  font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--ov-text-2); border-bottom: 1px solid var(--ov-border); white-space: nowrap;
+}
+.ov-table tbody td {
+  padding: 11px 14px; color: var(--ov-text); border-bottom: 1px solid var(--ov-border);
+}
+.ov-table tbody tr:last-child td { border-bottom: none; }
+.ov-table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--ov-surface) 45%, transparent); }
+.ov-table tbody tr:hover { background: var(--ov-a08); }
+.ov-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+/* Coluna de data: nunca quebrar. Com o nome do cliente disputando a largura,
+   "2026-09-03" quebrava o dia para a linha de baixo e a tabela ficava ilegível. */
+.ov-table .data { white-space: nowrap; color: var(--ov-text-2); }
+/* Linha que não admite ação: apagada, para o olho pular. A caixa desabilitada já
+   comunica, mas numa tabela de 68 linhas o contraste é o que se lê de longe. */
+.ov-table tbody tr.is-terminal td { color: var(--ov-text-2); }
+.ov-table tbody tr.is-terminal input[type="checkbox"] { cursor: not-allowed; opacity: .45; }
+.ov-table .vazio { color: var(--ov-text-2); font-size: var(--fs-sm); }
+
+/* ── Pílula de estado (§5.5) ──────────────────────────────────────────────── */
+.ov-pill {
+  display: inline-flex; align-items: center; gap: 6px; padding: var(--space-1) 10px;
+  border-radius: var(--ov-r-pill); font-size: var(--fs-xs); font-weight: 600;
+  text-transform: uppercase; letter-spacing: .05em; white-space: nowrap;
+  border: 1px solid; color: var(--ov-text-2);
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  border-color: color-mix(in srgb, currentColor 40%, transparent);
+}
+.ov-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.ov-pill.is-ok { color: var(--color-success); }
+.ov-pill.is-warn { color: var(--color-warning); }
+.ov-pill.is-erro { color: var(--color-danger); }
+.ov-pill.is-info { color: var(--color-info); }
+.ov-pill.is-aberto { color: var(--ov-accent-text); }
+.ov-pill.is-neutro { color: var(--ov-text-2); }
+
+/* ── Botões (§5.6) — o relevo da casa ─────────────────────────────────────── */
+.ov-btn, .ov-btn-ghost {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  padding: 9px 18px; border-radius: var(--ov-r-item); font-family: inherit;
+  font-size: var(--fs-base); font-weight: 600; letter-spacing: .3px; cursor: pointer;
+  border: 1px solid transparent; transition: var(--relief-transition); white-space: nowrap;
+}
+/* sólido: sem borda, gradiente de TRÊS paradas (0 / 40% / 100%), glow da própria cor */
+.ov-btn {
+  border: none; color: var(--ov-on-solid); text-shadow: 0 1px 2px rgb(0 0 0 / .30);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--ov-btn-cor, var(--ov-accent)) 76%, white) 0%,
+    var(--ov-btn-cor, var(--ov-accent)) 40%,
+    color-mix(in srgb, var(--ov-btn-cor, var(--ov-accent)) 80%, black) 100%);
+  box-shadow: 0 3px 8px color-mix(in srgb, var(--ov-btn-cor, var(--ov-accent)) 35%, transparent),
+              inset 0 1px 0 rgb(255 255 255 / .25);
+}
+.ov-btn:hover {
+  box-shadow: 0 5px 15px color-mix(in srgb, var(--ov-btn-cor, var(--ov-accent)) 45%, transparent),
+              inset 0 1px 0 rgb(255 255 255 / .30);
+}
+/* Botão que grava algo sem volta usa o vermelho SEMÂNTICO, não um segundo acento
+   (§4: um acento por tela). O rótulo termina em reticências quando ainda existe
+   uma tela de conferência antes, para não prometer execução imediata. */
+.ov-btn--perigo { --ov-btn-cor: var(--color-danger); }
+.ov-btn--ok { --ov-btn-cor: var(--color-success); }
+
+/* fantasma: borda visível, sombra neutra, sem glow */
+.ov-btn-ghost {
+  color: var(--ov-text); border-color: var(--ov-border);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--ov-card) 92%, white) 0%, var(--ov-card) 40%, var(--ov-surface) 100%);
+  box-shadow: 0 2px 5px rgb(0 0 0 / .20), inset 0 1px 0 rgb(255 255 255 / .08);
+}
+.ov-btn-ghost:hover { color: var(--ov-accent-text); border-color: var(--ov-accent); }
+
+.ov-btn:active, .ov-btn-ghost:active {
+  transform: translateY(1px);
+  box-shadow: 0 1px 2px rgb(0 0 0 / .30), inset 0 1px 3px rgb(0 0 0 / .20);
+}
+.ov-btn:disabled, .ov-btn-ghost:disabled {
+  opacity: .55; cursor: not-allowed; transform: none; box-shadow: none; text-shadow: none;
+}
+/* §4.12: o deslocamento só com mouse — no toque o :hover gruda depois do tap */
+@media (hover: hover) and (pointer: fine) {
+  .ov-btn:hover:not(:disabled), .ov-btn-ghost:hover:not(:disabled) { transform: translateY(-2px); }
+}
+
+/* ── Campos (§5.7) ────────────────────────────────────────────────────────── */
+.ov-field { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.ov-field label {
+  font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .05em;
+  color: var(--ov-text-2);
+}
+.ov-input, .ov-select {
+  width: 100%; padding: 9px 12px; font-family: inherit; font-size: var(--fs-base);
+  background: var(--ov-surface); color: var(--ov-text);
+  border: 1px solid var(--ov-border-strong); border-radius: var(--ov-r-input);
+  transition: border-color var(--duration-fast) ease, box-shadow var(--duration-fast) ease;
+}
+.ov-input::placeholder { color: var(--ov-text-2); }
+.ov-input:focus, .ov-select:focus {
+  outline: none; border-color: var(--ov-accent); box-shadow: 0 0 0 3px var(--ov-a20);
+}
+.ov-input--curto { width: 8ch; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--ov-accent); }
+/* Row selection in the tables (Pedidos WBC, Manutenção de OP): easier to hit and to see
+   (asked by the owner, 29/09/2026). */
+.ov-table input[type="checkbox"] {
+  width: 20px; height: 20px; margin: 0; vertical-align: middle; cursor: pointer;
+}
+
+/* Linha de filtros: os campos ficam lado a lado, cada um com seu rótulo em caps */
+.ov-filtros {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3) var(--space-4);
+  background: var(--ov-card); border: 1px solid var(--ov-border);
+  border-radius: var(--ov-r-card); padding: var(--space-4); margin-bottom: var(--space-4);
+  box-shadow: var(--ov-shadow);
+}
+.ov-filtros .ov-nota { flex-basis: 100%; margin: 0; }
+.ov-ou { color: var(--ov-text-2); font-size: var(--fs-xs); padding-bottom: 10px; }
+.ov-opcao {
+  display: inline-flex; align-items: center; gap: var(--space-1);
+  font-size: var(--fs-sm); color: var(--ov-text-2); text-transform: none;
+  letter-spacing: normal; padding-bottom: 10px;
+}
+/* A disabled option ("forçar" with nothing marked) must look unavailable, not just ignore clicks. */
+.ov-opcao:has(input:disabled) { opacity: .55; cursor: not-allowed; }
+/* Why a Liberada OP cannot go back to Planejada (Replanejar, 29/09/2026): next to its status,
+   and the button's hint when such an OP is marked. Red text on the neutral card, both themes. */
+.ov-motivo {
+  display: inline-flex; align-items: center; gap: 3px; margin-left: var(--space-2);
+  font-size: var(--fs-xs); font-weight: 600; color: #b42318; white-space: nowrap;
+}
+.ov-motivo-texto { color: #b42318; font-weight: 600; }
+:root:not([data-theme="light"]) .ov-motivo,
+:root:not([data-theme="light"]) .ov-motivo-texto { color: #ff8a80; }
+
+/* ── Avisos ───────────────────────────────────────────────────────────────── */
+.ov-alerta {
+  display: flex; align-items: flex-start; gap: var(--space-2);
+  border-radius: var(--ov-r-item); padding: var(--space-3) var(--space-4);
+  margin: var(--space-4) 0; font-size: var(--fs-sm); border: 1px solid;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  border-color: color-mix(in srgb, currentColor 35%, transparent);
+  color: var(--ov-accent-text);
+}
+.ov-alerta.is-erro { color: var(--color-danger); }
+.ov-alerta.is-warn { color: var(--color-warning); }
+.ov-alerta > span { color: var(--ov-text); }
+.ov-nota { color: var(--ov-text-2); font-size: var(--fs-sm); }
+.ov-nota-inline { color: var(--ov-text-2); font-size: var(--fs-xs); }
+
+/* ── Confirmação de operação irreversível ─────────────────────────────────── */
+.ov-confirmacao {
+  background: var(--ov-card);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 45%, transparent);
+  border-radius: var(--ov-r-card); padding: var(--space-5) 22px; box-shadow: var(--ov-shadow);
+}
+.ov-resumo { list-style: none; padding: 0; margin: var(--space-4) 0; display: grid; gap: var(--space-1); }
+.ov-resumo li { color: var(--ov-text-2); font-size: var(--fs-sm); }
+.ov-resumo li b {
+  color: var(--ov-text); font-size: var(--fs-md); margin-right: var(--space-1);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Acompanhamento de tarefa ─────────────────────────────────────────────── */
+.ov-barra {
+  background: var(--ov-surface); height: 6px; border-radius: var(--ov-r-pill);
+  margin: var(--space-3) 0; overflow: hidden;
+}
+/* Enquanto roda, a barra é do acento (andamento). Ao terminar ela passa a carregar o
+   DESFECHO, porque é o elemento mais visível da tela e ficar coral no fim não diz nada:
+   verde = concluída limpa, âmbar = concluída com falhas no resultado, vermelho = erro
+   ou cancelada. Cores semânticas, não um segundo acento (§4.3 do guia de estilo). */
+.ov-barra > i {
+  display: block; background: var(--ov-barra-cor, var(--ov-accent)); height: 100%; width: 0;
+  border-radius: var(--ov-r-pill);
+  transition: width var(--duration-slow) var(--easing-out),
+              background-color var(--duration-normal) var(--easing-out);
+}
+.ov-barra.is-ok   > i { --ov-barra-cor: var(--color-success); }
+.ov-barra.is-warn > i { --ov-barra-cor: var(--color-warning); }
+.ov-barra.is-erro > i { --ov-barra-cor: var(--color-danger); }
+.ov-passo { font-weight: 600; font-size: var(--fs-base); }
+.ov-log {
+  background: var(--ov-panel); color: var(--ov-text); border: 1px solid var(--ov-border);
+  border-radius: var(--ov-r-item); padding: 14px var(--space-4); max-height: 24rem; overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--fs-sm); line-height: 1.65; white-space: pre-wrap; margin: var(--space-3) 0;
+  font-variant-numeric: tabular-nums;
+}
+/* Error and warning lines of an execution (marked ⚠ by Tarefa.anota): red, in both themes. */
+.ov-log .is-problema { color: #b42318; font-weight: 600; }
+:root:not([data-theme="light"]) .ov-log .is-problema { color: #ff8a80; }
+.ov-acoes-lote { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+/* Separa a seleção (não grava nada) das ações que gravam. Um espaço maior aqui é
+   o que evita clicar em "Encerrar" mirando "Selecionar todas". */
+.ov-separador { width: 1px; height: 26px; background: var(--ov-border); margin: 0 var(--space-1); }
+
+.ov-paginacao {
+  display: flex; gap: var(--space-4); align-items: center; flex-wrap: wrap;
+  color: var(--ov-text-2); font-size: var(--fs-sm); margin: 0 0 var(--space-4);
+  padding: 0 var(--space-1);
+}
+.ov-paginacao b { color: var(--ov-text); font-variant-numeric: tabular-nums; }
+.ov-paginacao .paginas a { margin: 0 var(--space-1); }
+
+.ov-lista { list-style: none; padding: 0; display: grid; gap: var(--space-2); max-width: 560px; }
+.ov-lista a { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-md); }
+
+/* ── Navegador sem color-mix() (Chrome/Edge < 111) ─────────────────────────── */
+/* Found 30/09/2026 on an older Windows 10 PC: the buttons came out with NO fill. A
+   declaration that uses var() is only checked when computed, so an unknown color-mix()
+   there does not fall back to an earlier rule — it becomes transparent (and a border
+   becomes currentColor at full strength, the orange pill in the owner's photo). Only a
+   browser that fails this test reads the block below; a current one never sees it.
+   Plain rgb() on purpose — it is the one place rule 10 (color-mix only) cannot hold. */
+@supports not (color: color-mix(in srgb, red 50%, white)) {
+  body {
+    --ov-a08: rgb(218 119 86 / .08); --ov-a13: rgb(218 119 86 / .13);
+    --ov-a20: rgb(218 119 86 / .20); --ov-a40: rgb(218 119 86 / .40);
+  }
+  :root[data-theme="light"] body {
+    --ov-a08: rgb(196 90 58 / .08); --ov-a13: rgb(196 90 58 / .13);
+    --ov-a20: rgb(196 90 58 / .20); --ov-a40: rgb(196 90 58 / .40);
+  }
+  /* The same three-stop relief, as light/shade layers over the solid color. */
+  .ov-btn {
+    background:
+      linear-gradient(180deg, rgb(255 255 255 / .22) 0%, rgb(255 255 255 / 0) 40%, rgb(0 0 0 / .18) 100%),
+      var(--ov-btn-cor, var(--ov-accent));
+    box-shadow: 0 3px 8px rgb(0 0 0 / .25), inset 0 1px 0 rgb(255 255 255 / .25);
+  }
+  .ov-btn:hover { box-shadow: 0 5px 15px rgb(0 0 0 / .30), inset 0 1px 0 rgb(255 255 255 / .30); }
+  .ov-btn-ghost {
+    background:
+      linear-gradient(180deg, rgb(255 255 255 / .06) 0%, rgb(255 255 255 / 0) 40%, rgb(0 0 0 / .06) 100%),
+      var(--ov-card);
+  }
+  .ov-table tbody tr:nth-child(even) { background: rgb(127 127 127 / .08); }
+  .ov-pill, .ov-alerta { background: rgb(127 127 127 / .10); }
+  .ov-confirmacao { border-color: rgb(220 53 69 / .45); }
+}

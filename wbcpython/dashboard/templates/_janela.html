@@ -1,0 +1,141 @@
+{#
+  "Janela de busca" — um cartão de `Leitura e diagnóstico`, com a mesma cara dos
+  outros: cabeça, selo, uma linha de resumo e os campos.
+
+  Curto de propósito (pedido do Marcelo, 14/09/2026). A versão anterior era um
+  bloco à parte com quatro parágrafos; quem é de vendas abandonava antes de
+  achar o campo. O que precisa ficar claro em uma linha: **data de abertura** e
+  **volta sozinha**. O resto está no plano.
+#}
+<form
+  class="comando"
+  id="janela"
+  hx-post="/fragmentos/janela/armar"
+  hx-target="#janela"
+  hx-swap="outerHTML"
+  hx-disabled-elt="find button"
+  {% if pedido.estado.value == "ocioso" %}
+    hx-confirm="Confirma? O próximo ciclo vai criar, alterar e cancelar documentos no SAP, e isso não se desfaz."
+  {% endif %}
+>
+  <div class="comando-cabeca">
+    <h3>Janela de busca</h3>
+    {% if pedido.estado.value == "armado" %}
+      <span class="etiqueta atencao">{{ pedido.meses }} meses armados</span>
+    {% elif pedido.estado.value == "aguardando" %}
+      <span class="etiqueta perigo">faltaram {{ pedido.faltaram }}</span>
+    {% else %}
+      <span class="etiqueta calma">{{ padrao }} meses</span>
+    {% endif %}
+  </div>
+
+  {% if pedido.estado.value == "aguardando" %}
+    <p class="resumo">
+      A janela de {{ pedido.meses }} meses achou mais do que cabe num ciclo.
+      O automático voltou a {{ padrao }} meses. Rodar outro?
+    </p>
+  {% elif pedido.estado.value == "armado" %}
+    <p class="resumo">
+      Vale na próxima passada e depois volta a {{ padrao }} meses sozinha.
+      Pedida por {{ pedido.pedido_por }}.
+    </p>
+  {% else %}
+    <p class="resumo">
+      Até onde o ciclo olha para trás, pela <strong>data de abertura da oportunidade</strong>
+      no SAP. Vale para a próxima passada e volta a {{ padrao }} meses sozinha.
+    </p>
+    <p class="resumo">
+      Além de {{ padrao }} meses, o ciclo só acerta <strong>cotação e oportunidade</strong>:
+      pedido ele não cria nem altera.
+    </p>
+    {% if producao %}
+      <p class="alerta">O ciclo seguinte escreve de verdade no SAP.</p>
+    {% endif %}
+  {% endif %}
+
+  {% if not pode_armar %}
+    <p class="alerta">{{ motivo }}</p>
+  {% elif pedido.estado.value == "aguardando" %}
+    <div class="filtros">
+      <label class="campo">
+        <span>Seu nome</span>
+        {# `list` e não `<select>`: a lista vem do OrçaView pela API ao lado, e
+           quando ela não vem o campo precisa continuar aceitando um nome
+           digitado — um `<select>` vazio travaria o cartão. #}
+        <input
+          type="text"
+          name="solicitante"
+          list="janela-nomes"
+          autocomplete="off"
+          placeholder="{{ 'escolha ou digite' if nomes else 'fica no histórico' }}"
+        />
+      </label>
+      <label class="campo">
+        <span>Senha do painel</span>
+        <input type="password" name="senha" />
+      </label>
+      <button
+        class="acao perigosa"
+        type="submit"
+        hx-post="/fragmentos/janela/continuar"
+        hx-confirm="Rodar outro ciclo com {{ pedido.meses }} meses?"
+      >
+        Rodar outro ciclo
+      </button>
+      <button class="acao" type="submit" hx-post="/fragmentos/janela/limpar">
+        Voltar para {{ padrao }}
+      </button>
+    </div>
+  {% elif pedido.estado.value == "armado" %}
+    <div class="filtros">
+      <button class="acao" type="submit" hx-post="/fragmentos/janela/limpar">
+        Cancelar o pedido
+      </button>
+    </div>
+  {% else %}
+    <div class="filtros">
+      <label class="campo">
+        <span>Meses (máx. {{ maximo }})</span>
+        {# O `max` evita o engano de digitar 36; quem manda é o `validar_meses`
+           do servidor, por onde passa também quem posta à mão. #}
+        <input
+          type="number"
+          name="meses"
+          min="{{ padrao }}"
+          max="{{ maximo }}"
+          step="1"
+          value="{{ maximo }}"
+        />
+      </label>
+      <label class="campo">
+        <span>Seu nome</span>
+        {# `list` e não `<select>`: a lista vem do OrçaView pela API ao lado, e
+           quando ela não vem o campo precisa continuar aceitando um nome
+           digitado — um `<select>` vazio travaria o cartão. #}
+        <input
+          type="text"
+          name="solicitante"
+          list="janela-nomes"
+          autocomplete="off"
+          placeholder="{{ 'escolha ou digite' if nomes else 'fica no histórico' }}"
+        />
+      </label>
+      <label class="campo">
+        <span>Senha do painel</span>
+        <input type="password" name="senha" />
+      </label>
+      <button class="acao perigosa" type="submit">Armar</button>
+    </div>
+  {% endif %}
+
+  {% if erro %}<p class="alerta">{{ erro }}</p>{% endif %}
+
+  {# Perfis ativos do OrçaView primeiro; depois quem já armou a janela e não é
+     perfil. Um `<datalist>` só sugere — quem precisar de um nome fora da lista
+     continua digitando. #}
+  {% if nomes %}
+    <datalist id="janela-nomes">
+      {% for nome in nomes %}<option value="{{ nome }}"></option>{% endfor %}
+    </datalist>
+  {% endif %}
+</form>

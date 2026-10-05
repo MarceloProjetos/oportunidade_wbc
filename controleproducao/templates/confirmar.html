@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% from "_icones.html" import icone %}
+{% block title %}Confirmar — {{ plano.operacao }}{% endblock %}
+{% block content %}
+<header class="casa-titulo">
+  <span class="casa-titulo__simbolo casa-titulo__simbolo--perigo">{{ icone('escudo', 26) }}</span>
+  <div class="casa-titulo__texto">
+    <h1>Confirmar: {{ plano.operacao }}</h1>
+    <p>Nada foi gravado ainda — confira e confirme</p>
+  </div>
+</header>
+
+<section class="ov-confirmacao">
+  {# 30/09/2026 (owner): no "Operação irreversível." lead — every notice already says what
+     cannot be undone; `aviso_destaque` is the bold start of the sentence, when there is one. #}
+  <p class="ov-alerta is-erro" style="margin-top:0">{{ icone('alerta', 16) }}
+    <span>{% if aviso_destaque %}<strong>{{ aviso_destaque }}</strong>{% endif %}{{ aviso_operacao }}</span></p>
+
+  <ul class="ov-resumo">
+    {% for chave, valor in plano.resumo.items() %}
+    <li><b>{{ valor }}</b> {{ chave }}</li>
+    {% endfor %}
+  </ul>
+
+  {% if plano.itens %}
+  <p class="ov-nota">O que será feito, exatamente — confira antes de confirmar:</p>
+  <div class="ov-table-card">
+    <div class="ov-scroll">
+      <table class="ov-table">
+        <thead><tr>{% for c in colunas %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for item in plano.itens %}
+          <tr>{% for c in colunas %}<td>{{ item.get(c, '') }}</td>{% endfor %}</tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <form method="post" action="{{ acao }}">
+    <input type="hidden" name="token" value="{{ plano.token }}">
+    {# The "Esta gravação é em PRODUÇÃO" notice left on 30/09/2026 (owner), like the red strip
+       of the top on 29/09: production is the normal state of this screen. #}
+    <p class="ov-nota">Esta conferência vale até
+      <strong>{{ plano.valido_ate.replace('T', ' ') }}</strong>. Depois disso é preciso
+      refazê-la — o que seria feito é recalculado sobre o estado atual do SAP.</p>
+    <div class="ov-acoes-lote">
+      {# Colours only (owner, 30/09/2026): go = green, back out = red; same raised style. #}
+      <button type="submit" class="ov-btn ov-btn--ok">{{ icone('play') }} Confirmar e executar</button>
+      <a href="{{ voltar }}" class="ov-btn ov-btn--perigo">Cancelar</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

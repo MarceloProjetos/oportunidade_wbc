@@ -1,0 +1,606 @@
+<!doctype html>
+<!--
+  Integração de Pedidos (WBC) — página de referência que usa SÓ a API JSON.
+
+  É o clone da tela http://192.168.7.11:8080/pedidos-wbc (Controle de Produção), com as três
+  telas dela — lista, conferência e execução —, os mesmos textos, o mesmo tema claro/escuro e
+  o mesmo comportamento. Guia completo: API_PEDIDOS_WBC.md (raiz do repositório).
+
+  Para usar: copie este arquivo, ajuste API_BASE abaixo e abra no navegador. A chave
+  (X-API-Key) e o nome de quem opera são pedidos na primeira vez e ficam só nesta aba
+  (sessionStorage) — nunca no código. Arquivo único, sem biblioteca e sem CDN: roda na rede
+  interna sem internet.
+
+  ATENÇÃO: "Confirmar e executar" grava no SAP de PRODUÇÃO (cria/cancela Ordens de Produção).
+-->
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Integração de Pedidos (WBC)</title>
+<style>
+/* ── Paleta (casa/static/casa.css): escuro é o padrão, claro por data-theme ────────────── */
+:root {
+  color-scheme: dark;
+  --pagina: #1a1a1a; --painel: #242424; --cartao: #2d2d2d; --superficie: #3a3a3a;
+  --borda: #404040; --borda-forte: #9ca3af; --texto: #ffffff; --texto-2: #9ca3af;
+  --acento: #da7756; --acento-texto: #e8956e; --sobre-solido: #ffffff;
+  --a08: rgb(218 119 86 / .08); --a13: rgb(218 119 86 / .13); --a20: rgb(218 119 86 / .20); --a40: rgb(218 119 86 / .40);
+  --perigo: #f2726a; --perigo-fundo: rgb(242 114 106 / .13); --perigo-borda: rgb(242 114 106 / .45);
+  --sombra: 0 4px 10px rgb(0 0 0 / .30), 0 1px 3px rgb(0 0 0 / .22);
+  --problema: #ff8a80;
+  /* Semânticas: as mesmas nos dois temas */
+  --sucesso: #28a745; --erro: #dc3545; --aviso: #ffc107; --info: #0dcaf0;
+  --r-cartao: 14px; --r-item: 10px; --r-pilula: 999px;
+  --fonte: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --pagina: #eef1f5; --painel: #ffffff; --cartao: #ffffff; --superficie: #ebeff5;
+  --borda: #cbd5e1; --borda-forte: #64748b; --texto: #1f2733; --texto-2: #5a6675;
+  --acento: #c45a3a; --acento-texto: #a94a2e;
+  --a08: rgb(196 90 58 / .08); --a13: rgb(196 90 58 / .12); --a20: rgb(196 90 58 / .20); --a40: rgb(196 90 58 / .38);
+  --perigo: #b42318; --perigo-fundo: rgb(180 35 24 / .08); --perigo-borda: rgb(180 35 24 / .35);
+  --sombra: 0 1px 2px rgb(0 0 0 / .05), 0 6px 20px rgb(0 0 0 / .05);
+  --problema: #b42318;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0; background: var(--pagina); color: var(--texto); font-family: var(--fonte);
+  font-size: .9375rem; line-height: 1.55; -webkit-font-smoothing: antialiased;
+}
+a { color: var(--acento-texto); text-decoration: none; }
+a:hover { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--acento-texto); outline-offset: 2px; }
+.icone { flex: none; vertical-align: -.15em; }
+
+/* Barra fina deste exemplo (a tela original usa a barra comum da "Central Integração SAP") */
+.barra {
+  display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+  background: var(--painel); border-top: 2px solid var(--acento);
+  box-shadow: 0 1px 0 rgb(0 0 0 / .25); font-size: .8125rem; color: var(--texto-2);
+}
+.barra b { color: var(--texto); }
+.barra .direita { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.barra button {
+  font: inherit; color: var(--texto); background: var(--cartao); border: 1px solid var(--borda);
+  border-radius: 8px; padding: 5px 10px; cursor: pointer;
+}
+
+/* Casca: a tela original aumenta 12,5% (zoom 1.125) e limita a 1600px */
+.casca { max-width: 1600px; margin: 0 auto; padding: 24px 16px 48px; zoom: 1.125; }
+@media (max-width: 760px) { .casca { zoom: .9; } }
+
+/* Título de página */
+.titulo { display: flex; align-items: center; gap: 16px; margin: 0 0 24px; }
+.titulo__simbolo {
+  flex: none; display: grid; place-items: center; width: 52px; height: 52px; border-radius: 14px;
+  background: var(--a13); color: var(--acento-texto); box-shadow: inset 0 0 0 1px var(--a40);
+}
+.titulo__simbolo--perigo { background: var(--perigo-fundo); color: var(--perigo); box-shadow: inset 0 0 0 1px var(--perigo-borda); }
+.titulo__texto { min-width: 0; }
+.titulo h1 { margin: 0; font-size: 1.875rem; font-weight: 700; line-height: 1.15; letter-spacing: -.01em; text-wrap: balance; }
+.titulo p { margin: 3px 0 0; color: var(--texto-2); font-size: .875rem; }
+.titulo .voltar { margin-left: auto; }
+@media (max-width: 760px) {
+  .titulo { flex-wrap: wrap; }
+  .titulo .voltar { margin-left: 0; }
+  .titulo__simbolo { width: 44px; height: 44px; border-radius: 12px; }
+  .titulo h1 { font-size: 1.5rem; }
+}
+
+/* Linha do topo: escolha do modo + 2 KPIs */
+.linha-topo { display: grid; grid-template-columns: auto 1fr 1fr; gap: 12px; align-items: stretch; margin-bottom: 16px; }
+@media (max-width: 760px) { .linha-topo { grid-template-columns: 1fr; } }
+.filtros {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin: 0;
+  background: var(--cartao); border: 1px solid var(--borda); border-radius: var(--r-cartao);
+  padding: 16px; box-shadow: var(--sombra);
+}
+.opcao-modo { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 1.0625rem; font-weight: 600; }
+.opcao-modo input { width: 20px; height: 20px; margin: 0; accent-color: var(--acento); cursor: pointer; }
+.kpi {
+  background: var(--cartao); border: 1px solid var(--borda); border-left: 4px solid var(--kpi-cor, var(--acento));
+  border-radius: var(--r-cartao); padding: 12px 16px; box-shadow: var(--sombra);
+}
+.kpi b { display: block; font-size: 1.875rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.kpi span { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--texto-2); }
+
+/* Tabela */
+.tabela-cartao { background: var(--cartao); border: 1px solid var(--borda); border-radius: var(--r-cartao); overflow: hidden; margin: 16px 0; }
+.tabela-cartao > .rola { overflow: auto; }
+table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: .9375rem; }
+thead th {
+  background: var(--superficie); padding: 8px 14px; text-align: left; font-size: .75rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .07em; color: var(--texto-2); border-bottom: 1px solid var(--borda); white-space: nowrap;
+}
+tbody td { padding: 11px 14px; border-bottom: 1px solid var(--borda); }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:nth-child(even) { background: rgb(127 127 127 / .07); }
+tbody tr:hover { background: var(--a08); }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.data { white-space: nowrap; color: var(--texto-2); }
+.vazio { color: var(--texto-2); font-size: .8125rem; }
+td input[type="checkbox"] { width: 20px; height: 20px; margin: 0; vertical-align: middle; cursor: pointer; accent-color: var(--acento); }
+
+/* Pílula */
+.pilula {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--r-pilula);
+  font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap;
+  border: 1px solid; color: var(--texto-2);
+  background: color-mix(in srgb, currentColor 14%, transparent); border-color: color-mix(in srgb, currentColor 40%, transparent);
+}
+.pilula::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pilula.is-ok { color: var(--sucesso); } .pilula.is-warn { color: var(--aviso); } .pilula.is-erro { color: var(--erro); }
+.pilula.is-aberto { color: var(--acento-texto); } .pilula.is-neutro { color: var(--texto-2); }
+
+/* Botões com relevo (gradiente de três paradas) */
+.btn, .btn-fantasma {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 18px;
+  border-radius: var(--r-item); font: inherit; font-weight: 600; letter-spacing: .3px; cursor: pointer;
+  border: 1px solid transparent; white-space: nowrap; text-decoration: none !important;
+  transition: transform .15s cubic-bezier(.23,1,.32,1), box-shadow .15s cubic-bezier(.23,1,.32,1);
+}
+.btn {
+  border: none; color: var(--sobre-solido); text-shadow: 0 1px 2px rgb(0 0 0 / .30);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--btn-cor, var(--acento)) 76%, white) 0%,
+    var(--btn-cor, var(--acento)) 40%, color-mix(in srgb, var(--btn-cor, var(--acento)) 80%, black) 100%);
+  box-shadow: 0 3px 8px color-mix(in srgb, var(--btn-cor, var(--acento)) 35%, transparent), inset 0 1px 0 rgb(255 255 255 / .25);
+}
+.btn--perigo { --btn-cor: var(--erro); }
+.btn--ok { --btn-cor: var(--sucesso); }
+.btn-fantasma {
+  color: var(--texto); border-color: var(--borda); background: var(--cartao);
+  box-shadow: 0 2px 5px rgb(0 0 0 / .20), inset 0 1px 0 rgb(255 255 255 / .08);
+}
+.btn-fantasma:hover { color: var(--acento-texto); border-color: var(--acento); }
+.btn:active, .btn-fantasma:active { transform: translateY(1px); }
+.btn:disabled, .btn-fantasma:disabled { opacity: .55; cursor: not-allowed; transform: none; box-shadow: none; text-shadow: none; }
+@media (hover: hover) and (pointer: fine) {
+  .btn:hover:not(:disabled), .btn-fantasma:hover:not(:disabled) { transform: translateY(-2px); }
+}
+
+/* Avisos */
+.alerta {
+  display: flex; align-items: flex-start; gap: 8px; border-radius: var(--r-item); padding: 12px 16px;
+  margin: 16px 0; font-size: .8125rem; border: 1px solid; color: var(--acento-texto);
+  background: color-mix(in srgb, currentColor 12%, transparent); border-color: color-mix(in srgb, currentColor 35%, transparent);
+}
+.alerta.is-erro { color: var(--erro); }
+.alerta.is-warn { color: var(--aviso); }
+.alerta > span { color: var(--texto); }
+.nota { color: var(--texto-2); font-size: .8125rem; }
+.nota-inline { color: var(--texto-2); font-size: .75rem; }
+.acoes-lote { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.paginacao { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; color: var(--texto-2); font-size: .8125rem; margin: 0 0 16px; padding: 0 4px; }
+.paginacao b { color: var(--texto); font-variant-numeric: tabular-nums; }
+.paginacao a { margin: 0 4px; cursor: pointer; }
+
+/* Conferência */
+.confirmacao {
+  background: var(--cartao); border: 1px solid color-mix(in srgb, var(--erro) 45%, transparent);
+  border-radius: var(--r-cartao); padding: 20px 22px; box-shadow: var(--sombra);
+}
+.resumo { list-style: none; padding: 0; margin: 16px 0; display: grid; gap: 4px; }
+.resumo li { color: var(--texto-2); font-size: .8125rem; }
+.resumo li b { color: var(--texto); font-size: 1.0625rem; margin-right: 4px; font-variant-numeric: tabular-nums; }
+
+/* Execução */
+.cartao { background: var(--cartao); border: 1px solid var(--borda); border-radius: var(--r-cartao); padding: 20px 22px; box-shadow: var(--sombra); }
+.barra-progresso { background: var(--superficie); height: 6px; border-radius: var(--r-pilula); margin: 12px 0; overflow: hidden; }
+.barra-progresso > i { display: block; background: var(--barra-cor, var(--acento)); height: 100%; width: 0; border-radius: var(--r-pilula); transition: width .35s cubic-bezier(.23,1,.32,1); }
+.barra-progresso.is-ok > i { --barra-cor: var(--sucesso); }
+.barra-progresso.is-warn > i { --barra-cor: var(--aviso); }
+.barra-progresso.is-erro > i { --barra-cor: var(--erro); }
+.passo { font-weight: 600; }
+.log {
+  background: var(--painel); border: 1px solid var(--borda); border-radius: var(--r-item); padding: 14px 16px;
+  max-height: 24rem; overflow: auto; font-family: var(--mono); font-size: .8125rem; line-height: 1.65;
+  white-space: pre-wrap; margin: 12px 0; font-variant-numeric: tabular-nums;
+}
+.log .is-problema { color: var(--problema); font-weight: 600; }
+h2.secao { display: flex; align-items: center; gap: 8px; margin: 32px 0 12px; font-size: .8125rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--texto-2); }
+h2.secao::before { content: ""; width: 6px; height: 6px; background: var(--acento); }
+
+/* Pedido da chave / do nome */
+.entrada { max-width: 460px; }
+.entrada label { display: block; font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: var(--texto-2); margin: 12px 0 4px; }
+.entrada input {
+  width: 100%; padding: 9px 12px; font: inherit; background: var(--superficie); color: var(--texto);
+  border: 1px solid var(--borda-forte); border-radius: 9px;
+}
+.entrada input:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px var(--a20); }
+
+/* Navegador sem color-mix() (Chrome/Edge < 111): sem isto os botões ficam SEM fundo */
+@supports not (color: color-mix(in srgb, red 50%, white)) {
+  .btn { background: linear-gradient(180deg, rgb(255 255 255 / .22) 0%, rgb(255 255 255 / 0) 40%, rgb(0 0 0 / .18) 100%), var(--btn-cor, var(--acento)); box-shadow: 0 3px 8px rgb(0 0 0 / .25); }
+  .pilula, .alerta { background: rgb(127 127 127 / .10); border-color: currentColor; }
+  .confirmacao { border-color: rgb(220 53 69 / .45); }
+}
+</style>
+</head>
+<body>
+
+<div class="barra">
+  <span>Pedidos WBC · API <b id="barra-api"></b></span>
+  <span class="direita">
+    <span id="barra-quem"></span>
+    <button type="button" id="trocar-chave">Trocar chave</button>
+    <button type="button" id="tema" aria-label="Alternar tema claro/escuro">◐ Tema</button>
+  </span>
+</div>
+
+<main class="casca" id="conteudo"></main>
+
+<!-- Ícones (traço 2px, currentColor) — os mesmos SVG da tela original -->
+<template id="icones">
+  <svg data-nome="pedidos" viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+  <svg data-nome="execucoes" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+  <svg data-nome="alerta" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+  <svg data-nome="escudo" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+  <svg data-nome="raio" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+  <svg data-nome="play" viewBox="0 0 24 24"><path d="m5 3 14 9-14 9V3z"/></svg>
+  <svg data-nome="parar" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+  <svg data-nome="voltar" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+</template>
+
+<script>
+"use strict";
+// ─── Configuração ───────────────────────────────────────────────────────────────────────
+// Onde está a API. Na rede da Altamira: http://192.168.7.11:8080 (Controle de Produção).
+const API_BASE = "http://192.168.7.11:8080";
+const API = API_BASE + "/api/pedidos-wbc";
+
+// ─── Utilidades ─────────────────────────────────────────────────────────────────────────
+const $conteudo = document.getElementById("conteudo");
+const guarda = {   // sessionStorage: some quando a aba fecha; nunca no código, nunca na URL
+  ler(k) { try { return sessionStorage.getItem(k) || ""; } catch (e) { return ""; } },
+  gravar(k, v) { try { sessionStorage.setItem(k, v); } catch (e) { /* aba privada */ } },
+  apagar(k) { try { sessionStorage.removeItem(k); } catch (e) { /* idem */ } },
+};
+
+function el(tag, atributos, ...filhos) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(atributos || {})) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k === "class") n.className = v;
+    else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+    else if (v === true) n.setAttribute(k, "");
+    else n.setAttribute(k, v);
+  }
+  for (const f of filhos.flat()) {
+    if (f === null || f === undefined || f === false) continue;
+    n.append(f instanceof Node ? f : document.createTextNode(String(f)));   // texto: nunca innerHTML
+  }
+  return n;
+}
+
+function icone(nome, tamanho = 16) {
+  const modelo = document.getElementById("icones").content.querySelector(`[data-nome="${nome}"]`);
+  const svg = modelo.cloneNode(true);
+  svg.removeAttribute("data-nome");
+  for (const [k, v] of Object.entries({ class: "icone", width: tamanho, height: tamanho, fill: "none",
+    stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) {
+    svg.setAttribute(k, v);
+  }
+  return svg;
+}
+
+// 867100 → "867.100,00" (o filtro `moeda` da tela original)
+const moeda = (v) => Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// "2026-10-01T14:20:05" → "01/10/2026 14:20:05"
+function dataHora(iso) {
+  const [d, h] = String(iso).split("T");
+  const [a, m, dia] = d.split("-");
+  return `${dia}/${m}/${a} ${h || ""}`.trim();
+}
+
+function titulo(nomeIcone, h1, sub, { perigo = false, voltar = null } = {}) {
+  return el("header", { class: "titulo" },
+    el("span", { class: "titulo__simbolo" + (perigo ? " titulo__simbolo--perigo" : "") }, icone(nomeIcone, 26)),
+    el("div", { class: "titulo__texto" }, el("h1", {}, h1), el("p", {}, sub)),
+    voltar);
+}
+
+function alerta(classe, nomeIcone, ...conteudo) {
+  return el("div", { class: "alerta " + classe }, icone(nomeIcone, 16), el("span", {}, ...conteudo));
+}
+
+// ─── Chamada à API ──────────────────────────────────────────────────────────────────────
+class ErroDaApi extends Error {
+  constructor(status, corpo) {
+    super((corpo && corpo.motivo) || `HTTP ${status}`);
+    this.status = status; this.corpo = corpo || {};
+  }
+}
+
+async function api(metodo, caminho, corpo) {
+  const resposta = await fetch(caminho.startsWith("http") ? caminho : API_BASE + caminho, {
+    method: metodo,
+    headers: { "X-API-Key": guarda.ler("chave"), ...(corpo ? { "Content-Type": "application/json" } : {}) },
+    body: corpo ? JSON.stringify(corpo) : undefined,
+  });
+  const dados = await resposta.json().catch(() => null);
+  if (resposta.status === 401) { guarda.apagar("chave"); telaDaChave("A chave foi recusada (401). Informe de novo."); throw new ErroDaApi(401, dados); }
+  if (!resposta.ok || !dados || dados.ok === false) throw new ErroDaApi(resposta.status, dados);
+  return dados;
+}
+
+// ─── Estado da tela ─────────────────────────────────────────────────────────────────────
+const estado = { modo: "novos", pagina: 1 };
+let acompanhando = null;   // id do setTimeout da tela de execução
+
+function trocaDeTela() { if (acompanhando) { clearTimeout(acompanhando); acompanhando = null; } window.scrollTo(0, 0); }
+
+// ─── 0. Chave e nome (só nesta aba) ─────────────────────────────────────────────────────
+function telaDaChave(aviso) {
+  trocaDeTela();
+  const chave = el("input", { type: "password", id: "chave", autocomplete: "off", required: true });
+  const nome = el("input", { type: "text", id: "nome", maxlength: "80", required: true, value: guarda.ler("solicitante") });
+  const form = el("form", { class: "cartao entrada", onsubmit(e) {
+    e.preventDefault();
+    if (!chave.value.trim() || !nome.value.trim()) return;
+    guarda.gravar("chave", chave.value.trim());
+    guarda.gravar("solicitante", nome.value.trim());
+    pintaBarra();
+    telaDaLista();
+  } },
+    aviso ? alerta("is-erro", "alerta", aviso) : null,
+    el("label", { for: "chave" }, "Chave da API (X-API-Key)"), chave,
+    el("label", { for: "nome" }, "Seu nome (vai para o histórico de cada execução)"), nome,
+    el("p", { class: "nota" }, "Ficam só nesta aba do navegador — fechou, some."),
+    el("button", { type: "submit", class: "btn" }, "Entrar"));
+  $conteudo.replaceChildren(titulo("pedidos", "Integração de Pedidos (WBC)", "Cria itens, recursos de rateio e a cascata de Ordens de Produção"), form);
+  chave.focus();
+}
+
+function pintaBarra() {
+  document.getElementById("barra-api").textContent = API_BASE.replace(/^https?:\/\//, "");
+  const quem = guarda.ler("solicitante");
+  document.getElementById("barra-quem").textContent = quem ? "operando como " + quem : "";
+}
+
+// ─── 1. Lista ───────────────────────────────────────────────────────────────────────────
+async function telaDaLista(avisoDeErro) {
+  trocaDeTela();
+  const radios = ["novos", "integrados"].map((modo) => el("label", { class: "opcao-modo" },
+    el("input", { type: "radio", name: "modo", value: modo, checked: estado.modo === modo,
+      onchange() { estado.modo = modo; estado.pagina = 1; telaDaLista(); } }),
+    modo === "novos" ? " Pedidos novos" : " Pedidos integrados"));
+  const carregando = el("span", { class: "nota" }, "Carregando…");
+  const topo = el("div", { class: "linha-topo" }, el("div", { class: "filtros" }, radios, carregando));
+  const corpo = el("div");
+  // replaceChildren() escreveria "null" na tela: só os nós que existem
+  $conteudo.replaceChildren(...[
+    titulo("pedidos", "Integração de Pedidos (WBC)", "Cria itens, recursos de rateio e a cascata de Ordens de Produção"),
+    avisoDeErro ? alerta("is-erro", "alerta", avisoDeErro) : null, topo, corpo].filter(Boolean));
+  radios.forEach((r) => (r.querySelector("input").disabled = true));   // a leitura leva uns segundos
+
+  let dados;
+  try {
+    dados = await api("GET", `/api/pedidos-wbc/pedidos?modo=${estado.modo}&pagina=${estado.pagina}`);
+  } catch (erro) {
+    if (erro.status === 401) return;
+    radios.forEach((r) => (r.querySelector("input").disabled = false));
+    carregando.remove();
+    corpo.replaceChildren(alerta("is-warn", "alerta", erro.status === 502
+      ? "Não foi possível carregar os pedidos agora — recarregue a página (F5) para tentar de novo."
+      : erro.message));
+    return;
+  }
+  radios.forEach((r) => (r.querySelector("input").disabled = false));
+  carregando.remove();
+  estado.pagina = dados.pagina;   // o servidor corrige página fora do intervalo
+
+  topo.append(
+    el("div", { class: "kpi" }, el("b", {}, dados.kpi.valor), el("span", {}, dados.kpi.rotulo)),
+    el("div", { class: "kpi", style: "--kpi-cor: var(--info)" }, el("b", {}, `${dados.pagina}/${dados.paginas}`), el("span", {}, "Página")));
+
+  if (dados.execucao_em_andamento) {
+    const ex = dados.execucao_em_andamento;
+    corpo.append(alerta("", "execucoes", "Há uma execução em andamento neste módulo: ",
+      el("a", { href: "#", onclick(e) { e.preventDefault(); telaDaExecucao(ex.id); } }, ex.nome),
+      ". Uma nova só é aceita depois que ela terminar — duas ao mesmo tempo disputariam os mesmos pedidos e OPs."));
+  }
+
+  const caixas = [];
+  const linhas = dados.pedidos.map((p) => {
+    const caixa = el("input", { type: "checkbox", value: p.oportunidade, "aria-label": `Selecionar o pedido ${p.pedido}`, onchange: pinta });
+    caixas.push(caixa);
+    return el("tr", {},
+      el("td", {}, caixa),
+      el("td", { class: "num" }, el("strong", {}, p.pedido)),
+      el("td", { class: "num" }, p.oportunidade),
+      el("td", {}, el("span", { class: "pilula is-aberto" }, p.wbc)),
+      el("td", {}, p.cliente),
+      el("td", { class: "num" }, moeda(p.total)),
+      el("td", { class: "data" }, p.criado));
+  });
+  if (!linhas.length) linhas.push(el("tr", {}, el("td", { colspan: 7, class: "vazio" }, dados.vazio || "Nenhum pedido neste modo.")));
+
+  corpo.append(el("section", { class: "tabela-cartao" }, el("div", { class: "rola" }, el("table", {},
+    el("thead", {}, el("tr", {}, el("th"), ["Pedido", "Oportunidade", "WBC", "Cliente"].map((t) => el("th", {}, t)),
+      el("th", { class: "num" }, "Total"), el("th", {}, "Criado"))),
+    el("tbody", {}, linhas)))));
+
+  if (dados.total) {
+    const pag = el("div", { class: "paginacao" },
+      el("span", {}, el("b", {}, `${dados.primeiro}–${dados.ultimo}`), " de ", el("b", {}, dados.total), " pedido(s)"));
+    if (dados.paginas > 1) {
+      const vai = (n) => (e) => { e.preventDefault(); estado.pagina = n; telaDaLista(); };
+      pag.append(el("span", {},
+        dados.pagina > 1 ? el("a", { href: "#", onclick: vai(dados.pagina - 1) }, "‹ anterior") : null,
+        " página ", el("b", {}, dados.pagina), " de ", el("b", {}, dados.paginas), " ",
+        dados.pagina < dados.paginas ? el("a", { href: "#", onclick: vai(dados.pagina + 1) }, "próxima ›") : null),
+        el("span", { class: "nota-inline" }, "A seleção vale só para esta página — mudar de página a perde."));
+    }
+    corpo.append(pag);
+  }
+
+  // O botão: começa desabilitado, conta os marcados, e leva à conferência (nada grava aqui)
+  const acao = dados.acao;
+  const rotulo = el("span", {}, acao.botao);
+  const botao = el("button", { type: "button", class: "btn btn--perigo", disabled: true, title: "Marque ao menos um pedido",
+    async onclick() {
+      const marcados = caixas.filter((c) => c.checked).map((c) => Number(c.value));
+      botao.disabled = true;
+      try {
+        const { plano } = await api("POST", acao.conferir, { oportunidades: marcados });
+        telaDaConferencia(plano);
+      } catch (erro) {
+        if (erro.status !== 401) telaDaLista(erro.message);
+      }
+    } }, icone(acao.tipo === "reprocessar" ? "raio" : "play"), rotulo);
+  const dica = el("span", { class: "nota-inline", "aria-live": "polite" },
+    dados.pedidos.length ? "Marque ao menos um pedido." : `Nenhum pedido para ${acao.verbo.toLowerCase()}.`);
+  function pinta() {
+    const n = caixas.filter((c) => c.checked).length;
+    botao.disabled = n === 0;
+    botao.title = n ? "" : "Marque ao menos um pedido";
+    rotulo.textContent = n ? `${acao.verbo} selecionados (${n})…` : acao.botao;
+    dica.hidden = n > 0;
+  }
+  corpo.append(el("div", { class: "acoes-lote" }, botao, dica));
+  if (acao.aviso) corpo.append(alerta("is-warn", "alerta", acao.aviso));
+}
+
+// ─── 2. Conferência (nada foi gravado ainda) ────────────────────────────────────────────
+function telaDaConferencia(plano) {
+  trocaDeTela();
+  const colunas = [["Pedido", "pedido"], ["Oportunidade", "oportunidade"], ["WBC", "wbc"], ["Cliente", "cliente"], ["Total", "total_texto"]];
+  const confirmar = el("button", { type: "button", class: "btn btn--ok", async onclick() {
+    confirmar.disabled = true;   // um clique só: o token vale uma vez
+    try {
+      const { execucao } = await api("POST", plano.executar, { token: plano.token, solicitante: guarda.ler("solicitante") });
+      telaDaExecucao(execucao.id);
+    } catch (erro) {
+      if (erro.status === 401) return;
+      if (erro.corpo.tipo === "ocupado" && erro.corpo.execucao_em_andamento) {
+        $conteudo.prepend(alerta("is-erro", "alerta", erro.message + " ",
+          el("a", { href: "#", onclick(e) { e.preventDefault(); telaDaExecucao(erro.corpo.execucao_em_andamento.id); } },
+            "Acompanhar a execução em andamento")));
+      } else {
+        $conteudo.prepend(alerta("is-erro", "alerta", erro.message));
+      }
+      confirmar.disabled = erro.corpo.tipo !== "confirmacao_invalida";
+    }
+  } }, icone("play"), " Confirmar e executar");
+
+  $conteudo.replaceChildren(
+    titulo("escudo", "Confirmar: " + plano.operacao, "Nada foi gravado ainda — confira e confirme", { perigo: true }),
+    el("section", { class: "confirmacao" },
+      el("p", { class: "alerta is-erro", style: "margin-top:0" }, icone("alerta", 16),
+        el("span", {}, plano.aviso.destaque ? el("strong", {}, plano.aviso.destaque) : null, plano.aviso.texto)),
+      el("ul", { class: "resumo" }, plano.resumo_tela.map((r) => el("li", {}, el("b", {}, r.valor), " " + r.rotulo))),
+      el("p", { class: "nota" }, "O que será feito, exatamente — confira antes de confirmar:"),
+      el("div", { class: "tabela-cartao" }, el("div", { class: "rola" }, el("table", {},
+        el("thead", {}, el("tr", {}, colunas.map(([t]) => el("th", {}, t)))),
+        el("tbody", {}, plano.itens.map((i) => el("tr", {}, colunas.map(([, k]) => el("td", {}, i[k]))))))))
+      ,
+      el("p", { class: "nota" }, "Esta conferência vale até ", el("strong", {}, plano.valido_ate.replace("T", " ")),
+        ". Depois disso é preciso refazê-la — o que seria feito é recalculado sobre o estado atual do SAP."),
+      el("div", { class: "acoes-lote" }, confirmar,
+        el("button", { type: "button", class: "btn btn--perigo", onclick() { telaDaLista(); } }, "Cancelar"))));
+}
+
+// ─── 3. Execução (atualiza a cada 2 s) ──────────────────────────────────────────────────
+const CLASSE_PILULA = { erro: "is-erro", falhas: "is-warn", cancelada: "is-warn", ok: "is-ok", rodando: "is-aberto", fila: "is-neutro" };
+const CLASSE_BARRA = { erro: "is-erro", falhas: "is-warn", cancelada: "is-erro", ok: "is-ok", rodando: "", fila: "" };
+
+function telaDaExecucao(id) {
+  trocaDeTela();
+  const h1 = el("h1", {}, "Execução");
+  const sub = el("p", {});
+  const situacao = el("span", { class: "pilula is-neutro" }, "na fila");
+  const progresso = el("span", { class: "nota" });
+  const duracao = el("span", { class: "nota" });
+  const criada = el("span", { class: "nota" });
+  const barra = el("i");
+  const casca = el("div", { class: "barra-progresso" }, barra);
+  const passo = el("p", { class: "passo" });
+  const log = el("pre", { class: "log" });
+  const erro = el("div", { class: "alerta is-erro", hidden: true });
+  const resultado = el("div", { hidden: true });
+  const interromper = el("button", { type: "button", class: "btn-fantasma", async onclick() {
+    interromper.disabled = true;
+    try {
+      const d = await api("POST", `/api/pedidos-wbc/execucoes/${id}/cancelar`, { solicitante: guarda.ler("solicitante") });
+      mostraErro(!d.cancelada ? "Não havia execução em andamento para interromper."
+        : "Interrupção pedida — o que está em curso termina inteiro e o próximo não começa. O que já foi gravado no SAP fica.");
+    } catch (e) { if (e.status !== 401) mostraErro(e.message); }
+    interromper.disabled = false;
+  } }, icone("parar"), " Interromper");
+  const acoes = el("div", { class: "acoes-lote" }, interromper,
+    el("span", { class: "nota-inline" }, "Para depois do pedido em curso — ele termina inteiro; os próximos não começam. ",
+      el("strong", {}, "Não desfaz"), " o que já foi gravado no SAP."));
+  function mostraErro(t) { erro.hidden = false; erro.textContent = t; }
+
+  let colado = true;   // só acompanha o fim do log quem já está no fim
+  log.addEventListener("scroll", () => { colado = log.scrollHeight - log.scrollTop - log.clientHeight < 24; });
+
+  $conteudo.replaceChildren(
+    el("header", { class: "titulo" },
+      el("span", { class: "titulo__simbolo" }, icone("execucoes", 26)),
+      el("div", { class: "titulo__texto" }, h1, sub),
+      el("button", { type: "button", class: "btn voltar", onclick() { telaDaLista(); } }, icone("voltar"), " Voltar para Pedidos WBC")),
+    el("section", { class: "cartao" },
+      el("p", { style: "margin-top:0" }, situacao, " ", progresso, " ", duracao, " ", criada),
+      casca, passo, log, erro, resultado, acoes));
+
+  function pintaEstado(d) {
+    h1.textContent = d.nome;
+    sub.textContent = d.descricao + (d.origem === "api" ? ` · por ${d.solicitante || "—"} · API` : "");
+    situacao.textContent = d.desfecho === "falhas" ? d.situacao + " com falhas" : d.situacao;
+    situacao.className = "pilula " + CLASSE_PILULA[d.desfecho];
+    casca.className = "barra-progresso " + CLASSE_BARRA[d.desfecho];
+    progresso.textContent = d.passos_total ? ` — ${d.passos_feitos}/${d.passos_total}` : "";
+    duracao.textContent = d.duracao_segundos !== null ? ` — ${d.duracao_segundos} s` : "";
+    criada.textContent = "· " + dataHora(d.criada_em);
+    passo.textContent = d.passo || "";
+    barra.style.width = (d.percentual === null ? 0 : d.percentual) + "%";
+    log.replaceChildren(...d.linhas.map((t) => el("span", { class: t.includes("⚠") ? "is-problema" : null }, t + "\n")));
+    if (colado) log.scrollTop = log.scrollHeight;
+    if (d.erro) mostraErro(d.erro);
+    if (d.terminada) {
+      acoes.hidden = true;
+      if (d.resultado) {
+        resultado.hidden = false;
+        resultado.replaceChildren(el("h2", { class: "secao" }, "Resultado"), el("pre", { class: "log" }, JSON.stringify(d.resultado, null, 2)));
+      }
+    }
+    return d.terminada;
+  }
+
+  async function consulta() {
+    try {
+      const { execucao } = await api("GET", `/api/pedidos-wbc/execucoes/${id}`);
+      if (!pintaEstado(execucao)) acompanhando = setTimeout(consulta, 2000);
+    } catch (e) {
+      if (e.status === 401) return;
+      if (e.status === 404) { acoes.hidden = true; mostraErro(e.message); return; }
+      if (e.status === 503) { mostraErro(e.message + " Nova tentativa em 15 s."); acompanhando = setTimeout(consulta, 15000); return; }
+      // Falha de rede: a execução continua no servidor — tentar de novo
+      acompanhando = setTimeout(consulta, 5000);
+    }
+  }
+  consulta();
+}
+
+// ─── Tema e início ──────────────────────────────────────────────────────────────────────
+(function () {
+  const raiz = document.documentElement;
+  try { const t = localStorage.getItem("tema-pedidos-wbc"); if (t) raiz.dataset.theme = t; } catch (e) { /* sem storage */ }
+  document.getElementById("tema").addEventListener("click", () => {
+    raiz.dataset.theme = raiz.dataset.theme === "light" ? "dark" : "light";
+    try { localStorage.setItem("tema-pedidos-wbc", raiz.dataset.theme); } catch (e) { /* idem */ }
+  });
+  document.getElementById("trocar-chave").addEventListener("click", () => { guarda.apagar("chave"); telaDaChave(); });
+  pintaBarra();
+  if (guarda.ler("chave") && guarda.ler("solicitante")) telaDaLista(); else telaDaChave();
+})();
+</script>
+</body>
+</html>

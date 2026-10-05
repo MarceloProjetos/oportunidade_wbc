@@ -1,0 +1,1729 @@
+"""Testes da API HTTP de disparo da sync de OS (sem rede; sync_os mockado)."""
+
+import logging
+import re
+
+import pytest
+
+pytest.importorskip('flask')  # pula o módulo se flask não estiver instalado
+
+from datetime import UTC
+
+import api as apimod  # noqa: E402
+from config import get_settings, reset_settings  # noqa: E402
+from wbcpython import safety  # noqa: E402
+
+
+@pytest.fixture
+def client(monkeypatch):
+    # Estado base: SEM OS_API_KEY (API aberta). Os testes de auth definem a chave.
+    # (o .env local pode ter OS_API_KEY; aqui garantimos um estado determinístico.)
+    monkeypatch.delenv('OS_API_KEY', raising=False)
+    # Idem para o STATUS_ID: com ele vazando do .env, o teste da visão mínima do /status
+    # passaria a depender do ambiente em vez do código.
+    monkeypatch.delenv('STATUS_ID', raising=False)
+    reset_settings()
+    apimod._rate_limiter.reset()   # rate-limit é singleton de processo — zera entre testes
+    # sync_os mockado: registra os NPEDs chamados e devolve sucesso por padrão.
+    # Carga única (VW_OS_INTEGRACAO): não há mais sub-syncs de árvore WBC nem de
+    # views de impressão para mockar.
+    chamados = []
+    monkeypatch.setattr(apimod, 'sync_os', lambda n: chamados.append(n) or True)
+    # diagnóstico mockado: por padrão "tem OS, não cancelada, pedido aberto" → sincroniza
+    monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {
+        'tem_os': True, 'cancelada': False,
+        'pedido_existe': True, 'pedido_cancelado': False, 'pedido_status': 'Aberto'})
+    # ORDR e releitura do resumo dublados por padrao: sem isso o GET /ordens-servico/<n>
+    # abria conexao REAL com o HANA e o sincronizar relia o Supabase de producao (11
+    # testes, pegos pela trava do conftest da raiz em 24/09/2026). Quem precisa de outro
+    # valor sobrescreve no proprio teste.
+    monkeypatch.setattr(apimod, 'consultar_status_pedido', lambda n: None)
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n: [])
+    apimod.app.config.update(TESTING=True)
+    c = apimod.app.test_client()
+    c._chamados = chamados
+    return c
+
+
+def test_health(client):
+    r = client.get('/health')
+    assert r.status_code == 200
+    assert r.get_json()['status'] == 'ok'
+
+
+def test_raiz_e_a_entrada_para_o_painel_wbc(client, monkeypatch):
+    """A raiz leva ao painel WBC (a tela principal), com o endereco vindo da API e o
+    fallback para /sincronizar quando o painel nao responde."""
+    monkeypatch.delenv('WBC_PAINEL_URL', raising=False)
+    monkeypatch.delenv('PAINEL_PORTA', raising=False)
+    reset_settings()
+    r = client.get('/')
+    assert r.status_code == 200
+    assert r.headers['Cache-Control'] == 'no-store'
+    assert b'const PAINEL = "http://localhost:8079/";' in r.data
+    assert b'href="http://localhost:8079/"' in r.data
+    assert b'href="/sincronizar"' in r.data
+    assert b'OrcaView-WBC-Painel' in r.data
+    assert b'__PAINEL_WBC' not in r.data  # nenhum placeholder sobrou
+
+
+def test_raiz_escapa_a_url_configurada(client, monkeypatch):
+    monkeypatch.setenv('WBC_PAINEL_URL', 'http://192.168.7.11:8079/?a=1&b=<x>')
+    reset_settings()
+    r = client.get('/')
+    assert b'href="http://192.168.7.11:8079/?a=1&amp;b=&lt;x&gt;"' in r.data
+    assert b'const PAINEL = "http://192.168.7.11:8079/?a=1&b=<x>";' in r.data
+
+
+def test_sincronizar_serve_o_painel_de_sincronizacao(client):
+    r = client.get('/sincronizar')
+    assert r.status_code == 200
+    assert r.headers['Cache-Control'] == 'no-store'
+    html = r.get_data(as_text=True)
+    assert 'Sincronização SAP → Supabase' in html
+    # The shared shell (PLANO_CASA_COMUM_11 F3): the same bar as the other two screens.
+    assert '<header class="casa-barra">' in html and '/casa/casa.css' in html
+    assert re.search(r'href="/sincronizar"[^>]*aria-current="page"', html)
+    # No key pasted into the page any more, nor kept in localStorage (decision 6).
+    assert 'id="key"' not in html and 'os_api_key' not in html and 'X-API-Key' not in html
+
+
+def test_sincronizar_todo_elemento_do_script_existe(client):
+    """One `$('x')` without its element throws at load and the rest of the script never runs
+    (histories and the line count stay empty). Guard for text cuts like the footer's (01/10)."""
+    html = client.get('/sincronizar').get_data(as_text=True)
+    ids = set(re.findall(r'id="([^"]+)"', html))
+    usados = set(re.findall(r"\$\('([^']+)'\)", html))
+    assert usados and usados <= ids, sorted(usados - ids)
+
+
+# ============ the shared login of the .11 screens (PLANO_CASA_COMUM_11 F3) ============
+
+def _com_chave(monkeypatch):
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+
+
+def _cookie(client, chave='segredo'):
+    from casa import acesso
+    client.set_cookie(acesso.COOKIE_DE_ACESSO, acesso.token_da_chave(chave))
+
+
+def test_sincronizar_com_chave_pede_a_entrada(client, monkeypatch):
+    _com_chave(monkeypatch)
+    r = client.get('/sincronizar')
+    assert r.status_code == 303
+    assert r.headers['Location'].endswith('/entrar?proximo=%2Fsincronizar')
+    entrada = client.get('/entrar?proximo=/sincronizar').get_data(as_text=True)
+    assert 'Chave de acesso' in entrada and '<header class="casa-barra">' in entrada
+    assert 'href="/painel-wbc"' not in entrada        # only the way back to the OrçaView
+
+
+def test_o_cookie_do_painel_abre_a_sincronizacao(client, monkeypatch):
+    """One login for the three screens: the cookie the painel WBC or the Controle de Produção
+    issued opens this page and its calls, with no key typed again."""
+    _com_chave(monkeypatch)
+    monkeypatch.setattr(apimod, '_fetch_log', lambda table, n: [])
+    _cookie(client)
+    assert client.get('/sincronizar').status_code == 200
+    assert client.get('/historico').status_code == 200
+    _cookie(client, chave='outra')                     # a cookie of another key
+    assert client.get('/historico').status_code == 401
+
+
+def test_entrar_confere_a_chave_e_grava_o_mesmo_cookie(client, monkeypatch):
+    from casa import acesso
+    _com_chave(monkeypatch)
+    errada = client.post('/entrar', data={'chave': 'nao', 'proximo': '/sincronizar'})
+    assert errada.status_code == 401 and 'Chave incorreta' in errada.get_data(as_text=True)
+    certa = client.post('/entrar', data={'chave': 'segredo', 'proximo': '//fora/x'})
+    assert certa.status_code == 303 and certa.headers['Location'] == '/'   # never off-site
+    biscoito = certa.headers['Set-Cookie']
+    assert biscoito.startswith(f'{acesso.COOKIE_DE_ACESSO}={acesso.token_da_chave("segredo")};')
+    assert 'HttpOnly' in biscoito and 'segredo;' not in biscoito
+    assert client.post('/sair').headers['Location'] == '/entrar'
+
+
+@pytest.mark.parametrize('proximo', ['/\t/fora.com', '/\n/fora.com', '/\r\n/fora.com'])
+def test_entrar_nao_redireciona_para_fora_com_caractere_de_controle(client, monkeypatch, proximo):
+    """01/10/2026 review: Flask sent ``Location: /\\t/fora.com`` and the browser, which drops
+    tab/CR/LF from a URL, went to //fora.com after the key was typed."""
+    _com_chave(monkeypatch)
+    certa = client.post('/entrar', data={'chave': 'segredo', 'proximo': proximo})
+    assert certa.status_code == 303 and certa.headers['Location'] == '/'
+
+
+def test_escrita_por_cookie_so_da_mesma_origem(client, monkeypatch):
+    """CSRF: the cookie rides along on a request any page fires at this host; a write
+    authenticated only by it must come from this origin. The key header stays exempt."""
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _fake_lock(timeout=0):
+        yield
+
+    _com_chave(monkeypatch)
+    monkeypatch.setattr(apimod, 'oportunidades_sync_lock', _fake_lock)
+    monkeypatch.setattr(apimod, 'sync_oportunidades', lambda: True)
+    _cookie(client)
+    assert client.post('/oportunidades/sincronizar').status_code == 401
+    assert client.post('/oportunidades/sincronizar',
+                       headers={'Origin': 'http://evil.example'}).status_code == 401
+    assert client.post('/oportunidades/sincronizar',
+                       headers={'Origin': 'http://localhost'}).status_code == 200
+
+
+def test_inicio_e_a_pagina_da_marca(client, monkeypatch):
+    """F5: the Central's home page — behind the same login, marked current on the brand, and
+    built only from /status and the sync logs (no data of its own)."""
+    _com_chave(monkeypatch)
+    r = client.get('/inicio')
+    assert r.status_code == 303 and r.headers['Location'].endswith('/entrar?proximo=%2Finicio')
+    _cookie(client)
+    html = client.get('/inicio').get_data(as_text=True)
+    assert re.search(r'<a class="casa-marca" href="/inicio"[^>]*aria-current="page"', html)
+    assert "pegar('/status?checks=worker,cp')" in html and "pegar('/historico?limit=1')" in html
+    for tela in ('Integração WBC', 'Controle de Produção', 'Sincronização'):
+        assert f'<h3>{tela}</h3>' in html
+    # And the brand leads here from the Sincronização too.
+    assert '<a class="casa-marca" href="/inicio"' in client.get('/sincronizar').get_data(as_text=True)
+
+
+def test_casca_e_atalhos_abrem_sem_chave(client, monkeypatch):
+    _com_chave(monkeypatch)
+    assert client.get('/casa/casa.css').status_code == 200
+    assert client.get('/orcaview').headers['Location'] == 'http://192.168.0.90:8000/'
+    monkeypatch.delenv('CP_URL', raising=False)
+    monkeypatch.delenv('CP_PORTA', raising=False)
+    reset_settings()
+    assert client.get('/controle-producao/ops').headers['Location'] == 'http://localhost:8080/manutencao-op'
+    assert client.get('/controle-producao/tarefas').headers['Location'] == 'http://localhost:8080/tarefas'
+
+
+def test_favicon_no_content(client):
+    assert client.get('/favicon.ico').status_code == 204
+
+
+def test_historico_returns_items(client, monkeypatch):
+    monkeypatch.setattr(apimod, '_fetch_log', lambda table, n: [
+        {'nped': 84080, 'status': 'sucesso', 'qtd_registros': 383,
+         'duracao_segundos': 3.7, 'data_hora_sincronizacao': '2026-06-26T11:19:00+00:00'},
+    ])
+    r = client.get('/historico')
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['ok'] is True
+    assert body['items'][0]['nped'] == 84080
+
+
+def test_historico_respects_limit(client, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(apimod, '_fetch_log', lambda table, n: captured.__setitem__('n', n) or [])
+    client.get('/historico?limit=5')
+    assert captured['n'] == 5
+
+
+def test_historico_requires_key_when_set(client, monkeypatch):
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    monkeypatch.setattr(apimod, '_fetch_log', lambda table, n: [])
+    assert client.get('/historico').status_code == 401
+    assert client.get('/historico', headers={'X-API-Key': 'segredo'}).status_code == 200
+
+
+def test_limpar_historico(client, monkeypatch):
+    chamado = {}
+
+    def _fake_clear(table):
+        chamado['ok'] = True
+        return 3
+
+    monkeypatch.setattr(apimod, '_clear_log', _fake_clear)
+    r = client.delete('/historico')
+    assert r.status_code == 200
+    assert r.get_json() == {'ok': True, 'removed': 3}
+    assert chamado.get('ok') is True
+
+
+def test_limpar_historico_requires_key_when_set(client, monkeypatch):
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    monkeypatch.setattr(apimod, '_clear_log', lambda table: 0)
+    assert client.delete('/historico').status_code == 401
+    assert client.delete('/historico', headers={'X-API-Key': 'segredo'}).status_code == 200
+
+
+# ----- /ordens-servico/<nped> (detalhe da OS) -----
+
+# Shape da tabela única VW_OS_INTEGRACAO (usa "N_PED"; datas de entrega/obs na mesma
+# linha). Solda/Pintura/Almox/Exped/Compras são flags POR ITEM: aqui a 1ª linha vai p/
+# solda e pintura, a 2ª não — ambas passam por almox/exped, e só a 2ª por compras
+# (pedido com itens mistos: um fabricado, um comprado).
+_FAKE_OS_ROWS = [
+    {'id': 1, 'N_PED': 84080, 'N_OP': 138757, 'DescItemPED': 'Estantes',
+     'DescItemEstrut': 'Coluna', 'DtPedido': '2026-06-24T00:00:00', 'CodClien': 'C011627',
+     'NomeClien': 'ARAUCO CELULOSE', 'Status': 'R', 'TotalOrcam': 20640.0,
+     'ObsPedido': 'Entregar no galpao 2.', 'DtLiber': '2026-06-24T00:00:00',
+     'DtEntregaPED': '2026-07-20T00:00:00',
+     'Solda': 1, 'Pintura': 1, 'Almox': 1, 'Exped': 1, 'Compras': 0,
+     'id_execucao': 'exec-1', 'data_hora_extracao': '2026-06-25T16:38:20'},
+    {'id': 2, 'N_PED': 84080, 'N_OP': 138758, 'DescItemPED': 'Estantes',
+     'DescItemEstrut': 'Longarina', 'DtPedido': '2026-06-24T00:00:00', 'CodClien': 'C011627',
+     'NomeClien': 'ARAUCO CELULOSE', 'Status': 'R', 'TotalOrcam': 20640.0,
+     'ObsPedido': 'Entregar no galpao 2.', 'DtLiber': '2026-06-24T00:00:00',
+     'DtEntregaPED': '2026-07-20T00:00:00',
+     'Solda': 0, 'Pintura': 0, 'Almox': 1, 'Exped': 1, 'Compras': 1,
+     'id_execucao': 'exec-1', 'data_hora_extracao': '2026-06-25T16:38:20'},
+]
+
+
+def test_os_detalhe_resumo(client, monkeypatch):
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
+    r = client.get('/ordens-servico/84080')
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['ok'] is True and body['nped'] == 84080
+    resumo = body['resumo']
+    assert resumo['cliente'] == 'ARAUCO CELULOSE'
+    assert resumo['status'] == 'R' and resumo['status_desc'] == 'Liberado'
+    assert resumo['num_linhas'] == 2
+    assert resumo['num_ops'] == 2 and resumo['ops'] == [138757, 138758]
+    # TotalOrcam é POR LINHA (não cabeçalho): o resumo SOMA as linhas.
+    assert resumo['total_orcamento'] == 41280.0
+    assert 'linhas' not in body  # sem ?linhas=1, só o resumo
+
+
+def test_resumo_total_orcamento_soma_e_tolera_lixo():
+    rows = [
+        {'TotalOrcam': 96.78}, {'TotalOrcam': None},
+        {'TotalOrcam': '100.22'}, {'TotalOrcam': 'abc'},
+    ]
+    assert apimod._soma_total_orcamento(rows) == 197.0
+    assert apimod._soma_total_orcamento([{'TotalOrcam': None}]) is None
+
+
+def test_os_detalhe_incluir_linhas(client, monkeypatch):
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
+    body = client.get('/ordens-servico/84080?linhas=1').get_json()
+    assert 'linhas' in body and len(body['linhas']) == 2
+
+
+# ----- U_INO_D_Adicionais (Dados Adicionais, por item — opt-in) -----
+
+class _FakeQuery:
+    """Encadeamento table().select().eq().order().execute() do PostgREST."""
+
+    def __init__(self, registro, linhas):
+        self._registro, self._linhas = registro, linhas
+
+    def select(self, cols):
+        self._registro.append(cols)
+        return self
+
+    def eq(self, *_a, **_k):
+        return self
+
+    def order(self, *_a, **_k):
+        return self
+
+    def execute(self):
+        return type('Res', (), {'data': self._linhas})()
+
+
+def _stub_supabase(monkeypatch, linhas):
+    """Stuba _supabase() e devolve a lista onde as projeções ficam registradas."""
+    registro: list = []
+    fake = type('Cli', (), {'table': lambda _s, _n: _FakeQuery(registro, linhas)})()
+    monkeypatch.setattr(apimod, '_supabase', lambda: fake)
+    return registro
+
+
+def test_fetch_os_detalhe_nao_pede_adicionais_por_padrao(monkeypatch):
+    """O campo tem até 5.000 chars POR ITEM: fora da projeção enxuta por padrão."""
+    registro = _stub_supabase(monkeypatch, list(_FAKE_OS_ROWS))
+    apimod._fetch_os_detalhe(84080)
+    assert 'U_INO_D_Adicionais' not in registro[0]
+
+
+def test_fetch_os_detalhe_inclui_adicionais_quando_pedido(monkeypatch):
+    registro = _stub_supabase(monkeypatch, list(_FAKE_OS_ROWS))
+    apimod._fetch_os_detalhe(84080, incluir_adicionais=True)
+    assert registro[0].endswith(',U_INO_D_Adicionais')
+    # a projeção enxuta continua inteira — o campo é acréscimo, não substituição
+    assert registro[0].startswith(apimod._OS_DETALHE_COLS)
+
+
+def test_os_detalhe_adicionais_chega_nas_linhas(client, monkeypatch):
+    """?linhas=1&adicionais=1 → o campo vai em cada linha."""
+    linhas = [{**r, 'U_INO_D_Adicionais': f'Pintura RAL {i}'}
+              for i, r in enumerate(_FAKE_OS_ROWS)]
+    pedidos: list = []
+    monkeypatch.setattr(
+        apimod, '_fetch_os_detalhe',
+        lambda n, incluir_adicionais=False: pedidos.append(incluir_adicionais) or linhas)
+    body = client.get('/ordens-servico/84080?linhas=1&adicionais=1').get_json()
+    assert pedidos == [True]
+    assert body['linhas'][0]['U_INO_D_Adicionais'] == 'Pintura RAL 0'
+
+
+def test_os_detalhe_adicionais_sem_linhas_nao_e_buscado(client, monkeypatch):
+    """adicionais=1 sozinho não pesa a query: sem ?linhas=1 o campo nem sairia no payload."""
+    pedidos: list = []
+    monkeypatch.setattr(
+        apimod, '_fetch_os_detalhe',
+        lambda n, incluir_adicionais=False: pedidos.append(incluir_adicionais)
+        or list(_FAKE_OS_ROWS))
+    body = client.get('/ordens-servico/84080?adicionais=1').get_json()
+    assert pedidos == [False]
+    assert 'linhas' not in body
+
+
+def test_os_detalhe_404_sem_os(client, monkeypatch):
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: [])
+    r = client.get('/ordens-servico/99999')
+    assert r.status_code == 404
+    assert r.get_json()['error'] == 'pedido sem OS sincronizada'
+
+
+@pytest.mark.parametrize('bad', ['-5', '0', 'abc', '84080.0'])
+def test_os_detalhe_nped_invalido_400(client, monkeypatch, bad):
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
+    assert client.get(f'/ordens-servico/{bad}').status_code == 400
+
+
+def test_os_detalhe_disponiveis_nao_e_capturado(client, monkeypatch):
+    """A rota estática /disponiveis tem prioridade sobre o <nped> dinâmico."""
+    monkeypatch.setattr(apimod, 'listar_pedidos_com_os', lambda limit: [])
+    # se '<nped>' capturasse 'disponiveis', viria 400 (NPED inválido); deve vir 200.
+    assert client.get('/ordens-servico/disponiveis').status_code == 200
+
+
+def test_os_detalhe_requires_key_when_set(client, monkeypatch):
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
+    assert client.get('/ordens-servico/84080').status_code == 401
+    assert client.get('/ordens-servico/84080',
+                      headers={'X-API-Key': 'segredo'}).status_code == 200
+
+
+# ----- campos de entrega/obs no resumo (agora da MESMA tabela única) -----
+
+def test_os_detalhe_campos_entrega_no_resumo(client, monkeypatch):
+    """Datas de entrega/liberação e observação saem da própria linha (tabela única),
+    sem 2ª query a um espelho separado."""
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
+    resumo = client.get('/ordens-servico/84080').get_json()['resumo']
+    assert resumo['exped_disponivel'] is True   # compat. web: sempre True na tabela única
+    assert resumo['data_entrega'] == '2026-07-20T00:00:00'
+    assert resumo['data_liberacao'] == '2026-06-24T00:00:00'
+    assert resumo['obs'] == 'Entregar no galpao 2.'
+    assert resumo['data_pedido'] == '2026-06-24T00:00:00'
+    # não há mais divergência exped x engenharia → sem 'data_pedido_engenharia'
+    assert 'data_pedido_engenharia' not in resumo
+
+
+def test_resumo_agrega_processos_por_item(client, monkeypatch):
+    """As flags de processo são POR ITEM: o resumo agrega (passa? quantos itens?),
+    em vez de um booleano de cabeçalho — o pedido tem itens mistos."""
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
+    proc = client.get('/ordens-servico/84080').get_json()['resumo']['processos']
+    # só a 1ª linha vai p/ solda e pintura; as duas passam por almox e exped
+    assert proc['solda'] == {'tem': True, 'linhas': 1}
+    assert proc['pintura'] == {'tem': True, 'linhas': 1}
+    assert proc['almox'] == {'tem': True, 'linhas': 2}
+    assert proc['exped'] == {'tem': True, 'linhas': 2}
+    # e só a 2ª passa por compras (item comprado, não fabricado)
+    assert proc['compras'] == {'tem': True, 'linhas': 1}
+
+
+def test_resumo_processo_sem_nenhum_item(client, monkeypatch):
+    """Nenhum item no processo → tem False e contagem zero (não some do payload)."""
+    rows = [{**r, 'Solda': 0} for r in _FAKE_OS_ROWS]
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: rows)
+    proc = client.get('/ordens-servico/84080').get_json()['resumo']['processos']
+    assert proc['solda'] == {'tem': False, 'linhas': 0}
+
+
+def test_resumo_processos_cobre_todas_as_flags(client, monkeypatch):
+    """O payload traz sempre TODAS as flags — nenhuma some por estar zerada.
+
+    Cresceu de 4 para 5 em 05/08 (entrou `Compras`). O conjunto é cravado aqui de
+    propósito: adicionar uma chave é compatível (o consumidor lê por nome), remover ou
+    renomear quebra quem consome a 8077.
+    """
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
+    proc = client.get('/ordens-servico/84080').get_json()['resumo']['processos']
+    assert set(proc) == {'solda', 'pintura', 'almox', 'exped', 'compras'}
+
+
+@pytest.mark.parametrize('valor,esperado', [
+    (1, True), ('1', True), (1.0, True),           # int/texto/decimal contam
+    (0, False), ('0', False), (None, False),
+    ('', False), ('abc', False), ('sim', False),   # lixo não derruba: só não conta
+])
+def test_flag_ligada_tolera_valor_inesperado(valor, esperado):
+    assert apimod._flag_ligada(valor) is esperado
+
+
+def test_os_sincronizar_resumo_traz_entrega(client, monkeypatch):
+    """O resumo fresco pós-sync também sai com os campos de entrega (mesma tabela)."""
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
+    body = client.post('/ordens-servico/84080/sincronizar').get_json()
+    assert body['resumo']['data_entrega'] == '2026-07-20T00:00:00'
+    assert body['resumo']['exped_disponivel'] is True
+
+
+# ----- POST /ordens-servico/<nped>/sincronizar (escrita: sync + resumo) -----
+
+def test_os_sincronizar_ok_com_resumo(client, monkeypatch):
+    """Sync OK → 200, resultado.ok e o resumo fresco relido da tabela."""
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
+    r = client.post('/ordens-servico/84080/sincronizar')
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['ok'] is True and body['nped'] == 84080
+    assert body['resultado']['ok'] is True
+    assert body['resumo']['num_linhas'] == 2 and body['resumo']['status_desc'] == 'Liberado'
+    assert client._chamados == [84080]            # sincronizou
+
+
+def test_os_sincronizar_sem_os_200_sem_resumo(client, monkeypatch):
+    """Pedido ABERTO sem OS gerada → aviso 'sem_os' (com status do pedido), 200,
+    sem resumo e SEM sincronizar. Motivo sem acento (legível em qualquer console)."""
+    monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {
+        'tem_os': False, 'cancelada': False,
+        'pedido_existe': True, 'pedido_cancelado': False, 'pedido_status': 'Aberto'})
+    r = client.post('/ordens-servico/84106/sincronizar')
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['ok'] is False and body['resultado']['tipo'] == 'sem_os'
+    assert body['resultado']['status_pedido'] == 'Aberto'
+    assert body['resultado']['motivo'] == 'OS ainda nao gerada para este pedido (pedido aberto).'
+    assert 'resumo' not in body
+    assert client._chamados == []                 # não tentou sincronizar
+
+
+def test_os_sincronizar_pedido_cancelado(client, monkeypatch):
+    """Pedido CANCELADO na ORDR (sem OS) → tipo 'pedido_cancelado', não 'sem_os'."""
+    monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {
+        'tem_os': False, 'cancelada': False,
+        'pedido_existe': True, 'pedido_cancelado': True, 'pedido_status': 'Cancelado'})
+    r = client.post('/ordens-servico/84109/sincronizar')
+    assert r.status_code == 200
+    res = r.get_json()['resultado']
+    assert res['tipo'] == 'pedido_cancelado' and res['status_pedido'] == 'Cancelado'
+    assert res['motivo'] == 'Pedido cancelado no SAP - nao ha OS a sincronizar.'
+    assert client._chamados == []
+
+
+def test_os_sincronizar_pedido_nao_encontrado(client, monkeypatch):
+    """NPED sem linha na ORDR → tipo 'pedido_nao_encontrado'."""
+    monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {
+        'tem_os': False, 'cancelada': False,
+        'pedido_existe': False, 'pedido_cancelado': False, 'pedido_status': None})
+    r = client.post('/ordens-servico/99999/sincronizar')
+    assert r.status_code == 200
+    res = r.get_json()['resultado']
+    assert res['tipo'] == 'pedido_nao_encontrado'
+    assert client._chamados == []
+
+
+def test_os_sincronizar_diag_legado_sem_pedido(client, monkeypatch):
+    """Diag SEM as chaves pedido_* (ORDR falhou / shape antigo) → cai no 'sem_os'
+    genérico, sem sufixo de status (retrocompatível)."""
+    monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {'tem_os': False, 'cancelada': False})
+    r = client.post('/ordens-servico/84106/sincronizar')
+    res = r.get_json()['resultado']
+    assert res['tipo'] == 'sem_os'
+    assert res['motivo'] == 'OS ainda nao gerada para este pedido.'
+    assert client._chamados == []
+
+
+def test_os_sincronizar_cancelada(client, monkeypatch):
+    monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {'tem_os': True, 'cancelada': True})
+    r = client.post('/ordens-servico/84080/sincronizar')
+    assert r.status_code == 200
+    assert r.get_json()['resultado']['tipo'] == 'cancelada'
+    assert client._chamados == []
+
+
+def test_os_sincronizar_falha_502(client, monkeypatch):
+    """Falha real de sync (tipo 'erro') → 502."""
+    monkeypatch.setattr(apimod, 'sync_os', lambda n: False)
+    r = client.post('/ordens-servico/84080/sincronizar')
+    assert r.status_code == 502
+    assert r.get_json()['resultado']['tipo'] == 'erro'
+
+
+@pytest.mark.parametrize('bad', ['-5', '0', 'abc', '84080.0'])
+def test_os_sincronizar_nped_invalido_400(client, bad):
+    assert client.post(f'/ordens-servico/{bad}/sincronizar').status_code == 400
+    assert client._chamados == []
+
+
+def test_os_sincronizar_requires_key_when_set(client, monkeypatch):
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
+    assert client.post('/ordens-servico/84080/sincronizar').status_code == 401
+    assert client.post('/ordens-servico/84080/sincronizar',
+                       headers={'X-API-Key': 'segredo'}).status_code == 200
+
+
+def test_os_sincronizar_rate_limit_429(client, monkeypatch):
+    """Trava anti-loop: passou do limite → 429 com Retry-After."""
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, '_RATE_SYNC_OS_MAX', 2)   # limite baixo p/ o teste
+    assert client.post('/ordens-servico/84080/sincronizar').status_code == 200
+    assert client.post('/ordens-servico/84081/sincronizar').status_code == 200
+    r = client.post('/ordens-servico/84082/sincronizar')   # 3ª estoura
+    assert r.status_code == 429
+    body = r.get_json()
+    assert body['error'] == 'rate_limited' and body['retry_after_s'] >= 1
+    assert r.headers.get('Retry-After')
+
+
+# ----- Rate limiter (unidade) -----
+
+def test_rate_limiter_janela():
+    rl = apimod._RateLimiter()
+    assert rl.check('b', 2, 60.0)[0] is True
+    assert rl.check('b', 2, 60.0)[0] is True
+    permitido, retry = rl.check('b', 2, 60.0)          # 3ª estoura
+    assert permitido is False and retry > 0
+    assert rl.check('outro', 2, 60.0)[0] is True        # bucket diferente = independente
+    rl.reset()
+    assert rl.check('b', 2, 60.0)[0] is True            # reset libera
+
+
+# ----- Oportunidades (pipeline agendado) -----
+
+def test_oport_historico_returns_items(client, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(apimod, '_fetch_log',
+                        lambda table, n: captured.update(table=table) or [{'status': 'sucesso'}])
+    r = client.get('/oportunidades/historico')
+    assert r.status_code == 200 and r.get_json()['ok'] is True
+    assert captured['table'] == get_settings().sync_log_table_name  # lê o log de oportunidades
+
+
+def test_oport_limpar(client, monkeypatch):
+    monkeypatch.setattr(apimod, '_clear_log', lambda table: 5)
+    r = client.delete('/oportunidades/historico')
+    assert r.status_code == 200 and r.get_json() == {'ok': True, 'removed': 5}
+
+
+def test_oport_sincronizar_ok(client, monkeypatch):
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _fake_lock(timeout=0):
+        yield
+
+    monkeypatch.setattr(apimod, 'oportunidades_sync_lock', _fake_lock)
+    monkeypatch.setattr(apimod, 'sync_oportunidades', lambda: True)
+    r = client.post('/oportunidades/sincronizar')
+    assert r.status_code == 200 and r.get_json()['ok'] is True
+
+
+def test_oport_sincronizar_busy_409(client, monkeypatch):
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _busy_lock(timeout=0):
+        raise apimod.FileLockTimeout('busy')
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(apimod, 'oportunidades_sync_lock', _busy_lock)
+    monkeypatch.setattr(apimod, 'sync_oportunidades', lambda: True)
+    r = client.post('/oportunidades/sincronizar')
+    assert r.status_code == 409
+    assert r.get_json()['tipo'] == 'ocupado'
+
+
+def test_oport_sincronizar_rate_limit_429(client, monkeypatch):
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _fake_lock(timeout=0):
+        yield
+
+    monkeypatch.setattr(apimod, 'oportunidades_sync_lock', _fake_lock)
+    monkeypatch.setattr(apimod, 'sync_oportunidades', lambda: True)
+    monkeypatch.setattr(apimod, '_RATE_FORCE_OPORT_MAX', 1)
+    assert client.post('/oportunidades/sincronizar').status_code == 200
+    assert client.post('/oportunidades/sincronizar').status_code == 429   # 2ª estoura
+
+
+def test_oport_sincronizar_requires_key_when_set(client, monkeypatch):
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    monkeypatch.setattr(apimod, 'sync_oportunidades', lambda: True)
+    assert client.post('/oportunidades/sincronizar').status_code == 401
+
+
+def test_oport_info(client, monkeypatch):
+    monkeypatch.setattr(apimod, '_count_rows', lambda table: 1543)
+    r = client.get('/oportunidades/info')
+    assert r.status_code == 200
+    d = r.get_json()
+    assert d['ok'] is True and d['total'] == 1543
+    assert 'intervalo_minutos' in d and 'janela_horas' in d
+
+
+def test_sync_single_ok(client):
+    r = client.post('/sync/ordens-servico/84080')
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['ok'] is True
+    assert body['results'][0]['nped'] == 84080 and body['results'][0]['ok'] is True
+    assert client._chamados == [84080]
+
+
+def test_sync_batch_ok(client):
+    r = client.post('/sync/ordens-servico', json={'npeds': [84080, 84095]})
+    assert r.status_code == 200
+    assert r.get_json()['summary'] == {'total': 2, 'sucesso': 2, 'falha': 0}
+    assert client._chamados == [84080, 84095]
+
+
+def test_sync_body_single_nped(client):
+    r = client.post('/sync/ordens-servico', json={'nped': 84080})
+    assert r.status_code == 200
+    assert client._chamados == [84080]
+
+
+@pytest.mark.parametrize('bad', ['-5', '0', 'abc', '84080.0'])
+def test_sync_invalid_nped_path_400(client, bad):
+    r = client.post(f'/sync/ordens-servico/{bad}')
+    assert r.status_code == 400
+    assert client._chamados == []  # não chamou a sync
+
+
+def test_sync_missing_body_400(client):
+    r = client.post('/sync/ordens-servico', json={})
+    assert r.status_code == 400
+
+
+def test_partial_failure_207(client, monkeypatch):
+    monkeypatch.setattr(apimod, 'sync_os', lambda n: n == 84080)
+    r = client.post('/sync/ordens-servico', json={'npeds': [84080, 99999]})
+    assert r.status_code == 207
+    assert r.get_json()['summary'] == {'total': 2, 'sucesso': 1, 'falha': 1}
+
+
+def test_all_failed_207(client, monkeypatch):
+    monkeypatch.setattr(apimod, 'sync_os', lambda n: False)
+    r = client.post('/sync/ordens-servico/84080')
+    assert r.status_code == 207
+    body = r.get_json()
+    assert body['ok'] is False
+    assert body['results'][0]['tipo'] == 'erro'
+
+
+def test_sem_os_aviso(client, monkeypatch):
+    """Pedido sem OS gerada (OWOR vazia) → aviso 'sem_os', sem chamar a sync."""
+    monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {'tem_os': False, 'cancelada': False})
+    r = client.post('/sync/ordens-servico/84106')
+    res = r.get_json()['results'][0]
+    assert res['ok'] is False and res['tipo'] == 'sem_os'
+    assert 'gerada' in res['motivo'].lower()
+    assert client._chamados == []  # não tentou sincronizar
+
+
+def test_cancelada_aviso(client, monkeypatch):
+    """OS cancelada (todas com Status='C') → aviso 'cancelada', sem chamar a sync."""
+    monkeypatch.setattr(apimod, 'diagnosticar_nped', lambda n: {'tem_os': True, 'cancelada': True})
+    r = client.post('/sync/ordens-servico/84080')
+    res = r.get_json()['results'][0]
+    assert res['ok'] is False and res['tipo'] == 'cancelada'
+    assert 'cancel' in res['motivo'].lower()
+    assert client._chamados == []
+
+
+# ----- carga única: sem sub-syncs de árvore WBC nem views de impressão -----
+
+def test_sync_result_sem_wbc_impressao(client):
+    """Consolidação em VW_OS_INTEGRACAO: o resultado do sync não traz mais as
+    chaves 'wbc'/'impressao' (que vinham dos sub-syncs, agora removidos)."""
+    res = client.post('/sync/ordens-servico/84080').get_json()['results'][0]
+    assert res['ok'] is True
+    assert 'wbc' not in res and 'impressao' not in res
+
+
+def test_auth_required_when_key_set(client, monkeypatch):
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    # sem header → 401 (e não chama a sync)
+    assert client.post('/sync/ordens-servico/84080').status_code == 401
+    assert client._chamados == []
+    # X-API-Key correto → 200
+    assert client.post('/sync/ordens-servico/84080',
+                       headers={'X-API-Key': 'segredo'}).status_code == 200
+    # Authorization: Bearer correto → 200
+    assert client.post('/sync/ordens-servico/84080',
+                       headers={'Authorization': 'Bearer segredo'}).status_code == 200
+    # chave errada → 401
+    assert client.post('/sync/ordens-servico/84080',
+                       headers={'X-API-Key': 'errada'}).status_code == 401
+
+
+def test_key_via_query_param(client, monkeypatch):
+    """A chave pode vir por ?key= / ?api_key= (p/ usar no navegador, sem header)."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    monkeypatch.setattr(apimod, '_fetch_log', lambda table, n: [])
+    assert client.get('/historico').status_code == 401                 # sem chave
+    assert client.get('/historico?key=segredo').status_code == 200     # ?key=
+    assert client.get('/historico?api_key=segredo').status_code == 200  # ?api_key=
+    assert client.get('/historico?key=errada').status_code == 401      # chave errada
+
+
+# ----- /status (aberto, sem chave) -----
+
+def test_status_open_even_with_key_set(client, monkeypatch):
+    """/status responde sem chave, mesmo com OS_API_KEY definido."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    monkeypatch.setattr(apimod, 'collect_status',
+                        lambda only=None: {'ok': True, 'alerts': [], 'checks': {}})
+    r = client.get('/status')
+    assert r.status_code == 200 and r.get_json()['ok'] is True
+
+
+def test_status_strict_503_when_degraded(client, monkeypatch):
+    monkeypatch.setattr(apimod, 'collect_status',
+                        lambda only=None: {'ok': False, 'alerts': [], 'checks': {}})
+    assert client.get('/status?strict=1').status_code == 503  # degradado + strict → 503
+    assert client.get('/status').status_code == 200           # sem strict → 200 sempre
+
+
+# ----- /status: os dois níveis e o STATUS_ID (2026-09-10) -----
+# Medido em produção em 10/09, sem header nenhum: o /status publicava hostname, IP, o
+# `host:porta` do HANA e do SQL Server, a URL do Supabase, o caminho em disco e o nível
+# de patch — o mapa da integração para quem estivesse na LAN. Agora quem não tem
+# credencial recebe a visão MÍNIMA; o completo pede a OS_API_KEY ou o STATUS_ID.
+
+#: Um payload parecido com o real — é o que a redução tem de esvaziar.
+_STATUS_COMPLETO = {
+    'ok': True, 'healthy': True, 'service': 'ordens-servico-engenharia',
+    'timestamp': '2026-09-10T11:43:15', 'uptime_s': 19779,
+    'checks': {
+        'sap': {'ok': True, 'ms': 16, 'detail': 'SAPBusinessOneHana-vm:30015'},
+        'sql_server': {'ok': False, 'ms': 3, 'error': 'login failed for user integra'},
+    },
+    'system': {'hostname': 'SAPBusinessOneI', 'ip': '192.168.7.11',
+               'os': 'Windows-2022Server-10.0.20348-SP0', 'python': '3.12.10',
+               'disk_free_gb': 36.6, 'disk_low': False},
+    'wbc_worker': {'healthy': True, 'db': r'C:\Python\ServidorIntegracaoSAP\state\x.db'},
+    'windows_update': {'pendentes': 3, 'ultimo_patch_kb': 'KB5120241'},
+    'api_auth': {'api_key_configurada': True},
+    'alerts': ['disco baixo: 36.6 GB livres', 'agendador possivelmente parado'],
+}
+
+
+@pytest.fixture
+def status_com_id(client, monkeypatch):
+    """API com chave forte E STATUS_ID configurados, servindo o payload completo."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    monkeypatch.setenv('STATUS_ID', 'id-do-status')
+    reset_settings()
+    monkeypatch.setattr(apimod, 'collect_status', lambda only=None: dict(_STATUS_COMPLETO))
+    return client
+
+
+def test_status_sem_credencial_nao_publica_a_topologia(status_com_id):
+    """O que motivou a mudança: nada de host:porta, IP, caminho ou nível de patch."""
+    body = status_com_id.get('/status').get_json()
+    assert body['restrito'] is True
+    # o que fica: dá para monitorar
+    assert body['ok'] is True and body['healthy'] is True
+    assert body['checks'] == {'sap': {'ok': True}, 'sql_server': {'ok': False}}
+    assert body['alerts'] == 2          # contagem, não os textos
+    # o que sai: o mapa da infraestrutura
+    for chave in ('system', 'windows_update', 'api_auth', 'wbc_worker'):
+        assert chave not in body, f'{chave} não pode sair sem credencial'
+    bruto = status_com_id.get('/status').get_data(as_text=True)
+    for vazado in ('SAPBusinessOneHana-vm', '192.168.7.11', 'SAPBusinessOneI',
+                   'Windows-2022Server', 'C:\\\\Python', 'KB5120241', 'login failed'):
+        assert vazado not in bruto, f'{vazado} vazou na visão mínima'
+
+
+def test_status_completo_com_status_id_ou_com_a_chave(status_com_id):
+    """Ninguém perde funcionalidade: as duas credenciais abrem o payload inteiro."""
+    for cabecalho in ({'X-API-Key': 'id-do-status'},        # o ID novo
+                      {'X-API-Key': 'segredo'},             # a chave de sempre
+                      {'Authorization': 'Bearer id-do-status'}):
+        body = status_com_id.get('/status', headers=cabecalho).get_json()
+        assert 'restrito' not in body
+        assert body['system']['hostname'] == 'SAPBusinessOneI'
+        assert body['checks']['sap']['detail'] == 'SAPBusinessOneHana-vm:30015'
+        assert body['alerts'] == _STATUS_COMPLETO['alerts']   # lista, não contagem
+    # ?key= também vale (é como se testa pelo navegador)
+    assert 'system' in status_com_id.get('/status?key=id-do-status').get_json()
+
+
+def test_status_id_nao_abre_nenhuma_outra_rota(status_com_id):
+    """INVARIANTE 1: o STATUS_ID é só para o diagnóstico — em todo o resto é 401."""
+    for rota in ('/rh/colaboradores', '/pedidos/situacao', '/historico',
+                 '/ordens-servico/84348', '/oportunidades/info'):
+        r = status_com_id.get(rota, headers={'X-API-Key': 'id-do-status'})
+        assert r.status_code == 401, f'{rota} aceitou o STATUS_ID'
+    r = status_com_id.post('/ordens-producao/129850/status',
+                           headers={'X-API-Key': 'id-do-status'},
+                           json={'status': 'encerrada'})
+    assert r.status_code == 401, 'escrita em OP aceitou o STATUS_ID'
+
+
+def test_status_codigo_http_nao_depende_da_credencial(client, monkeypatch):
+    """INVARIANTE 2: o watchdog do .90 chama sem credencial e decide pelo CÓDIGO."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    monkeypatch.setenv('STATUS_ID', 'id-do-status')
+    reset_settings()
+    for payload in ({'ok': False, 'alerts': [], 'checks': {}},          # check caiu
+                    {'ok': True, 'alerts': ['worker parado'], 'checks': {}},  # alerta
+                    {'ok': True, 'alerts': [], 'checks': {}}):               # saudável
+        monkeypatch.setattr(apimod, 'collect_status', lambda only=None, p=payload: dict(p))
+        sem = client.get('/status?checks=worker&strict=1').status_code
+        com = client.get('/status?checks=worker&strict=1',
+                         headers={'X-API-Key': 'id-do-status'}).status_code
+        assert sem == com, f'o código divergiu para {payload}'
+
+
+def test_sem_status_id_configurado_so_a_chave_abre_o_completo(client, monkeypatch):
+    """INVARIANTE 3: fail-closed na credencial nova — nada de `if not id: libera`."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    monkeypatch.delenv('STATUS_ID', raising=False)
+    reset_settings()
+    monkeypatch.setattr(apimod, 'collect_status', lambda only=None: dict(_STATUS_COMPLETO))
+    assert client.get('/status').get_json()['restrito'] is True
+    assert client.get('/status', headers={'X-API-Key': 'qualquer'}).get_json()['restrito']
+    assert 'system' in client.get('/status', headers={'X-API-Key': 'segredo'}).get_json()
+
+
+def test_sem_os_api_key_o_status_segue_o_fail_open_da_api(client, monkeypatch):
+    """Sem chave nenhuma configurada a API inteira é aberta — o /status acompanha.
+
+    Uma regra de fail-open só para esta rota seria uma segunda regra para lembrar; a
+    visibilidade de que a API está aberta continua sendo o `api_auth` do payload.
+    """
+    monkeypatch.delenv('OS_API_KEY', raising=False)
+    monkeypatch.delenv('STATUS_ID', raising=False)
+    reset_settings()
+    monkeypatch.setattr(apimod, 'collect_status', lambda only=None: dict(_STATUS_COMPLETO))
+    body = client.get('/status').get_json()
+    assert 'restrito' not in body and body['api_auth']['api_key_configurada'] is True
+
+
+# ----- /status: nome de check inválido (regressão 2026-07-15) -----
+# Medido em PRODUÇÃO antes do fix: `?checks=sqlserver2,agendador_typo&strict=1`
+# → 200 {"checks": {}, "healthy": true}. Nada rodou e a API disse "saudável".
+
+def test_status_check_invalido_400_e_nao_verde(client):
+    """O sintoma que importa: NUNCA responder 200/healthy sem ter checado nada."""
+    r = client.get('/status?checks=sqlserver2,agendador_typo')
+    assert r.status_code == 400
+    body = r.get_json()
+    assert body['ok'] is False
+    assert 'sqlserver2' in body['error']
+    assert 'sap' in body['aceitos']          # diz o que aceita
+    assert 'wbc' in body['aceitos']          # inclusive os aliases
+
+
+def test_status_check_invalido_com_strict_nao_devolve_200(client):
+    """Com strict=1 o monitor decide pelo status code — 200 aqui seria o pior caso."""
+    r = client.get('/status?checks=lixo&strict=1')
+    assert r.status_code == 400
+
+
+def test_status_alias_valido_continua_funcionando(client, monkeypatch):
+    """O fix não pode ter quebrado os aliases (wbc → sql_server)."""
+    capturado = {}
+
+    def _fake(only=None):
+        capturado['only'] = only
+        return {'ok': True, 'alerts': [], 'checks': {}}
+
+    monkeypatch.setattr(apimod, 'collect_status', _fake)
+    assert client.get('/status?checks=wbc,tarefa').status_code == 200
+    assert capturado['only'] == {'sql_server', 'scheduled_task'}
+
+
+def test_status_sem_checks_roda_tudo(client, monkeypatch):
+    """Caminho normal intacto: sem ?checks= → only=None → todas."""
+    capturado = {}
+
+    def _fake(only=None):
+        capturado['only'] = only
+        return {'ok': True, 'alerts': [], 'checks': {}}
+
+    monkeypatch.setattr(apimod, 'collect_status', _fake)
+    assert client.get('/status').status_code == 200
+    assert capturado['only'] is None
+
+
+# ===================== One-liners de contrato (2026-07-16) =====================
+
+def test_sync_lote_respeita_rate_limit(client, monkeypatch):
+    """/sync/ordens-servico* são rotas de ESCRITA e não tinham trava anti-loop —
+    só o par /ordens-servico/<n>/sincronizar tinha. Um agente em loop batendo aqui
+    disparava syncs SAP→Supabase ilimitados."""
+    monkeypatch.setattr(apimod, '_RATE_SYNC_OS_MAX', 2)
+    assert client.post('/sync/ordens-servico/84080').status_code == 200
+    assert client.post('/sync/ordens-servico/84081').status_code == 200
+    r = client.post('/sync/ordens-servico/84082')          # 3ª estoura
+    assert r.status_code == 429
+    assert r.headers.get('Retry-After')
+
+
+def test_sync_lote_e_unitario_compartilham_o_bucket(client, monkeypatch):
+    """O limite é do recurso (sync de OS), não da rota: senão bastava alternar
+    entre as duas rotas para dobrar o teto."""
+    monkeypatch.setattr(apimod, '_RATE_SYNC_OS_MAX', 2)
+    assert client.post('/sync/ordens-servico/84080').status_code == 200
+    assert client.post('/ordens-servico/84081/sincronizar').status_code in (200, 502)
+    assert client.post('/sync/ordens-servico', json={'nped': 84082}).status_code == 429
+
+
+def test_sync_lote_gigante_413(client):
+    """{"npeds": [1..5000]} segurava o _sync_lock por HORAS (2 conexões HANA por
+    pedido, tudo serializado) → fila travada e pool do waitress esgotado."""
+    r = client.post('/sync/ordens-servico', json={'npeds': list(range(1, 5001))})
+    assert r.status_code == 413
+    assert '5000' in r.get_json()['error']
+    assert client._chamados == []          # não sincronizou nada
+
+
+def test_sync_lote_no_limite_passa(client):
+    """O cap não pode atrapalhar o uso real (a tela oferece até 30)."""
+    r = client.post('/sync/ordens-servico', json={'npeds': list(range(84001, 84051))})
+    assert r.status_code == 200
+    assert len(client._chamados) == 50
+
+
+def test_oport_sincronizar_falha_logica_502(client, monkeypatch):
+    """sync_oportunidades() falsy (0 registros/falha) devolvia **200** — sem status
+    code, o Flask assume 200 e o monitor lê falha como sucesso. O except acima já
+    devolvia 502 para a mesma classe de problema."""
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _fake_lock(timeout=0):
+        yield
+
+    monkeypatch.setattr(apimod, 'oportunidades_sync_lock', _fake_lock)
+    monkeypatch.setattr(apimod, 'sync_oportunidades', lambda: False)
+    r = client.post('/oportunidades/sincronizar')
+    assert r.status_code == 502
+    assert r.get_json()['ok'] is False
+
+
+def test_autorizado_usa_compare_digest(client, monkeypatch):
+    """A chave é comparada em tempo constante: `==` curto-circuita no 1º byte
+    diferente e o tempo vaza quantos bytes o palpite acertou (e aceitamos a chave
+    por query string, então o ataque é um GET em loop).
+
+    Em 2026-09-10 a comparação saiu do `_autorizado` para o `_confere` (que o
+    `/status` reusa para o STATUS_ID), então é lá que se olha — e se confere que o
+    `_autorizado` **delega**, senão a garantia se perderia calada no dia em que
+    alguém reintroduzisse um `==` aqui.
+    """
+    import inspect
+    fonte_confere = inspect.getsource(apimod._confere)
+    assert 'compare_digest' in fonte_confere
+    fonte_autorizado = inspect.getsource(apimod._autorizado)
+    assert '_confere(' in fonte_autorizado
+    for f in (fonte_autorizado, fonte_confere):
+        assert 'enviado == chave' not in f
+        assert 'enviado == esperado' not in f
+
+
+@pytest.mark.parametrize('chave,enviado,esperado', [
+    ('segredo', 'segredo', 200),
+    ('segredo', 'segred', 401),      # prefixo não passa
+    ('segredo', 'segredoX', 401),    # sufixo extra não passa
+    ('segredo', '', 401),
+    ('chave-com-acentuação', 'chave-com-acentuação', 200),   # não-ASCII não vira 500
+])
+def test_autorizado_casos(client, monkeypatch, chave, enviado, esperado):
+    monkeypatch.setenv('OS_API_KEY', chave)
+    reset_settings()
+    monkeypatch.setattr(apimod, '_fetch_log', lambda table, n: [])
+    r = client.get('/historico', headers={'X-API-Key': enviado} if enviado else {})
+    assert r.status_code == esperado
+
+
+def test_autorizado_sem_chave_enviada_401(client, monkeypatch):
+    """compare_digest(None, ...) levantaria TypeError → 500 em vez de 401."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    monkeypatch.setattr(apimod, '_fetch_log', lambda table, n: [])
+    assert client.get('/historico').status_code == 401
+
+
+# ============ @requer_chave: guarda por decorator (2026-07-16) ============
+
+# /painel-wbc e /controle-producao sao abertos como o '/': so redirecionam para as outras
+# telas, que pedem a MESMA OS_API_KEY por conta propria (tests/wbc/dashboard/test_entrada.py,
+# tests/controleproducao/test_acesso.py).
+_ROTAS_ABERTAS = {'/', '/sincronizar', '/favicon.ico', '/health', '/status', '/painel-wbc',
+                  '/controle-producao', '/controle-producao/<tela>', '/orcaview',
+                  # the shared login and shell of the .11 screens (PLANO_CASA_COMUM_11 F3); the
+                  # home page (F5) sends to the key prompt like /sincronizar, it does not 401
+                  '/entrar', '/sair', '/casa/<path:arquivo>', '/inicio'}
+
+
+def test_toda_rota_nova_exige_chave_ou_e_abertura_declarada(client, monkeypatch):
+    """Varre o url_map: QUALQUER rota que não esteja na lista de abertas TEM de
+    devolver 401 sem chave. É este teste que mata a classe "rota nova sem guarda" —
+    quem adicionar uma rota e esquecer o @requer_chave quebra aqui, não em produção.
+    """
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    monkeypatch.setattr(apimod, 'collect_status',
+                        lambda only=None: {'ok': True, 'alerts': [], 'checks': {}})
+    monkeypatch.setattr(apimod, '_fetch_log', lambda t, n: [])
+    monkeypatch.setattr(apimod, '_clear_log', lambda t: 0)
+    monkeypatch.setattr(apimod, '_count_rows', lambda t: 0)
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: [])
+    monkeypatch.setattr(apimod, 'listar_pedidos_com_os', lambda limit: [])
+
+    desprotegidas = []
+    for regra in apimod.app.url_map.iter_rules():
+        if regra.rule.startswith('/static') or regra.rule in _ROTAS_ABERTAS:
+            continue
+        metodo = next(m for m in ('GET', 'POST', 'DELETE') if m in regra.methods)
+        url = regra.rule.replace('<nped>', '84080').replace('<numero>', '129850')
+        if client.open(url, method=metodo).status_code != 401:
+            desprotegidas.append(f'{metodo} {regra.rule}')
+
+    assert not desprotegidas, f'rota(s) sem @requer_chave: {desprotegidas}'
+
+
+@pytest.mark.parametrize('metodo,url', [
+    ('GET', '/'), ('GET', '/sincronizar'), ('GET', '/favicon.ico'), ('GET', '/health'),
+    ('GET', '/status'), ('GET', '/painel-wbc'), ('GET', '/controle-producao'),
+])
+def test_rotas_abertas_continuam_abertas(client, monkeypatch, metodo, url):
+    """O decorator não pode ter fechado o que é aberto de propósito (monitoramento
+    e uso no navegador — ver CLAUDE.md)."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    monkeypatch.setattr(apimod, 'collect_status',
+                        lambda only=None: {'ok': True, 'alerts': [], 'checks': {}})
+    assert client.open(url, method=metodo).status_code != 401
+
+
+def test_requer_chave_preserva_o_endpoint(client):
+    """Sem @wraps, o Flask registraria todas as rotas como o mesmo endpoint
+    ('_wrapper') e a 2ª colidiria no registro."""
+    rotas = list(apimod.app.url_map.iter_rules())
+    endpoints = [r.endpoint for r in rotas]
+    assert len(set(endpoints)) == len(endpoints), 'endpoints colidiram: faltou @wraps?'
+    assert '_wrapper' not in endpoints
+
+
+# ============ Ordens de Produção: ESCRITA no SAP (2026-08-07) ============
+# As únicas rotas deste arquivo que mudam dado DENTRO do SAP. A máquina de estados tem
+# suíte própria (tests/test_ordens_producao_sl.py); aqui só se testa o HTTP: guarda,
+# validação de corpo, mapeamento de erro → status code e o fail-closed.
+
+_OP_RESUMO = {
+    'doc_entry': 126599, 'doc_num': 129850, 'item': 'PAR000PADRA000000000',
+    'quantidade_planejada': 36.0, 'status': 'boposReleased', 'status_desc': 'Liberada',
+    'origem': 'bopooSalesOrder', 'origem_numero': 83871, 'data_entrega': '2026-08-20',
+    'transicoes_permitidas': ['encerrada'],
+}
+
+
+@pytest.fixture
+def op_client(client, monkeypatch):
+    """Cliente com OS_API_KEY definida (a escrita de OP é fail-closed sem ela) e o
+    módulo de domínio dublado — nenhum teste desta seção fala com o SAP."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    monkeypatch.setattr(safety, 'PRODUCTION_MACHINE_IP', '127.0.0.1')  # plays the .11
+    monkeypatch.setenv('OP_SL_USERNAME', 'usuario')
+    monkeypatch.setenv('OP_SL_PASSWORD', 'senha')
+    reset_settings()
+    chamadas = []
+
+    def _consultar(numero, *, por_docentry=False):
+        chamadas.append(('consultar', numero, por_docentry))
+        return dict(_OP_RESUMO)
+
+    def _atualizar(numero, status, *, por_docentry=False, status_atual=None):
+        chamadas.append(('atualizar', numero, status, por_docentry, status_atual))
+        return {'doc_entry': 126599, 'doc_num': numero, 'item': 'X',
+                'status_anterior': 'boposReleased', 'status_novo': 'boposClosed',
+                'ja_estava': False}
+
+    monkeypatch.setattr(apimod.op_sl, 'consultar_op', _consultar)
+    monkeypatch.setattr(apimod.op_sl, 'atualizar_status', _atualizar)
+    client._op = chamadas
+    client._auth = {'X-API-Key': 'segredo'}
+    return client
+
+
+def test_op_detalhe_devolve_o_resumo(op_client):
+    r = op_client.get('/ordens-producao/129850', headers=op_client._auth)
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['ok'] is True
+    assert body['op']['status_desc'] == 'Liberada'
+    assert body['op']['transicoes_permitidas'] == ['encerrada']
+
+
+def test_op_detalhe_por_docnum_e_o_default(op_client):
+    op_client.get('/ordens-producao/129850', headers=op_client._auth)
+    assert op_client._op[0] == ('consultar', 129850, False)
+
+
+def test_op_detalhe_aceita_chave_docentry(op_client):
+    op_client.get('/ordens-producao/126599?chave=docentry', headers=op_client._auth)
+    assert op_client._op[0] == ('consultar', 126599, True)
+
+
+@pytest.mark.parametrize('ruim', ['abc', '0', '-5'])
+def test_op_detalhe_numero_invalido_400(op_client, ruim):
+    r = op_client.get(f'/ordens-producao/{ruim}', headers=op_client._auth)
+    assert r.status_code == 400
+
+
+def test_op_detalhe_inexistente_404(op_client, monkeypatch):
+    def _boom(numero, **kw):
+        raise apimod.op_sl.OPNaoEncontrada('Ordem de producao 999999 nao encontrada no SAP.')
+    monkeypatch.setattr(apimod.op_sl, 'consultar_op', _boom)
+    r = op_client.get('/ordens-producao/999999', headers=op_client._auth)
+    assert r.status_code == 404
+    assert r.get_json()['tipo'] == 'nao_encontrada'
+
+
+def test_op_detalhe_exige_chave(op_client):
+    assert op_client.get('/ordens-producao/129850').status_code == 401
+
+
+def test_op_status_muda_e_devolve_o_de_para(op_client):
+    r = op_client.post('/ordens-producao/129850/status',
+                       json={'status': 'encerrada'}, headers=op_client._auth)
+    assert r.status_code == 200
+    body = r.get_json()
+    assert (body['status_anterior'], body['status_novo']) == ('boposReleased', 'boposClosed')
+    assert body['ja_estava'] is False
+
+
+def test_op_status_repassa_status_atual_e_chave(op_client):
+    op_client.post('/ordens-producao/126599/status?chave=docentry',
+                   json={'status': 'encerrada', 'status_atual': 'liberada'},
+                   headers=op_client._auth)
+    assert op_client._op[0] == ('atualizar', 126599, 'encerrada', True, 'liberada')
+
+
+def test_op_status_exige_chave(op_client):
+    r = op_client.post('/ordens-producao/129850/status', json={'status': 'encerrada'})
+    assert r.status_code == 401
+
+
+def test_op_status_sem_os_api_key_configurada_e_503(client, monkeypatch):
+    """FAIL-CLOSED: é a única rota do arquivo que RECUSA quando a API está aberta.
+    As outras escrevem no Supabase (reversível); esta escreve no SAP de PRODUÇÃO."""
+    monkeypatch.delenv('OS_API_KEY', raising=False)
+    reset_settings()
+    chamou = []
+    monkeypatch.setattr(apimod.op_sl, 'atualizar_status',
+                        lambda *a, **k: chamou.append(1))
+    r = client.post('/ordens-producao/129850/status', json={'status': 'encerrada'})
+    assert r.status_code == 503
+    assert r.get_json()['tipo'] == 'sem_chave'
+    assert chamou == [], 'não pode nem chegar ao módulo de domínio'
+
+
+@pytest.mark.parametrize('corpo', [None, {}, {'status': ''}, {'outra': 'coisa'}])
+def test_op_status_corpo_sem_status_400(op_client, corpo):
+    r = op_client.post('/ordens-producao/129850/status', json=corpo, headers=op_client._auth)
+    assert r.status_code == 400
+    assert op_client._op == []
+
+
+@pytest.mark.parametrize('tipo_exc,http', [
+    ('OPStatusInvalido', 400),
+    ('OPTransicaoInvalida', 409),
+    ('OPConflito', 409),
+    ('OPAmbigua', 409),
+    ('OPNaoEncontrada', 404),
+    ('OPIndisponivel', 502),
+    ('OPDesativado', 503),
+])
+def test_op_status_mapeia_cada_erro_de_dominio(op_client, monkeypatch, tipo_exc, http):
+    """Cada OPError carrega o próprio status — um tipo novo no domínio aparece certo
+    aqui sem tocar na rota."""
+    classe = getattr(apimod.op_sl, tipo_exc)
+
+    def _boom(*a, **k):
+        raise classe('motivo de teste')
+    monkeypatch.setattr(apimod.op_sl, 'atualizar_status', _boom)
+    r = op_client.post('/ordens-producao/129850/status',
+                       json={'status': 'encerrada'}, headers=op_client._auth)
+    assert r.status_code == http
+    assert r.get_json()['motivo'] == 'motivo de teste'
+
+
+def test_op_status_idempotente_devolve_ja_estava(op_client, monkeypatch):
+    monkeypatch.setattr(apimod.op_sl, 'atualizar_status', lambda *a, **k: {
+        'doc_entry': 126599, 'doc_num': 129850, 'item': 'X',
+        'status_anterior': 'boposClosed', 'status_novo': 'boposClosed', 'ja_estava': True})
+    r = op_client.post('/ordens-producao/129850/status',
+                       json={'status': 'encerrada'}, headers=op_client._auth)
+    assert r.status_code == 200
+    assert r.get_json()['ja_estava'] is True
+
+
+def test_op_status_erro_inesperado_vira_502_e_nao_500(op_client, monkeypatch):
+    def _boom(*a, **k):
+        raise RuntimeError('algo que ninguem previu')
+    monkeypatch.setattr(apimod.op_sl, 'atualizar_status', _boom)
+    r = op_client.post('/ordens-producao/129850/status',
+                       json={'status': 'encerrada'}, headers=op_client._auth)
+    assert r.status_code == 502
+    assert 'ninguem previu' not in r.get_data(as_text=True), 'não vazar detalhe interno'
+
+
+def test_op_status_tem_trava_anti_loop(op_client, monkeypatch):
+    monkeypatch.setattr(apimod, '_RATE_OP_STATUS_MAX', 2)
+    for _ in range(2):
+        r = op_client.post('/ordens-producao/129850/status',
+                           json={'status': 'encerrada'}, headers=op_client._auth)
+        assert r.status_code == 200
+    r = op_client.post('/ordens-producao/129850/status',
+                       json={'status': 'encerrada'}, headers=op_client._auth)
+    assert r.status_code == 429
+    assert r.headers['Retry-After']
+
+
+def test_rota_de_op_registra_quem_chamou_inclusive_a_recusa(op_client, monkeypatch, caplog):
+    """F0 of PLANO_API_MANUTENCAO_OP (29/09/2026): an unknown caller closed >=552 OPs through
+    this route, and the D9 400 for ``encerrada`` is raised before the network — it left no
+    trace. Every call now logs origin, what was asked and what came back."""
+    def _recusa(*a, **k):
+        raise apimod.op_sl.OPStatusInvalido('encerrada fora da allowlist')
+    monkeypatch.setattr(apimod.op_sl, 'atualizar_status', _recusa)
+
+    with caplog.at_level(logging.INFO, logger=apimod.__name__):
+        r = op_client.post('/ordens-producao/129850/status',
+                           json={'status': 'encerrada', 'status_atual': 'liberada'},
+                           headers={**op_client._auth, 'User-Agent': 'script-do-pcp/1.0'},
+                           environ_base={'REMOTE_ADDR': '192.168.3.44'})
+        sem_chave = op_client.get('/ordens-producao/129850')
+
+    assert r.status_code == 400 and sem_chave.status_code == 401
+    linhas = [m for m in caplog.messages if m.startswith('Rota de OP:')]
+    assert len(linhas) == 2
+    assert 'POST /ordens-producao/129850/status -> 400' in linhas[0]
+    for trecho in ('origem 192.168.3.44', 'script-do-pcp/1.0', 'status pedido encerrada',
+                   'status_atual liberada', 'tipo status_invalido'):
+        assert trecho in linhas[0], trecho
+    assert 'GET /ordens-producao/129850 -> 401' in linhas[1]
+
+
+def test_rota_de_op_nao_grava_a_chave_no_log(op_client, caplog):
+    """01/10/2026 review: ``?key=`` is accepted, and logging ``full_path`` wrote the
+    SAP-writing key in plain text to api.log."""
+    chave = op_client._auth['X-API-Key']
+    with caplog.at_level(logging.INFO, logger=apimod.__name__):
+        op_client.get(f'/ordens-producao/129850?chave=docnum&key={chave}')
+        op_client.get(f'/ordens-producao/129850?api_key={chave}')
+
+    linhas = [m for m in caplog.messages if m.startswith('Rota de OP:')]
+    assert len(linhas) == 2
+    assert all(chave not in linha for linha in linhas)
+    assert 'GET /ordens-producao/129850?chave=docnum&key=*** ->' in linhas[0]
+    assert 'api_key=***' in linhas[1]
+
+
+def test_outras_rotas_nao_entram_no_registro_de_op(client, caplog):
+    with caplog.at_level(logging.INFO, logger=apimod.__name__):
+        client.get('/health')
+    assert not [m for m in caplog.messages if m.startswith('Rota de OP:')]
+
+
+def test_op_status_corpo_invalido_nao_gasta_a_trava(op_client, monkeypatch):
+    """Validar antes de contar: um corpo ruim nunca chega ao SAP, então não pode
+    consumir a cota que protege o SAP."""
+    monkeypatch.setattr(apimod, '_RATE_OP_STATUS_MAX', 1)
+    op_client.post('/ordens-producao/129850/status', json={}, headers=op_client._auth)
+    r = op_client.post('/ordens-producao/129850/status',
+                       json={'status': 'encerrada'}, headers=op_client._auth)
+    assert r.status_code == 200
+
+
+def test_op_kill_switch_desligado_fecha_as_duas_rotas(client, monkeypatch):
+    """Sem dublê: atravessa a rota até o módulo real e para no kill switch."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()  # conftest: this host is not the .11
+    auth = {'X-API-Key': 'segredo'}
+    assert client.get('/ordens-producao/129850', headers=auth).status_code == 503
+    r = client.post('/ordens-producao/129850/status', json={'status': 'encerrada'}, headers=auth)
+    assert r.status_code == 503
+    assert r.get_json()['tipo'] == 'desativado'
+
+
+# ===== GET /rh/colaboradores (espelho do quadro do Kairos) =====
+
+_FAKE_COLAB = [
+    {'empresa': 'tecnequip', 'person_id': 2, 'nome': 'Bruno', 'matricula': '2',
+     'setor': 'PRODUÇÃO', 'cargo': 'Soldador', 'status': 'ativo',
+     'em_ferias_ou_afastado': True, 'sem_expediente_desde': None,
+     'data_admissao': '2020-02-02', 'data_desligamento': None,
+     'ultima_vista_em': '2026-08-31T15:40:00+00:00'},
+    {'empresa': 'tecnequip', 'person_id': 1, 'nome': 'Ana', 'matricula': '1',
+     'setor': 'PRODUÇÃO', 'cargo': 'Operadora', 'status': 'ativo',
+     'em_ferias_ou_afastado': False, 'sem_expediente_desde': None,
+     'data_admissao': '2021-01-01', 'data_desligamento': None,
+     'ultima_vista_em': '2026-08-31T15:40:00+00:00'},
+    {'empresa': 'tecnequip', 'person_id': 3, 'nome': 'Carlos', 'matricula': '3',
+     'setor': None, 'cargo': None, 'status': 'desligado',
+     'em_ferias_ou_afastado': False, 'sem_expediente_desde': None,
+     'data_admissao': '2019-03-03', 'data_desligamento': '2026-07-10',
+     'ultima_vista_em': '2026-08-31T15:40:00+00:00'},
+]
+
+
+def test_colaboradores_aninha_empresa_setor_e_cargo_e_campo(client, monkeypatch):
+    """Cargo é CAMPO da pessoa, não nível: aninhar por cargo daria grupos de 1."""
+    monkeypatch.setattr(apimod, '_fetch_colaboradores', lambda *a, **kw: list(_FAKE_COLAB))
+    body = client.get('/rh/colaboradores').get_json()
+    assert body['ok'] is True and body['total'] == 3
+    (empresa,) = body['empresas']
+    assert empresa['empresa'] == 'tecnequip' and empresa['total'] == 3
+    setores = {s['setor']: s for s in empresa['setores']}
+    assert set(setores) == {'PRODUÇÃO', 'SEM SETOR'}   # setor nulo não some
+    producao = setores['PRODUÇÃO']
+    assert producao['total'] == 2
+    assert [c['nome'] for c in producao['colaboradores']] == ['Ana', 'Bruno']  # ordenado
+    assert producao['colaboradores'][0]['cargo'] == 'Operadora'
+
+
+def test_colaboradores_desligado_vem_com_status_e_nao_some(client, monkeypatch):
+    """O contrato existe para isto: quem sai vira status, não desaparece."""
+    monkeypatch.setattr(apimod, '_fetch_colaboradores', lambda *a, **kw: list(_FAKE_COLAB))
+    body = client.get('/rh/colaboradores').get_json()
+    pessoas = [c for e in body['empresas'] for s in e['setores'] for c in s['colaboradores']]
+    carlos = next(c for c in pessoas if c['nome'] == 'Carlos')
+    assert carlos['status'] == 'desligado' and carlos['data_desligamento'] == '2026-07-10'
+    assert next(c for c in pessoas if c['nome'] == 'Bruno')['em_ferias_ou_afastado'] is True
+
+
+def test_colaboradores_empresa_desconhecida_e_recusada(client, monkeypatch):
+    """Cair no default devolveria o quadro de OUTRA empresa com HTTP 200 — o
+    cliente Kairos do V117 faz isso calado; aqui é 400."""
+    chamou = []
+    monkeypatch.setattr(apimod, '_fetch_colaboradores',
+                        lambda *a, **kw: chamou.append(1) or [])
+    r = client.get('/rh/colaboradores?empresa=tecnequipe')
+    assert r.status_code == 400 and chamou == []
+    assert 'tecnequip' in r.get_json()['empresas_validas']
+
+
+def test_colaboradores_repassa_filtros(client, monkeypatch):
+    recebido = {}
+
+    def _fake(empresa=None, somente_ativos=False):
+        recebido.update(empresa=empresa, somente_ativos=somente_ativos)
+        return []
+
+    monkeypatch.setattr(apimod, '_fetch_colaboradores', _fake)
+    client.get('/rh/colaboradores?empresa=proalta&somente_ativos=1')
+    assert recebido == {'empresa': 'proalta', 'somente_ativos': True}
+
+
+def test_colaboradores_pagina_a_leitura(monkeypatch):
+    """O PostgREST corta em 1000 com HTTP 200: sem paginar, some gente em silêncio."""
+    paginas = [[{'person_id': i} for i in range(apimod._COLAB_PAGINA)], [{'person_id': 9}]]
+    faixas = []
+
+    class _Q:
+        def select(self, *a): return self
+        def eq(self, *a): return self
+        def order(self, *a): return self
+        def range(self, ini, fim):
+            faixas.append((ini, fim))
+            return self
+        def execute(self):
+            return type('R', (), {'data': paginas.pop(0)})()
+
+    monkeypatch.setattr(apimod, '_supabase',
+                        lambda: type('C', (), {'table': lambda _s, _n: _Q()})())
+    assert len(apimod._fetch_colaboradores()) == apimod._COLAB_PAGINA + 1
+    assert faixas[0] == (0, apimod._COLAB_PAGINA - 1)
+
+
+def test_colaboradores_frescor_respeita_dia_util(client, monkeypatch):
+    """Segunda de manha com carga de sexta NAO e' atraso: a carga so roda em dia
+    util as 12:40. Atraso e' ter perdido o ultimo slot que ja passou."""
+    from datetime import datetime
+
+    # Segunda-feira, 09:00.
+    monkeypatch.setattr(apimod.sit_ped, 'now_br',
+                        lambda: datetime(2026, 8, 31, 9, 0, tzinfo=UTC))
+
+    sexta = apimod._colab_frescor('2026-08-28T15:40:00+00:00')   # carga de sexta
+    assert sexta['desatualizado'] is False
+    # O slot da comparacao vai na resposta: sem ele, "desatualizado" e' magico.
+    assert sexta['carga_esperada_em'].startswith('2026-08-28T12:40')
+    assert sexta['atualizado_em_br'] is not None
+
+    quinta = apimod._colab_frescor('2026-08-27T15:40:00+00:00')  # pulou a sexta
+    assert quinta['desatualizado'] is True
+
+    vazio = apimod._colab_frescor(None)
+    assert vazio['desatualizado'] is True and vazio['atualizado_em_br'] is None
+
+
+def test_colaboradores_publica_o_carimbo_em_brasilia(client, monkeypatch):
+    """O carimbo cru e' UTC: "19:31" seria lido como hora local por quem bate o
+    olho no JSON (e pelo modelo, na fachada MCP)."""
+    monkeypatch.setattr(apimod, '_fetch_colaboradores', lambda *a, **kw: [
+        {'empresa': 'altamira', 'person_id': 1, 'nome': 'Ana', 'setor': 'T.I',
+         'status': 'ativo', 'ultima_vista_em': '2026-08-31T19:31:51+00:00'}])
+    body = client.get('/rh/colaboradores').get_json()
+    assert body['atualizado_em'] == '2026-08-31T19:31:51+00:00'
+    assert body['atualizado_em_br'].startswith('2026-08-31T16:31:51')
+
+
+# ----- pedido cancelado no SAP com OS sincronizada (incidente 2026-09-03) -----
+
+def test_os_detalhe_pedido_cancelado_vem_sinalizado(client, monkeypatch):
+    """A OS sincronizada de um pedido cancelado continua la; o detalhe tem de AVISAR."""
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, 'consultar_status_pedido', lambda n: {
+        'pedido_existe': True, 'pedido_cancelado': True, 'pedido_status': 'Cancelado'})
+    body = client.get('/ordens-servico/84314').get_json()
+    assert body['ok'] is True
+    assert body['status_pedido'] == 'Cancelado' and body['pedido_cancelado'] is True
+    assert body['aviso']['tipo'] == 'pedido_cancelado'
+    assert body['resumo']['num_ops'] == 2  # a OS nao some: e historico
+
+
+def test_os_detalhe_pedido_aberto_sem_aviso(client, monkeypatch):
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, 'consultar_status_pedido', lambda n: {
+        'pedido_existe': True, 'pedido_cancelado': False, 'pedido_status': 'Aberto'})
+    body = client.get('/ordens-servico/84080').get_json()
+    assert body['status_pedido'] == 'Aberto' and body['pedido_cancelado'] is False
+    assert 'aviso' not in body
+
+
+def test_os_detalhe_sap_fora_nao_derruba_o_detalhe(client, monkeypatch):
+    """ORDR indisponivel (None ou excecao) → chaves null, detalhe responde 200 igual."""
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, 'consultar_status_pedido', lambda n: None)
+    body = client.get('/ordens-servico/84080').get_json()
+    assert body['ok'] is True
+    assert body['status_pedido'] is None and body['pedido_cancelado'] is None
+    assert 'aviso' not in body
+
+    def _boom(n):
+        raise RuntimeError('hana caiu')
+    monkeypatch.setattr(apimod, 'consultar_status_pedido', _boom)
+    r = client.get('/ordens-servico/84080')
+    assert r.status_code == 200 and r.get_json()['pedido_cancelado'] is None
+
+
+def test_os_disponiveis_repassa_status_do_pedido(client, monkeypatch):
+    monkeypatch.setattr(apimod, 'listar_pedidos_com_os', lambda limit: [
+        {'nped': 84314, 'cliente': 'EXPIN', 'os': 154213, 'data': '2026-08-31T00:00:00',
+         'status_pedido': 'Cancelado', 'pedido_cancelado': True}])
+    body = client.get('/ordens-servico/disponiveis').get_json()
+    assert body['items'][0]['pedido_cancelado'] is True
+    assert body['items'][0]['status_pedido'] == 'Cancelado'
+
+
+# --- Integração WBC: o caminho para o painel e o alias do check do worker ---------------
+
+def test_painel_wbc_redireciona_para_o_mesmo_host_na_porta_do_painel(client, monkeypatch):
+    monkeypatch.delenv('WBC_PAINEL_URL', raising=False)
+    monkeypatch.delenv('PAINEL_PORTA', raising=False)
+    reset_settings()
+    r = client.get('/painel-wbc')
+    assert r.status_code == 302
+    assert r.headers['Location'] == 'http://localhost:8079/'
+
+
+def test_painel_wbc_porta_vem_do_env(client, monkeypatch):
+    monkeypatch.delenv('WBC_PAINEL_URL', raising=False)
+    monkeypatch.setenv('PAINEL_PORTA', '9000')
+    reset_settings()
+    assert client.get('/painel-wbc').headers['Location'] == 'http://localhost:9000/'
+
+
+def test_painel_wbc_url_configurada_ganha(client, monkeypatch):
+    monkeypatch.setenv('WBC_PAINEL_URL', 'http://192.168.7.11:8079/')
+    reset_settings()
+    assert client.get('/painel-wbc').headers['Location'] == 'http://192.168.7.11:8079/'
+
+
+# --- Controle de Produção: o caminho para a tela e os aliases do check ------------------
+
+def test_controle_producao_redireciona_para_o_mesmo_host_na_porta_do_cp(client, monkeypatch):
+    monkeypatch.delenv('CP_URL', raising=False)
+    monkeypatch.delenv('CP_PORTA', raising=False)
+    reset_settings()
+    r = client.get('/controle-producao')
+    assert r.status_code == 302
+    assert r.headers['Location'] == 'http://localhost:8080/'
+
+
+def test_controle_producao_porta_vem_do_env(client, monkeypatch):
+    monkeypatch.delenv('CP_URL', raising=False)
+    monkeypatch.setenv('CP_PORTA', '9080')
+    reset_settings()
+    assert client.get('/controle-producao').headers['Location'] == 'http://localhost:9080/'
+
+
+def test_controle_producao_url_configurada_ganha(client, monkeypatch):
+    monkeypatch.setenv('CP_URL', 'http://192.168.7.11:8080/')
+    reset_settings()
+    assert client.get('/controle-producao').headers['Location'] == 'http://192.168.7.11:8080/'
+
+
+@pytest.mark.parametrize('alias', ['cp', 'controleproducao', 'controle_producao', 'producao'])
+def test_alias_do_check_controle_producao(client, monkeypatch, alias):
+    """`?checks=cp` (e variantes) chega ao check `controle_producao`; o nome canonico
+    faz parte do contrato com o web (SELECTABLE_CHECKS)."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    pedidos = {}
+
+    def falso(only=None):
+        pedidos['only'] = only
+        return {'ok': True, 'healthy': True, 'alerts': [], 'checks': {}}
+
+    monkeypatch.setattr(apimod, 'collect_status', falso)
+    client.get(f'/status?checks={alias}', headers={'X-API-Key': 'segredo'})
+    assert pedidos['only'] == {'controle_producao'}
+
+
+def test_painel_wbc_nao_exige_chave(client, monkeypatch):
+    """Aberto como `/`: quem pede a chave e' o proprio painel (a mesma OS_API_KEY)."""
+    monkeypatch.setenv('OS_API_KEY', 'segredo')
+    reset_settings()
+    assert client.get('/painel-wbc').status_code == 302
+
+
+def test_status_alias_worker_e_wbc_continua_sendo_o_sql_server(client, monkeypatch):
+    """`wbc` ja' era o alias do SQL Server antes do worker existir: monitores usam.
+    O worker ganha nomes proprios; trocar o antigo mudaria em silencio o que eles checam."""
+    capturado = {}
+    monkeypatch.setattr(apimod, 'collect_status',
+                        lambda only=None: capturado.update(only=only) or {'ok': True, 'alerts': []})
+    assert client.get('/status?checks=worker,wbc,integracao_wbc').status_code == 200
+    assert capturado['only'] == {'wbc_worker', 'sql_server'}
+
+
+# ----- /usuarios-ativos (lista de nomes para o cartao da janela) -----
+
+def test_usuarios_ativos_devolve_so_o_nome(client, monkeypatch):
+    """Nome e o que preenche o campo. E-mail e papel da equipe atras de uma
+    chave compartilhada seria exposicao sem contrapartida."""
+    apimod._usuarios_cache = None
+    registro = _stub_supabase(monkeypatch, [
+        {'full_name': 'Joana Silva'},
+        {'full_name': 'Carlos Andrade'},
+    ])
+    body = client.get('/usuarios-ativos').get_json()
+    assert body['ok'] is True
+    assert body['items'] == ['Joana Silva', 'Carlos Andrade']
+    assert registro[0] == 'full_name'
+
+
+def test_usuarios_ativos_descarta_nome_vazio(client, monkeypatch):
+    """Perfil sem `full_name` viraria uma opcao em branco no <datalist>."""
+    apimod._usuarios_cache = None
+    _stub_supabase(monkeypatch, [
+        {'full_name': 'Joana Silva'},
+        {'full_name': '   '},
+        {'full_name': None},
+    ])
+    assert client.get('/usuarios-ativos').get_json()['items'] == ['Joana Silva']
+
+
+def test_usuarios_ativos_usa_o_cache(client, monkeypatch):
+    """A lista muda em meses e a tela repinta o tempo todo: sem cache, cada
+    recarga do painel custaria uma ida ao Supabase (1,2 s medidos na .11)."""
+    apimod._usuarios_cache = None
+    _stub_supabase(monkeypatch, [{'full_name': 'Joana Silva'}])
+    client.get('/usuarios-ativos')
+
+    def _explode():
+        raise AssertionError('nao deveria consultar o Supabase de novo')
+
+    monkeypatch.setattr(apimod, '_supabase', _explode)
+    body = client.get('/usuarios-ativos').get_json()
+    assert body['items'] == ['Joana Silva']
+
+
+def test_usuarios_ativos_devolve_502_quando_o_supabase_falha(client, monkeypatch):
+    """502 e nao 500: quem falhou foi o Supabase, e o painel trata isso caindo
+    para o historico local em vez de mostrar erro na tela."""
+    apimod._usuarios_cache = None
+
+    def _falha():
+        raise RuntimeError('supabase fora')
+
+    monkeypatch.setattr(apimod, '_supabase', _falha)
+    resposta = client.get('/usuarios-ativos')
+    assert resposta.status_code == 502
+    assert resposta.get_json()['ok'] is False
+
+
+# ── GET /wbc/orcamentos/<orcnum>: one quote as the worker knows it (01/10/2026) ──
+
+@pytest.fixture
+def acompanhamento(monkeypatch, tmp_path):
+    """A real tracking DB (the worker's own schema) with one evaluated quote."""
+    from wbcpython.tracking import RepositorioTracking, StatusIntegracao
+
+    caminho = tmp_path / 'wbc_tracking.db'
+    repo = RepositorioTracking.a_partir_da_url(f'sqlite:///{caminho}')
+    repo.registrar_verificacao('00123304', status=StatusIntegracao.COTACAO_CRIADA,
+                               cliente='HM DIVERSOES LTDA', sitcode_wbc=30,
+                               regra='emitido_apos_revisao_no_sap')
+    repo.registrar_evento('00123304', regra='emitido_apos_revisao_no_sap',
+                          mensagem='Ações executadas: cancelar_e_recriar_cotacao')
+    repo._engine.dispose()
+    monkeypatch.setenv('TRACKING_DB_URL', f'sqlite:///{caminho}')
+    reset_settings()
+    return caminho
+
+
+def test_orcamento_wbc_devolve_o_que_o_worker_sabe(client, monkeypatch, acompanhamento):
+    _com_chave(monkeypatch)
+    r = client.get('/wbc/orcamentos/123304', headers={'X-API-Key': 'segredo'})
+    assert r.status_code == 200
+    corpo = r.get_json()
+    assert corpo['orcamento']['orcnum'] == '00123304'
+    assert corpo['orcamento']['status'] == 'cotacao_criada'
+    assert corpo['orcamento']['cliente'] == 'HM DIVERSOES LTDA'
+    assert corpo['eventos'][0]['mensagem'].startswith('Ações executadas')
+
+
+def test_orcamento_wbc_fora_do_acompanhamento_e_404_explicado(client, monkeypatch, acompanhamento):
+    _com_chave(monkeypatch)
+    r = client.get('/wbc/orcamentos/00000001', headers={'X-API-Key': 'segredo'})
+    assert r.status_code == 404
+    assert r.get_json()['motivo'] == 'fora_do_acompanhamento'
+
+
+def test_orcamento_wbc_exige_chave_e_numero(client, monkeypatch, acompanhamento):
+    _com_chave(monkeypatch)
+    assert client.get('/wbc/orcamentos/00123304').status_code == 401
+    r = client.get('/wbc/orcamentos/12a', headers={'X-API-Key': 'segredo'})
+    assert r.status_code == 400
+
+
+def test_orcamento_wbc_sem_banco_e_503(client, monkeypatch, tmp_path):
+    _com_chave(monkeypatch)
+    monkeypatch.setenv('TRACKING_DB_URL', f'sqlite:///{tmp_path}/nao_existe.db')
+    reset_settings()
+    r = client.get('/wbc/orcamentos/00123304', headers={'X-API-Key': 'segredo'})
+    assert r.status_code == 503

@@ -1,0 +1,771 @@
+"""Testes da leitura HANA da Situacao dos Pedidos (F2) -- sem rede.
+
+Um HANA de mentira (:class:`_ConexaoFalsa`) responde as duas consultas pelo texto do SQL.
+E' o suficiente para cravar o que importa nesta fase: o cache, a guarda de volume, a
+conversao de tipos e -- principalmente -- que HANA fora do ar vira **mensagem legivel**,
+nunca um 500 cru.
+
+Plano: ``PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29; historico no git)``.
+"""
+from __future__ import annotations
+
+import datetime as dt
+from decimal import Decimal
+from typing import Any
+
+import pytest
+
+import config
+import sap_montagem_labels
+import situacao_pedidos_hana as hana
+from situacao_pedidos import ValidationError
+
+
+class _Cursor:
+    def __init__(self, conexao: _ConexaoFalsa) -> None:
+        self._c = conexao
+        self.description: list[tuple] | None = None
+        self._linhas: list[tuple] = []
+
+    def execute(self, sql: str, params: tuple = ()) -> None:
+        self._c.sqls.append(sql)
+        self._c.params.append(params)
+        if self._c.erro_em and self._c.erro_em in sql:
+            raise RuntimeError("connection closed by peer")
+        if 'COUNT(*)' in sql:
+            cols, linhas = ["N"], [(self._c.total,)]
+        elif "CUFD" in sql:
+            cols, linhas = ["FldValue", "Descr"], self._c.udf
+        elif '"OCNT"' in sql:
+            cols, linhas = ["AbsId", "Name"], self._c.ocnt
+        # As 4 consultas da liberacao real + NF (PLANO_DATAS_LIBERACAO_NF). Vazias por
+        # padrao: sem isso cairiam no ``else`` e receberiam as linhas da view.
+        elif '"ADOC"' in sql:
+            cols, linhas = (["DocEntry", "UpdateDate", "UpdateTS", "U_INO_PedLib",
+                             "LogInstanc"], self._c.adoc)
+        elif '"DPI1"' in sql:
+            cols, linhas = ["BaseEntry", "DocEntry", "DocStatus", "CANCELED"], self._c.odpi
+        elif '"RCT2"' in sql:
+            cols, linhas = ["DocEntry", "CreateDate", "CreateTS", "Canceled"], self._c.rct
+        elif "VW_EVOL_ORCAMENTO_ALT" in sql:
+            cols, linhas = (["NumDoc", "DataCriacaoPN", "Representante", "NumNF", "DataNF",
+                             "Serial"], self._c.evol)
+        else:
+            cols, linhas = self._c.colunas, self._c.linhas
+        self.description = [(c,) for c in cols]
+        self._linhas = linhas
+
+    def fetchall(self) -> list[tuple]:
+        return self._linhas
+
+    def close(self) -> None:
+        self._c.cursores_fechados += 1
+
+
+class _ConexaoFalsa:
+    """HANA de mentira. Guarda os SQLs recebidos para as asserções de contrato."""
+
+    def __init__(self, *, colunas=None, linhas=None, total=None, udf=None, erro_em=None,
+                 ocnt=None, adoc=None, odpi=None, rct=None, evol=None):
+        self.colunas = colunas or []
+        self.linhas = linhas or []
+        self.total = total if total is not None else len(self.linhas)
+        self.udf = udf or []
+        self.ocnt = ocnt or []
+        self.adoc = adoc or []
+        self.odpi = odpi or []
+        self.rct = rct or []
+        self.evol = evol or []
+        self.erro_em = erro_em
+        self.sqls: list[str] = []
+        self.params: list[tuple] = []
+        self.cursores_fechados = 0
+        self.fechada = False
+
+    def cursor(self) -> _Cursor:
+        return _Cursor(self)
+
+    def close(self) -> None:
+        self.fechada = True
+
+
+#: Como o alias da view aparece no SELECT pesado — serve para distingui-lo do COUNT.
+SELECT_DA_VIEW = 'VW_STATUS_PEDIDO_DDP" v'
+
+COLUNAS = ["DocEntry", "DocNum", "Data_Pedido", "CardName", "Financeiro", "Producao",
+           "Entrega", "Peso", "MontagemValor", "DocTotal", "Data_Entrega",
+           "Data_Pagto", "Data_Lib_Fin", "Data_Lib_Prod", "MontadorCnpj"]
+
+
+def _linha(**over: Any) -> tuple:
+    base = {
+        "DocEntry": 15118, "DocNum": 84260, "Data_Pedido": dt.date(2026, 8, 12),
+        # CHAR do HANA vem com espaco a direita -- de proposito no fixture.
+        "CardName": "FLOW X INTERNATIONAL BRASIL LTDA      ",
+        "Financeiro": "Bloqueado", "Producao": "Bloqueada", "Entrega": "Bloqueada",
+        "Peso": Decimal("1250.50"), "MontagemValor": Decimal("9700.00"),
+        "DocTotal": Decimal("41250.00"),
+        "Data_Entrega": dt.datetime(2026, 9, 23, 14, 30),
+        "Data_Pagto": None, "Data_Lib_Fin": None, "Data_Lib_Prod": None,
+        "MontadorCnpj": "67.133.900/0001-88",
+    }
+    base.update(over)
+    return tuple(base[c] for c in COLUNAS)
+
+
+@pytest.fixture(autouse=True)
+def _ambiente(monkeypatch):
+    """SAP configurado e cache limpo em todo teste -- e nada de rede de verdade."""
+    for k, v in (("SAP_HOST", "hana.teste"), ("SAP_PORT", "30015"),
+                 ("SAP_USER", "u"), ("SAP_PASSWORD", "p"),
+                 ("SAP_SCHEMA", "SBOALTAMIRAPROD")):
+        monkeypatch.setenv(k, v)
+    monkeypatch.delenv("SAP_DATABASE", raising=False)
+    config.reset_settings()
+    hana.limpar_cache()
+    sap_montagem_labels.registrar_fonte(None)
+    yield
+    config.reset_settings()
+    hana.limpar_cache()
+    sap_montagem_labels.registrar_fonte(None)
+
+
+def _ligar(monkeypatch, conexao, contador=None):
+    """Faz o ``_conectar`` devolver a conexão de mentira (e contar as idas)."""
+    def _fake(*_a, **_k):
+        if contador is not None:
+            contador.append(1)
+        return conexao
+    monkeypatch.setattr(hana, "connect_sap_hana", _fake)
+    return conexao
+
+
+# --- consulta e conversão de tipos ------------------------------------------
+
+def test_le_a_view_e_converte_os_tipos(monkeypatch):
+    _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS, linhas=[_linha()]))
+    linha = hana.fetch_status_pedidos()[0]
+
+    assert linha["Peso"] == 1250.50 and isinstance(linha["Peso"], float)
+    assert linha["DocTotal"] == 41250.00 and isinstance(linha["DocTotal"], float)
+    assert linha["Data_Pedido"] == "2026-08-12"
+    assert linha["Data_Entrega"] == "2026-09-23"   # timestamp perde a hora
+    assert linha["Data_Pagto"] is None             # NULL continua None, nunca NaN
+    assert linha["DocNum"] == 84260 and isinstance(linha["DocNum"], int)
+
+
+def test_char_do_hana_vem_sem_o_espaco_a_direita(monkeypatch):
+    """Sem o rstrip, o nome do cliente divergiria da tela por padding invisível."""
+    _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS, linhas=[_linha()]))
+    assert hana.fetch_status_pedidos()[0]["CardName"] == "FLOW X INTERNATIONAL BRASIL LTDA"
+
+
+def test_o_sql_usa_left_join_e_a_ordenacao_do_power_bi(monkeypatch):
+    """Contrato com o V117: INNER JOIN sumiria com pedido sem montador da resposta.
+
+    São 4 desde 2026-09-10 (a RDR12 do endereço entrou). Vale o mesmo argumento: em
+    10/09 nenhum dos 266 pedidos do recorte estava sem linha na RDR12, mas basta um
+    para o INNER apagar um pedido da lista sem erro nenhum.
+    """
+    c = _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS, linhas=[_linha()]))
+    hana.fetch_status_pedidos()
+    select = next(s for s in c.sqls if SELECT_DA_VIEW in s)
+
+    assert select.count("LEFT JOIN") == 4
+    assert "INNER JOIN" not in select
+    assert 'ORDER BY v."Producao", v."Data_Pedido"' in select
+    assert "SBOALTAMIRAPROD" in select
+
+
+def test_a_rdr12_entra_por_docentry_e_a_ocnt_fica_de_fora(monkeypatch):
+    """A OCNT no JOIN **mata a consulta**: o município é um código e há linha
+    histórica com o campo vazio; no plano de execução o HANA avalia a conversão em
+    linhas que o filtro descartaria e estoura "invalid number". Quem resolve o nome é
+    um SELECT à parte."""
+    c = _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS, linhas=[_linha()]))
+    hana.fetch_status_pedidos()
+    select = next(s for s in c.sqls if SELECT_DA_VIEW in s)
+
+    assert 'LEFT JOIN "SBOALTAMIRAPROD"."RDR12" a ON a."DocEntry" = v."DocEntry"' in select
+    assert "OCNT" not in select
+
+
+def test_as_colunas_de_endereco_vao_com_a_grafia_irregular_do_sap(monkeypatch):
+    """`StrNoDlvrP` não tem o "y", e `BldDlvryP` convive com `BuildingS`. Um loop de
+    sufixo produziria nome errado — foi a armadilha de 13/08 no OrçaView. Este teste
+    existe para o dia em que alguém "arrumar" a lista."""
+    c = _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS, linhas=[_linha()]))
+    hana.fetch_status_pedidos()
+    select = next(s for s in c.sqls if SELECT_DA_VIEW in s)
+
+    for grupo in hana.ENDERECO_COLS.values():
+        for coluna in grupo.values():
+            assert f'a."{coluna}"' in select, f'{coluna} sumiu do SELECT'
+    assert 'a."StrNoDlvrP"' in select      # sem o "y", como o SAP escreve
+    assert 'a."StrNoDlvryP"' not in select  # a grafia "certa" NÃO existe na RDR12
+
+
+def test_o_sql_nao_le_a_udf_de_vendedor_que_nao_existe_em_producao(monkeypatch):
+    """``OSLP.U_INO_Vendedor`` não existe em PROD e já quebrou um sync."""
+    c = _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS, linhas=[_linha()]))
+    hana.fetch_status_pedidos()
+    select = next(s for s in c.sqls if SELECT_DA_VIEW in s)
+    assert "U_INO_Vendedor" not in select
+    assert 's."SlpName" AS "Vendedor"' in select
+
+
+def test_fecha_conexao_e_cursor(monkeypatch):
+    """Uma conexão por leitura — se vazar, a .11 esgota o teto de sessões do HANA."""
+    c = _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS, linhas=[_linha()]))
+    hana.fetch_status_pedidos()
+    assert c.fechada is True
+    # COUNT + SELECT + ADOC + DPI1 + VW_EVOL (o RCT2 so vai quando ha ODPI).
+    assert c.cursores_fechados == 5
+
+
+# --- cache ------------------------------------------------------------------
+
+def test_segunda_chamada_nao_vai_ao_hana(monkeypatch):
+    idas: list[int] = []
+    _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS, linhas=[_linha()]), idas)
+    hana.fetch_status_pedidos()
+    hana.fetch_status_pedidos()
+    hana.fetch_status_pedidos()
+    assert len(idas) == 1
+
+
+def test_recarregar_ignora_o_cache(monkeypatch):
+    idas: list[int] = []
+    _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS, linhas=[_linha()]), idas)
+    hana.fetch_status_pedidos()
+    hana.fetch_status_pedidos(recarregar=True)
+    assert len(idas) == 2
+
+
+def test_cache_expira_no_ttl(monkeypatch):
+    idas: list[int] = []
+    _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS, linhas=[_linha()]), idas)
+    relogio = [1000.0]
+    monkeypatch.setattr(hana.time, "monotonic", lambda: relogio[0])
+
+    hana.fetch_status_pedidos()                       # grava o retrato em t=1000
+    relogio[0] = 1000.0 + hana.CACHE_TTL_SEGUNDOS - 1
+    hana.fetch_status_pedidos()                       # ainda dentro da janela
+    assert len(idas) == 1
+
+    relogio[0] = 1000.0 + hana.CACHE_TTL_SEGUNDOS + 1
+    hana.fetch_status_pedidos()                       # expirou
+    assert len(idas) == 2
+
+
+def test_a_lista_devolvida_nao_envenena_o_cache(monkeypatch):
+    """Quem chamou pode ordenar/cortar a lista sem estragar o retrato dos outros."""
+    _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS,
+                                      linhas=[_linha(), _linha(DocNum=1)]))
+    primeira = hana.fetch_status_pedidos()
+    primeira.clear()
+    assert len(hana.fetch_status_pedidos()) == 2
+
+
+def test_idade_do_cache(monkeypatch):
+    """Quem lê "bloqueado" precisa saber se o retrato é de agora ou de 2 min atrás."""
+    assert hana.idade_do_cache_s() is None
+    _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS, linhas=[_linha()]))
+    hana.fetch_status_pedidos()
+    idade = hana.idade_do_cache_s()
+    assert idade is not None and idade >= 0
+
+
+# --- guardas e falhas -------------------------------------------------------
+
+def test_guarda_de_volume_recusa_view_que_mudou_de_natureza(monkeypatch):
+    """Acima do teto é erro explícito, não 200 mil linhas na resposta."""
+    c = _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS, linhas=[_linha()],
+                                          total=250_000))
+    with pytest.raises(ValidationError, match="mudou de natureza"):
+        hana.fetch_status_pedidos()
+    # o SELECT pesado nem chegou a rodar
+    assert not any(SELECT_DA_VIEW in s for s in c.sqls)
+    assert c.fechada is True
+
+
+def test_hana_fora_do_ar_vira_mensagem_legivel(monkeypatch):
+    def _cai(*_a, **_k):
+        raise OSError("connection refused")
+    monkeypatch.setattr(hana, "connect_sap_hana", _cai)
+
+    with pytest.raises(hana.SAPIndisponivel, match="SAP HANA"):
+        hana.fetch_status_pedidos()
+
+
+def test_consulta_que_estoura_no_meio_vira_sap_indisponivel(monkeypatch):
+    c = _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS, linhas=[_linha()],
+                                          erro_em=SELECT_DA_VIEW))
+    with pytest.raises(hana.SAPIndisponivel):
+        hana.fetch_status_pedidos()
+    assert c.fechada is True  # a conexão fecha mesmo com a consulta falhando
+
+
+def test_falha_nao_deixa_cache_velho_para_tras(monkeypatch):
+    """Erro não pode gravar cache: a próxima chamada tem de tentar de novo."""
+    def _cai(*_a, **_k):
+        raise OSError("connection refused")
+    monkeypatch.setattr(hana, "connect_sap_hana", _cai)
+    with pytest.raises(hana.SAPIndisponivel):
+        hana.fetch_status_pedidos()
+    assert hana.idade_do_cache_s() is None
+
+
+def test_sem_credencial_o_erro_diz_o_que_falta(monkeypatch):
+    monkeypatch.delenv("SAP_HOST", raising=False)
+    config.reset_settings()
+    with pytest.raises(hana.SAPIndisponivel, match="SAP_HOST"):
+        hana.fetch_status_pedidos()
+
+
+def test_sem_schema_o_erro_diz_o_que_falta(monkeypatch):
+    monkeypatch.delenv("SAP_SCHEMA", raising=False)
+    config.reset_settings()
+    with pytest.raises(hana.SAPIndisponivel, match="SAP_SCHEMA"):
+        hana.fetch_status_pedidos()
+
+
+# --- rótulos de montagem (o gancho que a F1 deixou) -------------------------
+
+def test_udf_le_a_lista_do_sap(monkeypatch):
+    c = _ligar(monkeypatch, _ConexaoFalsa(udf=[("3   ", "MONTAGEM POR CONTA DE TERCEIROS"),
+                                               ("", "linha sem código")]))
+    valores = hana.fetch_udf_valid_values("ORDR", "INO_TPO_MONTAGEM")
+
+    assert valores == [{"value": "3", "descr": "MONTAGEM POR CONTA DE TERCEIROS"}]
+    assert c.params[0] == ("ORDR", "INO_TPO_MONTAGEM")  # parametrizado, não interpolado
+
+
+def test_udf_nunca_levanta_quando_o_hana_cai(monkeypatch):
+    """Quem chama tem fallback; ficar sem rótulo é pior que o rótulo de ontem."""
+    def _cai(*_a, **_k):
+        raise OSError("connection refused")
+    monkeypatch.setattr(hana, "connect_sap_hana", _cai)
+    assert hana.fetch_udf_valid_values("ORDR", "INO_TPO_MONTAGEM") == []
+
+
+def test_ligar_rotulos_faz_o_rotulo_vir_do_sap(monkeypatch):
+    _ligar(monkeypatch, _ConexaoFalsa(udf=[("3", "ROTULO QUE VEIO DO SAP")]))
+    hana.ligar_rotulos_do_sap()
+    assert sap_montagem_labels.rotulo("3") == "ROTULO QUE VEIO DO SAP"
+
+
+def test_sem_ligar_o_rotulo_sai_do_fallback():
+    """Estado da F1 — e o que vale se alguém esquecer de chamar ``ligar_rotulos``."""
+    assert sap_montagem_labels.rotulo("3") == "MONTAGEM POR CONTA DE TERCEIROS"
+
+
+# --- contrato entre o SQL e o núcleo ----------------------------------------
+
+def test_o_select_entrega_todas_as_colunas_que_o_nucleo_le():
+    """Um alias com erro de digitação só apareceria em produção, como campo vazio.
+
+    A conexão de mentira não pega isso — ela devolve as colunas que o *teste* declara.
+    Então aqui se compara o texto do SELECT com as chaves que o núcleo portado
+    realmente lê (``r.get("...")`` em ``_pedido`` e ``_montagem``).
+    """
+    import inspect
+    import re
+
+    import situacao_pedidos as sp
+
+    no_select = set(re.findall(r'"([A-Za-z_@][\w]*)"',
+                               hana.STATUS_PEDIDO_COLS.replace('v."', '"')))
+    lidas = set(re.findall(
+        r'r\.get\(\s*"([^"]+)"',
+        inspect.getsource(sp._pedido) + inspect.getsource(sp._montagem)))
+
+    faltando = lidas - no_select
+    assert not faltando, (
+        f"o núcleo lê {sorted(faltando)} e o SELECT não traz — alias errado ou coluna "
+        f"nova no V117 que não foi replicada aqui."
+    )
+
+
+# --- municipio pela OCNT (B2) -----------------------------------------------
+# A OCNT NAO entra no JOIN: `County` vazio faz o HANA estourar "invalid number" no plano
+# de execucao. O nome vem de um SELECT a parte, na MESMA conexao e nas MESMAS linhas --
+# que ja tem o cache de 120 s do recorte. Sem tabela nova, sem cache proprio.
+
+COLUNAS_END = COLUNAS + ["CntyDlvryP", "CityDlvryP", "CountyS", "CityS"]
+
+
+def _linha_end(**over: Any) -> tuple:
+    """Uma linha com os códigos de município dos dois lados do endereço."""
+    base = dict(zip(COLUNAS, _linha()))
+    base.update({"CntyDlvryP": "1763", "CityDlvryP": "JUIZ DE FORA",
+                 "CountyS": "1410", "CityS": "BELO HORIZONTE"})
+    base.update(over)
+    return tuple(base[c] for c in COLUNAS_END)
+
+
+def _com_ocnt(monkeypatch, linhas, ocnt=((1763, "Juiz de Fora"), (1410, "Belo Horizonte"))):
+    return _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS_END, linhas=linhas,
+                                             ocnt=list(ocnt)))
+
+
+def test_o_municipio_vem_da_ocnt_num_select_a_parte(monkeypatch):
+    c = _com_ocnt(monkeypatch, [_linha_end()])
+    linha = hana.fetch_status_pedidos()[0]
+
+    assert linha["_MunicipioLocal"] == "Juiz de Fora"
+    assert linha["_MunicipioPonto"] == "Belo Horizonte"
+    ocnt = [s for s in c.sqls if '"OCNT"' in s]
+    assert len(ocnt) == 1, "a OCNT tem de ser UMA consulta, não uma por pedido"
+    assert "JOIN" not in ocnt[0], "a OCNT no JOIN mata a consulta (invalid number)"
+    assert "IN (1410,1763)" in ocnt[0], "códigos entram como número, ordenados"
+
+
+def test_um_select_de_ocnt_para_o_recorte_inteiro(monkeypatch):
+    """Reuso, não N+1: 3 pedidos com 2 municípios repetidos = 1 consulta, 2 códigos."""
+    linhas = [_linha_end(), _linha_end(DocNum=84261), _linha_end(DocNum=84262)]
+    c = _com_ocnt(monkeypatch, linhas)
+    assert all(r["_MunicipioLocal"] == "Juiz de Fora" for r in hana.fetch_status_pedidos())
+    assert len([s for s in c.sqls if '"OCNT"' in s]) == 1
+
+
+def test_codigo_vazio_ou_lixo_nao_vai_para_a_ocnt(monkeypatch):
+    """É por causa dessas linhas que a OCNT não pode entrar no JOIN."""
+    c = _com_ocnt(monkeypatch, [_linha_end(CntyDlvryP="", CountyS="  ")], ocnt=[])
+    linha = hana.fetch_status_pedidos()[0]
+
+    assert linha["_MunicipioLocal"] is None and linha["_MunicipioPonto"] is None
+    assert not [s for s in c.sqls if '"OCNT"' in s], "sem código, sem consulta"
+
+
+def test_a_chave_do_municipio_existe_mesmo_sem_resposta(monkeypatch):
+    """`None` = "não foi possível saber". Chave ausente viraria KeyError em quem lê."""
+    c = _com_ocnt(monkeypatch, [_linha_end(CntyDlvryP="9999")], ocnt=[(1410, "Belo Horizonte")])
+    linha = hana.fetch_status_pedidos()[0]
+
+    assert "_MunicipioLocal" in linha and linha["_MunicipioLocal"] is None
+    assert linha["_MunicipioPonto"] == "Belo Horizonte"
+    assert c.sqls  # a consulta aconteceu; o código é que não casou
+
+
+def test_ocnt_fora_do_ar_nao_derruba_o_recorte(monkeypatch):
+    """O nome de uma cidade não vale derrubar a Situação dos Pedidos inteira."""
+    c = _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS_END, linhas=[_linha_end()],
+                                          erro_em='"OCNT"'))
+    linhas = hana.fetch_status_pedidos()
+
+    assert len(linhas) == 1 and linhas[0]["DocNum"] == 84260   # o recorte veio
+    assert linhas[0]["_MunicipioLocal"] is None                # só o nome faltou
+    assert c.fechada, "a conexão tem de fechar mesmo com a OCNT falhando"
+
+
+def test_a_ocnt_roda_antes_de_fechar_a_conexao(monkeypatch):
+    """Uma conexão por leitura é regra do módulo: nada de abrir outra só para a OCNT."""
+    idas: list[int] = []
+    _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS_END, linhas=[_linha_end()],
+                                      ocnt=[(1763, "Juiz de Fora")]), contador=idas)
+    hana.fetch_status_pedidos()
+    assert len(idas) == 1
+
+
+def test_o_municipio_entra_no_cache_do_recorte(monkeypatch):
+    """Sem cache próprio: o nome viaja nas linhas, que já são cacheadas por 120 s."""
+    idas: list[int] = []
+    _ligar(monkeypatch, _ConexaoFalsa(colunas=COLUNAS_END, linhas=[_linha_end()],
+                                      ocnt=[(1763, "Juiz de Fora")]), contador=idas)
+    hana.fetch_status_pedidos()
+    segunda = hana.fetch_status_pedidos()
+    assert len(idas) == 1, "a 2ª leitura não pode ir ao HANA de novo"
+    assert segunda[0]["_MunicipioLocal"] == "Juiz de Fora"
+
+
+# --- qual dos dois enderecos vale (B3) --------------------------------------
+# A API resolve, quem consome nao escolhe. Caso real de 10/09: o 84348 entrega em Juiz
+# de Fora e tem Ponto de Entrega em Belo Horizonte.
+
+def _bruta(**over: Any) -> dict:
+    """Linha crua como sai do HANA, com os dois enderecos do pedido 84348."""
+    base = {
+        "StrtDlvryP": "AVENIDA DEUSDEDITH SALGADO", "StrNoDlvrP": "4010",
+        "BldDlvryP": None, "BlckDlvryP": "SALVATERRA", "CityDlvryP": "JUIZ DE FORA",
+        "StatDlvryP": "MG", "ZipDlvryP": "36033000", "CntyDlvryP": "1763",
+        "CtryDlvryP": "BR", "_MunicipioLocal": "Juiz de Fora",
+        "StreetS": "AV NOSSA SENHORA DO CARMO", "StreetNoS": "279",
+        "BuildingS": None, "BlockS": "CARMO", "CityS": "BELO HORIZONTE",
+        "StateS": "MG", "ZipCodeS": "30330-000", "CountyS": "1410",
+        "CountryS": "BR", "_MunicipioPonto": "Belo Horizonte",
+    }
+    base.update(over)
+    return base
+
+
+def test_o_local_de_entrega_vence_o_ponto_de_entrega():
+    """O 84348: quem despachar pelo ShipTo manda a carga 250 km para o lado errado."""
+    e = hana.endereco_entrega_efetivo(_bruta())
+
+    assert e["fonte"] == "local_entrega"
+    assert e["difere_do_ponto_de_entrega"] is True
+    assert e["cidade"] == "JUIZ DE FORA" and e["uf"] == "MG"
+    assert e["logradouro"] == "AVENIDA DEUSDEDITH SALGADO" and e["numero"] == "4010"
+    assert e["municipio"] == "Juiz de Fora"
+    assert e["linha"] == ("AVENIDA DEUSDEDITH SALGADO, 4010 - SALVATERRA, "
+                          "36033-000 JUIZ DE FORA-MG")
+    # o ShipTo nao some: vira referencia cadastral, aninhada
+    assert e["ponto_entrega"]["cidade"] == "BELO HORIZONTE"
+    assert "fonte" not in e["ponto_entrega"]
+
+
+def test_quem_le_so_a_cidade_ainda_despacha_certo():
+    """A propriedade que segura tudo: o topo é SEMPRE o efetivo. Um consumidor que
+    ignore `fonte` e o selo não tem como errar."""
+    for r, esperada in ((_bruta(), "JUIZ DE FORA"),
+                        (_bruta(StrtDlvryP=None, CityDlvryP=None, ZipDlvryP=None),
+                         "BELO HORIZONTE")):
+        assert hana.endereco_entrega_efetivo(r)["cidade"] == esperada
+
+
+def test_sem_local_de_entrega_cai_no_padrao():
+    """86% dos pedidos (medido em 10/09): responde o Ponto de Entrega."""
+    e = hana.endereco_entrega_efetivo(
+        _bruta(StrtDlvryP=None, CityDlvryP=None, ZipDlvryP=None, BlckDlvryP=None,
+               StatDlvryP=None, StrNoDlvrP=None, _MunicipioLocal=None))
+
+    assert e["fonte"] == "ponto_entrega"
+    assert e["difere_do_ponto_de_entrega"] is False
+    assert e["cidade"] == "BELO HORIZONTE"
+    assert e["linha"] == "AV NOSSA SENHORA DO CARMO, 279 - CARMO, 30330-000 BELO HORIZONTE-MG"
+
+
+def test_menos_de_tres_caracteres_conta_como_vazio():
+    """A régua do Marcelo. Medido: ZERO linha assim no recorte — mas se aparecer, um
+    `-` no logradouro não pode desviar a carga."""
+    e = hana.endereco_entrega_efetivo(
+        _bruta(StrtDlvryP="-", CityDlvryP="", ZipDlvryP="  "))
+
+    assert e["fonte"] == "ponto_entrega"
+    assert e["cidade"] == "BELO HORIZONTE"
+
+
+def test_tres_caracteres_ja_contam():
+    """A régua é >= 3: 'RUA' vale, e a fronteira tem de ficar cravada."""
+    e = hana.endereco_entrega_efetivo(
+        _bruta(StrtDlvryP="RUA", CityDlvryP="", ZipDlvryP=""))
+    assert e["fonte"] == "local_entrega" and e["logradouro"] == "RUA"
+
+
+def test_o_selo_nao_e_comparacao_de_cidade():
+    """No 84284 o SAP tem 'SANTOS' de um lado e 'Santos' do outro. O selo é "existe
+    Local de Entrega", como na tela — 14 dos 38 são outro endereço na MESMA cidade."""
+    e = hana.endereco_entrega_efetivo(
+        _bruta(CityDlvryP="SANTOS", CityS="Santos", StrtDlvryP="RUA XV", StreetS="RUA X"))
+
+    assert e["difere_do_ponto_de_entrega"] is True
+    assert e["cidade"] == "SANTOS"
+
+
+def test_o_cep_sai_normalizado_dos_dois_lados():
+    """O SAP guarda os dois formatos NA MESMA coluna (medido: 4 com hífen e 33 sem, no
+    ZipDlvryP). Sem normalizar, quem consome recebe formatos diferentes no mesmo campo."""
+    e = hana.endereco_entrega_efetivo(_bruta(ZipDlvryP="36033000", ZipCodeS="30330-000"))
+    assert e["cep"] == "36033-000"
+    assert e["ponto_entrega"]["cep"] == "30330-000"
+
+    # o que não tem 8 dígitos passa como veio — não se inventa CEP
+    assert hana.endereco_entrega_efetivo(_bruta(ZipDlvryP="123"))["cep"] == "123"
+    assert hana.endereco_entrega_efetivo(_bruta(ZipDlvryP=None))["cep"] is None
+
+
+def test_a_linha_nao_deixa_virgula_solta_nem_hifen_orfao():
+    """Campo vazio some da string; ela é feita para ir na etiqueta."""
+    e = hana.endereco_entrega_efetivo(
+        _bruta(StrNoDlvrP=None, BlckDlvryP=None, ZipDlvryP=None))
+    assert e["linha"] == "AVENIDA DEUSDEDITH SALGADO, JUIZ DE FORA-MG"
+
+    vazio = hana.endereco_entrega_efetivo(
+        {k: None for k in list(_bruta())})
+    assert vazio["linha"] is None and vazio["fonte"] == "ponto_entrega"
+
+
+def test_as_chaves_do_endereco_sao_sempre_as_mesmas():
+    """Quem consome não pode precisar de `if` para saber quais chaves vieram."""
+    cheio = set(hana.endereco_entrega_efetivo(_bruta()))
+    vazio = set(hana.endereco_entrega_efetivo({k: None for k in list(_bruta())}))
+    assert cheio == vazio
+    assert cheio == {"fonte", "difere_do_ponto_de_entrega", "logradouro", "numero",
+                     "complemento", "bairro", "cidade", "uf", "cep", "pais",
+                     "municipio", "linha", "ponto_entrega"}
+
+
+# --- liberacao real + primeira NF (PLANO_DATAS_LIBERACAO_NF) ----------------
+
+def _m(dia: int, hhmmss: int) -> dt.datetime:
+    return hana.momento(dt.date(2026, 9, dia), hhmmss)
+
+
+def test_momento_junta_data_e_hora_do_b1_com_fuso():
+    m = hana.momento(dt.datetime(2026, 9, 23), 165116)
+    assert (m.hour, m.minute, m.second) == (16, 51, 16)
+    assert m.tzinfo is not None
+    assert hana.momento(dt.date(2026, 9, 23), 80401).hour == 8
+    # Sem hora nao se inventa meia-noite.
+    assert hana.momento(dt.date(2026, 9, 23), None) is None
+    assert hana.momento(None, 165116) is None
+
+
+def test_ultima_liberacao_pega_a_passagem_para_s():
+    # 84428: bloqueado nas 3 primeiras versoes, liberado na 4a (23/09 16:51:16).
+    vs = [("N", _m(23, 163657)), ("N", _m(23, 164912)), ("S", _m(23, 165116)),
+          ("S", _m(24, 81945))]
+    assert hana.ultima_liberacao(vs) == _m(23, 165116)
+
+
+def test_ultima_liberacao_pedido_que_nasce_liberado():
+    assert hana.ultima_liberacao([("S", _m(10, 90000)), ("S", _m(11, 90000))]) == _m(10, 90000)
+
+
+def test_ultima_liberacao_vale_a_mais_recente_depois_de_rebloqueio():
+    vs = [("N", _m(1, 80000)), ("S", _m(2, 80000)), ("N", _m(3, 80000)), ("S", _m(4, 80000))]
+    assert hana.ultima_liberacao(vs) == _m(4, 80000)
+
+
+def test_ultima_liberacao_bloqueado_no_fim_ou_sem_historico_e_none():
+    assert hana.ultima_liberacao([("S", _m(2, 80000)), ("N", _m(3, 80000))]) is None
+    assert hana.ultima_liberacao([]) is None
+
+
+def test_historico_cortado_ja_liberado_nao_inventa_a_hora():
+    """84348 on 02/10: the SAP kept versions 8-106; the 15:06 release was in 1-7."""
+    vs = [("S", _m(8, 163026)), ("S", _m(9, 100300)), ("S", _m(29, 170500))]
+    assert hana.ultima_liberacao(vs, historico_completo=False) is None
+    assert hana.liberado_ate(vs) == _m(8, 163026)
+
+
+def test_historico_cortado_com_passagem_visivel_vale_a_passagem():
+    vs = [("S", _m(1, 80000)), ("N", _m(3, 80000)), ("S", _m(4, 90000))]
+    assert hana.ultima_liberacao(vs, historico_completo=False) == _m(4, 90000)
+    assert hana.liberado_ate(vs) is None
+    assert hana.liberado_ate([]) is None
+
+
+def test_sinal_reemitido_e_aberto_nao_esta_pago():
+    """84326: pagou o sinal em 02/09, ganhou ODPI nova em 22/09 e voltou a bloquear."""
+    odpis = [{"DocEntry": 2627, "DocStatus": "C", "CANCELED": "N"},
+             {"DocEntry": 2664, "DocStatus": "O", "CANCELED": "N"}]
+    assert hana.sinal_pago_em(odpis, {2627: [_m(2, 100000)]}) is None
+
+
+def test_sinal_pago_e_o_registro_mais_tardio_da_ultima_odpi():
+    odpis = [{"DocEntry": 10, "DocStatus": "C", "CANCELED": "N"},
+             {"DocEntry": 11, "DocStatus": "C", "CANCELED": "N"}]
+    rec = {10: [_m(1, 90000)], 11: [_m(5, 90000), _m(6, 143000), None]}
+    assert hana.sinal_pago_em(odpis, rec) == _m(6, 143000)
+
+
+def test_sinal_ignora_odpi_cancelada_e_sem_recebimento_e_none():
+    odpis = [{"DocEntry": 10, "DocStatus": "C", "CANCELED": "N"},
+             {"DocEntry": 11, "DocStatus": "C", "CANCELED": "Y"}]
+    assert hana.sinal_pago_em(odpis, {10: [_m(1, 90000)]}) == _m(1, 90000)
+    assert hana.sinal_pago_em(odpis, {}) is None
+    assert hana.sinal_pago_em([], {}) is None
+
+
+def _crua(**over: Any) -> dict:
+    base = {"Producao": "Liberada", "Sinal": "N",
+            "_LibFinEm": "2026-09-23T16:51:16-03:00", "_SinalPagoEm": None,
+            "_DataCriacaoPN": "2025-03-10", "_Representante": "Neto",
+            "_NfDocNum": 5729, "_NfNumeroFiscal": 32228, "_NfData": "2026-09-17"}
+    base.update(over)
+    return base
+
+
+def test_liberacao_sem_sinal_e_a_do_financeiro():
+    f = hana.liberacao_e_nf(_crua())
+    assert f["lib_producao_em"] == f["lib_entrega_em"] == "2026-09-23T16:51:16-03:00"
+
+
+def test_liberacao_com_sinal_e_o_mais_tardio_dos_dois():
+    f = hana.liberacao_e_nf(_crua(Sinal="S", _SinalPagoEm="2026-09-24T10:15:00-03:00"))
+    assert f["lib_producao_em"] == "2026-09-24T10:15:00-03:00"
+    g = hana.liberacao_e_nf(_crua(Sinal="S", _SinalPagoEm="2026-09-20T10:15:00-03:00"))
+    assert g["lib_producao_em"] == "2026-09-23T16:51:16-03:00"
+
+
+def test_historico_cortado_producao_so_pelo_sinal_pago_depois():
+    cortado = dict(_LibFinEm=None, _LibFinAte="2026-09-08T16:30:26-03:00")
+    # Sinal paid after the oldest retained version: Financeiro came before it → the sinal.
+    f = hana.liberacao_e_nf(_crua(Sinal="S", _SinalPagoEm="2026-09-25T08:13:35-03:00",
+                                  **cortado))
+    assert f["lib_fin_em"] is None
+    assert f["lib_producao_em"] == f["lib_entrega_em"] == "2026-09-25T08:13:35-03:00"
+    # Sinal paid before it, or no sinal at all: the order of the two is unknown.
+    g = hana.liberacao_e_nf(_crua(Sinal="S", _SinalPagoEm="2026-09-01T10:00:00-03:00",
+                                  **cortado))
+    assert g["lib_producao_em"] is None
+    assert hana.liberacao_e_nf(_crua(**cortado))["lib_producao_em"] is None
+
+
+def test_liberacao_sem_todas_as_horas_ou_bloqueada_e_none():
+    assert hana.liberacao_e_nf(_crua(Sinal="S"))["lib_producao_em"] is None
+    assert hana.liberacao_e_nf(_crua(_LibFinEm=None))["lib_producao_em"] is None
+    assert hana.liberacao_e_nf(_crua(Producao="Bloqueada"))["lib_producao_em"] is None
+
+
+def test_primeira_nf_e_as_chaves_do_contrato():
+    cheio = hana.liberacao_e_nf(_crua())
+    vazio = hana.liberacao_e_nf({})
+    assert cheio["primeira_nf_emitida"] is True
+    assert vazio["primeira_nf_emitida"] is False
+    assert set(cheio) == set(vazio) == {
+        "lib_fin_em", "sinal_pago_em", "lib_producao_em", "lib_entrega_em",
+        "data_criacao_pn", "representante", "nf_doc_num", "nf_numero_fiscal",
+        "nf_data", "primeira_nf_emitida"}
+    assert all(v is None for k, v in vazio.items() if k != "primeira_nf_emitida")
+
+
+def _conexao_com_liberacao(**over):
+    kw = dict(
+        colunas=COLUNAS, linhas=[_linha(Financeiro="Liberado", Producao="Liberada")],
+        adoc=[(15118, dt.datetime(2026, 9, 23), 164912, "N", 1),
+              (15118, dt.datetime(2026, 9, 23), 165116, "S", 2)],
+        odpi=[(15118, 2627, "C", "N")],
+        rct=[(2627, dt.datetime(2026, 9, 24), 101500, "N")],
+        evol=[(84260, dt.datetime(2025, 3, 10), "Neto  ", 5729,
+               dt.datetime(2026, 9, 17), 32228)])
+    kw.update(over)
+    return _ConexaoFalsa(**kw)
+
+
+def test_a_leitura_injeta_liberacao_e_nf_nas_linhas(monkeypatch):
+    c = _ligar(monkeypatch, _conexao_com_liberacao())
+    r = hana.fetch_status_pedidos()[0]
+    assert r["_LibFinEm"] == "2026-09-23T16:51:16-03:00"
+    assert r["_SinalPagoEm"] == "2026-09-24T10:15:00-03:00"
+    assert (r["_DataCriacaoPN"], r["_Representante"]) == ("2025-03-10", "Neto")
+    assert (r["_NfDocNum"], r["_NfNumeroFiscal"], r["_NfData"]) == (5729, 32228, "2026-09-17")
+    adoc = next(s for s in c.sqls if '"ADOC"' in s)
+    assert "\"ObjType\" = '17'" in adoc and "IN (15118)" in adoc
+    evol = next(s for s in c.sqls if "VW_EVOL_ORCAMENTO_ALT" in s)
+    assert "\"TipoDoc\" = '17'" in evol and "LEFT JOIN" in evol
+
+
+def test_a_leitura_reconhece_o_historico_cortado_pelo_sap(monkeypatch):
+    adoc = [(15118, dt.datetime(2026, 9, 8), 163026, "S", 8),
+            (15118, dt.datetime(2026, 9, 29), 170500, "S", 106)]
+    _ligar(monkeypatch, _conexao_com_liberacao(adoc=adoc))
+    r = hana.fetch_status_pedidos()[0]
+    assert r["_LibFinEm"] is None
+    assert r["_LibFinAte"] == "2026-09-08T16:30:26-03:00"
+
+
+def test_historico_fora_do_ar_nao_derruba_a_situacao_nem_a_nf(monkeypatch):
+    _ligar(monkeypatch, _conexao_com_liberacao(erro_em='"ADOC"'))
+    r = hana.fetch_status_pedidos()[0]
+    assert r["_LibFinEm"] is None
+    assert r["_SinalPagoEm"] == "2026-09-24T10:15:00-03:00"
+    assert r["_NfDocNum"] == 5729
+
+
+def test_pedido_fora_da_view_de_orcamentos_fica_com_as_chaves_nulas(monkeypatch):
+    _ligar(monkeypatch, _conexao_com_liberacao(evol=[], adoc=[], odpi=[], rct=[]))
+    r = hana.fetch_status_pedidos()[0]
+    assert all(r[k] is None for k in hana.LIBERACAO_CHAVES)

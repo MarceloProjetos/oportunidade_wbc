@@ -1,0 +1,225 @@
+{#
+  A aba "Executar": os comandos da CLI, rodados de verdade em subprocesso.
+
+  Os que só leem ficam em cima e sem cerimônia. Os que escrevem ficam
+  separados, com aviso e senha — misturar "testar a conexão" com "criar pedidos
+  de verdade" na mesma lista é convite a clicar no errado.
+#}
+{# Cabeça de um comando: título e selos. Vive num macro próprio porque o cartão
+   de conexões desenha DUAS — a dele e a do comando que divide o cartão. #}
+{% macro cabeca(c) %}
+  <div class="comando-cabeca">
+    <h3>{{ c.rotulo }}</h3>
+    {% if c.escreve %}
+      <span class="etiqueta perigo">escreve no SAP</span>
+    {% elif c.escreve_tracking %}
+      <span class="etiqueta atencao">escreve no acompanhamento</span>
+    {% else %}
+      <span class="etiqueta calma">só leitura</span>
+    {% endif %}
+    {% if c.demora %}<span class="etiqueta tempo">{{ c.demora }}</span>{% endif %}
+  </div>
+{% endmacro %}
+
+{% macro formulario(c, pode, ritmo) %}
+  <form
+    class="comando{% if c.alternativo %} comando-duplo{% endif %}"
+    hx-post="/fragmentos/comandos/executar"
+    hx-target="#console"
+    hx-disabled-elt="find button"
+    {% if c.protegido or c.dirigido %}
+      hx-confirm="{{ c.rotulo }}: confirma a execução? {{ c.aviso }}"
+    {% endif %}
+  >
+    <input type="hidden" name="comando" value="{{ c.id }}" />
+
+    {{ cabeca(c) }}
+
+    <p class="resumo">{{ c.resumo }}</p>
+    {% if c.aviso %}<p class="alerta">{{ c.aviso }}</p>{% endif %}
+
+    {% if c.campos %}
+      <div class="filtros">
+        {% for campo in c.campos %}
+          {% if campo.tipo == "checkbox" %}
+            <label class="caixa" title="{{ campo.ajuda }}">
+              <input
+                type="checkbox"
+                name="{{ campo.nome }}"
+                value="1"
+                {% if campo.marcado %}checked{% endif %}
+              />
+              {{ campo.rotulo }}
+            </label>
+          {% else %}
+            <label class="campo">
+              <span>{{ campo.rotulo }}</span>
+              <input type="text" name="{{ campo.nome }}" placeholder="{{ campo.ajuda }}"
+                     {% if campo.nome == "orcamento" and orcamento_preenchido and c.id in de_um_orcamento %}value="{{ orcamento_preenchido }}"{% endif %}
+                     {% if campo.obrigatorio %}required inputmode="numeric" autocomplete="off"{% endif %} />
+            </label>
+          {% endif %}
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if c.protegido %}
+      <div class="filtros">
+        <label class="campo">
+          <span>Seu nome</span>
+          <input
+            type="text"
+            name="solicitante"
+            placeholder="fica no histórico"
+            {% if not pode %}disabled{% endif %}
+          />
+        </label>
+        <label class="campo">
+          <span>Senha do painel</span>
+          <input type="password" name="senha" {% if not pode %}disabled{% endif %} />
+        </label>
+        {% if c.id == "pesos" %}
+          {# Duas ações no mesmo formulário: a prévia é o caminho normal, e
+             aplicar só passa depois dela — a regra vive no executor, o botão
+             só diz qual das duas se está pedindo. #}
+          <button class="acao" type="submit" {% if not pode %}disabled{% endif %}>
+            Ver o que mudaria
+          </button>
+          <button
+            class="acao perigosa"
+            type="submit"
+            name="aplicar"
+            value="1"
+            {% if not pode %}disabled{% endif %}
+          >
+            Aplicar
+          </button>
+        {% else %}
+          <button class="acao perigosa" type="submit" {% if not pode %}disabled{% endif %}>
+            Executar
+          </button>
+        {% endif %}
+      </div>
+    {% elif c.dirigido %}
+      {# One quote, no password (owner, 01/10/2026): the name stays — it is the audit trail
+         of who sent a write to the SAP, not a key. #}
+      <div class="filtros">
+        <label class="campo">
+          <span>Seu nome</span>
+          <input type="text" name="solicitante" placeholder="fica no histórico" required />
+        </label>
+        <button class="acao perigosa" type="submit">Processar este orçamento</button>
+      </div>
+    {% elif c.alternativo %}
+      {# Dois comandos dividem o cartão, empilhados — cada um com seu título,
+         seus selos e seu botão. Um rótulo guarda-chuva com dois botões tornava
+         os dois testes indistinguíveis: quem procurava o HANA não o achava.
+
+         O `name="alternativo"` só é enviado pelo botão que foi clicado; é assim
+         que a rota sabe qual dos dois rodar. #}
+      <div class="filtros">
+        <button class="acao" type="submit">Executar</button>
+      </div>
+      {% set outro = por_id[c.alternativo] %}
+      <div class="comando-extra">
+        {{ cabeca(outro) }}
+        <p class="resumo">{{ outro.resumo }}</p>
+        <div class="filtros">
+          <button class="acao" type="submit" name="alternativo" value="1">Executar</button>
+        </div>
+      </div>
+    {% else %}
+      <div class="filtros">
+        <button class="acao" type="submit">Executar</button>
+      </div>
+    {% endif %}
+  </form>
+{% endmacro %}
+
+<div id="console" hx-get="/fragmentos/execucao" hx-trigger="load" hx-swap="innerHTML">
+  <div class="bloco"><div class="vazio">Carregando…</div></div>
+</div>
+
+<div class="bloco">
+  <header>
+    <h2>Leitura e diagnóstico</h2>
+    {# "não escrevem nada" era verdade até o ensaio entrar aqui: ele grava o
+       acompanhamento. O selo de cada cartão diz o que cada um faz; este
+       subtítulo diz o que vale para todos. #}
+    <span class="carimbo">nenhum documento do SAP é criado, alterado ou cancelado</span>
+  </header>
+  <div class="corpo grade-comandos">
+    {% for c in leitura %}
+      {{ formulario(c, true, ritmo) }}
+      {% if c.id == "pendentes" %}
+        {# A janela vem logo DEPOIS de "Verificar pendentes", e não antes: são os
+           dois passos do mesmo gesto, na ordem em que se faz. Ensaiar a janela
+           ali ao lado e só então armá-la aqui é exatamente o que o cartão pede.
+           Como cartão da grade, e não como bloco à parte, ela herda a forma dos
+           vizinhos e para de parecer uma tela de configuração. #}
+        <div id="janela" hx-get="/fragmentos/janela" hx-trigger="load" hx-swap="outerHTML">
+          <div class="comando"><div class="vazio">Carregando…</div></div>
+        </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+</div>
+
+{% if dirigidos %}
+<div class="bloco" id="processar-um-orcamento">
+  <header>
+    <h2>Processar um orçamento</h2>
+  </header>
+  <div class="corpo">
+    <div class="aviso info">
+      <div>
+        Roda o ciclo só para o orçamento informado nos últimos
+        <strong>{{ meses_dirigida }} meses</strong>. Espera terminar (até 3 minutos) e conferir no SAP
+      </div>
+    </div>
+  </div>
+  <div class="corpo grade-comandos">
+    {% for c in dirigidos %}{{ formulario(c, true, ritmo) }}{% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="bloco">
+  <header>
+    <h2>Execução</h2>
+    <span class="etiqueta perigo">exige senha</span>
+  </header>
+
+  {% if not pode_escrever %}
+    <div class="corpo">
+      <div class="aviso {{ 'erro' if producao else 'atencao' }}">
+        <div>
+          <strong>Indisponível neste painel.</strong> {{ motivo }}
+        </div>
+      </div>
+    </div>
+  {% else %}
+    <div class="corpo">
+      <div class="aviso info">
+        <div>
+          Estes comandos rodam a CLI de verdade, em <strong>{{ company_db }}</strong>. Uma
+          execução por vez, sob a mesma trava do worker: se ele estiver rodando, o comando
+          espera a vez em vez de duplicar documento.
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  <div class="corpo grade-comandos">
+    {% for c in escrita %}{{ formulario(c, pode_escrever, ritmo) }}{% endfor %}
+  </div>
+</div>
+{% if orcamento_preenchido %}
+  {# Came from the Detalhe's "Processar este orçamento…": show the per-quote form, not the top. #}
+  <script>
+    (function () {
+      var alvo = document.getElementById("processar-um-orcamento");
+      if (alvo) alvo.scrollIntoView({ block: "start" });
+    })();
+  </script>
+{% endif %}

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{# No screens in the bar here: every one of them would only bring the operator back. #}
+{% set sem_menu = true %}
+{% block title %}Entrar — Central Integração SAP{% endblock %}
+{% block content %}
+{# Porta de entrada quando há OS_API_KEY no .env. É a MESMA chave do painel WBC e da API
+   8077 — e o mesmo cookie: quem já entrou no painel neste navegador não passa por aqui. #}
+<section class="ov-card" style="max-width: 34rem">
+  <h1>Chave de acesso</h1>
+  <p class="ov-nota">É a mesma chave do painel da Integração WBC e da API 8077
+    (<code>OS_API_KEY</code>). Fica guardada só neste navegador, como cookie — e vale para as
+    duas telas.</p>
+  {% if erro %}
+    <p class="ov-alerta" role="alert">{{ erro }}</p>
+  {% endif %}
+  <form method="post" action="/entrar" autocomplete="off">
+    <input type="hidden" name="proximo" value="{{ proximo }}">
+    <div class="ov-field">
+      <label for="chave">Chave</label>
+      <input class="ov-input" id="chave" name="chave" type="password" autofocus required
+             autocomplete="current-password">
+    </div>
+    <button class="ov-btn ov-btn--ok" type="submit">Entrar</button>
+  </form>
+  <p class="ov-nota" style="margin-top:var(--space-4)">Sem a chave? <a href="/painel-wbc">Abrir o painel WBC</a>.</p>
+</section>
+{% endblock %}

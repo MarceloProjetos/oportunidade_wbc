@@ -1,0 +1,73 @@
+<!doctype html>
+{# Theme from the shared `casa_tema` cookie, on <html> before any paint (casa/__init__.py):
+   the operator's choice follows them across the three screens of the .11. #}
+<html lang="pt-BR" data-theme="{{ 'light' if casa_tema(request.cookies if request is defined else none) == 'claro' else 'dark' }}">
+{% from "_icones.html" import icone %}
+{% import "casa/_casa.html" as casa_ui %}
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}{{ casa.marca }}{% endblock %}</title>
+  {{ casa_ui.cabeca() }}
+  <link rel="stylesheet" href="/static/style.css?v=12">
+</head>
+<body>
+  {# The shared top bar of the "Central Integração SAP" (PLANO_CASA_COMUM_11, F1): the same
+     brand, screens and controls as the painel WBC and the Sincronização. The key prompt
+     (`sem_menu`) shows only the way back to the OrçaView. #}
+  {% set no_prompt = sem_menu is defined and sem_menu %}
+  {{ casa_ui.barra(
+       [] if no_prompt else casa_itens(CASA_HREFS, ativo if ativo is defined else none),
+       "/orcaview", amb_atual(), mostrar_sair=exige_chave(),
+       inicio_href=none if no_prompt else "/inicio") }}
+
+  <main id="mainContent" class="ov-shell">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script>
+    // Forms marked `data-exige-numero`: the submit button stays disabled (and the
+    // `[data-dica]` hint visible) until one `[data-numero]` field holds digits only — an
+    // empty or "84a" lookup has nothing to check. The server validates again.
+    (function () {
+      Array.prototype.forEach.call(document.querySelectorAll("form[data-exige-numero]"), function (form) {
+        var campos = form.querySelectorAll("input[data-numero]");
+        var botao = form.querySelector('button[type="submit"]');
+        var dica = form.querySelector("[data-dica]");
+        var titulo = botao.title;
+        function pinta() {
+          var ok = Array.prototype.some.call(campos, function (c) { return /^\d+$/.test(c.value.trim()); });
+          botao.disabled = !ok;
+          botao.title = ok ? "" : titulo;
+          if (dica) { dica.hidden = ok; }
+        }
+        Array.prototype.forEach.call(campos, function (c) { c.addEventListener("input", pinta); });
+        // Back/forward and autofill can restore values without an input event.
+        window.addEventListener("pageshow", pinta);
+        pinta();
+      });
+    })();
+
+    // One submit per page load for every POST form. A double click on "Confirmar e executar"
+    // sent the single-use token twice: the task started and the page showed the SECOND answer
+    // ("confirmação já utilizada") — an error on screen while the SAP write was running
+    // invites doing it again. The submitter is not disabled (its name/value, e.g. acao=l,
+    // must still be posted); the extra submits are just dropped.
+    (function () {
+      Array.prototype.forEach.call(document.querySelectorAll('form[method="post"]'), function (form) {
+        form.addEventListener("submit", function (evento) {
+          if (form.dataset.enviando) { evento.preventDefault(); return; }
+          form.dataset.enviando = "1";
+        });
+      });
+      // Coming back with the browser's Back button restores the page from cache with the
+      // flag still set: clear it, or the form would never submit again.
+      window.addEventListener("pageshow", function () {
+        Array.prototype.forEach.call(document.querySelectorAll("form[data-enviando]"), function (f) {
+          delete f.dataset.enviando;
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

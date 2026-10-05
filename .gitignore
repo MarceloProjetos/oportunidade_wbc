@@ -1,0 +1,62 @@
+# ── Segredos / credenciais ──
+.env
+.env.*
+!.env.example
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# ── Ambiente virtual ──
+venv/
+.venv/
+env/
+
+# ── Logs ──
+logs/
+*.log
+
+# ── Locks de arquivo (cross-process) ──
+.locks/
+
+# ── Exportações JSON (contêm dados de cliente — não versionar) ──
+exports/
+
+# ── Estado do monitor da tarefa WBC (runtime; a pasta fica, o conteúdo não) ──
+state/*.json
+state/*.tmp
+# banco de acompanhamento do WBC (SQLite) e o retrato da prévia — runtime, nunca versionar
+state/*.db
+state/*.db-journal
+state/*.db-wal
+state/*.db-shm
+# marca do deploy_update.bat: hash dos requirements instalados nesta maquina
+state/deps.sha256
+# interruptor do agente (seguranca/agente.py) — estado da maquina, nunca versionar
+state/agente.desligado
+
+# ── Handoffs com chaves/credenciais (passados a terceiros — NÃO versionar) ──
+HANDOFF_*.md
+
+# ── Arquivos temporários do projeto ──
+_*.py
+!scripts/_bootstrap.py   # exceção: bootstrap versionado (não é temporário)
+# __init__.py / __main__.py também casam com _*.py — sem estas exceções o pacote wbcpython/
+# chega ao servidor sem eles (foi o que aconteceu na .11 em 08/09/2026: 17 arquivos de fora)
+!__init__.py
+!__main__.py
+*.tmp
+
+# ── IDE / SO ──
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ── Config local de agente (Claude Code) ──
+.claude/
