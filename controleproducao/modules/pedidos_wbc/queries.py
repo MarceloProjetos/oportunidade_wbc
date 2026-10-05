@@ -419,10 +419,10 @@ WHERE T0."DocEntry" = {doc_entry}
 """.strip()
 
 
-# ⚠️ Sem uso HOJE, mas NÃO é lixo: é a query que `_get_doc_entry_table_valdixon` deveria
-# executar. Aquela função é um esqueleto que devolve 0 — ver a nota grande nela. Mantida
-# aqui, com transcrição fiel do `Querys.resx`, para a correção não precisar reescrevê-la.
-GET_DOC_ENTRY_TABLE_VALDIXON = 'SELECT max("DocEntry") FROM "@INO_ORCAM"'
+# The order's "Detalhe do Orçamento", read back after the PATCH (`service._confere_detalhe`).
+# The legacy `SELECT max("DocEntry") FROM "@INO_ORCAM"` is gone on purpose: the DocEntry
+# comes from the Service Layer's answer (`service._doc_entry_do_detalhe`).
+DETALHE_DO_PEDIDO = 'SELECT "U_INO_ORCAMENTO" FROM "ORDR" WHERE "DocEntry" = {doc_entry}'
 
 
 # ---------------------------------------------------------------------------

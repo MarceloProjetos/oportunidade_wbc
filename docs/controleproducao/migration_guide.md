@@ -1526,6 +1526,8 @@ Corrigido nos dois, com teste que afirma que os caminhos são absolutos e existe
 #### Dois achados que NÃO foram corrigidos, de propósito
 
 **1. `_get_doc_entry_table_valdixon` é um esqueleto que devolve `0` — e isso não é neutro.**
+*(Corrigido em 05/10/2026 pela decisão do Marcelo: o `DocEntry` vem da resposta do `POST` e o
+pedido é conferido depois — ver `decisoes.md`, "O pedido segue o Detalhe do Orçamento novo".)*
 
 O valor sobe como `tb_valdixson` e decide dois comportamentos:
 

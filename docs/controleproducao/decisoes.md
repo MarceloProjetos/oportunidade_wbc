@@ -199,7 +199,7 @@
 - **Bug de portabilidade corrigido**: `StaticFiles`/`Jinja2Templates` usavam caminho relativo, então a web só subia se o `uvicorn` fosse chamado de dentro de `python_app/` — um systemd sem `WorkingDirectory` não levantava. Agora derivam de `__file__`, como `config.py` e `listas_fixas.py` já faziam.
 - **`opp_id` → `orc_num`** no módulo 2: o parâmetro recebia o nº do orçamento WBC, não a chave da Oportunidade, e foi essa confusão que gerou o bug de 22/09. Idem `oppr_id`/`oppr_id_orig` → `orc_num`/`doc_num`.
 - **Constantes de negócio nomeadas** (grupos 332/333/358, depósitos 08/01, prefixo "I", prazo de 20 dias) e duplicação byte a byte extraída (linha do pedido; blocos de relatório da CLI).
-- **Dois achados documentados e NÃO corrigidos**, por exigirem decisão: (a) `_get_doc_entry_table_valdixon` devolve 0 sempre, o que faz `U_INO_ORCAMENTO` nunca ser gravado — divergência silenciosa do legado em todo pedido; (b) o `GetByKey("SalesOpportunities", doc_num)` do ramo `else` de `_update_pedido`, réplica fiel de um erro que existe no próprio addon (a linha comentada do C# mostra que o autor sabia o valor certo).
+- **Dois achados documentados e NÃO corrigidos**, por exigirem decisão: (a) *(corrigido em 05/10/2026 — ver "O pedido segue o Detalhe do Orçamento novo")* `_get_doc_entry_table_valdixon` devolve 0 sempre, o que faz `U_INO_ORCAMENTO` nunca ser gravado — divergência silenciosa do legado em todo pedido; (b) o `GetByKey("SalesOpportunities", doc_num)` do ramo `else` de `_update_pedido`, réplica fiel de um erro que existe no próprio addon (a linha comentada do C# mostra que o autor sabia o valor certo).
 - **Fora de escopo por decisão**: dividir `cli.py` em pacote, quebrar as funções longas e parametrizar as queries HANA — cada uma merece ser mudança isolada e revisável sozinha.
 
 ## Saída sem OP tem que aparecer na tela (23/09/2026)
@@ -245,5 +245,24 @@
 - **Código corrigido na revisão**: `SL_CA_BUNDLE`/`SL_TIMEOUT_SECONDS` passaram a valer; `.env` lido com ou sem BOM; testes independentes do diretório atual.
 - **Operação**: um worker só; log em arquivo com rotação; `PYTHONUTF8=1`; serviço por NSSM ou Agendador de Tarefas; firewall restrito à sub-rede local por padrão.
 - **Risco aberto, registrado e não resolvido**: a aplicação não tem login. O acesso é controlado só pelo firewall.
+
+## O pedido segue o Detalhe do Orçamento novo (05/10/2026)
+
+- **Decisão do Marcelo** (fecha a D15(b) do `PARA_O_ANDERSON.md`): bug, tratar com severidade.
+  Cada Processar/Reprocessar grava um `OrcDetalhe` novo e o `ORDR.U_INO_ORCAMENTO` do pedido
+  ("Detalhe do Orçamento") passa a apontar para ele, como no C#.
+- **Medição (só leitura, PROD, 05/10):** em 23 de 68 pedidos abertos desde 01/09 o campo não
+  apontava para o último Detalhe do orçamento. No 84454, cinco execuções (02/10 e 05/10) criaram
+  Detalhes novos e o campo ficou no 546783. Em 5 pedidos (84327, 84353, 84371, 84375, 84391) o
+  campo apontava para um Detalhe de **outro** orçamento (00124945, criado pelo addon em 01/10):
+  é o `SELECT max("DocEntry") FROM "@INO_ORCAM"` do legado pegando o registro de outro processo.
+- **Como:** o `DocEntry` vem da resposta do `POST` da Service Layer (`_doc_entry_do_detalhe`),
+  nunca do `max()`. Vai no mesmo PATCH de sempre (`_update_tab_pedido`/`_update_tab_pedido_cong`)
+  e é relido no HANA depois: o log diz "Detalhe do Orçamento do pedido: antigo → novo (conferido
+  no SAP)" ou um ERRO (vermelho) se não bateu ou se não há Detalhe novo. A releitura depois do
+  PATCH nunca interrompe o pedido: `U_INO_ProcessWBC` já foi gravado no mesmo PATCH (a leitura de
+  antes pode falhar, mas aí nada foi gravado).
+- **Fora do escopo:** os pedidos já errados não foram corrigidos (cada Processar/Reprocessar
+  novo os acerta); o `max()` do addon legado continua lá (é do Anderson).
 
 *Ver `migration_guide.md` para o detalhamento técnico completo de cada decisão (queries citadas, linhas do C# original, alternativas consideradas e perguntas em aberto ainda não resolvidas).*

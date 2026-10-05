@@ -567,7 +567,9 @@ para os seis, `/status` vê os seis.
 14. **Addon legado × web** — *aberta.* **Recomendado:** lista nominal no piloto, addon
     proibido para ela, comunicado ao PCP, addon desligado para pedidos novos na saída.
 15. **Regras que só ele conhece** — *aberta.* `EntregaMultipla='Y'` pular a OP principal sem
-    constar em `sem_op`? `U_INO_ORCAMENTO` nunca gravado (`Weight1` morto) — deixar e registrar?
+    constar em `sem_op`? `U_INO_ORCAMENTO` nunca gravado (`Weight1` morto) — **fechada em
+    05/10/2026 pelo Marcelo: o `U_INO_ORCAMENTO` grava, corrigido** (`docs/controleproducao/decisoes.md`);
+    o `Weight1` (`GET_PESO_PEDIDO`) segue só em `_update_pedido`, fechado pela F7.
     `im_Manual` nas linhas após replanejar importa para quem aponta pelo SAP?
 16. **Quem grava `ORDR.U_INO_Integrar='Y'`** — *aberta, sem urgência:* em 28/09 a lista
     "Pedidos Novos" em PROD trouxe o 84435, e 101 pedidos abertos têm `Integrar='Y'` — alguém

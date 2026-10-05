@@ -373,8 +373,7 @@ async def preenche_tabela(
                     }
                 )
             body = _monta_body_orc_detalhe(orc_num, header, linhas_udo)
-            await sl.create_entity(_UDO_ORC_DETALHE, body)
-            return await _get_doc_entry_table_valdixon(wbc)
+            return _doc_entry_do_detalhe(await sl.create_entity(_UDO_ORC_DETALHE, body))
 
         # Caminho de fallback — sem estrutura detalhada.
         logger.info("    Sem estrutura detalhada: usando o caminho de fallback.")
@@ -403,8 +402,7 @@ async def preenche_tabela(
             "de %d — igual ao legado).", len(linhas_udo), len(cabecalhos),
         )
         body = _monta_body_orc_detalhe(orc_num, primeiro, linhas_udo)
-        await sl.create_entity(_UDO_ORC_DETALHE, body)
-        return await _get_doc_entry_table_valdixon(wbc)
+        return _doc_entry_do_detalhe(await sl.create_entity(_UDO_ORC_DETALHE, body))
 
     except Exception as exc:  # noqa: BLE001 - replica o catch externo (retorna 0) do C#
         logger.exception("Erro em preenche_tabela para orc_num=%s", orc_num)
@@ -553,33 +551,67 @@ async def _get_linha(hana_reader: HanaDirectReader, orc_num: str, orc_itm: str) 
     return str(_primeiro_valor(rows) or "0")
 
 
-async def _get_doc_entry_table_valdixon(wbc: WbcSqlServerClient) -> int:
-    """⚠️ ESQUELETO — devolve 0 sempre. Rastreado em 23/09/2026; ainda não corrigido.
+def _doc_entry_do_detalhe(resposta: dict | None) -> int:
+    """DocEntry of the OrcDetalhe just created, from the Service Layer's own answer (0 = unknown).
 
-    No C# é `Querys.getDocEntryTableValdixon` (`SELECT max("DocEntry") FROM "@INO_ORCAM"`,
-    no HANA), executada logo após criar o espelho do orçamento para recuperar o DocEntry
-    do registro recém-inserido. O porte deixou um `return 0` com a ideia de usar a
-    resposta do `POST` da Service Layer — e isso nunca foi feito.
-
-    **Consequência, porque um `return 0` aqui não é neutro:** o valor sobe como
-    `tb_valdixson` e é o que decide dois comportamentos.
-
-    1. `U_INO_ORCAMENTO` **nunca é gravado no pedido.** Os três `Update*` do C# fazem
-       `if (tbValdixson != 0) DocCot.UserFields.Fields.Item("U_INO_ORCAMENTO").Value = ...`
-       (ProcessDefault.cs 1090, 1168, 1251). Com 0, o `if` é sempre falso aqui e sempre
-       verdadeiro lá. É uma DIVERGÊNCIA silenciosa em relação ao legado, em todo pedido
-       processado — não um detalhe de implementação.
-    2. O ramo `tb_valdixson != 0` de `_update_pedido` vira **código morto**: só o `else`
-       roda. Junto com ele some a consulta de peso (`GET_PESO_PEDIDO`, que o C# faz com
-       `tbValdixson` — ProcessDefault.cs 1300), e portanto o `Weight1` das linhas.
-
-    A query está preservada em `queries.py` como `GET_DOC_ENTRY_TABLE_VALDIXON`. A
-    correção precisa de uma decisão que não é minha: ler o `DocEntry` da resposta do
-    `create_entity` (mais correto, e evita a corrida do `max()`) ou executar a query do
-    legado (fiel, mas sujeita a devolver o registro de outro processo). Por isso ficou
-    registrado em vez de ser resolvido por conta própria.
+    It becomes the order's `U_INO_ORCAMENTO` ("Detalhe do Orçamento"). Until 05/10/2026 this
+    was a stub returning 0, so every Processar/Reprocessar wrote a new snapshot and left the
+    order on the old one (84454: 546783 while 546875 existed). Never the legacy
+    `max("DocEntry") FROM "@INO_ORCAM"`: two snapshots written at once make it return another
+    quote's — 5 open orders pointed at quote 00124945's on 05/10/2026.
     """
-    return 0
+    try:
+        doc_entry = int((resposta or {}).get("DocEntry") or 0)
+    except (TypeError, ValueError):
+        doc_entry = 0
+    if doc_entry:
+        logger.info("    Detalhe do Orçamento %s criado.", doc_entry)
+    return doc_entry
+
+
+async def _detalhe_do_pedido(hana_reader: HanaDirectReader, doc_entry: str) -> int | None:
+    """The order's `U_INO_ORCAMENTO` as the SAP has it now (None = empty)."""
+    rows = hana_reader.fetch_all(*ligar(q.DETALHE_DO_PEDIDO, doc_entry=doc_entry))
+    valor = rows[0].get("U_INO_ORCAMENTO") if rows else None
+    if valor is None:
+        return None
+    try:
+        return int(valor) or None
+    except (TypeError, ValueError):
+        return None
+
+
+async def _confere_detalhe(
+    hana_reader: HanaDirectReader, doc_entry: str, antes: int | None, novo: int
+) -> None:
+    """Says in the log where the order's "Detalhe do Orçamento" points, read back from the SAP.
+
+    Read back, not assumed: the Service Layer has answered 204 to a field it did not keep
+    (`DocumentLines.Text`). Never raises — `U_INO_ProcessWBC` is already saved in the same PATCH,
+    and aborting here would leave the order "processed" without OPs.
+    """
+    def onde(valor: int | None) -> str:
+        return f"no {valor}" if valor else "sem Detalhe"
+
+    try:
+        if not novo:
+            logger.error(
+                "  Sem Detalhe do Orçamento novo (não criado, ou a resposta veio sem DocEntry): o "
+                "pedido continua %s (U_INO_ORCAMENTO NÃO atualizado).", onde(antes),
+            )
+            return
+        depois = await _detalhe_do_pedido(hana_reader, doc_entry)
+        if depois == novo:
+            logger.info(
+                "  Detalhe do Orçamento do pedido: %s → %s (conferido no SAP).", antes or "nenhum", novo
+            )
+        else:
+            logger.error(
+                "  Detalhe do Orçamento NÃO atualizado: o pedido devia apontar para o %s e está %s "
+                "(U_INO_ORCAMENTO).", novo, onde(depois),
+            )
+    except Exception as exc:  # noqa: BLE001 - a failed check must not stop the processing
+        logger.error("  Não foi possível conferir o Detalhe do Orçamento do pedido: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -613,6 +645,7 @@ async def atualiza_pedido_tabela(
     # gravam coisas bem diferentes (um só mexe em campos de controle, outro RECRIA as
     # linhas do pedido), e a árvore de decisão depende de dois campos do próprio pedido.
     # Sem isto, o acompanhamento não distingue um update inofensivo de uma recriação.
+    antes = await _detalhe_do_pedido(hana_reader, doc_entry)
     verif_congelado = await _verifica_congelado(hana_reader, doc_entry)
     if verif_congelado == "N":
         resultado = await _verifica_tab_update(hana_reader, doc_entry)
@@ -621,20 +654,24 @@ async def atualiza_pedido_tabela(
                 "  Pedido não congelado e sem update de detalhe: atualizando só os campos "
                 "de controle (U_INO_ProcessWBC=%s).", process,
             )
-            return await _update_tab_pedido(sl, oportunidades, orc_num, doc_entry, tb_valdixson, process)
+            gravou = await _update_tab_pedido(sl, oportunidades, orc_num, doc_entry, tb_valdixson, process)
+        else:
+            logger.info(
+                "  Pedido não congelado e COM update de detalhe: recriando as linhas do "
+                "pedido a partir do orçamento WBC.",
+            )
+            gravou = await _update_pedido(
+                sl, wbc, hana_reader, oportunidades, orc_num, card_code, doc_num, doc_entry, tb_valdixson,
+                process,
+            )
+    else:
         logger.info(
-            "  Pedido não congelado e COM update de detalhe: recriando as linhas do "
-            "pedido a partir do orçamento WBC.",
+            "  Pedido congelado: atualizando os campos de controle%s.",
+            " e zerando U_INO_OP nas linhas" if process != "Y" else "",
         )
-        return await _update_pedido(
-            sl, wbc, hana_reader, oportunidades, orc_num, card_code, doc_num, doc_entry, tb_valdixson,
-            process,
-        )
-    logger.info(
-        "  Pedido congelado: atualizando os campos de controle%s.",
-        " e zerando U_INO_OP nas linhas" if process != "Y" else "",
-    )
-    return await _update_tab_pedido_cong(sl, oportunidades, orc_num, doc_entry, tb_valdixson, process)
+        gravou = await _update_tab_pedido_cong(sl, oportunidades, orc_num, doc_entry, tb_valdixson, process)
+    await _confere_detalhe(hana_reader, doc_entry, antes, tb_valdixson)
+    return gravou
 
 
 async def _update_tab_pedido(
@@ -1002,7 +1039,8 @@ async def _update_pedido(
         #
         # Não corrigido por conta própria por dois motivos: (a) é o mesmo erro de
         # numeração que custou o bug de 22/09 (seção 7.35) e merece decisão explícita;
-        # (b) este ramo hoje é inalcançável — ver `_get_doc_entry_table_valdixon`.
+        # (b) este ramo hoje é inalcançável — a função inteira está fechada (F7) e, desde
+        # 05/10/2026, só cairia aqui com o Detalhe do Orçamento sem número.
         # Rastreado em 23/09/2026.
         oport_orig = await sl.get_by_key("SalesOpportunities", doc_num)
         vendedor = oport_orig.get("SalesPersonCode")
@@ -2130,7 +2168,6 @@ async def reprocessar_pedidos_integrados(
 
             logger.info("  Montando a tabela do orçamento (UDO)...")
             tab = await preenche_tabela(sl, wbc, hana_reader, orc_num)
-            logger.info("  Tabela do orçamento: DocEntry %s.", tab)
 
             logger.info("  Atualizando o pedido %s...", doc_num)
             await atualiza_pedido_tabela(

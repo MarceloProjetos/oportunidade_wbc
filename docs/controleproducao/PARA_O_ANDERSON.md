@@ -111,7 +111,11 @@ comunicado seu ao PCP antes do primeiro `processar-novos`, addon desligado na sa
 **D15 — Três regras que só você conhece.** (a) `U_INO_EntregaMultipla='Y'` pular a OP
 principal (mas criar as de semiacabado) sem constar em `sem_op` é intencional? (b)
 `U_INO_ORCAMENTO` nunca é gravado pelo porte (`tb_valdixson=0`, `Weight1` morto) — deixar,
-já que o worker grava, e registrar em `decisoes.md`? (c) As linhas ficam com `im_Manual` depois
+já que o worker grava, e registrar em `decisoes.md`? **→ Decidido pelo Marcelo em 05/10/2026:
+grava, e foi corrigido** (o `DocEntry` vem da resposta do `POST`, nunca do `max()`); o
+`Weight1` (`GET_PESO_PEDIDO`) segue só em `_update_pedido`, fechado pela F7. Achado
+para você: o `max("DocEntry")` do addon fez 5 pedidos abertos apontarem para o Detalhe do
+orçamento 00124945 em 01/10 (84327, 84353, 84371, 84375, 84391). (c) As linhas ficam com `im_Manual` depois
 de replanejar — importa para quem aponta pelo cliente SAP?
 
 **D16 — Quem grava `ORDR.U_INO_Integrar='Y'`.** É pré-requisito da lista "Pedidos Novos";

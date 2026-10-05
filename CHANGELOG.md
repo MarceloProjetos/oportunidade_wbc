@@ -6,6 +6,22 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-05] — Controle de Produção: o pedido segue o Detalhe do Orçamento novo (bug)
+
+Cada Processar/Reprocessar grava um `OrcDetalhe` novo, mas o `ORDR.U_INO_ORCAMENTO` ("Detalhe do
+Orçamento") ficava no antigo: o número do registro criado vinha de um esqueleto que devolvia 0
+(84454 ficou no 546783 depois de cinco execuções). Medição 05/10, só leitura: 23 de 68 pedidos
+abertos desde 01/09 fora do último Detalhe; 5 apontando para o Detalhe de outro orçamento, obra
+do `max("DocEntry")` do addon legado.
+
+- `preenche_tabela` devolve o `DocEntry` da resposta do `POST` (`_doc_entry_do_detalhe`), nunca
+  o `max()`; o campo vai no mesmo PATCH de sempre.
+- Log da execução: "Detalhe do Orçamento NNN criado." e "Detalhe do Orçamento do pedido: antigo →
+  novo (conferido no SAP)", relido no HANA; ERRO em vermelho se não bateu ou se não há Detalhe
+  novo. A releitura depois do PATCH nunca interrompe o pedido.
+- Pedidos já errados não foram mexidos: cada Processar/Reprocessar novo os acerta.
+- Precisa de deploy na .11 (restart do Controle de Produção).
+
 ## [2026-10-05] — Peso reescalado pelo SAP: a correção automática liga em 06/10 00:00
 
 - `application/pesos_reescalados.GRAVA_A_PARTIR_DE = datetime(2026, 10, 6)` (F4, sim do Marcelo
