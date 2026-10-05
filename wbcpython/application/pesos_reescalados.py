@@ -36,11 +36,11 @@ logger = logging.getLogger(__name__)
 
 REGRA = "peso_reescalado"
 
-#: ``None`` = F3 of docs/PLANO_PESO_REESCALADO.md: the worker only logs the weights it would put
-#: back. F4 (Marcelo's yes after a week of that log) sets the moment writing starts, and only
-#: quantity changes saved from then on are undone — the past is never altered (Marcelo,
-#: 05/10/2026). A constant on purpose, never a `.env` key; the Processar log reads it too.
-GRAVA_A_PARTIR_DE: datetime | None = None
+#: When writing starts (F4 of docs/PLANO_PESO_REESCALADO.md, Marcelo's yes on 05/10/2026): only
+#: quantity changes saved from then on are undone — the past is never altered. ``None`` = F3,
+#: the worker only logs the weights it would put back (the rollback). A constant on purpose,
+#: never a `.env` key; the Processar log reads it too.
+GRAVA_A_PARTIR_DE: datetime | None = datetime(2026, 10, 6)
 
 #: The worker only looks at orders a person saved in the last days; older ones had eyes on them.
 DIAS_OLHADOS = 3

@@ -1,13 +1,11 @@
 # Plano — Peso reescalado pelo SAP (a integração desfaz a multiplicação)
 
-> **Status (05/10/2026): F1–F3 codadas e testadas, em SIMULAÇÃO; nada no ar.** A regra
-> (`wbcpython/domain/peso_reescalado.py`), o passo no ciclo do worker, o comando
-> `pesos-reescalados` (só leitura) e a linha nova no log do "Processar pedidos novos" estão no
-> repositório, com testes. Rodada contra a produção em 05/10, só leitura, a regra deu o que a
-> medição previa. **Falta:** deploy na .11 e restart do worker e do Controle de Produção (dele);
-> uma semana de log da simulação; e o sim dele para a F4. **O passado não se altera** (decisão
-> dele, 05/10): nenhum pedido antigo é corrigido; a F4 só desfaz trocas de quantidade feitas
-> depois de ligada.
+> **Status (05/10/2026): F1–F3 NO AR na .11 (deploy dele 10:55 e 11:44, `3c85225`); F4 ligada
+> no código para começar em 06/10/2026 00:00** (`GRAVA_A_PARTIR_DE = datetime(2026, 10, 6)`,
+> sim dele em 05/10, sem esperar a semana de simulação). **Falta:** deploy desse commit na .11
+> (dele); avisar a pessoa de Projetos; conferir a 1ª correção real no log do worker. **O passado
+> não se altera** (decisão dele, 05/10): nenhum pedido antigo é corrigido; a F4 só desfaz trocas
+> de quantidade feitas a partir de 06/10.
 
 Página: https://claude.ai/artifact/VQfngyuYjNALBpkXD5pF3o (mesma url a cada atualização).
 
@@ -175,15 +173,17 @@ O tamanho do problema e quem conserta hoje (seção "Medição").
 - `wbcpython/application/pesos_reescalados.py`: `GRAVA_A_PARTIR_DE = None` → só registra
   "SIMULAÇÃO: voltaria a X kg" no log do worker e no acompanhamento, uma vez por versão da
   linha. Falha no passo vira aviso; o worker segue.
-- **Falta:** deploy na .11 + restart do worker e do Controle de Produção (dele). Depois, uma
-  semana de log.
+- No ar na .11 desde 05/10 10:55 (`44fbdb3`; `3c85225` às 11:44).
 
-### F4 — Liga a escrita automática — depende do sim dele
+### F4 — Liga a escrita automática — ligada para 06/10/2026 00:00
 
-- Um commit põe em `GRAVA_A_PARTIR_DE` o momento de início (ex.: `datetime(2026, 10, 13, 8, 0)`).
-  Daí em diante, o worker desfaz só as trocas de quantidade feitas a partir desse momento.
-- O log do Processar passa a dizer "a integração volta este peso para X kg sozinha".
-- Avisar a pessoa de Projetos de que o conserto à mão deixa de ser preciso.
+- `GRAVA_A_PARTIR_DE = datetime(2026, 10, 6)` (sim dele em 05/10). Daí em diante, o worker
+  desfaz só as trocas de quantidade feitas a partir desse momento. Rollback: voltar a `None`.
+- O log do Processar diz "a integração volta este peso para X kg sozinha"; para troca anterior
+  a 06/10, "a troca é anterior a 06/10/2026 00:00 (o passado não se altera); corrija à mão"
+  (`f6d3493`).
+- **Falta:** deploy na .11 (dele); avisar a pessoa de Projetos de que o conserto à mão deixa de
+  ser preciso; conferir a 1ª correção real ("peso restaurado") no log do worker.
 
 ## Decisões
 
@@ -191,7 +191,8 @@ O tamanho do problema e quem conserta hoje (seção "Medição").
 2. ✅ **Para que valor volta:** o peso de antes da troca, quando foi a integração que gravou.
 3. ✅ **Tolerância do total da linha:** 5%.
 4. ✅ **Espera depois da troca:** **3 minutos** (ele, 05/10; a recomendação era 10) + `If-Match`.
-5. ✅ **Simulação antes:** uma semana, com a constante no código.
+5. ✅ **Simulação antes:** a recomendação era uma semana; ele ligou em 05/10 para começar em
+   06/10 00:00, com a constante no código.
 6. ✅ **Avisar a pessoa de Projetos quando ligar:** sim.
 7. ✅ **Os 4 de 05/10:** **não** se corrigem. O passado não se altera (ele, 05/10); o comando
    manual ficou só leitura.

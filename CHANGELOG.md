@@ -6,6 +6,14 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-05] — Peso reescalado pelo SAP: a correção automática liga em 06/10 00:00
+
+- `application/pesos_reescalados.GRAVA_A_PARTIR_DE = datetime(2026, 10, 6)` (F4, sim do Marcelo
+  em 05/10): o worker passa a gravar o peso de antes da troca nas trocas de quantidade feitas a
+  partir de 06/10 00:00; as anteriores ficam como estão. Rollback: voltar a `None`.
+- Log do Processar: troca anterior à data diz "corrija à mão" em vez de ficar calada.
+- Precisa de deploy na .11.
+
 ## [2026-10-05] — Peso reescalado pelo SAP: o worker confere (em simulação) e o Processar diz o que acontece
 
 Quando uma pessoa muda a quantidade de uma linha no SAP, o próprio SAP multiplica o `Weight1`
