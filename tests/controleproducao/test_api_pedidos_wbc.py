@@ -406,6 +406,22 @@ def test_executar_roda_pelo_orcamento_sem_forcar_e_aparece_nas_execucoes(c, ambi
     assert (de_novo.status_code, de_novo.json()["tipo"]) == (409, "confirmacao_invalida")
 
 
+def test_execucao_de_pedido_nota_espelho_fica_marcada(c, ambiente, execucao_falsa):
+    """05/10/2026 (owner): an execution over a mirror order says so in Execuções."""
+    ambiente[1] = ambiente[1].model_copy(update={"nota_espelho": True})     # 84202
+    token = _token(c, (4301, 4302))
+    with patch(f"{SVC}.processar_pedidos_novos",
+               AsyncMock(return_value={"processados": [], "com_erro": []})):
+        resposta = c.post(f"{API}/processar/executar", json={"token": token, "solicitante": "Ana"},
+                          headers=CABECALHO)
+        execucao = resposta.json()["execucao"]
+        _espera(c, execucao["id"])
+
+    assert execucao["descricao"] == "2 pedido(s): 84201, 84202 (nota espelho)"
+    for pagina in (c.get("/tarefas").text, c.get(f"/tarefas/{execucao['id']}").text):
+        assert "Nota espelho</span>" in pagina
+
+
 def test_reprocessar_pela_api(c, ambiente, execucao_falsa):
     chamado = AsyncMock(return_value={"atualizados": ["00120001"], "com_erro": []})
     token = _token(c, (4301,), "reprocessar")

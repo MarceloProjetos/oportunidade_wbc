@@ -1418,4 +1418,5 @@ fictícios; só os nomes de pessoa e o servidor de exemplo foram ajustados. No S
 | 01/10/2026 | `resultado.pesos_diferentes`: linha com peso diferente da árvore do WBC, com a **causa** lida do histórico do SAP (quem mudou, quando, de quanto para quanto) — [6.4.1](#641-peso-diferente-e-a-causa) |
 | 01/10/2026 | Guia mais didático: "A ideia em um minuto" (caminho do pedido e a conversa com a API em desenho), tutorial em 5 etapas com pontos de conferência, glossário, a vida de uma execução e lista de verificação antes de pôr no ar |
 | 05/10/2026 | Campo novo na lista: `nota_espelho` (`true` = pedido marcado como Nota Espelho no SAP); a tela o mostra como pílula "Nota espelho" sob o número do pedido. Pedido e Oportunidade passaram a centralizados |
+| 05/10/2026 | `execucao.descricao`: o pedido com Nota Espelho sai como `84454 (nota espelho)` (ex.: `2 pedido(s): 84201, 84454 (nota espelho)`); as telas Execuções mostram a pílula "Nota espelho" |
 | 05/10/2026 | Linha nova no acompanhamento do Processar, depois da CAUSA: o que a integração faz com o peso reescalado — [6.4.1](#641-peso-diferente-e-a-causa). Os campos não mudaram |

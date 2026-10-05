@@ -70,6 +70,9 @@ AVISO_LISTA_REPROCESSAR = (
 )
 RESUMO_SELECIONADOS = "pedido(s) selecionado(s)"
 RESUMO_FORCADO = "forçado (ignora as checagens de reprocessamento)"
+#: Written after the pedido number in the execution description (kept in the Supabase history),
+#: and what the Execuções screens look for to show the "Nota espelho" pill.
+MARCA_ESPELHO = "nota espelho"
 
 MSG_NENHUM_SELECIONADO = "Nenhum pedido selecionado."
 MSG_LISTA_VAZIA = "Nenhum pedido neste modo."
@@ -169,7 +172,7 @@ def monta_plano(elegiveis: list, opp_ids: list[str], integrados: bool, force: bo
              "Total": numero_br(p.total_pedido),
              # Underscored keys are not shown by the screen; the API returns the raw values.
              "_cliente_codigo": p.cod_cliente, "_cliente_nome": p.nome_cliente,
-             "_total": p.total_pedido}
+             "_total": p.total_pedido, "_nota_espelho": p.nota_espelho}
             for p in selecionados
         ],
         tipo=operacao.tipo,
@@ -231,8 +234,11 @@ def alvos(plano: Plano) -> list[tuple[str, str]]:
 
 
 def descricao(plano: Plano) -> str:
-    pares = alvos(plano)
-    texto = f"{len(pares)} pedido(s): " + ", ".join(doc_num for doc_num, _ in pares)
+    nomes = [
+        f"{i['Pedido']} ({MARCA_ESPELHO})" if i.get("_nota_espelho") else str(i["Pedido"])
+        for i in plano.itens
+    ]
+    texto = f"{len(nomes)} pedido(s): " + ", ".join(nomes)
     return texto + (" (forçado)" if plano.resumo.get("_force") else "")
 
 

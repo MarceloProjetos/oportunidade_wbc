@@ -13,7 +13,9 @@
   <span class="casa-titulo__simbolo">{{ icone('execucoes', 26) }}</span>
   <div class="casa-titulo__texto">
     <h1>{{ tarefa.nome }}</h1>
-    <p>{{ tarefa.descricao }}{% if tarefa.origem == 'api' %} · por {{ tarefa.solicitante or '—' }} · API{% endif %}</p>
+    <p>{{ tarefa.descricao }}{% if tarefa.origem == 'api' %} · por {{ tarefa.solicitante or '—' }} · API{% endif %}
+      {% if 'nota espelho' in tarefa.descricao %} <span class="ov-pill is-warn"
+              title="Execução sobre pedido marcado como Nota Espelho no SAP (U_U_INO_NotaEspelho = Sim)">Nota espelho</span>{% endif %}</p>
   </div>
   <a class="ov-btn ov-voltar" href="{{ volta[0] }}" id="voltar">{{ icone('voltar') }} Voltar para {{ volta[1] }}</a>
 </header>

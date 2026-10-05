@@ -31,7 +31,8 @@
       {% for t in tarefas %}
         <tr>
           <td class="data">{{ t.criada_em.strftime('%d/%m %H:%M:%S') }}</td>
-          <td><strong>{{ t.nome }}</strong><br><span class="ov-nota">{{ t.descricao }}</span>{%
+          <td><strong>{{ t.nome }}</strong><br><span class="ov-nota">{{ t.descricao }}</span>{% if 'nota espelho' in t.descricao %} <span class="ov-pill is-warn"
+              title="Execução sobre pedido marcado como Nota Espelho no SAP (U_U_INO_NotaEspelho = Sim)">Nota espelho</span>{% endif %}{%
             if t.origem == 'api' %}<br><span class="ov-nota">por {{ t.solicitante or '—' }} · API</span>{% endif %}</td>
           <td>
             <span class="ov-pill {{ CLASSE_DA_PILULA[t.desfecho] }}">{{ t.situacao }}{%
