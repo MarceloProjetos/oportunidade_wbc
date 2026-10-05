@@ -80,7 +80,7 @@
       <table class="ov-table">
         <thead>
           <tr>
-            {% if selecionavel %}<th></th>{% endif %}<th>Pedido</th><th>Oportunidade</th><th>WBC</th>
+            {% if selecionavel %}<th></th>{% endif %}<th class="centro">Pedido</th><th class="centro">Oportunidade</th><th>WBC</th>
             <th>Cliente</th><th class="num">Total</th><th>Criado</th>
           </tr>
         </thead>
@@ -89,8 +89,8 @@
           <tr>
             {% if selecionavel %}<td><input type="checkbox" name="opp_ids" value="{{ p.opp_id }}"
               aria-label="Selecionar o pedido {{ p.doc_num }}"></td>{% endif %}
-            <td class="num"><strong>{{ p.doc_num }}</strong></td>
-            <td class="num">{{ p.opp_id }}</td>
+            <td class="num centro"><strong>{{ p.doc_num }}</strong></td>
+            <td class="num centro">{{ p.opp_id }}</td>
             <td><span class="ov-pill is-aberto">{{ p.orc_num_masc }}</span></td>
             <td>{{ p.cod_cliente }} — {{ p.nome_cliente }}</td>
             <td class="num">{{ p.total_pedido | moeda }}</td>
