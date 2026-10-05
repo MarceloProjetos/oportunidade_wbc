@@ -804,15 +804,25 @@ def _veredito_do_worker(versoes: list[dict], linha: dict) -> tuple[int, str] | N
     convertidas = [versao_da_linha(v, usuarios) for v in versoes]
     primeira = int(versoes[0].get("PrimeiraVersao") or 1)
     agora = datetime.now()
-    decisao = decidir(
-        convertidas, atual, agora, espera=timedelta(0), a_partir_de=GRAVA_A_PARTIR_DE,
-        historico_cortado=primeira > 1 and convertidas[0].instancia == primeira,
-    )
+    cortado = primeira > 1 and convertidas[0].instancia == primeira
+    # Decided without the start date first: a change before it is still a wrong weight the
+    # log must call out ("fix by hand"), not a silent NADA.
+    decisao = decidir(convertidas, atual, agora, espera=timedelta(0), historico_cortado=cortado)
     if decisao.acao is Acao.AVISAR:
         return logging.WARNING, f"a integração NÃO volta este peso sozinha: {decisao.motivo}."
     if decisao.acao is not Acao.CORRIGIR:
         return None
     if GRAVA_A_PARTIR_DE is not None:
+        depois_do_inicio = decidir(
+            convertidas, atual, agora, espera=timedelta(0), a_partir_de=GRAVA_A_PARTIR_DE,
+            historico_cortado=cortado,
+        )
+        if depois_do_inicio.acao is not Acao.CORRIGIR:
+            return logging.WARNING, (
+                f"a integração NÃO volta este peso sozinha: a troca é anterior a "
+                f"{GRAVA_A_PARTIR_DE:%d/%m/%Y %H:%M}, quando a correção automática começa "
+                f"(o passado não se altera); corrija à mão."
+            )
         # The worker only reads orders a person saved in the last DIAS_OLHADOS days.
         ultima = max((v.momento for v in convertidas if not v.pela_integracao and v.momento), default=None)
         if ultima is None or ultima.date() < agora.date() - timedelta(days=DIAS_OLHADOS):

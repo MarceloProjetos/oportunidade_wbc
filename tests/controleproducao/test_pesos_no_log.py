@@ -198,8 +198,11 @@ def integracao_orcaview(monkeypatch):
     monkeypatch.setattr(cfg, "get_settings", lambda: SimpleNamespace(sl_username="orcaview"))
 
 
-def test_diz_o_que_a_integracao_faz_com_a_linha(caplog, integracao_orcaview):
+def test_diz_o_que_a_integracao_faz_com_a_linha(caplog, integracao_orcaview, monkeypatch):
     """Same rule as the worker (`wbcpython.domain.peso_reescalado`); in simulation, fix by hand."""
+    import wbcpython.application.pesos_reescalados as aplicacao
+
+    monkeypatch.setattr(aplicacao, "GRAVA_A_PARTIR_DE", None)
     leitor = MagicMock()
     leitor.fetch_all.side_effect = [[_linha_84453()], _historico_84453()]
     with caplog.at_level(logging.INFO, logger=service.__name__):
@@ -246,3 +249,23 @@ def test_depois_de_ligada_troca_velha_nao_promete_correcao(caplog, integracao_or
     with caplog.at_level(logging.INFO, logger=service.__name__):
         service._loga_pesos(leitor, "00125348", 20300, [_arvore(1, 1, 160.82)])
     assert "NÃO volta este peso sozinha: a troca tem mais de 3 dias" in caplog.records[-1].getMessage()
+
+
+def test_troca_anterior_ao_inicio_pede_correcao_a_mao(caplog, integracao_orcaview, monkeypatch):
+    """A change before the start date is the past: the worker leaves it, so the log must not go
+    silent — it says to fix by hand (05/10/2026, when F4 got its date)."""
+    from datetime import datetime
+
+    import wbcpython.application.pesos_reescalados as aplicacao
+
+    monkeypatch.setattr(aplicacao, "GRAVA_A_PARTIR_DE", datetime(2026, 10, 6))
+    leitor = MagicMock()
+    leitor.fetch_all.side_effect = [[_linha_84453()], _historico_84453()]
+    with caplog.at_level(logging.INFO, logger=service.__name__):
+        service._loga_pesos(leitor, "00125348", 20300, [_arvore(1, 1, 160.82)])
+    assert caplog.records[-1].levelno == logging.WARNING
+    assert caplog.records[-1].getMessage() == (
+        "Pedido 00125348: a integração NÃO volta este peso sozinha: a troca é anterior a "
+        "06/10/2026 00:00, quando a correção automática começa (o passado não se altera); "
+        "corrija à mão."
+    )
