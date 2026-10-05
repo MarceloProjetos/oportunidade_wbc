@@ -216,6 +216,8 @@ h2::before {
 .ov-table .num { text-align: right; font-variant-numeric: tabular-nums; }
 /* Short identifier columns (Pedido, Oportunidade): centered under their header. */
 .ov-table .centro { text-align: center; }
+/* "Nota espelho" under the order number: the mirror order must not pass unnoticed. */
+.ov-table .ov-espelho { margin-top: 4px; }
 /* Coluna de data: nunca quebrar. Com o nome do cliente disputando a largura,
    "2026-09-03" quebrava o dia para a linha de baixo e a tabela ficava ilegível. */
 .ov-table .data { white-space: nowrap; color: var(--ov-text-2); }

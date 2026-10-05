@@ -458,7 +458,8 @@ X-API-Key: SUA_CHAVE
       "cliente_nome": "XCMG BRASIL INDUSTRIA LTDA",
       "cliente": "C006973 — XCMG BRASIL INDUSTRIA LTDA",
       "total": 867100,
-      "criado": "2026-09-29"
+      "criado": "2026-09-29",
+      "nota_espelho": false
     }
   ],
   "vazio": null,
@@ -853,12 +854,16 @@ KPIs que dividem o resto. No celular, um embaixo do outro.
 | Coluna | Campo | Formato |
 | --- | --- | --- |
 | (caixa) | `oportunidade` | caixa de seleção de 20×20 px, `aria-label` "Selecionar o pedido `{pedido}`" |
-| Pedido | `pedido` | à direita, **negrito**, algarismos alinhados |
-| Oportunidade | `oportunidade` | à direita |
+| Pedido | `pedido` | centralizado, **negrito**, algarismos alinhados |
+| Oportunidade | `oportunidade` | centralizado |
 | WBC | `wbc` | pílula laranja (acento) |
 | Cliente | `cliente` | texto |
 | Total | `total` | à direita, `867.100,00` |
 | Criado | `criado` | `2026-09-29`, cor apagada, **sem quebrar** |
+
+Com `nota_espelho: true` (pedido marcado como **Nota Espelho** no SAP, campo `U_U_INO_NotaEspelho`),
+a tela põe embaixo do número do pedido uma pílula amarela (aviso) escrita "Nota espelho". Pedido e
+Oportunidade ficam centralizados (cabeçalho e valor).
 
 - Lista vazia: uma linha só, ocupando as 7 colunas, com o texto de `vazio` em cor apagada.
 - Linhas pares com fundo levemente mais escuro; passar o mouse destaca a linha.
@@ -1412,4 +1417,5 @@ fictícios; só os nomes de pessoa e o servidor de exemplo foram ajustados. No S
 | 01/10/2026 | Primeira versão: listar, conferir, executar (Processar e Reprocessar, sem "forçar"), acompanhar e interromper; página pronta `docs/exemplos/pedidos_wbc_clone.html` |
 | 01/10/2026 | `resultado.pesos_diferentes`: linha com peso diferente da árvore do WBC, com a **causa** lida do histórico do SAP (quem mudou, quando, de quanto para quanto) — [6.4.1](#641-peso-diferente-e-a-causa) |
 | 01/10/2026 | Guia mais didático: "A ideia em um minuto" (caminho do pedido e a conversa com a API em desenho), tutorial em 5 etapas com pontos de conferência, glossário, a vida de uma execução e lista de verificação antes de pôr no ar |
+| 05/10/2026 | Campo novo na lista: `nota_espelho` (`true` = pedido marcado como Nota Espelho no SAP); a tela o mostra como pílula "Nota espelho" sob o número do pedido. Pedido e Oportunidade passaram a centralizados |
 | 05/10/2026 | Linha nova no acompanhamento do Processar, depois da CAUSA: o que a integração faz com o peso reescalado — [6.4.1](#641-peso-diferente-e-a-causa). Os campos não mudaram |

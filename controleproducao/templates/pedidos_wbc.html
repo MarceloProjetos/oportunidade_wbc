@@ -89,7 +89,9 @@
           <tr>
             {% if selecionavel %}<td><input type="checkbox" name="opp_ids" value="{{ p.opp_id }}"
               aria-label="Selecionar o pedido {{ p.doc_num }}"></td>{% endif %}
-            <td class="num centro"><strong>{{ p.doc_num }}</strong></td>
+            <td class="num centro"><strong>{{ p.doc_num }}</strong>
+              {%- if p.nota_espelho %}<br><span class="ov-pill is-warn ov-espelho"
+                title="Pedido marcado como Nota Espelho no SAP (U_U_INO_NotaEspelho = Sim)">Nota espelho</span>{% endif %}</td>
             <td class="num centro">{{ p.opp_id }}</td>
             <td><span class="ov-pill is-aberto">{{ p.orc_num_masc }}</span></td>
             <td>{{ p.cod_cliente }} — {{ p.nome_cliente }}</td>

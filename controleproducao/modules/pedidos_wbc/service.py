@@ -170,6 +170,7 @@ async def buscar_pedidos_para_integrar(
             total_pedido=float(row["Total Pedido"] or 0),
             data_lancamento=str(row["Data Lancamento"]),
             orc_num_masc=str(row["Nº Oportunidade"]),
+            nota_espelho=str(row.get("Nota Espelho") or "").strip().upper() == "Y",
         )
         for row in rows
     ]

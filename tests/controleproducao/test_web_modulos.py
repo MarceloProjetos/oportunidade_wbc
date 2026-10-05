@@ -487,6 +487,16 @@ def test_busca_automatica_que_falha_abre_a_pagina_com_aviso(cliente):
     assert "Busque os pedidos para selecionar." in _texto(resposta.text)
 
 
+def test_pedido_nota_espelho_ganha_o_selo_na_lista(cliente):
+    """05/10/2026 (owner): a mirror order (`U_U_INO_NotaEspelho = 'Y'`) must be flagged."""
+    espelho = PEDIDO.model_copy(update={"nota_espelho": True, "opp_id": 9999, "doc_num": 84999})
+    with _Ligado(_patches(pedidos=[PEDIDO, espelho])):
+        html = cliente.get("/pedidos-wbc?buscar=1").text
+    assert html.count("Nota espelho</span>") == 1
+    linha = html.split("<strong>84999</strong>")[1].split("</td>")[0]
+    assert 'class="ov-pill is-warn ov-espelho"' in linha
+
+
 # ---------------------------------------------------------------------------
 # 7. As duas numerações (22/09/2026)
 # ---------------------------------------------------------------------------
@@ -910,6 +920,10 @@ def test_busca_monta_o_modelo_a_partir_da_linha_do_hana():
     assert pedido.orc_num_masc == "00125551"
     assert pedido.doc_num == 84397
     assert pedido.total_pedido == 4035.33
+    assert pedido.nota_espelho is False                 # column absent → not a mirror
+
+    linha["Nota Espelho"] = "Y"
+    assert asyncio.run(svc.buscar_pedidos_para_integrar(leitor))[0].nota_espelho is True
 
 
 
@@ -1243,7 +1257,7 @@ def test_css_da_linha_do_topo_e_da_barra_no_celular():
                      r'grid-template-areas: "marca direita" "nav nav";', casa_css)
     assert ".ov-opcao:has(input:disabled)" in css
     base = (_RAIZ_SIS / "controleproducao/templates/base.html").read_text(encoding="utf-8")
-    assert "style.css?v=13" in base
+    assert "style.css?v=14" in base
     # 29/09/2026: the mode choice of the search card is larger than the other options.
     assert re.search(r"\.ov-linha-topo \.ov-opcao input\[type=\"radio\"\] \{\s*width: 20px; height: 20px;", css)
 

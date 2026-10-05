@@ -202,3 +202,5 @@ class PedidoParaIntegrar(BaseModel):
     total_pedido: float
     data_lancamento: str
     orc_num_masc: str
+    #: `ORDR.U_U_INO_NotaEspelho = 'Y'` — a mirror order; the screen flags it.
+    nota_espelho: bool = False

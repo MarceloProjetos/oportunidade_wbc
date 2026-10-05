@@ -13,10 +13,13 @@ Prefixo indica o banco: HANA (SAP B1) ou MSSQL (WBC / WBCCAD).
 
 # --- MSSQL (WBC) ---------------------------------------------------------------
 
+# "Nota Espelho" (05/10/2026) is not in the C# grid: the owner asked the screen to flag mirror
+# orders. The UDF really has a double prefix in SBOALTAMIRAPROD (`U_U_INO_NotaEspelho`).
 BUSCA_PEDIDOS_PARA_INTEGRAR = """
 SELECT DISTINCT 'N' AS "Selecionar", OPR1."OpprId" as "Num Oportunidade", ORDR."DocNum" as "Nº Pedido",
        ORDR."CardCode" as "Cod.Cliente", ORDR."CardName" as "Nome Cliente", ORDR."DocTotal" as "Total Pedido",
-       ORDR."DocDate" as "Data Lancamento", OOPR."U_ORCNUM_MASC" as "Nº Oportunidade"
+       ORDR."DocDate" as "Data Lancamento", OOPR."U_ORCNUM_MASC" as "Nº Oportunidade",
+       IFNULL(ORDR."U_U_INO_NotaEspelho",'N') as "Nota Espelho"
 FROM ORDR
   INNER JOIN OPR1 ON OPR1."DocId" = ORDR."DocEntry" AND OPR1."ObjType" = 17
   INNER JOIN OOPR ON OPR1."OpprId" = OOPR."OpprId"
@@ -31,7 +34,8 @@ WHERE IFNULL(OOPR."U_INO_IntegrouWBC",'N') = 'Y'
 BUSCA_PEDIDOS_INTEGRADOS = """
 SELECT DISTINCT 'N' AS "Selecionar", OPR1."OpprId" as "Num Oportunidade", ORDR."DocNum" as "Nº Pedido",
        ORDR."CardCode" as "Cod.Cliente", ORDR."CardName" as "Nome Cliente", ORDR."DocTotal" as "Total Pedido",
-       ORDR."DocDate" as "Data Lancamento", OOPR."U_ORCNUM_MASC" as "Nº Oportunidade"
+       ORDR."DocDate" as "Data Lancamento", OOPR."U_ORCNUM_MASC" as "Nº Oportunidade",
+       IFNULL(ORDR."U_U_INO_NotaEspelho",'N') as "Nota Espelho"
 FROM ORDR
   INNER JOIN OPR1 ON OPR1."DocId" = ORDR."DocEntry" AND OPR1."ObjType" = 17
   INNER JOIN OOPR ON OPR1."OpprId" = OOPR."OpprId"

@@ -175,6 +175,7 @@ def _pedido(p) -> dict:
         "cliente": f"{p.cod_cliente} — {p.nome_cliente}",
         "total": _numero(p.total_pedido),
         "criado": str(p.data_lancamento)[:10],
+        "nota_espelho": p.nota_espelho,
     }
 
 
