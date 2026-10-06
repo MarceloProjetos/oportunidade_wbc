@@ -46,7 +46,7 @@ class Destino:
 _FIXOS = (
     Destino("esta-maquina", "os serviços da própria .11 (API, MCP, painel WBC, Controle de Produção)",
             "127.0.0.1", (8077, 8078, 8079, 8080)),
-    Destino("orcaview-90", "OrçaView e Mira no .90", "192.168.0.90", (8000,)),
+    Destino("orcaview-90", "OrçaView e Mira no .90 (https 443 + http 8000)", "192.168.0.90", (443, 8000)),
     Destino("altamira-view", "Altamira View (equipe GLMiranda) no .90", "192.168.0.90", (8095,)),
     Destino("sap-rdp-12", "servidor RDP do SAP (.12)", "192.168.7.12", (3389,)),
     Destino("github", "GitHub (o deploy baixa o código de lá)", "github.com", (443,)),

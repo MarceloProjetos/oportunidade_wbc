@@ -115,7 +115,7 @@ class TestComChave:
         # The way back to the OrçaView home must work for someone who has no key.
         resposta = fechado.get("/orcaview", follow_redirects=False)
         assert resposta.status_code == 302
-        assert resposta.headers["location"] == "http://192.168.0.90:8000/"
+        assert resposta.headers["location"] == "https://192.168.0.90/"
 
     def test_orcaview_url_configurada_ganha(self, fechado: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ORCAVIEW_URL", "http://localhost:8000/")

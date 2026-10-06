@@ -6,6 +6,16 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-06] — "← OrçaView" vai para o https do .90
+
+O OrçaView do .90 passou a atender também em `https://192.168.0.90` (porta 443, no mesmo processo da
+8000; plano em `web_orcaview_V118/docs/PLANO_HTTPS_90.md`, F4).
+
+- `wbcpython/padroes.py`: `ORCAVIEW_URL` = `https://192.168.0.90/` — o botão "← OrçaView" das três
+  telas (API, painel WBC, Controle de Produção). `ORCAVIEW_URL` no `.env` continua ganhando.
+- `operacao/conexoes.py`: a sonda `orcaview-90` olha a 443 e a 8000.
+- Testes que fixavam o endereço antigo atualizados; a trava de literal no `config.py` cobre também o novo.
+
 ## [2026-10-05] — Controle de Produção: o pedido segue o Detalhe do Orçamento novo (bug)
 
 Cada Processar/Reprocessar grava um `OrcDetalhe` novo, mas o `ORDR.U_INO_ORCAMENTO` ("Detalhe do

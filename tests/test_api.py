@@ -192,7 +192,7 @@ def test_inicio_e_a_pagina_da_marca(client, monkeypatch):
 def test_casca_e_atalhos_abrem_sem_chave(client, monkeypatch):
     _com_chave(monkeypatch)
     assert client.get('/casa/casa.css').status_code == 200
-    assert client.get('/orcaview').headers['Location'] == 'http://192.168.0.90:8000/'
+    assert client.get('/orcaview').headers['Location'] == 'https://192.168.0.90/'
     monkeypatch.delenv('CP_URL', raising=False)
     monkeypatch.delenv('CP_PORTA', raising=False)
     reset_settings()

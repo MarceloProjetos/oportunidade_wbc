@@ -104,7 +104,7 @@ class TestComChave:
     def test_orcaview_redireciona_sem_chave(self, fechado: TestClient) -> None:
         resposta = fechado.get("/orcaview", follow_redirects=False)
         assert resposta.status_code == 302
-        assert resposta.headers["location"] == "http://192.168.0.90:8000/"
+        assert resposta.headers["location"] == "https://192.168.0.90/"
 
     def test_a_tela_de_entrada_explica_que_chave_e(self, fechado: TestClient) -> None:
         texto = fechado.get("/entrar").text

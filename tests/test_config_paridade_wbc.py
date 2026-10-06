@@ -75,7 +75,8 @@ def test_ninguem_volta_a_fixar_um_valor_no_config():
     from pathlib import Path
 
     raiz = Path(__file__).resolve().parents[1]
-    literais = ("8077", "8079", "8080", "wbc_tracking.db", "192.168.0.90:8000", "controleproducao.log")
+    literais = ("8077", "8079", "8080", "wbc_tracking.db", "192.168.0.90:8000", "https://192.168.0.90/",
+                "controleproducao.log")
     for arquivo in ("config.py", "wbcpython/config.py", "controleproducao/config.py"):
         texto = (raiz / arquivo).read_text(encoding="utf-8")
         codigo = "\n".join(

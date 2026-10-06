@@ -27,4 +27,5 @@ OS_API_PORT = 8077
 PAINEL_PORTA = 8079
 CP_PORTA = 8080
 CP_LOG_FILE = "logs/controleproducao.log"
-ORCAVIEW_URL = "http://192.168.0.90:8000/"
+# https since PLANO_HTTPS_90 F4 (web_orcaview_V118/docs); :8000 http still answers for old links.
+ORCAVIEW_URL = "https://192.168.0.90/"
