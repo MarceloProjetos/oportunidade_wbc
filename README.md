@@ -363,7 +363,7 @@ por `N_PED`**. Usa a **mesma conexão SAP** e reaproveita o núcleo compartilhad
 > de status, 3 views de impressão, solda e árvore WBC) e seus 3 logs por esta tabela
 > única. A view usa `"N_PED"` (com underscore) como chave.
 
-**1. Criar a tabela** — execute [vw_os_integracao.sql (removido em 2026-09-29; historico no git)](vw_os_integracao.sql (removido em 2026-09-29; historico no git))
+**1. Criar a tabela** — execute [vw_os_integracao.sql (removido em 2026-09-29)](vw_os_integracao.sql (removido em 2026-09-29))
 no SQL Editor do Supabase (dropa as tabelas antigas, cria `vw_os_integracao` com
 RLS + policy de leitura `anon`, e o log `sincronizacao_log_os_integracao`).
 
@@ -579,7 +579,7 @@ casca, a **"Central Integração SAP"** (`casa/`): mesma barra com as cinco tela
   `/status?checks=wbc_worker` lê esse banco para dizer se o worker está vivo, e a tool MCP
   `estado_integracao_wbc` responde a mesma pergunta em linguagem natural.
 - **Guia, regras e histórico:** `docs/wbc/README.md` (como rodar), `docs/wbc/DECISOES.md`,
-  `docs/wbc/RISCOS_PRODUCAO.md`. Plano da integração: `PLANO_INTEGRACAO_WBCPYTHON.md (removido em 2026-09-29; historico no git)`.
+  `docs/wbc/RISCOS_PRODUCAO.md`. Plano da integração: `PLANO_INTEGRACAO_WBCPYTHON.md (removido em 2026-09-29)`.
 
 > ⚠️ O worker **escreve em produção** (`SBOALTAMIRAPROD`) — só na .11, pelo IP da máquina
 > (sem chave no `.env` desde 28/09/2026; antes era `WBC_BLOCK_PRODUCTION_WRITES=false`). Cotação cancelada e pedido

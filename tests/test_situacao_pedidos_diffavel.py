@@ -1,6 +1,6 @@
 """O freio da D1: o nucleo portado nao pode divergir do original do V117.
 
-O plano (``PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29; historico no git)``)
+O plano (``PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29)``)
 escolheu **portar** o modulo puro em vez
 de reimplementar ou chamar o `.90`. Sem este teste, essa decisao vira "reimplementar" por
 omissao em tres meses: alguem corrige um caso no V117, ninguem lembra da copia, e a .11

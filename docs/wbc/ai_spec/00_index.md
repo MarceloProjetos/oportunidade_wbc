@@ -13,7 +13,7 @@ mora **hoje**, para que a referência não leve a lugar nenhum:
 | Referência antiga | O que regia | Onde está agora |
 |---|---|---|
 | `01_business_rules.md` | Máquina de estados do `SitCode`; cotação × pedido; encerramento | `wbcpython/domain/sitcode.py` (docstrings são a regra) + `wbcpython/domain/{cotacao,pedido,revisao}.py` + `../DECISOES.md` ("De negócio", "Cotação e pedido são procedimentos separados", "Encerrar a oportunidade…") |
-| `02_data_model.md` | Tabelas do WBC (`INTEGRACAO_ORC*`), UDO `OrcDetalhe`, views HANA, normalização de números | `wbcpython/infrastructure/wbc_sql/{models,queries}.py`, `wbcpython/infrastructure/service_layer/orcdetalhe.py`, `wbcpython/infrastructure/hana/models.py`, `VW_INO_OPORTUNIDADE_INTEGRACAO.sql (removido em 2026-09-29; historico no git)` + `../APRENDIZADOS.md` |
+| `02_data_model.md` | Tabelas do WBC (`INTEGRACAO_ORC*`), UDO `OrcDetalhe`, views HANA, normalização de números | `wbcpython/infrastructure/wbc_sql/{models,queries}.py`, `wbcpython/infrastructure/service_layer/orcdetalhe.py`, `wbcpython/infrastructure/hana/models.py`, `VW_INO_OPORTUNIDADE_INTEGRACAO.sql (removido em 2026-09-29)` + `../APRENDIZADOS.md` |
 | `03_architecture.md` | Camadas (domain / application / infrastructure / host / dashboard) e o mapeamento DI-API → Service Layer | `../README.md` (seção "Estrutura") + docstrings de `wbcpython/{application,host,dashboard}/__init__.py` |
 | `04_environment_constraints.md` | Regra 1 (nunca escrever em produção) e Regra 5 (nunca escrever no SQL Server do WBC) | `wbcpython/safety.py` + `tests/wbc/test_safety*.py`. A Regra 1 foi **revogada** na virada para produção (02/09/2026) — `../DECISOES.md`, "Virada para produção"; a Regra 5 continua absoluta, sem chave de desligamento |
 

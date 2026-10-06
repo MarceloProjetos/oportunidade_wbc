@@ -8,7 +8,7 @@ mesmo bug.
 A dublagem e' no ``fetch_status_pedidos``: dali para dentro roda o codigo de verdade
 (normalizar, filtrar, resumir), entao um erro no encadeamento das rotas aparece.
 
-Plano: ``PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29; historico no git)``.
+Plano: ``PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29)``.
 """
 from __future__ import annotations
 

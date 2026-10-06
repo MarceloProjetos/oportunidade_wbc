@@ -8,7 +8,7 @@ em lugar nenhum ate alguem estranhar o numero na tela.
 O modulo e' carregado **por caminho**, com nome proprio: `mcp/` nao e' pacote (nao tem
 `__init__.py`) e o nome `mcp` ja pertence ao SDK instalado.
 
-Plano: ``PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29; historico no git)``.
+Plano: ``PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29)``.
 """
 from __future__ import annotations
 
