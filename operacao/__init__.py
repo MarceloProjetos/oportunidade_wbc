@@ -1,4 +1,4 @@
-"""Read-only views of the .11 itself, for the Mira agent (F2 of docs/PLANO_MIRA_AGENTE_11.md).
+"""Read-only views of the .11 itself, for the Mira agent (F2 of PLANO_MIRA_AGENTE_11.md (removed 2026-10-06)).
 
 Each module answers one question the agent could not answer without someone opening the
 server: which services are up, whether a host/port answers FROM the .11, what changed in a

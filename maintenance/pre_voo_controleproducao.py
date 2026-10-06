@@ -1,4 +1,4 @@
-"""Pre-flight of the Controle de Produção pilot (F5 of docs/PLANO_CONTROLE_PRODUCAO_11.md).
+"""Pre-flight of the Controle de Produção pilot (F5 of PLANO_CONTROLE_PRODUCAO_11.md (removed 2026-10-06)).
 
 Read-only, against the company the package resolves (``SL_COMPANY_DB`` → ``hana_schema``).
 Every statement is a SELECT with the schema spelled out; the only inputs are the WBC quote

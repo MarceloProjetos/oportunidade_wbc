@@ -1031,7 +1031,7 @@ def _muda_status_de_ops(
 
     def _barrada(op: dict) -> str | None:
         # Replanejar with stock already moved on the OP — material issued (F6) or product
-        # received (D6), 29/09/2026, docs/PLANO_API_MANUTENCAO_OP.md — would leave that
+        # received (D6), 29/09/2026, PLANO_API_MANUTENCAO_OP.md (removed 2026-10-06) — would leave that
         # movement on a planned OP. Same rule, same order, as the JSON API.
         if status != "p" or op["status"] != "R":
             return None

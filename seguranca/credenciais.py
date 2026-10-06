@@ -1,4 +1,4 @@
-"""One credential per client, each with its scopes (rule 2 of docs/PLANO_MIRA_AGENTE_11.md).
+"""One credential per client, each with its scopes (rule 2 of PLANO_MIRA_AGENTE_11.md (removed 2026-10-06)).
 
 Until 02/10/2026 a single ``OS_API_KEY`` opened everything — the whole API (deleting history
 and releasing OPs included), the three screens and the Controle de Produção API — and it sat

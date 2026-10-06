@@ -103,7 +103,7 @@ Cada bloco se repinta no seu ritmo (log a cada 5 s, números a cada 30 s). Sem C
 `htmx.min.js` é servido do próprio pacote.
 
 **Visual e lista (29–30/09/2026; casca comum desde 01/10/2026).** O painel usa a casca da
-"Central Integração SAP" (`casa/`, `docs/PLANO_CASA_COMUM_11.md`): a mesma barra, título e paleta do
+"Central Integração SAP" (`casa/`, `PLANO_CASA_COMUM_11.md (removido em 2026-10-06; historico no git)`): a mesma barra, título e paleta do
 Controle de Produção e da Sincronização; escuro por padrão, claro pelo botão de sol/lua — guardado no
 cookie `casa_tema`, que vale nas três telas (o `localStorage` antigo, `wbc-tema`, é migrado uma vez).
 A aba que mostra os ciclos do worker se chama **Ciclos** (era "Execuções"; `/?aba=execucoes` segue valendo). A lista de oportunidades

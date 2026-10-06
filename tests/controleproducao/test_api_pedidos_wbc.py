@@ -1,4 +1,4 @@
-"""JSON API of the Pedidos WBC (01/10/2026, F3 of docs/PLANO_API_PEDIDOS_WBC.md).
+"""JSON API of the Pedidos WBC (01/10/2026, F3 of PLANO_API_PEDIDOS_WBC.md (removed 2026-10-06)).
 
 The API exists so another team can clone the screen *Integração de Pedidos (WBC)* with the
 same results. What these tests hold, most important first:
@@ -200,7 +200,7 @@ def test_outra_origem_pode_chamar_e_o_json_e_utf8(c, ambiente):
 
 
 def test_chave_com_escopo_abre_so_a_sua_api(c, ambiente):
-    """F1 of docs/PLANO_MIRA_AGENTE_11.md: the other team's key opens /api/pedidos-wbc only."""
+    """F1 of PLANO_MIRA_AGENTE_11.md (removed 2026-10-06): the other team's key opens /api/pedidos-wbc only."""
     from seguranca import credenciais
 
     chave = credenciais.criar("equipe-pedidos", ["pedidos_wbc"])

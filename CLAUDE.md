@@ -37,8 +37,9 @@ O pacote `wbcpython/` (ex-projeto WBCPython, importado em 2026-09-08) tem guia p
 `docs/wbc/README.md` e as decisões em `docs/wbc/DECISOES.md`. Plano da integração:
 `PLANO_INTEGRACAO_WBCPYTHON.md (removido em 2026-09-29; historico no git)`. O pacote `controleproducao/` (pacote ControleProducao
 do Anderson, importado em 2026-09-28) tem o histórico em `docs/controleproducao/`
-(`migration_guide.md` §7 é o diário; `decisoes.md`) e o plano em
-`docs/PLANO_CONTROLE_PRODUCAO_11.md` — abra o plano antes de mexer. Guia do pacote:
+(`migration_guide.md` §7 é o diário; `decisoes.md`); o plano dele
+(`PLANO_CONTROLE_PRODUCAO_11.md`) foi removido em 2026-10-06 — o que morde está nos Gotchas abaixo e o
+texto, no git. Guia do pacote:
 `docs/controleproducao/README.md`; entrega para o Anderson: `docs/controleproducao/PARA_O_ANDERSON.md`.
 
 ## Mapa do repositório (código-fonte = raiz, plano)
@@ -61,19 +62,19 @@ do Anderson, importado em 2026-09-28) tem o histórico em `docs/controleproducao
 | `ordens_producao_sl.py` | Escrita em SAP nº 1: status de Ordem de Produção via Service Layer (REST). Liga só na .11, pelo IP (`wbcpython.safety.PRODUCTION_MACHINE_IP`). Irmão diffável de `web_orcaview_V118/backend/services/compras_sap_service.py` |
 | `wbcpython/` | Escrita em SAP nº 2 (o worker). `domain/` (máquina de estados do SitCode, sem I/O), `application/processar.py` (o caso de uso), `infrastructure/{service_layer,wbc_sql,hana}/`, `tracking/` (SQLite de acompanhamento), `host/worker.py` (APScheduler + trava), `dashboard/` (painel FastAPI+HTMX; `dashboard/acesso.py` = cookie/HMAC compartilhado com o `controleproducao`), `cli.py`, `safety.py` (travas + `is_production_machine`). Imports absolutos `wbcpython.*` |
 | `controleproducao/` | Escrita em SAP nº 3 (Pedidos WBC → OPs; Manutenção de OP). `main.py` (FastAPI: gate de cookie/chave, `/health`, `/painel-wbc`), `cli.py` (Typer: `web`, `pedidos-wbc`, `manutencao-op`, `romaneio`, `conexoes`, `diag`; os comandos que gravam logam também em `logs/controleproducao_cli.log`), `config.py` (`Settings` plano; `.env` da raiz por `__file__`; `hana_schema` = `sl_company_db`), `core/` (`service_layer_client.py` = trava pelo IP + `/Logout`; `guardas.py`; `confirmacao.py` = token de uso único; `tarefas.py` = execuções em memória, 1 por módulo; `historico.py` = as 30 últimas terminadas no Supabase `controle_producao_execucoes`, só na .11; `acesso.py` = middleware), `modules/{pedidos_wbc,manutencao_op,romaneio}/` (`service.py` = regra, `queries.py` = SQL HANA/WBC, `router.py`), `templates/`, `static/`. Imports absolutos `controleproducao.*`; NÃO se chama `app` (colide com `api.py:app`) |
-| `casa/` | Casca comum das telas da .11, "Central Integração SAP" (`docs/PLANO_CASA_COMUM_11.md`): `templates/casa/_casa.html` (macros `cabeca()` e `barra()`), `static/casa.css` (paleta, barra, título de página; **sem `color-mix`**) e `casa.js` (botão de tema). Ordem e rótulos do menu em `TELAS`; tema no cookie `casa_tema` (cookie não separa porta, `localStorage` separa). Cada app chama `casa.instalar(env)`, monta `/casa` e passa os hrefs. Usada pelas três telas: Controle de Produção (F1), painel WBC (F2, `pagina.html`/`entrar.html`; aba "Execuções" do painel = "Ciclos") e Sincronização da 8077 (F3, Jinja próprio em `api.py`, `/casa/<arquivo>`). `casa/acesso.py` = o cookie de login comum; `casa/destinos.py` = a regra única "configurado ou mesmo host na porta" (e `inicio()`). A marca da barra leva a `/inicio` da 8077 (F5: estado das telas, só lê `/status` e os logs) |
+| `casa/` | Casca comum das telas da .11, "Central Integração SAP" (`PLANO_CASA_COMUM_11.md (removido em 2026-10-06; historico no git)`): `templates/casa/_casa.html` (macros `cabeca()` e `barra()`), `static/casa.css` (paleta, barra, título de página; **sem `color-mix`**) e `casa.js` (botão de tema). Ordem e rótulos do menu em `TELAS`; tema no cookie `casa_tema` (cookie não separa porta, `localStorage` separa). Cada app chama `casa.instalar(env)`, monta `/casa` e passa os hrefs. Usada pelas três telas: Controle de Produção (F1), painel WBC (F2, `pagina.html`/`entrar.html`; aba "Execuções" do painel = "Ciclos") e Sincronização da 8077 (F3, Jinja próprio em `api.py`, `/casa/<arquivo>`). `casa/acesso.py` = o cookie de login comum; `casa/destinos.py` = a regra única "configurado ou mesmo host na porta" (e `inicio()`). A marca da barra leva a `/inicio` da 8077 (F5: estado das telas, só lê `/status` e os logs) |
 | `sap_connection.py` · `db_utils.py` · `retry.py` | `SAPExtractor` (HANA via hdbcli; `execute_query(sql, params)`) · `read_dbapi_query` · retry compartilhado |
 | `sql_seguro.py` | `sql(t"...")` (t-string, Python 3.14): `{valor}` vira `?` + parâmetro, `{nome:ident}` identificador conferido, `{n:int}` literal inteiro (LIMIT); `nome_simples()` para o `SAP_SCHEMA` |
 | `feriados_br.py` | Feriados nacionais BR até 2030 (o agendador pula) |
 | `wake_altservidor_ia.py` | Wake-on-LAN do `.90` (tarefa `OrcaView-WOL-AltservidorIA`, `install_wol_task.ps1`). **Byte-idêntico** a `web_orcaview_V118/tools/wake_altservidor_ia.py`, stdlib-only, Python 3.8+ |
 | `scripts/scheduled_execution.py` | Loop do agendador (APScheduler, janela 7-18, seg-sex) |
 | `mcp/` | Fachada MCP fina sobre a API 8077 — NÃO fala com banco. `acesso_mcp.py` = a porta do HTTP 8078 (token por cliente, escopo por ferramenta em `ESCOPO_DA_FERRAMENTA`, regras do agente, auditoria); importa `seguranca/` da raiz (sys.path **append**, nunca insert: a pasta `mcp/` não pode sombrear o SDK) |
-| `seguranca/` | F1 de `docs/PLANO_MIRA_AGENTE_11.md` (02/10/2026), stdlib: `credenciais.py` (cliente + escopos; `state/credenciais.json` só com SHA-256; `OS_API_KEY` = "chave-mestra" admin), `auditoria.py` (`logs/auditoria/<serviço>-AAAA-MM-DD.jsonl`, 30 dias, nunca levanta), `agente.py` (interruptor `state/agente.desligado` + escrita só seg–sex 7h–19h, só para credencial `agente`), `__main__.py` (CLI `python -m seguranca`). Operação: `docs/SEGURANCA_11.md` |
+| `seguranca/` | F1 de `PLANO_MIRA_AGENTE_11.md (removido em 2026-10-06; historico no git)` (02/10/2026), stdlib: `credenciais.py` (cliente + escopos; `state/credenciais.json` só com SHA-256; `OS_API_KEY` = "chave-mestra" admin), `auditoria.py` (`logs/auditoria/<serviço>-AAAA-MM-DD.jsonl`, 30 dias, nunca levanta), `agente.py` (interruptor `state/agente.desligado` + escrita só seg–sex 7h–19h, só para credencial `agente`), `__main__.py` (CLI `python -m seguranca`). Operação: `docs/SEGURANCA_11.md` |
 | `operacao/` | F2 do plano da Mira (02/10/2026), **só leitura** da própria .11: `servicos.py` (os 6 NSSM via psutil), `conexoes.py` (DNS/ping/TCP a partir da .11, **lista fechada** de destinos pelo nome), `historico_pedido.py` (ADOC/ADO1: versões do pedido, quem salvou, pessoa × integração), `log_worker.py` (linhas do log do worker por orçamento), `versao.py` (commit lido do `.git` + `logs/deploy.log`). Rotas `/operacao/*`, `/pedidos/<n>/historico`, `/wbc/orcamentos/<n>/log` |
 | `seguranca/aprovacoes.py` · `operacao/acoes_agente.py` · `operacao/reinicio.py` | F3/F4 (02/10/2026): o agente **pede**, uma pessoa aprova (Central `/inicio` ou, na F5, `aprovar 4821` no WhatsApp da Mira), a .11 executa pelas rotas de sempre. Pedidos em `state/aprovacoes.db`. Contrato: `docs/APROVACOES_11.md` |
 | `web/sincronizar.html` · `web/entrar.html` · `web/entrada.html` | Painel de Sincronização (`GET /sincronizar`, template Jinja na casca `casa/`, atrás do login comum) · tela da chave da 8077 (`/entrar`) · `GET /` (sonda o painel WBC e redireciona) |
 | `tests/` | pytest; `test_<modulo>.py` espelha o módulo. `tests/wbc/` = suíte do pacote `wbcpython` (mesma árvore dele); `tests/controleproducao/` = suíte do pacote `controleproducao` (244 testes do Anderson + os da integração) |
-| `docs/` | `PLANO_*.md` (abertos e encerrados recentes — o status está no topo de cada um; os antigos em `arquivo/`); `wbc/` (README, DECISOES, APRENDIZADOS, RISCOS_PRODUCAO, RETOMADA); `controleproducao/` (README = guia; GUIA_OPERADOR = quem opera a tela; PARA_O_ANDERSON; migration_guide, decisoes, GUIA_ESTILO — históricos do pacote); `INCIDENTES.md`; `changelog/` (meses anteriores) |
+| `docs/` | Sem planos desde 06/10/2026: os `PLANO_*.md` (e `arquivo/`) foram apagados — o texto fica no git (`git log --diff-filter=D -- 'docs/PLANO_*'`); `wbc/` (README, DECISOES, APRENDIZADOS, RISCOS_PRODUCAO, RETOMADA); `controleproducao/` (README = guia; GUIA_OPERADOR = quem opera a tela; PARA_O_ANDERSON; migration_guide, decisoes, GUIA_ESTILO — históricos do pacote); `INCIDENTES.md`; `changelog/` (meses anteriores) |
 | `API_*.md` (raiz) | Contratos HTTP entregues a outras equipes (OS, OP, RH, situação de pedidos, Manutenção de OP — `API_MANUTENCAO_OP.md`, a API JSON da 8080). **Ficam na raiz**: repo público, links externos. Mudou rota, campo ou mensagem = mude o contrato no mesmo commit |
 | `sql/` | DDL de referência (NÃO roda automaticamente); `sql/hana/` = view que o worker lê; `sql/migracoes/` = alterações já aplicadas |
 | `maintenance/` | Conferidor de Vendas BI e scripts de disco/log do servidor |
@@ -93,7 +94,7 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
 | Vendas BI | `extract_vendas_bi.py` + `tests/test_extract_vendas_bi.py` (+ `maintenance/conferir_vendas_bi.py`) |
 | Situação de pedidos (`/pedidos/*`) | `situacao_pedidos.py` + `situacao_pedidos_hana.py` + `tests/test_api_situacao_pedidos.py` |
 | RH (`/rh/colaboradores`) e `/usuarios-ativos` | `api.py` (bloco RH no fim do arquivo) + `tests/test_api.py` + `API_RH_COLABORADORES.md` |
-| Status de Ordem de Produção (escrita SAP) | `ordens_producao_sl.py` + `tests/test_ordens_producao_sl.py` (+ `docs/PLANO_OP_STATUS.md`) |
+| Status de Ordem de Produção (escrita SAP) | `ordens_producao_sl.py` + `tests/test_ordens_producao_sl.py` (+ `PLANO_OP_STATUS.md (removido em 2026-10-06; historico no git)`) |
 | Check do `/status` | `monitoring.py` + `tests/test_monitoring.py` |
 | Windows Update / reboot pendente | `windows_update.py` + `tests/test_windows_update.py` |
 | Agendamento/janela/feriado | `scripts/scheduled_execution.py` + `feriados_br.py` |
@@ -101,7 +102,7 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
 | Schema/RLS Supabase | `sql/*.sql` (DDL de referência) |
 | Regra de negócio da Integração WBC (SitCode, cotação × pedido, encerramento) | `wbcpython/domain/sitcode.py` + `tests/wbc/domain/` (+ `docs/wbc/DECISOES.md` pela busca do heading) |
 | Ciclo do worker WBC | `wbcpython/application/processar.py` + `wbcpython/host/worker.py` + `tests/wbc/test_processar.py` |
-| Peso que o SAP multiplica quando uma pessoa muda a qtd (worker desfaz; em simulação até `GRAVA_A_PARTIR_DE`; o passado nunca se altera) | `wbcpython/domain/peso_reescalado.py` + `wbcpython/application/pesos_reescalados.py` + `tests/wbc/domain/test_peso_reescalado.py` (+ `docs/PLANO_PESO_REESCALADO.md`) |
+| Peso que o SAP multiplica quando uma pessoa muda a qtd (worker desfaz; em simulação até `GRAVA_A_PARTIR_DE`; o passado nunca se altera) | `wbcpython/domain/peso_reescalado.py` + `wbcpython/application/pesos_reescalados.py` + `tests/wbc/domain/test_peso_reescalado.py` (+ `PLANO_PESO_REESCALADO.md (removido em 2026-10-06; historico no git)`) |
 | Painel WBC (rota, fragmento, entrada com chave) | `wbcpython/dashboard/web.py` + `tests/wbc/dashboard/` (templates em `wbcpython/dashboard/templates/`) |
 | Comando da CLI `wbcpython` | `wbcpython/cli.py` + `tests/wbc/test_cli.py` |
 | Variável do WBC (`SL_*`, `HANA_*`, `WBC_SQL_*`, `WORKER_*`, `PAINEL_*`) | `wbcpython/config.py` + `.env.example` (bloco WBC) + `tests/wbc/test_config.py` + `tests/test_config_paridade_wbc.py` |
@@ -111,7 +112,7 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
 | Tela/rota do Controle de Produção | `controleproducao/modules/<modulo>/router.py` + `main.py` + `tests/controleproducao/test_web_modulos.py` |
 | Barra do topo, tema, paleta ou título de página (qualquer das telas da .11) | `casa/` + `tests/test_casa.py` (+ o `base.html` da tela). Mudou `casa.css`/`casa.js` = suba `casa.VERSAO` |
 | Pedidos WBC (tela **e** API JSON `/api/pedidos-wbc`: lista, plano de Processar/Reprocessar, disparo; sem "forçar" na API) | `controleproducao/modules/pedidos_wbc/acoes.py` (a tela `router.py` e a API `api_router.py` só adaptam) + `tests/controleproducao/test_api_pedidos_wbc.py` + `test_web_modulos.py`. Guia de quem consome: `API_PEDIDOS_WBC.md` + página pronta `docs/exemplos/pedidos_wbc_clone.html` (um teste barra rota citada que não existe) |
-| Fluxo da Manutenção de OP (tela **e** API JSON: seleção, recusas, plano do Encerrar, disparo) | `controleproducao/modules/manutencao_op/acoes.py` (os dois routers só adaptam) + `tests/controleproducao/test_api_manutencao_op.py` + `test_web_modulos.py` (+ `docs/PLANO_API_MANUTENCAO_OP.md`) |
+| Fluxo da Manutenção de OP (tela **e** API JSON: seleção, recusas, plano do Encerrar, disparo) | `controleproducao/modules/manutencao_op/acoes.py` (os dois routers só adaptam) + `tests/controleproducao/test_api_manutencao_op.py` + `test_web_modulos.py` (+ `PLANO_API_MANUTENCAO_OP.md (removido em 2026-10-06; historico no git)`) |
 | API JSON `/api/manutencao-op` (8080; qualquer um com a chave — D1; `X-API-Key` só no cabeçalho; CORS e `charset=utf-8` em `/api/*` por `acesso._BordaDaApi`; `solicitante` obrigatório) | `controleproducao/modules/manutencao_op/api_router.py` + `core/acesso.py` + `main.py` (formato de erro) + `tests/controleproducao/test_api_manutencao_op.py` |
 | Tela Execuções / histórico no Supabase (30 últimas, só .11) | `controleproducao/core/historico.py` + `core/tarefas.py` + `tests/controleproducao/test_historico.py` (+ `sql/controle_producao_execucoes.sql`) |
 | Login compartilhado (cookie `wbc_painel`) | `wbcpython/dashboard/acesso.py` + `controleproducao/core/acesso.py` + `tests/wbc/dashboard/test_entrada.py` + `tests/controleproducao/test_acesso.py` |
@@ -119,14 +120,14 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
 | Variável do Controle de Produção (`CP_*`, `HANA_SCHEMA_LEGADO`, `SL_BUSINESS_PLACE_ID`, `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` do histórico) | `controleproducao/config.py` + `.env.example` (bloco CP) + `tests/controleproducao/test_config.py` + `tests/test_config_paridade_wbc.py` |
 | Check `controle_producao` do `/status` | `monitoring.py` (`_controle_producao_signal`) + `tests/test_monitoring.py` |
 | Leituras da própria .11 para o agente (serviços, conexões, histórico de pedido, log por orçamento, deploy/versão) | `operacao/` + `tests/test_operacao.py` (+ `mcp/mcp_server.py` e `ESCOPO_DA_FERRAMENTA`) |
-| Credencial, escopo, auditoria, interruptor do agente (API 8077, `/api/*` da 8080, MCP 8078) | `seguranca/` + `tests/test_seguranca.py`, `tests/test_api_seguranca.py`, `tests/test_mcp_acesso.py`, `tests/controleproducao/test_api_pedidos_wbc.py` (+ `docs/SEGURANCA_11.md`, `docs/PLANO_MIRA_AGENTE_11.md`) |
+| Credencial, escopo, auditoria, interruptor do agente (API 8077, `/api/*` da 8080, MCP 8078) | `seguranca/` + `tests/test_seguranca.py`, `tests/test_api_seguranca.py`, `tests/test_mcp_acesso.py`, `tests/controleproducao/test_api_pedidos_wbc.py` (+ `docs/SEGURANCA_11.md`, `PLANO_MIRA_AGENTE_11.md (removido em 2026-10-06; historico no git)`) |
 
 ## NÃO reler (não é fonte, ou raramente muda)
 
 - `CHANGELOG.md` (só o mês corrente; os anteriores em `docs/changelog/AAAA-MM.md`) e `README.md`
   inteiros — no README, vá direto à seção pela busca do heading.
 - `docs/wbc/DECISOES.md` inteiro — tem **índice no topo**; vá pela busca do título.
-- `docs/arquivo/` (planos encerrados) e `sql/migracoes/` (DDL já aplicado).
+- `sql/migracoes/` (DDL já aplicado).
 - `exports/` (dados de cliente), `logs/`, `state/`, `.locks/` — runtime/gerados.
 - `install_*.bat/.ps1`, `run_*.bat`, `maintenance/` — só para tarefas de deploy/operação.
 
@@ -262,7 +263,7 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   01/10/2026 (o painel: `acesso.escrita_permitida`, mesmo sem chave configurada). Trocar a chave derruba os
   cookies de todo mundo — é o desenho. Sem ela, painel e API ficam abertos e o Controle de
   Produção fica **só leitura** (rotas de escrita → 503, fail-closed como a rota de OP).
-- **Controle de Produção — o que morde** (detalhe em `docs/PLANO_CONTROLE_PRODUCAO_11.md`):
+- **Controle de Produção — o que morde** (detalhe em `PLANO_CONTROLE_PRODUCAO_11.md (removido em 2026-10-06; historico no git)`):
   (1) `processar-novos` grava `U_INO_ProcessWBC='Y'` **antes** da 1ª OP e não tem rollback —
   queda no meio = pedido "processado" sem OP; retomada = `manutencao-op buscar` →
   `cancelar-ops` → `processar-novos` **sem `--force`** (`--force` duplica OP, na CLI e na web);

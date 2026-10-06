@@ -579,7 +579,7 @@ def _cabecalho_da_chave() -> str | None:
 
 
 def _cliente() -> Cliente | None:
-    """Who is calling (F1 of docs/PLANO_MIRA_AGENTE_11.md, 02/10/2026), once per request.
+    """Who is calling (F1 of PLANO_MIRA_AGENTE_11.md (removed 2026-10-06), 02/10/2026), once per request.
 
     - no ``OS_API_KEY`` configured → open, as documented at the top of this file;
     - the ``OS_API_KEY`` (header or ``?key=``, as before) or the screens' login cookie →
@@ -1430,7 +1430,7 @@ def _audita(resposta: Response) -> Response:
 def _registra_chamada_de_op(resposta: Response) -> Response:
     """One INFO line per call to the OP routes: who called, what was asked, what came back.
 
-    Added on 2026-09-29 (F0 of docs/PLANO_API_MANUTENCAO_OP.md): the status route had a real
+    Added on 2026-09-29 (F0 of PLANO_API_MANUTENCAO_OP.md (removed 2026-10-06)): the status route had a real
     caller that closed >=552 OPs without stock movements, and nothing identified it — this
     API has no access log, and a refusal raised before the network (the D9 400 for
     ``encerrada``, a 401, a 429) left no trace at all. Runs after every response, so those
@@ -1528,7 +1528,7 @@ def wbc_orcamento_log(orcnum: str):
         numero, request.args.get('linhas', log_worker.LINHAS_PADRAO, type=int)))
 
 
-# --- F2 of docs/PLANO_MIRA_AGENTE_11.md: read-only views of the .11 itself -----------------
+# --- F2 of PLANO_MIRA_AGENTE_11.md (removed 2026-10-06): read-only views of the .11 itself -----------------
 # Testing a connection runs ping + TCP from the server: cheap, but a loop of an agent should
 # not turn it into a probe. Same sliding window as the writes.
 _RATE_CONEXAO_MAX = 20
@@ -1570,7 +1570,7 @@ def operacao_deploy():
     return jsonify(ok=True, versao=versao.versao(), ultimo_deploy=versao.ultimo_deploy())
 
 
-# --- F3/F4 of docs/PLANO_MIRA_AGENTE_11.md: the agent asks, a person approves -----------------
+# --- F3/F4 of PLANO_MIRA_AGENTE_11.md (removed 2026-10-06): the agent asks, a person approves -----------------
 _CANAIS = ('tela', 'whatsapp', 'mira', 'api')
 _LIMITE_PESSOA = 80
 
@@ -1866,7 +1866,7 @@ def _aplicar_liberacao_e_nf(pedidos: list, linhas: list) -> None:
     Mesmo desenho do :func:`_aplicar_endereco` (e fora do nucleo portado pelo mesmo
     motivo): casa por ``DocEntry`` e pedido sem linha crua recebe as MESMAS chaves, com
     ``None`` ("nao foi possivel saber"). So o perfil ``completo`` os mostra — o ``resumo``
-    corta para ``CAMPOS_RESUMO``. Plano: ``docs/PLANO_DATAS_LIBERACAO_NF.md``.
+    corta para ``CAMPOS_RESUMO``. Plano: ``PLANO_DATAS_LIBERACAO_NF.md (removed 2026-10-06)``.
     """
     por_docentry = {r.get('DocEntry'): r for r in linhas}
     for p in pedidos:

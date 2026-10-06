@@ -206,7 +206,7 @@ class Settings(BaseSettings):
 
     #: Maior janela que alguém pode pedir pela tela do painel, em meses.
     #:
-    #: A janela sob demanda (`docs/PLANO_JANELA_SOB_DEMANDA.md`) existe para
+    #: A janela sob demanda (`PLANO_JANELA_SOB_DEMANDA.md (removed 2026-10-06)`) existe para
     #: vendas alcançar uma oportunidade antiga sem restart e sem TI. Este é o
     #: limite do que a tela aceita; o teto de escrita do ciclo cresce junto,
     #: por banda — ver `domain/janela.py`.

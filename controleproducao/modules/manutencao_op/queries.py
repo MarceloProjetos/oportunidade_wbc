@@ -1,14 +1,14 @@
 """Queries do módulo Manutenção de OP, transcritas de `Controllers/Querys.resx`.
 Todas em HANA (SAP B1) — este módulo não acessa o WBC.
 
-Since 28/09/2026 (F7 of docs/PLANO_CONTROLE_PRODUCAO_11.md) every value is a bound parameter
+Since 28/09/2026 (F7 of PLANO_CONTROLE_PRODUCAO_11.md (removed 2026-10-06)) every value is a bound parameter
 (`?`, passed to `HanaDirectReader.fetch_all(sql, params)`); the text is otherwise the original.
 The only thing still formatted in is `{marcadores}` of the two `IN` lists, and it only ever
 receives `?, ?, ...` built by `service._marcadores` — never a value.
 """
 
 # How much of the OP's components has already been issued (29/09/2026, F6 of
-# docs/PLANO_API_MANUTENCAO_OP.md): more than zero = a goods issue (OIGE) was posted, and the
+# PLANO_API_MANUTENCAO_OP.md (removed 2026-10-06)): more than zero = a goods issue (OIGE) was posted, and the
 # OP must not go back to Planejada until that issue is cancelled in the SAP. Checked in PROD on
 # 29/09: this sum and "a non-cancelled IGE1 line based on the OP" select the same 63,183 OPs.
 # No goods issue of an OP had ever been cancelled, so whether the sum drops back after a

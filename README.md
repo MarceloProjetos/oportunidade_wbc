@@ -493,7 +493,7 @@ Conferir: abra `http://127.0.0.1:8077/health` (ou de outra máquina `http://<ip-
 ⚠️ **É um dos três caminhos deste serviço que mudam dado DENTRO do SAP** — os outros são o
 worker `wbcpython` e o `controleproducao` — e o **único pela API 8077**; aponta para a base de **produção** `SBOALTAMIRAPROD`. Vai pelo
 **Service Layer** (REST, porta 50000), não pelo HANA. Módulo:
-[ordens_producao_sl.py](ordens_producao_sl.py) · plano: [docs/PLANO_OP_STATUS.md](docs/PLANO_OP_STATUS.md).
+[ordens_producao_sl.py](ordens_producao_sl.py) · plano: `PLANO_OP_STATUS.md (removido em 2026-10-06; historico no git)`.
 
 **Liga só na .11.** Desde 28/09/2026 não há chave no `.env`: as rotas funcionam na máquina
 que tem o IP da .11 (`wbcpython/safety.py`, `PRODUCTION_MACHINE_IP`); em qualquer outra
@@ -502,7 +502,7 @@ respondem `503` e não abrem socket. `OP_SL_ENABLED` é ignorada.
 ### O que dá para fazer
 
 Por default, só **Liberar** (`boposReleased`). **Encerrar saiu do default em 28/09/2026
-(D9 de `docs/PLANO_CONTROLE_PRODUCAO_11.md`):** um PATCH de status fecha a OP **sem** a saída
+(D9 de `PLANO_CONTROLE_PRODUCAO_11.md (removido em 2026-10-06; historico no git)`):** um PATCH de status fecha a OP **sem** a saída
 de insumos e a entrada do produto; quem encerra com estoque é a tela Manutenção de OP do
 Controle de Produção (8080). Cancelar e voltar para Planejada continuam fora de escopo. Um
 pedido fora da allowlist é recusado com `400` **antes** de qualquer chamada ao SAP
@@ -654,7 +654,7 @@ módulo 3 (*Manutenção de OP*) libera, replaneja e **encerra com movimentaçã
   gravação, erros `{ok, tipo, motivo}`, mesma fila de uma execução por vez e mesmo histórico de
   Execuções ("por *fulano* · API"). Guia para quem consome, com receitas e exemplos em Python,
   PowerShell e JavaScript: [API_MANUTENCAO_OP.md](API_MANUTENCAO_OP.md);
-  plano: `docs/PLANO_API_MANUTENCAO_OP.md`.
+  plano: `PLANO_API_MANUTENCAO_OP.md (removido em 2026-10-06; historico no git)`.
 - **Módulo 2:** `Reprocessar` em "Pedidos integrados" (saiu da tela em 28/09 — D8 — e voltou
   em 30/09, decisão do Marcelo): cancela **todas** as OPs planejadas do pedido, de qualquer
   origem, e **não recria** — o pedido volta para "Pedidos novos" e precisa ser processado de
@@ -672,7 +672,7 @@ módulo 3 (*Manutenção de OP*) libera, replaneja e **encerra com movimentaçã
   `127.0.0.1:CP_PORTA/health`; sem alerta enquanto o serviço nunca subiu na máquina.
 - **Histórico e regras:** `docs/controleproducao/migration_guide.md` (§7 é o diário),
   `docs/controleproducao/decisoes.md`. Plano da implantação e riscos:
-  `docs/PLANO_CONTROLE_PRODUCAO_11.md`.
+  `PLANO_CONTROLE_PRODUCAO_11.md (removido em 2026-10-06; historico no git)`.
 
 > ⚠️ Grava em **produção** pelo Service Layer, só na .11. `processar-novos` carimba o pedido
 > **antes** da primeira OP e não tem rollback (queda no meio = `cancelar-ops` e processar de

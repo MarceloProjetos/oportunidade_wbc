@@ -1,4 +1,4 @@
-"""Weight the SAP rescaled when a person changed a line's quantity — `docs/PLANO_PESO_REESCALADO.md`.
+"""Weight the SAP rescaled when a person changed a line's quantity — `PLANO_PESO_REESCALADO.md (removed 2026-10-06)`.
 
 The SAP client multiplies ``Weight1`` by new/old quantity whenever someone changes the quantity
 of a line (84457, 02/10/2026: 1 → 30 turned 148,94 kg into 4.468,20). The integration writes

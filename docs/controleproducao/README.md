@@ -3,7 +3,7 @@
 > Guia de quem vai mexer no `controleproducao/` (o Anderson, o Marcelo, um agente). O
 > histórico técnico do pacote está em `migration_guide.md` (§7 é o diário) e as decisões em
 > `decisoes.md`, nesta pasta; o plano da implantação, riscos e decisões abertas em
-> `docs/PLANO_CONTROLE_PRODUCAO_11.md`. Este arquivo é só "como rodar e onde está cada coisa".
+> `PLANO_CONTROLE_PRODUCAO_11.md (removido em 2026-10-06; historico no git)`. Este arquivo é só "como rodar e onde está cada coisa".
 
 ## O que é
 

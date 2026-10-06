@@ -1,5 +1,5 @@
 """Approval requests: the agent asks, a person decides, the .11 executes (F3 of
-docs/PLANO_MIRA_AGENTE_11.md, rule 1 — "the model never approves a write").
+PLANO_MIRA_AGENTE_11.md (removed 2026-10-06), rule 1 — "the model never approves a write").
 
 Before this, the MCP's two writes ran when the MODEL sent ``confirmar=True``: a text that
 reached the model (a customer name, an order note, a web page) could fire a write. Now an

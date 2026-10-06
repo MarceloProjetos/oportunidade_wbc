@@ -86,7 +86,7 @@ técnico (o que já está em português fica); `ruff` em 0; nenhum teste pode al
 
 ## 3. O que só você pode decidir
 
-Numeração igual à do plano (`docs/PLANO_CONTROLE_PRODUCAO_11.md`, §4).
+Numeração igual à do plano (`PLANO_CONTROLE_PRODUCAO_11.md (removido em 2026-10-06; historico no git)`, §4).
 
 **D12 — Onde o código mora.** Confirma que passa a desenvolver no clone do SIS (item 2)? A
 alternativa — continuar no seu pacote e migrar cada zip — repete o rename, o `ruff` e a trava a

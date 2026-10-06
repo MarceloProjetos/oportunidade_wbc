@@ -1,5 +1,5 @@
 """Rules that apply only to credentials marked as an agent (rules 7 and 8 of
-docs/PLANO_MIRA_AGENTE_11.md).
+PLANO_MIRA_AGENTE_11.md (removed 2026-10-06)).
 
 - **Off switch** (rule 8): ``state/agente.desligado`` cuts the agent in one step, without
   restarting anything — the same idea as the worker's stop file. Content ``escrita`` stops

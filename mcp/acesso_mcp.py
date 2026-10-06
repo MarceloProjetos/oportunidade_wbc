@@ -1,4 +1,4 @@
-"""The door of the MCP over HTTP (F1 of docs/PLANO_MIRA_AGENTE_11.md, 02/10/2026).
+"""The door of the MCP over HTTP (F1 of PLANO_MIRA_AGENTE_11.md (removed 2026-10-06), 02/10/2026).
 
 Until then the MCP took ONE static token: whoever held it called every tool, with no name, and
 nothing recorded which tool was called (the access log was off). This ASGI middleware replaces

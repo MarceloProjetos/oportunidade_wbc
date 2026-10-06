@@ -1997,7 +1997,7 @@ faz de qualquer forma.
 Relato do usuário (15/09/2026): *"o item PORTA-PALETES sempre é criado como 01 unidade
 conjunto"*. `ORCPRDQTD` é nula nas 21.447 linhas de `INTEGRACAO_ORCIMP`; a quantidade real
 está no `ORCTXT` ("PORTA-PALETES 14 Módulos de estruturas metálicas..."). Plano em
-`docs/arquivo/PLANO_PORTA_PALETES_QUANTIDADE.md`.
+`PLANO_PORTA_PALETES_QUANTIDADE.md (removido em 2026-10-06; historico no git)`.
 
 ### A regra, medida antes de escrita
 
@@ -2006,8 +2006,8 @@ Quantidade = **o inteiro imediatamente anterior à primeira ocorrência de "Mód
 seguida de um número", e leria 1 em `PORTA-PALETES ÁREA 1 10 Módulos` (o 1 é da área) e em
 `PORTA-PALETES - OPÇÃO 1 14 Módulos` (o 1 é da opção). Ancorar no "Módulo" resolve os dois.
 
-O que conta como linha de porta-paletes foi decidido pela base, com `maintenance/medir_porta_paletes.py`
-(só leitura, usa a função de produção):
+O que conta como linha de porta-paletes foi decidido pela base, com o script só leitura
+`maintenance/medir_porta_paletes.py` (usava a função de produção; removido em 2026-10-06, está no git):
 
 | Variante | Linhas de porta-paletes | Com número | Sem número |
 |---|---|---|---|

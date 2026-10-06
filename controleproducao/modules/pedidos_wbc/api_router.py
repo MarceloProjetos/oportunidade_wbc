@@ -1,4 +1,4 @@
-"""JSON API of the Pedidos WBC (01/10/2026, F2 of docs/PLANO_API_PEDIDOS_WBC.md).
+"""JSON API of the Pedidos WBC (01/10/2026, F2 of PLANO_API_PEDIDOS_WBC.md (removed 2026-10-06)).
 
 The contract for consumers is ``API_PEDIDOS_WBC.md`` at the repository root — written so
 another team can clone the screen *Integração de Pedidos (WBC)* with the same behaviour.

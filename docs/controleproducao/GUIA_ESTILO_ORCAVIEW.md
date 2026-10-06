@@ -4,7 +4,7 @@
 > `python -m controleproducao …` na raiz do repositório; `python_app/app/` é
 > `controleproducao/`; o `.env` é o do SIS (mesmos nomes); `.venv`, `scripts/00-06`,
 > `config/log_config.json` e as `wheels/` não existem mais (serviço `OrcaView-ControleProducao`,
-> `install_wbc_services.bat`, `deploy_update.bat`). Plano: `docs/PLANO_CONTROLE_PRODUCAO_11.md`.
+> `install_wbc_services.bat`, `deploy_update.bat`). Plano: `PLANO_CONTROLE_PRODUCAO_11.md (removido em 2026-10-06; historico no git)`.
 
 # Guia de Estilo OrçaView — `status.html`, `Usuarios.html`, `Pedidos.html`
 

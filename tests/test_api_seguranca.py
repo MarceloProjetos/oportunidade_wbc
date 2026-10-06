@@ -1,4 +1,4 @@
-"""Scopes, agent rules and audit on the API 8077 (F1 of docs/PLANO_MIRA_AGENTE_11.md, 02/10/2026).
+"""Scopes, agent rules and audit on the API 8077 (F1 of PLANO_MIRA_AGENTE_11.md (removed 2026-10-06), 02/10/2026).
 
 What these tests hold:
 1. The master key and the screens keep passing everywhere — no current client breaks.

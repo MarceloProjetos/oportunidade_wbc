@@ -4,7 +4,7 @@
 > que existe hoje continua disponível para quem já usa. As chaves novas recebem **todos** os escopos
 > que o cliente usa hoje; o que muda é que cada uma fica identificada, registrada e com limites.
 
-Guia de operação da F1 de `docs/PLANO_MIRA_AGENTE_11.md` (02/10/2026): credenciais com escopo,
+Guia de operação da F1 de `PLANO_MIRA_AGENTE_11.md (removido em 2026-10-06; historico no git)` (02/10/2026): credenciais com escopo,
 auditoria, interruptor do agente e firewall do MCP. Tudo se administra **na .11**, no
 PowerShell, dentro de `C:\Python\ServidorIntegracaoSAP`.
 

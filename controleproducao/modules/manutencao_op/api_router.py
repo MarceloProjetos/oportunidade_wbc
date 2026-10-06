@@ -1,4 +1,4 @@
-"""JSON API of the Manutenção de OP (29/09/2026, F3 of docs/PLANO_API_MANUTENCAO_OP.md).
+"""JSON API of the Manutenção de OP (29/09/2026, F3 of PLANO_API_MANUTENCAO_OP.md (removed 2026-10-06)).
 
 The contract for consumers is ``API_MANUTENCAO_OP.md`` at the repository root.
 

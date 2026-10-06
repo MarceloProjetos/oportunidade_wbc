@@ -9,7 +9,7 @@ apontam para ``http://<.11>:8078/mcp`` com o header. A stdio (``mcp_server.py``)
 intacta para uso local.
 
 Seguranca:
-- ENTRADA (desde 02/10/2026, F1 de docs/PLANO_MIRA_AGENTE_11.md): ``acesso_mcp.PortaDoMcp`` --
+- ENTRADA (desde 02/10/2026, F1 de PLANO_MIRA_AGENTE_11.md (removed 2026-10-06)): ``acesso_mcp.PortaDoMcp`` --
   token por cliente (``python -m seguranca criar NOME --escopos mcp,...``), cada ferramenta
   no seu escopo, interruptor/expediente do agente e auditoria de cada chamada. O
   ``SIS_MCP_TOKEN`` antigo continua valendo como cliente "mcp-legado". Sem token -> 401.

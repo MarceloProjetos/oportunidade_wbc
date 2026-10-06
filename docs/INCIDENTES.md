@@ -1,7 +1,7 @@
 # Incidentes e medições — o "porquê" das regras do CLAUDE.md
 
 O `CLAUDE.md` guarda a **regra**; aqui fica a **história** que a justificou (datas, números
-medidos, o que quebrou). Movido do `CLAUDE.md` em 24/09/2026 (`docs/PLANO_DX_AGENTE.md`, F1),
+medidos, o que quebrou). Movido do `CLAUDE.md` em 24/09/2026 (`PLANO_DX_AGENTE.md (removido em 2026-10-06; historico no git)`, F1),
 sem perder fato. Cada seção tem o nome da regra correspondente.
 
 ---
@@ -77,7 +77,7 @@ Na migração para o 3.14, 4 serviços foram para o 3.14.7 no reboot e o worker 
 até as 13:12, **escrevendo em produção**, sem nenhum sinal: o `system.python` do `/status` é
 o do processo da API e dizia 3.14. Descoberto na véspera de desinstalar o 3.12 — o que teria
 derrubado justamente o serviço que cria cotação e pedido. Detalhe:
-`docs/arquivo/PLANO_PYTHON_314_NA_11.md` §7.
+`PLANO_PYTHON_314_NA_11.md (removido em 2026-10-06; historico no git)` §7.
 
 ## Worker morto aos 60 s no meio do ciclo #133 (09/09/2026)
 

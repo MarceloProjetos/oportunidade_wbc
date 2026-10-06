@@ -1,4 +1,4 @@
-"""The door of the MCP over HTTP (F1 of docs/PLANO_MIRA_AGENTE_11.md, 02/10/2026).
+"""The door of the MCP over HTTP (F1 of PLANO_MIRA_AGENTE_11.md (removed 2026-10-06), 02/10/2026).
 
 Loaded by path (``mcp/`` is not a package and the name ``mcp`` belongs to the SDK); it needs
 no SDK — the middleware is plain ASGI, tested here with a stand-in app.

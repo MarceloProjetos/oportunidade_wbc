@@ -141,7 +141,7 @@ class EstadoIntegracao:
 
     #: A oportunidade e mais antiga que a janela PADRAO do ciclo.
     #:
-    #: So acontece num ciclo de janela estendida (`docs/PLANO_JANELA_SOB_DEMANDA.md`):
+    #: So acontece num ciclo de janela estendida (`PLANO_JANELA_SOB_DEMANDA.md (removed 2026-10-06)`):
     #: num ciclo normal, tudo que e lido esta dentro da janela por construcao.
     #:
     #: Quando verdadeiro, a decisao sai **sem as acoes de pedido**. Regra de

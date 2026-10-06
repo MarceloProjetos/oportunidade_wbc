@@ -1,4 +1,4 @@
-"""Security base of the .11 (F1 of docs/PLANO_MIRA_AGENTE_11.md, 02/10/2026).
+"""Security base of the .11 (F1 of PLANO_MIRA_AGENTE_11.md (removed 2026-10-06), 02/10/2026).
 
 Shared by the API (8077), the Controle de Produção (8080) and the MCP (8078):
 

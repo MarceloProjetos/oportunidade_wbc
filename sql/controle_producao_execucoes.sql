@@ -53,7 +53,7 @@ alter table public.controle_producao_execucoes force  row level security;
 -- (sem policy: só o service_role acessa)
 
 -- Tabela criada antes de 29/09/2026: as duas colunas de quem pediu (API da Manutenção de OP,
--- docs/PLANO_API_MANUTENCAO_OP.md F2). Aplicado pelo Marcelo em 29/09/2026; idempotente.
+-- PLANO_API_MANUTENCAO_OP.md (removed 2026-10-06) F2). Aplicado pelo Marcelo em 29/09/2026; idempotente.
 alter table public.controle_producao_execucoes
   add column if not exists solicitante text,
   add column if not exists origem text not null default 'tela'

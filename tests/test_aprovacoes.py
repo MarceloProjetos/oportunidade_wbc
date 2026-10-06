@@ -1,4 +1,4 @@
-"""F3/F4 of docs/PLANO_MIRA_AGENTE_11.md: the agent asks, a person approves, the .11 runs.
+"""F3/F4 of PLANO_MIRA_AGENTE_11.md (removed 2026-10-06): the agent asks, a person approves, the .11 runs.
 
 What these tests hold:
 1. A request grants nothing; it is decided ONCE (two approvals never both run), and expires.

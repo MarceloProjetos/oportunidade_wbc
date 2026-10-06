@@ -1435,7 +1435,7 @@ proporção** — ficou 88,45 kg. Não é defeito da integração, e a resposta 
   `python -m wbcpython pesos --pedido 84453` (com `--simular` antes). Para não acontecer: não mude a
   quantidade da linha no SAP — ou avise que o peso precisa ser refeito.
 - **Desde 05/10/2026, mais uma linha depois da CAUSA** diz o que a integração faz com aquele peso
-  (a mesma regra do worker, `docs/PLANO_PESO_REESCALADO.md`): `⚠ a integração voltaria este peso
+  (a mesma regra do worker, `PLANO_PESO_REESCALADO.md (removido em 2026-10-06; historico no git)`): `⚠ a integração voltaria este peso
   para 176,90 kg, mas a correção automática ainda está em simulação: corrija à mão.` ou
   `⚠ a integração NÃO volta este peso sozinha: <motivo>.` Quando a correção automática for ligada,
   vira `a integração volta este peso para 176,90 kg sozinha.` — só para trocas de quantidade feitas
@@ -2065,7 +2065,7 @@ ou em `GET /execucoes/{id}`.
 - **Uma mensagem não está clara** para mostrar ao usuário final: avise. Ela é a mesma da tela e
   melhora nos dois lugares ao mesmo tempo.
 - **Código:** `controleproducao/modules/pedidos_wbc/api_router.py` (a API) e `acoes.py` (as
-  regras, compartilhadas com a tela). Plano: `docs/PLANO_API_PEDIDOS_WBC.md`.
+  regras, compartilhadas com a tela). Plano: `PLANO_API_PEDIDOS_WBC.md (removido em 2026-10-06; historico no git)`.
 
 Os exemplos de resposta deste documento — fora a [seção 5](#5-caso-real-o-pedido-84460-do-começo-ao-fim),
 que usa respostas reais da .11 — saíram da própria API, com o SAP simulado e dados

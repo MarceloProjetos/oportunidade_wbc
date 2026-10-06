@@ -1,6 +1,6 @@
 # Controle de Produção — guia do operador (1 página)
 
-> Rascunho de 29/09/2026 (F7 do `docs/PLANO_CONTROLE_PRODUCAO_11.md`) — **o Anderson valida**.
+> Rascunho de 29/09/2026 (F7 do `PLANO_CONTROLE_PRODUCAO_11.md (removido em 2026-10-06; historico no git)`) — **o Anderson valida**.
 > Grava em **PRODUÇÃO** (`SBOALTAMIRAPROD`). Não há desfazer automático.
 
 ## Entrar

@@ -1,4 +1,4 @@
-"""The closed catalog of writes an agent may REQUEST (F3/F4 of docs/PLANO_MIRA_AGENTE_11.md).
+"""The closed catalog of writes an agent may REQUEST (F3/F4 of PLANO_MIRA_AGENTE_11.md (removed 2026-10-06)).
 
 Each action says which scope the requester needs, who may approve it (decision 4: process an
 order = PCP or admin; restart a service = admin; sync OS and forced load = any identified

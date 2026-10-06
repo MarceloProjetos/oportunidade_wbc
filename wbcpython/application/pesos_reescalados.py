@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 REGRA = "peso_reescalado"
 
-#: When writing starts (F4 of docs/PLANO_PESO_REESCALADO.md, Marcelo's yes on 05/10/2026): only
+#: When writing starts (F4 of PLANO_PESO_REESCALADO.md (removed 2026-10-06), Marcelo's yes on 05/10/2026): only
 #: quantity changes saved from then on are undone — the past is never altered. ``None`` = F3,
 #: the worker only logs the weights it would put back (the rollback). A constant on purpose,
 #: never a `.env` key; the Processar log reads it too.

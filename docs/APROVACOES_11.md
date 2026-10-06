@@ -1,6 +1,6 @@
 # Aprovações do agente na .11 — o contrato (F3/F4 → F5)
 
-> F3/F4 de `docs/PLANO_MIRA_AGENTE_11.md` (02/10/2026). Este arquivo é o contrato que a Mira
+> F3/F4 de `PLANO_MIRA_AGENTE_11.md (removido em 2026-10-06; historico no git)` (02/10/2026). Este arquivo é o contrato que a Mira
 > (.90, F5) segue para levar os pedidos ao **canal privado do WhatsApp** e à conversa. A .11
 > já funciona sozinha: hoje uma pessoa aprova na Central (`http://192.168.7.11:8077/inicio`).
 

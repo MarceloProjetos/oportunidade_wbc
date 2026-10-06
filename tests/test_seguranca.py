@@ -1,5 +1,5 @@
 """The security base shared by the API, the Controle de Produção and the MCP (F1 of
-docs/PLANO_MIRA_AGENTE_11.md). Each rule of the plan has a test here or next to its route."""
+PLANO_MIRA_AGENTE_11.md (removed 2026-10-06)). Each rule of the plan has a test here or next to its route."""
 from __future__ import annotations
 
 import json

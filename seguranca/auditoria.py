@@ -1,4 +1,4 @@
-"""One JSON line per call, per service, kept 30 days (rule 4 of docs/PLANO_MIRA_AGENTE_11.md).
+"""One JSON line per call, per service, kept 30 days (rule 4 of PLANO_MIRA_AGENTE_11.md (removed 2026-10-06)).
 
 Why: on 29/09/2026 a caller of the OP status route closed >=552 OPs without stock movements
 and nothing identified it — the API had no access log. An agent calling the .11 on its own

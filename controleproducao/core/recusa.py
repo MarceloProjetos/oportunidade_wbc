@@ -1,6 +1,6 @@
 """`Recusa` — an action refused before anything was written, shared by the screens and the
 JSON APIs of the Controle de Produção (29/09/2026 for Manutenção de OP, 01/10/2026 for
-Pedidos WBC — docs/PLANO_API_PEDIDOS_WBC.md).
+Pedidos WBC — PLANO_API_PEDIDOS_WBC.md (removed 2026-10-06)).
 
 A refusal carries the screen's own message. The screens render it with ``erro.html`` (400,
 as they always did); the APIs answer JSON with the HTTP status of its ``tipo``. One text,

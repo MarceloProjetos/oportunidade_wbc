@@ -17,7 +17,7 @@ tela é reproduzido pelas próprias queries de busca — a rota nunca aceita um 
 digitado que não tenha passado por elas.
 
 Since 01/10/2026 the rules live in ``acoes.py``, shared with the JSON API (``api_router.py``,
-docs/PLANO_API_PEDIDOS_WBC.md); this file only reads the form and renders HTML.
+PLANO_API_PEDIDOS_WBC.md (removed 2026-10-06)); this file only reads the form and renders HTML.
 """
 from __future__ import annotations
 

@@ -10,7 +10,7 @@ Cancelar e Encerrar. O desenho aqui é o mesmo; o que muda é o que a migração
 - **Liberar and Replanejar change the status only and write on the first click** (no token
   plan). Replanejar left the screen on 28/09/2026 (D9: next to a half-failed `encerrar` it
   would leave stock on a planned OP) and came back on 29/09/2026 (D4 of
-  docs/PLANO_API_MANUTENCAO_OP.md) once it refuses any OP with material issued or product
+  PLANO_API_MANUTENCAO_OP.md (removed 2026-10-06)) once it refuses any OP with material issued or product
   received — the reason D9 existed. The grid says which OPs can go back, and why not.
 - The read-only routes (`buscar`, `encerrar/conferir`) are plain `def` (30/09/2026): FastAPI
   runs them in its threadpool, so a slow HANA query no longer freezes the event loop — and
@@ -20,7 +20,7 @@ A regra de negócio de 22/09: uma OP só pode ser apontada estando Liberada, ent
 encerramento libera antes a que estiver Planejada. Isso aparece na coluna "Ação" do plano,
 em vez de ficar escondido dentro do `corrige_op` — é o estado que sobra se a cadeia falhar.
 
-Since 29/09/2026 (F1 of docs/PLANO_API_MANUTENCAO_OP.md) the decisions of these routes live
+Since 29/09/2026 (F1 of PLANO_API_MANUTENCAO_OP.md (removed 2026-10-06)) the decisions of these routes live
 in `acoes.py`, shared with the JSON API (`api_router.py`): this file reads the form, calls
 the gate and renders — a refusal (`acoes.Recusa`) becomes the error page, 400 as always.
 """

@@ -1,7 +1,7 @@
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 <#
   firewall_mcp_8078.ps1 - fecha a porta do MCP (8078) para todos, exceto os IPs permitidos.
-  F1 de docs/PLANO_MIRA_AGENTE_11.md, regra 9 (02/10/2026). Roda NA .11, como administrador.
+  F1 de PLANO_MIRA_AGENTE_11.md (removed 2026-10-06), regra 9 (02/10/2026). Roda NA .11, como administrador.
 
   Por que BLOQUEIO e nao so uma regra de liberacao: no Firewall do Windows uma regra de
   bloqueio vence qualquer liberacao - inclusive a liberacao por PROGRAMA do python.exe, que
@@ -91,7 +91,7 @@ if (-not $Aplicar) {
 Remove-NetFirewallRule -DisplayName $Nome -ErrorAction SilentlyContinue
 New-NetFirewallRule -DisplayName $Nome -Direction Inbound -Protocol TCP -LocalPort $Porta `
     -RemoteAddress $faixas -Action Block -Profile Any `
-    -Description ("MCP da .11: so {0} chegam (docs/PLANO_MIRA_AGENTE_11.md, regra 9)." -f ($Permitidos -join ", ")) | Out-Null
+    -Description ("MCP da .11: so {0} chegam (PLANO_MIRA_AGENTE_11, regra 9)." -f ($Permitidos -join ", ")) | Out-Null
 Write-Host ""
 Write-Host "Regra '$Nome' aplicada. Confira de uma maquina nao permitida:"
 Write-Host "    Test-NetConnection 192.168.7.11 -Port $Porta"

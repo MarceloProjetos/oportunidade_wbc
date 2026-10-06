@@ -8,7 +8,7 @@ migration_guide.md): aqui usamos **parâmetros** (`?`) em vez de concatenar valo
 tela diretamente na string SQL, para eliminar o risco de SQL injection que existia no C#
 original — sem mudar o texto/lógica das queries em si.
 
-Driver since 29/09/2026 (F7 of docs/PLANO_CONTROLE_PRODUCAO_11.md): `pymssql`, the one the
+Driver since 29/09/2026 (F7 of PLANO_CONTROLE_PRODUCAO_11.md (removed 2026-10-06)): `pymssql`, the one the
 WBC worker already uses on the .11 against the same server — it replaced `pyodbc`, which
 depended on the exact name of an installed ODBC driver (the .11 only has Driver 17 and the
 default was 18: it bit on 28/09). Callers still write `?` and pass a tuple;

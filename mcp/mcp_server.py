@@ -1116,7 +1116,7 @@ def forcar_carga_oportunidades(confirmar: bool = False) -> dict[str, Any]:
     return _post("/oportunidades/sincronizar")
 
 
-# --- F3/F4: writes by approval (docs/PLANO_MIRA_AGENTE_11.md) ---------------------------------
+# --- F3/F4: writes by approval (PLANO_MIRA_AGENTE_11.md (removed 2026-10-06)) ---------------------------------
 # The agent only REQUESTS; a person approves on the Central's screen (/inicio) or, later, by
 # replying "aprovar <código>" in the Mira's channel. These tools never execute anything.
 _ANOTACAO_PEDIDO = ToolAnnotations(readOnlyHint=False, idempotentHint=False, openWorldHint=True)

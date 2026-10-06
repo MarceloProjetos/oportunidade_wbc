@@ -112,7 +112,7 @@ class Tarefa:
     solicitante: str | None = None
     origem: str = ORIGEM_TELA
     # Stop between steps instead of cutting the coroutine (29/09/2026, D5 of
-    # docs/PLANO_API_MANUTENCAO_OP.md): set by whoever creates a task whose steps must not be
+    # PLANO_API_MANUTENCAO_OP.md (removed 2026-10-06)): set by whoever creates a task whose steps must not be
     # split — the closing of OPs, where one "step" is issue → receipt → close. `cancelar` then
     # only raises `parada_pedida`, and the task body checks it before each step.
     parada_combinada: bool = False

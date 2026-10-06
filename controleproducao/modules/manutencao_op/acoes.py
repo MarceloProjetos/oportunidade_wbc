@@ -1,6 +1,6 @@
 """Flows of the Manutenção de OP shared by the screen and the JSON API (29/09/2026).
 
-Until F1 of docs/PLANO_API_MANUTENCAO_OP.md these lived inside the screen's routes, mixed
+Until F1 of PLANO_API_MANUTENCAO_OP.md (removed 2026-10-06) these lived inside the screen's routes, mixed
 with the HTML: validating the selection, refusing a terminal OP, building the closing plan,
 starting the background execution. The JSON API needs the same decisions with the same
 words, so they moved here and both routers became thin adapters. A refusal is raised as

@@ -1,6 +1,6 @@
 """Flows of the Pedidos WBC shared by the screen and the JSON API (01/10/2026).
 
-F1 of docs/PLANO_API_PEDIDOS_WBC.md, same move as the Manutenção de OP on 29/09: until then
+F1 of PLANO_API_PEDIDOS_WBC.md (removed 2026-10-06), same move as the Manutenção de OP on 29/09: until then
 these lived inside the screen's routes, mixed with the HTML — paging the list, building the
 checked plan of Processar/Reprocessar, spending the token, running the pedidos one by one.
 The JSON API needs the same decisions with the same words, so both routers became thin

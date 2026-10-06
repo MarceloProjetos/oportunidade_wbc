@@ -1,4 +1,4 @@
-"""F2 of docs/PLANO_MIRA_AGENTE_11.md: read-only views of the .11 (``operacao/``).
+"""F2 of PLANO_MIRA_AGENTE_11.md (removed 2026-10-06): read-only views of the .11 (``operacao/``).
 
 What these tests hold:
 1. Services: the six NSSM names, state and "since when"; a missing one is said, not hidden.

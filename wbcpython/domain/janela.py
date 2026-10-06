@@ -4,7 +4,7 @@ Sem I/O, como o resto de `domain/`: são as regras que decidem *quanto* um ciclo
 pode escrever quando alguém pede uma janela maior que a padrão, e *quando* o
 pedido volta ao padrão sozinho.
 
-O problema que isto resolve — `docs/PLANO_JANELA_SOB_DEMANDA.md`:
+O problema que isto resolve — `PLANO_JANELA_SOB_DEMANDA.md (removed 2026-10-06)`:
 
 Uma janela maior devolve muito mais oportunidades represadas. Com o teto fixo de
 200 escritas por ciclo, "abre 24 meses por um ciclo" escreveria 200 e abandonaria

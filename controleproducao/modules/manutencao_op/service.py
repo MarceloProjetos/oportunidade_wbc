@@ -236,7 +236,7 @@ def levanta_ops(
 def saida_lancada(op: dict) -> bool:
     """True when the OP's material issue was posted — or when that is unknown (fail-closed).
 
-    The Replanejar rule (29/09/2026, F6 of docs/PLANO_API_MANUTENCAO_OP.md): an OP whose
+    The Replanejar rule (29/09/2026, F6 of PLANO_API_MANUTENCAO_OP.md (removed 2026-10-06)): an OP whose
     components were already issued cannot go back to Planejada, or the stock movement would
     sit on a planned OP. The issue must be cancelled in the SAP first.
     """
@@ -247,7 +247,7 @@ def saida_lancada(op: dict) -> bool:
 def entrada_lancada(op: dict) -> bool:
     """True when product was already received on the OP (``apontada`` > 0) — or unknown.
 
-    D6 of docs/PLANO_API_MANUTENCAO_OP.md (Marcelo, 29/09/2026): the same problem as the
+    D6 of PLANO_API_MANUTENCAO_OP.md (removed 2026-10-06) (Marcelo, 29/09/2026): the same problem as the
     material issue — a receipt from production would sit on a planned OP. The receipt must be
     cancelled in the SAP first. Checked after ``saida_lancada``, so an OP with both is
     reported for its issue.
@@ -803,7 +803,7 @@ async def finalizar_ops(
     - Erros iam apenas para a status bar e o `INO_LOG`; aqui o resultado diz o que foi e o
       que não foi feito, no mesmo formato de `muda_status`.
 
-    ``deve_parar`` (29/09/2026, D5 of docs/PLANO_API_MANUTENCAO_OP.md) is asked at the START
+    ``deve_parar`` (29/09/2026, D5 of PLANO_API_MANUTENCAO_OP.md (removed 2026-10-06)) is asked at the START
     of each OP, never in the middle: an interruption lets the OP in progress finish its chain
     (issue → receipt → close, or its own error) and leaves the rest untouched, in
     ``interrompidas``. Cancelling the coroutine instead could stop between the material issue
