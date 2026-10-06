@@ -8,7 +8,7 @@ resultado no SAP**.
 > ⚠️ **Tudo o que esta API grava vai direto para o SAP de produção** (`SBOALTAMIRAPROD`):
 > Processar **cria Ordens de Produção**, Reprocessar **cancela** Ordens de Produção. Não existe
 > ambiente de teste. Listar e conferir **não gravam nada** — dá para construir e testar quase a
-> página inteira sem risco ([seção 11](#11-como-testar-sem-estragar-nada)).
+> página inteira sem risco ([seção 12](#12-como-testar-sem-estragar-nada)).
 
 ### Como ler este guia
 
@@ -17,10 +17,11 @@ resultado no SAP**.
 | Entender **do que se trata** antes de tudo | [1. A ideia em um minuto](#1-a-ideia-em-um-minuto) |
 | **Só usar** uma página pronta, sem programar | [3. A página pronta](#3-o-caminho-mais-curto-a-página-pronta) |
 | **Construir a sua** página, passo a passo | [4. Tutorial: sua página em 5 etapas](#4-tutorial-sua-página-em-5-etapas) |
-| Saber **o que um campo ou uma rota faz** | [6. Referência das rotas](#6-referência-das-rotas) |
-| Deixar a página **com a mesma cara** da original | [7. Clonar a tela](#7-clonar-a-tela-peça-por-peça) e [8. Tema](#8-tema-cores-letras-medidas-e-ícones) |
-| Saber **o que fazer quando dá erro** | [9. Erros](#9-quando-dá-errado-todos-os-erros) |
-| Conferir se está **pronto para usar de verdade** | [12. Lista de verificação](#12-lista-de-verificação-antes-de-pôr-no-ar) |
+| Ver **um pedido de verdade** passar pela tela inteira — cada objeto, cada mensagem, cada chamada | [5. Caso real: o pedido 84460](#5-caso-real-o-pedido-84460-do-começo-ao-fim) |
+| Saber **o que um campo ou uma rota faz** | [7. Referência das rotas](#7-referência-das-rotas) |
+| Deixar a página **com a mesma cara** da original | [8. Clonar a tela](#8-clonar-a-tela-peça-por-peça) e [9. Tema](#9-tema-cores-letras-medidas-e-ícones) |
+| Saber **o que fazer quando dá erro** | [10. Erros](#10-quando-dá-errado-todos-os-erros) |
+| Conferir se está **pronto para usar de verdade** | [13. Lista de verificação](#13-lista-de-verificação-antes-de-pôr-no-ar) |
 
 ---
 
@@ -30,20 +31,21 @@ resultado no SAP**.
 2. [O que você precisa](#2-o-que-você-precisa)
 3. [O caminho mais curto: a página pronta](#3-o-caminho-mais-curto-a-página-pronta)
 4. [Tutorial: sua página em 5 etapas](#4-tutorial-sua-página-em-5-etapas)
-5. [Conceitos que você precisa conhecer](#5-conceitos-que-você-precisa-conhecer)
-6. [Referência das rotas](#6-referência-das-rotas) —
-   [lista](#61-get-pedidos--a-lista) · [conferir](#62-post-processarconferir-e-reprocessarconferir) ·
-   [executar](#63-post-processarexecutar-e-reprocessarexecutar) ·
-   [acompanhar](#64-get-execucoesid--acompanhar) · [interromper](#65-post-execucoesidcancelar--interromper)
-7. [Clonar a tela, peça por peça](#7-clonar-a-tela-peça-por-peça)
-8. [Tema: cores, letras, medidas e ícones](#8-tema-cores-letras-medidas-e-ícones)
-9. [Quando dá errado: todos os erros](#9-quando-dá-errado-todos-os-erros)
-10. [Exemplos completos de código](#10-exemplos-completos-de-código) — JavaScript, Python, PowerShell
-11. [Como testar sem estragar nada](#11-como-testar-sem-estragar-nada)
-12. [Lista de verificação antes de pôr no ar](#12-lista-de-verificação-antes-de-pôr-no-ar)
-13. [Boas práticas](#13-boas-práticas)
-14. [Perguntas frequentes](#14-perguntas-frequentes)
-15. [Suporte e histórico deste documento](#15-suporte-e-histórico-deste-documento)
+5. [Caso real: o pedido 84460, do começo ao fim](#5-caso-real-o-pedido-84460-do-começo-ao-fim)
+6. [Conceitos que você precisa conhecer](#6-conceitos-que-você-precisa-conhecer)
+7. [Referência das rotas](#7-referência-das-rotas) —
+   [lista](#71-get-pedidos--a-lista) · [conferir](#72-post-processarconferir-e-reprocessarconferir) ·
+   [executar](#73-post-processarexecutar-e-reprocessarexecutar) ·
+   [acompanhar](#74-get-execucoesid--acompanhar) · [interromper](#75-post-execucoesidcancelar--interromper)
+8. [Clonar a tela, peça por peça](#8-clonar-a-tela-peça-por-peça)
+9. [Tema: cores, letras, medidas e ícones](#9-tema-cores-letras-medidas-e-ícones)
+10. [Quando dá errado: todos os erros](#10-quando-dá-errado-todos-os-erros)
+11. [Exemplos completos de código](#11-exemplos-completos-de-código) — JavaScript, Python, PowerShell
+12. [Como testar sem estragar nada](#12-como-testar-sem-estragar-nada)
+13. [Lista de verificação antes de pôr no ar](#13-lista-de-verificação-antes-de-pôr-no-ar)
+14. [Boas práticas](#14-boas-práticas)
+15. [Perguntas frequentes](#15-perguntas-frequentes)
+16. [Suporte e histórico deste documento](#16-suporte-e-histórico-deste-documento)
 
 ---
 
@@ -107,7 +109,7 @@ Quando uma regra muda na tela, muda na sua página junto, sem você mexer em nad
 | **Chave** | Peça ao Marcelo (TI). Vai no cabeçalho `X-API-Key` de **toda** chamada. |
 | **Nome de quem opera** | Toda gravação leva `solicitante` — o nome (ou login) da **pessoa** que pediu. |
 | **Formato** | JSON na ida e na volta, em UTF-8. |
-| **Navegador** | Pode chamar direto de uma página de outro servidor (CORS liberado) — mas leia a [seção 13](#13-boas-práticas) sobre a chave. |
+| **Navegador** | Pode chamar direto de uma página de outro servidor (CORS liberado) — mas leia a [seção 14](#14-boas-práticas) sobre a chave. |
 
 Neste guia, `SUA_CHAVE` é onde vai a chave de verdade.
 
@@ -146,7 +148,7 @@ Cada etapa acrescenta **uma** coisa à página e termina com um **✔ ponto de c
 para a próxima quando ele bater. As etapas 1 a 4 **não gravam nada** no SAP; só a 5 grava.
 
 Os exemplos são em JavaScript de navegador, sem biblioteca. A lógica é a mesma em qualquer
-linguagem (veja a [seção 10](#10-exemplos-completos-de-código) para Python e PowerShell).
+linguagem (veja a [seção 11](#11-exemplos-completos-de-código) para Python e PowerShell).
 
 ### Etapa 1 — Falar com a API
 
@@ -206,7 +208,7 @@ ordem (o mais recente primeiro), mesmos totais, mesmo "1–15 de 94 pedido(s)" e
 
 **Detalhes que fazem diferença:** escolher o modo **já carrega** a lista (não há botão "Buscar");
 enquanto carrega, mostre "Carregando…" e trave os rádios; mudar de página **perde a seleção**
-([7.2](#72-tela-1--a-lista)).
+([8.2](#82-tela-1--a-lista)).
 
 ### Etapa 3 — Selecionar pedidos
 
@@ -246,7 +248,7 @@ botao.onclick = async () => {
 };
 ```
 
-A tela de conferência usa só o que está no `plano` ([7.3](#73-tela-2--a-conferência)): título
+A tela de conferência usa só o que está no `plano` ([8.3](#83-tela-2--a-conferência)): título
 "Confirmar: `{operacao}`", a faixa vermelha com `aviso.destaque` em negrito + `aviso.texto`, as
 linhas de `resumo_tela`, a tabela de `itens` e "Esta conferência vale até `{valido_ate}`".
 
@@ -277,7 +279,7 @@ async function acompanha(id) {
 }
 ```
 
-O que pintar a cada consulta ([7.4](#74-tela-3--a-execução)):
+O que pintar a cada consulta ([8.4](#84-tela-3--a-execução)):
 
 | Da API | Na tela |
 | --- | --- |
@@ -291,11 +293,668 @@ O que pintar a cada consulta ([7.4](#74-tela-3--a-execução)):
 com o seu nome e "API". O desfecho e as linhas são os mesmos nas duas.
 
 Pronto: a página faz tudo o que a original faz. Antes de entregar, passe pela
-[lista de verificação](#12-lista-de-verificação-antes-de-pôr-no-ar).
+[lista de verificação](#13-lista-de-verificação-antes-de-pôr-no-ar).
 
 ---
 
-## 5. Conceitos que você precisa conhecer
+## 5. Caso real: o pedido 84460, do começo ao fim
+
+Esta seção leva **um pedido de verdade** por toda a tela de integração: o **84460**, da VETNIL,
+que estava em "Pedidos novos". Para cada passo ela mostra **o que a pessoa vê** (cada objeto da
+página, com o texto exato), **a chamada da API** que a sua página faz e **a resposta** que volta —
+e as mensagens de cada caminho que pode dar errado.
+
+**De onde vêm os dados.** A lista e a conferência são **respostas reais** da API da .11, tiradas
+em 06/10/2026 às 13:19 — só leitura, nada foi gravado. O 84460 **não foi processado** para
+escrever este guia (processar é decisão do PCP). Por isso, os passos que gravam usam o formato que
+a API devolve e o **log real** de pedidos processados na véspera pela tela (o 84462 e o 84454):
+o 84460 produz a mesma sequência de linhas, com os números dele.
+
+| | O pedido deste exemplo |
+| --- | --- |
+| Pedido no SAP (`pedido`) | **84460** |
+| Oportunidade (`oportunidade`) | **15397** — é este número que a seleção manda |
+| Orçamento WBC (`wbc`) | **00125718** |
+| Cliente (`cliente`) | C002960 — VETNIL INDUSTRIA E COM DE PROD VETERIN LTDA |
+| Total (`total`) | 104.652,95 |
+| Criado (`criado`) | 2026-10-02 |
+| Nota espelho (`nota_espelho`) | não |
+
+### 5.1 O roteiro inteiro
+
+| Passo | A pessoa faz | A sua página chama | Grava no SAP? |
+| --- | --- | --- | --- |
+| 1 | Abre a página | `GET /api/pedidos-wbc/pedidos?modo=novos` | não |
+| 2 | Marca a caixa do 84460 | nada | não |
+| 3 | Clica "Processar selecionados (1)…" | `POST /api/pedidos-wbc/processar/conferir` | não |
+| 4 | Lê o plano e clica "Confirmar e executar" | `POST /api/pedidos-wbc/processar/executar` | **sim** |
+| 5 | Acompanha o andamento | `GET /api/pedidos-wbc/execucoes/{id}`, a cada 2 s | não |
+| 6 | Volta e vê o 84460 em "Pedidos integrados" | `GET /api/pedidos-wbc/pedidos?modo=integrados` | não |
+
+```mermaid
+flowchart LR
+    A["1. Lista<br/>84460 em Pedidos novos"] -->|"2. marca a caixa"| B["3. Conferência<br/>Nada foi gravado ainda"]
+    B -->|"Cancelar"| A
+    B -->|"4. Confirmar e executar"| C["5. Execução<br/>log a cada 2 s"]
+    C -->|"Voltar para Pedidos WBC"| D["6. Lista<br/>84460 em Pedidos integrados"]
+```
+
+### 5.2 O mapa da página: cada objeto da integração
+
+A tela tem três estados — **lista**, **conferência** e **execução**. Abaixo, todos os objetos de
+cada um, com o texto exato e de onde ele vem. "Fixo" é texto que a sua página escreve; o resto
+vem pronto da API. A barra do topo (a "Central Integração SAP" e o menu das outras telas) não é da
+integração e fica fora.
+
+#### Lista (`GET /pedidos`)
+
+| # | Objeto | Texto na tela | Vem de | Aparece quando |
+| --- | --- | --- | --- | --- |
+| L1 | Ícone (sacola) + título | "Integração de Pedidos (WBC)" | fixo | sempre |
+| L2 | Subtítulo | "Cria itens, recursos de rateio e a cascata de Ordens de Produção" | fixo | sempre |
+| L3 | Faixa laranja, ícone de relógio | "Há uma execução em andamento neste módulo: `{nome}`. Uma nova só é aceita depois que ela terminar — duas ao mesmo tempo disputariam os mesmos pedidos e OPs." — o nome é um link para a execução | `execucao_em_andamento` (`nome`, `estado`) | alguém está executando |
+| L4 | Faixa amarela | o `motivo` do erro: "Não foi possível ler o SAP agora — tente de novo em instantes." | erro `502 sap_indisponivel` | a lista não carregou |
+| L5 | Rádio | "Pedidos novos" | fixo → `modo=novos` | sempre; marcado ao abrir |
+| L6 | Rádio | "Pedidos integrados" | fixo → `modo=integrados` | sempre |
+| L7 | Nota ao lado dos rádios | "Carregando…" | fixo | enquanto a chamada não volta (rádios travados) |
+| L8 | KPI 1 (borda coral) | "3" / "NOVOS" | `kpi.valor` / `kpi.rotulo` | depois que a lista carregou |
+| L9 | KPI 2 (borda azul) | "1/1" / "PÁGINA" | `pagina`/`paginas` | depois que a lista carregou |
+| L10 | Cabeçalho da tabela | PEDIDO · OPORTUNIDADE · WBC · CLIENTE · TOTAL · CRIADO | fixo | sempre |
+| L11 | Linha do pedido | ☐ · **84460** · 15397 · ●00125718 · C002960 — VETNIL… · 104.652,95 · 2026-10-02 | `pedidos[]` | um por pedido |
+| L12 | Pílula amarela sob o número | "Nota espelho" | `pedidos[].nota_espelho` = `true` | só pedido Nota Espelho |
+| L13 | Linha única da tabela | "Nenhum pedido neste modo." | `vazio` | lista vazia |
+| L14 | Contagem | "**1–3** de **3** pedido(s)" | `primeiro`, `ultimo`, `total` | `total` > 0 |
+| L15 | Paginação | "‹ anterior" · "página **1** de **7**" · "próxima ›" · "A seleção vale só para esta página — mudar de página a perde." | `pagina`, `paginas` | `paginas` > 1 |
+| L16 | Botão vermelho, ícone ▷ | "Processar selecionados…" → com 1 marcado: "Processar selecionados (1)…" | `acao.botao`, `acao.verbo` | sempre; desabilitado sem marca |
+| L17 | Dica ao lado do botão | "Marque ao menos um pedido." · lista vazia: "Nenhum pedido para processar." | fixo | nada marcado |
+| L18 | Faixa amarela embaixo do botão | `acao.aviso` (o aviso do Reprocessar) | `acao.aviso` | só em "Pedidos integrados" |
+
+A tela original tem mais um objeto ao lado do botão: a caixa **"forçar (ignora as checagens de
+reprocessamento)"**. Ela **não existe na API** e **não deve existir na sua página** — ela duplica
+OP; mandar `force` dá `400` com a mensagem "'forçar' não existe nesta API (decisão de 01/10/2026):
+ele duplica OP. Use a tela do Controle de Produção se for mesmo preciso."
+
+#### Conferência (`POST /processar/conferir`)
+
+| # | Objeto | Texto na tela | Vem de |
+| --- | --- | --- | --- |
+| C1 | Ícone de escudo, quadrado **vermelho** + título | "Confirmar: Processar pedidos novos" | "Confirmar: " + `plano.operacao` |
+| C2 | Subtítulo | "Nada foi gravado ainda — confira e confirme" | fixo |
+| C3 | Faixa vermelha, ícone ⚠ | "**Cria Ordens de Produção**, itens e recursos no SAP, e marca o pedido como processado. Não há desfazer automático." | `plano.aviso.destaque` (negrito) + `plano.aviso.texto` |
+| C4 | Resumo | "**1** pedido(s) selecionado(s)" | `plano.resumo_tela[]` |
+| C5 | Nota | "O que será feito, exatamente — confira antes de confirmar:" | fixo |
+| C6 | Tabela | PEDIDO · OPORTUNIDADE · WBC · CLIENTE · TOTAL → 84460 · 15397 · 00125718 · C002960 — VETNIL… · 104.652,95 | `plano.itens[]` (`total_texto`) |
+| C7 | Validade | "Esta conferência vale até **2026-10-06 13:29:30**. Depois disso é preciso refazê-la — o que seria feito é recalculado sobre o estado atual do SAP." | `plano.valido_ate` (troque o `T` por espaço) |
+| C8 | Botão verde, ícone ▷ | "Confirmar e executar" | manda `plano.token` para `plano.executar` |
+| C9 | Botão vermelho | "Cancelar" | fixo — volta para a lista sem chamar nada |
+
+#### Execução (`GET /execucoes/{id}`)
+
+| # | Objeto | Texto na tela | Vem de |
+| --- | --- | --- | --- |
+| E1 | Ícone de relógio + título | "Processar pedidos novos" | `nome` |
+| E2 | Subtítulo | "1 pedido(s): 84460 · por Ana Souza · API" | `descricao` + " · por `solicitante` · API" (quando `origem` = `api`) |
+| E3 | Pílula amarela no subtítulo | "Nota espelho" | `descricao` contém "(nota espelho)" |
+| E4 | Botão à direita do título | "← Voltar para Pedidos WBC" | fixo — volta para a lista |
+| E5 | Pílula de situação | "na fila" · "executando" · "concluída" · "concluída com falhas" · "erro" · "cancelada" | `situacao` (+ " com falhas" se `desfecho` = `falhas`); cor pelo `desfecho` |
+| E6 | Progresso | " — 1/1" | `passos_feitos`/`passos_total` |
+| E7 | Duração | " — 16.0 s" | `duracao_segundos` |
+| E8 | Início | "· 06/10/2026 13:31:31" | `criada_em` em `dd/mm/aaaa hh:mm:ss` |
+| E9 | Barra de 6 px | largura e cor | `percentual` e `desfecho` |
+| E10 | Frase em negrito | "Pedido 84460 (WBC 00125718): concluído." | `passo` |
+| E11 | Log (fonte monoespaçada) | uma linha por evento; as com ⚠ em vermelho | `linhas[]` |
+| E12 | Faixa vermelha | o texto do erro | `erro` (só quando a execução quebrou) |
+| E13 | Botão "■ Interromper" + nota | "Para depois do pedido em curso — ele termina inteiro; os próximos não começam. **Não desfaz** o que já foi gravado no SAP." | `POST /execucoes/{id}/cancelar`; some quando `terminada` |
+| E14 | Seção "RESULTADO" | o JSON de `resultado`, formatado | `resultado` (quando `terminada`) |
+
+### 5.3 Passo 1 — abrir a página: a lista de pedidos novos
+
+Ao abrir, a página carrega "Pedidos novos" direto (não há botão "Buscar"):
+
+```http
+GET /api/pedidos-wbc/pedidos?modo=novos
+X-API-Key: SUA_CHAVE
+```
+
+Resposta real (06/10/2026, 13:19):
+
+```json
+{
+  "ok": true,
+  "modo": "novos",
+  "kpi": { "valor": 3, "rotulo": "Novos" },
+  "total": 3,
+  "pagina": 1,
+  "paginas": 1,
+  "por_pagina": 15,
+  "primeiro": 1,
+  "ultimo": 3,
+  "pedidos": [
+    {
+      "pedido": 84464, "oportunidade": 15433, "wbc": "00125737",
+      "cliente_codigo": "C004271", "cliente_nome": "TAKII DO BRASIL LTDA",
+      "cliente": "C004271 — TAKII DO BRASIL LTDA",
+      "total": 7700, "criado": "2026-10-06", "nota_espelho": false
+    },
+    {
+      "pedido": 84463, "oportunidade": 15609, "wbc": "00125869",
+      "cliente_codigo": "C002421", "cliente_nome": "POLY BLOW INDUSTRIA E COMERCIO LTDA",
+      "cliente": "C002421 — POLY BLOW INDUSTRIA E COMERCIO LTDA",
+      "total": 1383.55, "criado": "2026-10-05", "nota_espelho": false
+    },
+    {
+      "pedido": 84460, "oportunidade": 15397, "wbc": "00125718",
+      "cliente_codigo": "C002960", "cliente_nome": "VETNIL INDUSTRIA E COM DE PROD VETERIN LTDA",
+      "cliente": "C002960 — VETNIL INDUSTRIA E COM DE PROD VETERIN LTDA",
+      "total": 104652.95, "criado": "2026-10-02", "nota_espelho": false
+    }
+  ],
+  "vazio": null,
+  "acao": {
+    "tipo": "processar",
+    "verbo": "Processar",
+    "botao": "Processar selecionados…",
+    "conferir": "/api/pedidos-wbc/processar/conferir",
+    "aviso": null
+  },
+  "execucao_em_andamento": null
+}
+```
+
+Como a página fica com essa resposta (os números são os objetos da [5.2](#52-o-mapa-da-página-cada-objeto-da-integração)):
+
+```
+L1 ┌──────┐ Integração de Pedidos (WBC)
+   │  🛍  │ Cria itens, recursos de rateio e a cascata de Ordens de Produção        L2
+   └──────┘
+L5/L6 (●) Pedidos novos  ( ) Pedidos integrados     L8 ┃ 3  NOVOS ┃   L9 ┃ 1/1  PÁGINA ┃
+L10 ┌───┬────────┬──────────────┬────────────┬────────────────────────────────┬────────────┬────────────┐
+    │   │ PEDIDO │ OPORTUNIDADE │ WBC        │ CLIENTE                        │      TOTAL │ CRIADO     │
+L11 │ ☐ │ 84464  │    15433     │ ●00125737  │ C004271 — TAKII DO BRASIL LTDA │   7.700,00 │ 2026-10-06 │
+    │ ☐ │ 84463  │    15609     │ ●00125869  │ C002421 — POLY BLOW INDUSTRIA… │   1.383,55 │ 2026-10-05 │
+    │ ☐ │ 84460  │    15397     │ ●00125718  │ C002960 — VETNIL INDUSTRIA E … │ 104.652,95 │ 2026-10-02 │
+    └───┴────────┴──────────────┴────────────┴────────────────────────────────┴────────────┴────────────┘
+L14 1–3 de 3 pedido(s)
+L16 [ ▷ Processar selecionados… ] (desabilitado)   L17 Marque ao menos um pedido.
+```
+
+- **A lista é viva.** De manhã havia **1** pedido novo (só o 84460); às 13:19 eram **3** — o
+  84463 e o 84464 chegaram do WBC. Nunca guarde a lista: releia sempre que voltar à página.
+- **O pedido mais novo no SAP vem primeiro** (ordem de criação do pedido). Por isso o 84460, o mais
+  antigo dos três, é a última linha.
+- **Sem L3, L4, L12, L13, L15 e L18:** não havia execução rodando, a lista carregou, nenhum pedido é
+  Nota Espelho, a lista não está vazia, cabe numa página e o modo é "novos".
+
+Se der errado neste passo (respostas reais):
+
+| Situação | HTTP | `tipo` | `motivo` | O que a página faz |
+| --- | --- | --- | --- | --- |
+| Chave ausente ou errada | 401 | `sem_chave` | "X-API-Key ausente ou incorreta." | pede a chave de novo |
+| `modo` errado | 400 | `invalido` | "'modo' deve ser 'novos' ou 'integrados'." | erro de programação: corrija a chamada |
+| `pagina` errada | 400 | `invalido` | "'pagina' deve ser um número inteiro a partir de 1." | idem |
+| O SAP não respondeu | 502 | `sap_indisponivel` | "Não foi possível ler o SAP agora — tente de novo em instantes." | faixa amarela (L4); a página abre mesmo assim |
+
+### 5.4 Passo 2 — marcar o 84460
+
+Este passo **não chama a API**. A pessoa marca a caixa da linha do 84460 e a página só se
+redesenha:
+
+| Objeto | Antes | Depois de marcar o 84460 |
+| --- | --- | --- |
+| Caixa da linha (L11) | ☐ | ☑ — o **valor** da caixa é **15397** (a oportunidade), não 84460 |
+| Botão (L16) | "Processar selecionados…", desabilitado | "**Processar selecionados (1)…**", habilitado |
+| Dica (L17) | "Marque ao menos um pedido." | some |
+
+O número entre parênteses é a última conferência visual antes de sair da lista: se a pessoa marcou
+2 sem querer, o botão diz "(2)". Mudar de página **perde a seleção** (só existe a da página vista).
+
+### 5.5 Passo 3 — conferir: o plano do 84460 (ainda sem gravar)
+
+O clique no botão manda **as oportunidades marcadas** para `acao.conferir`:
+
+```http
+POST /api/pedidos-wbc/processar/conferir
+X-API-Key: SUA_CHAVE
+Content-Type: application/json
+
+{ "oportunidades": [15397] }
+```
+
+O servidor **relê a lista no SAP** (não confia no que a página mostrava), confirma que o 15397
+ainda está em "Pedidos novos" e devolve o plano. Resposta real:
+
+```json
+{
+  "ok": true,
+  "plano": {
+    "token": "BJdtIicyoXsVI1SApD9g8IoWAaZW8z_m",
+    "tipo": "processar",
+    "operacao": "Processar pedidos novos",
+    "valido_ate": "2026-10-06T13:29:30",
+    "resumo": { "pedidos": 1 },
+    "resumo_tela": [ { "valor": 1, "rotulo": "pedido(s) selecionado(s)" } ],
+    "aviso": {
+      "destaque": "Cria Ordens de Produção",
+      "texto": ", itens e recursos no SAP, e marca o pedido como processado. Não há desfazer automático."
+    },
+    "executar": "/api/pedidos-wbc/processar/executar",
+    "itens": [
+      {
+        "pedido": 84460,
+        "oportunidade": 15397,
+        "wbc": "00125718",
+        "cliente_codigo": "C002960",
+        "cliente_nome": "VETNIL INDUSTRIA E COM DE PROD VETERIN LTDA",
+        "cliente": "C002960 — VETNIL INDUSTRIA E COM DE PROD VETERIN LTDA",
+        "total": 104652.95,
+        "total_texto": "104.652,95"
+      }
+    ]
+  }
+}
+```
+
+(Este token já venceu: valia até 13:29:30, 10 minutos depois da conferência, e ninguém confirmou —
+é exatamente o que acontece quando a pessoa desiste. Nada foi gravado.)
+
+A página troca a lista pela conferência:
+
+```
+C1 ┌──────┐ Confirmar: Processar pedidos novos
+   │  🛡  │ Nada foi gravado ainda — confira e confirme                                  C2
+   └──────┘
+   ┌───────────────────────────────────────────────────────────────────────────────────┐
+C3 │ ⚠ Cria Ordens de Produção, itens e recursos no SAP, e marca o pedido como           │
+   │   processado. Não há desfazer automático.                                           │
+   └───────────────────────────────────────────────────────────────────────────────────┘
+C4 1 pedido(s) selecionado(s)
+C5 O que será feito, exatamente — confira antes de confirmar:
+C6 ┌────────┬──────────────┬──────────┬───────────────────────────────────────┬────────────┐
+   │ PEDIDO │ OPORTUNIDADE │ WBC      │ CLIENTE                               │ TOTAL      │
+   │ 84460  │ 15397        │ 00125718 │ C002960 — VETNIL INDUSTRIA E COM DE … │ 104.652,95 │
+   └────────┴──────────────┴──────────┴───────────────────────────────────────┴────────────┘
+C7 Esta conferência vale até 2026-10-06 13:29:30. Depois disso é preciso refazê-la — o que
+   seria feito é recalculado sobre o estado atual do SAP.
+C8 [ ▷ Confirmar e executar ] (verde)     C9 [ Cancelar ] (vermelho)
+```
+
+Guarde `plano.token` e `plano.executar` — são o que o botão verde vai mandar.
+
+Se der errado neste passo (respostas reais):
+
+| Situação | HTTP | `tipo` | `motivo` | O que a página faz |
+| --- | --- | --- | --- | --- |
+| Nada marcado | 400 | `invalido` | "Nenhum pedido selecionado." | não deveria acontecer: o botão fica desabilitado |
+| O pedido saiu da lista (alguém processou antes, pela tela ou por outro sistema) | 409 | `fora_da_lista` | "Estes pedidos não estão mais na lista elegível e foram recusados: 15397. Refaça a busca — o estado no SAP mudou desde que a tela foi carregada." (com `"fora": ["15397"]`) | recarrega a lista e mostra o `motivo` numa faixa vermelha |
+| Número que não é de oportunidade | 400 | `invalido` | "'oportunidades' deve conter só números de Oportunidade: recebido 'abc'." | erro de programação |
+| `force` no corpo | 400 | `invalido` | "'forçar' não existe nesta API (decisão de 01/10/2026): ele duplica OP. Use a tela do Controle de Produção se for mesmo preciso." | tire o `force` |
+
+(O `fora_da_lista` acima é a resposta real para a oportunidade 99999, com o número trocado pelo do
+exemplo: a frase é a mesma.)
+
+### 5.6 Passo 4 — confirmar e executar (grava no SAP)
+
+> ⚠️ Este é o único passo que grava. Para o 84460 ele cria, no SAP de produção, o Detalhe do
+> Orçamento, os itens que faltarem, os recursos de rateio `GGF_…` e **todas as Ordens de
+> Produção** do pedido — e marca o pedido como processado. Não há desfazer automático.
+
+Ao clicar em "Confirmar e executar", a página **desabilita o botão** (o token vale uma vez) e manda o
+token com o nome da pessoa:
+
+```http
+POST /api/pedidos-wbc/processar/executar
+X-API-Key: SUA_CHAVE
+Content-Type: application/json
+
+{ "token": "BJdtIicyoXsVI1SApD9g8IoWAaZW8z_m", "solicitante": "Ana Souza" }
+```
+
+A resposta é **`202`** e quer dizer só "**começou**" — o resultado ainda não existe. Para o 84460
+ela tem esta forma (o `id` e o horário mudam a cada execução):
+
+```json
+{
+  "ok": true,
+  "execucao": {
+    "id": "3f9a1c2b7d10",
+    "nome": "Processar pedidos novos",
+    "descricao": "1 pedido(s): 84460",
+    "situacao": "na fila",
+    "terminada": false,
+    "com_falhas": false,
+    "desfecho": "fila",
+    "passo": "",
+    "passos_feitos": 0,
+    "passos_total": 0,
+    "percentual": null,
+    "criada_em": "2026-10-06T13:31:31",
+    "duracao_segundos": null,
+    "linhas": [],
+    "resultado": null,
+    "erro": null,
+    "solicitante": "Ana Souza",
+    "origem": "api",
+    "parada_pedida": false,
+    "parada_combinada": true,
+    "estado": "/api/pedidos-wbc/execucoes/3f9a1c2b7d10"
+  }
+}
+```
+
+A página vai direto para a tela de execução e começa a consultar `execucao.estado`.
+
+Se der errado neste passo:
+
+| Situação | HTTP | `tipo` | `motivo` | Gastou o token? | O que a página faz |
+| --- | --- | --- | --- | --- | --- |
+| Sem `solicitante` (resposta real) | 400 | `invalido` | "Informe 'solicitante': quem pediu a operação (nome ou login), até 80 caracteres. Ele vai para o log e para o histórico de Execuções." | **não** | corrige e manda de novo, com o mesmo token |
+| Sem `token` | 400 | `invalido` | "Informe o 'token' devolvido por /api/pedidos-wbc/processar/conferir." | — | volta para a lista |
+| Outra execução rodando (pela tela ou pela API) | 409 | `ocupado` | "O módulo 'pedidos_wbc' já tem uma execução em andamento (Processar pedidos novos, iniciada às 13:30:02). Duas execuções simultâneas no mesmo módulo disputariam os mesmos pedidos e OPs." | **não** | mostra o `motivo` e o link "Acompanhar a execução em andamento" (`execucao_em_andamento.estado`); não tenta em laço |
+| Token vencido (passou das 13:29:30) | 409 | `confirmacao_invalida` | "A confirmação venceu. O plano foi calculado sobre o estado do SAP de alguns minutos atrás e pode não valer mais; refaça a conferência." | — | volta para a lista para conferir de novo |
+| Token já usado (duplo clique) | 409 | `confirmacao_invalida` | "Confirmação inválida ou já utilizada. Refaça a conferência antes de executar — o que seria feito precisa ser recalculado." | — | idem; por isso o botão é desabilitado no clique |
+| Escrita desligada no servidor | 503 | `escrita_desabilitada` | o motivo do servidor | **não** | avisa o TI |
+
+### 5.7 Passo 5 — acompanhar: o log, linha por linha
+
+A cada 2 segundos a página chama o `estado` até `terminada: true`:
+
+```http
+GET /api/pedidos-wbc/execucoes/3f9a1c2b7d10
+X-API-Key: SUA_CHAVE
+```
+
+Enquanto roda, vem `"situacao": "executando"`, `"desfecho": "rodando"` e as `linhas` crescendo.
+Para mostrar como o log do 84460 vai ficar, abaixo está a resposta **real** do último pedido
+processado antes dele — o **84462** (WBC 00124669), processado pela tela em 05/10/2026 às 13:31,
+em 16 segundos. Foi lida pela mesma rota, `GET /api/pedidos-wbc/execucoes/be5449dd646b`. As linhas
+repetidas de OP de semiacabado foram cortadas (`…`):
+
+```json
+{
+  "ok": true,
+  "execucao": {
+    "id": "be5449dd646b",
+    "nome": "Processar pedidos novos",
+    "descricao": "1 pedido(s): 84462",
+    "situacao": "concluída",
+    "terminada": true,
+    "com_falhas": false,
+    "desfecho": "ok",
+    "passo": "Pedido 84462 (WBC 00124669): concluído.",
+    "passos_feitos": 1,
+    "passos_total": 1,
+    "percentual": 100,
+    "criada_em": "2026-10-05T13:31:31",
+    "duracao_segundos": 16.0,
+    "linhas": [
+      "13:31:31  Conectando à Service Layer (SBOALTAMIRAPROD)…",
+      "13:31:31  Pedido 84462 (WBC 00124669) (1/1)…",
+      "13:31:31  Pedido 00124669 (DocNum 84462): montando a tabela do orçamento...",
+      "13:31:32      Estrutura detalhada com 43 item(ns) — montando o espelho do orçamento.",
+      "13:31:33  Login na Service Layer efetuado (CompanyDB=SBOALTAMIRAPROD)",
+      "13:31:33      Detalhe do Orçamento 546878 criado.",
+      "13:31:33    Pedido congelado: atualizando os campos de controle.",
+      "13:31:34    Detalhe do Orçamento do pedido: 546872 → 546878 (conferido no SAP).",
+      "13:31:34  Pedido 00124669: lendo a estrutura de produto no WBC...",
+      "13:31:35  Pedido 00124669: peso da linha 0 (item I000003, OrcItm 1, qtd 1): SAP 3.408,00 kg · esperado 3.408,58 kg (árvore do WBC 3.098,71 kg + 10%).",
+      "13:31:35  Pedido 00124669: peso da linha 1 (item I000003, OrcItm 5, qtd 1): SAP 29,79 kg · esperado 29,79 kg (árvore do WBC 27,08 kg + 10%).",
+      "13:31:35  Pedido 00124669: estrutura com 43 item(ns); garantindo que estejam cadastrados (uma consulta por item)...",
+      "13:31:35    Item PPLGAR00000000000080 está na lista de solda: forçando grupo 332.",
+      "13:31:37  Pedido 00124669: 2 grupo(s) de produção a processar.",
+      "13:31:37  Pedido 00124669: grupo 1/2 (GrpCode=2, OrcItm=1, 8 item(ns))...",
+      "13:31:37      Recurso de rateio GGF_00124669I0000035492252 criado (Code=GGF_00124669I0000035492252).",
+      "13:31:37    OP criada: DocEntry=159674, item I000003 — TRAVESSA CHAPA GALV. esp 1,55 mm 405MM (1 un), 9 linha(s).",
+      "13:31:37    OP de semiacabado criada: DocEntry=159675, item PPLTRAGALVA155000000#405#0#0 — TRAVESSA CHAPA GALV. esp 1,55 mm 405MM (84 un), 1 componente(s).",
+      "…",
+      "13:31:43    OP de semiacabado criada: DocEntry=159689, item PAR000PADRA000000000 — CONJ PARAFUSO PADRAO 5/16 x 5/8 Gr 8 (280 un), 2 componente(s).",
+      "13:31:43    Gravando U_INO_OP=159674 em 1 linha(s) do pedido 20357.",
+      "13:31:45  Pedido 00124669: grupo 2/2 (GrpCode=2, OrcItm=5, 1 item(ns))...",
+      "13:31:45      Recurso de rateio GGF_00124669I00000380448 criado (Code=GGF_00124669I00000380448).",
+      "13:31:45    OP criada: DocEntry=159690, item I000003 — PROTETOR COLUNA NOVO MED 300MM C/ CHUMB NORMAL (1 un), 2 linha(s).",
+      "…",
+      "13:31:46    Gravando U_INO_OP=159690 em 1 linha(s) do pedido 20357.",
+      "13:31:47  Pedido 84462 (WBC 00124669): concluído."
+    ],
+    "resultado": {
+      "sem_op": [],
+      "com_erro": [],
+      "sem_rateio": [],
+      "processados": [ { "doc_num": "84462", "orc_num": "00124669" } ],
+      "pesos_diferentes": []
+    },
+    "erro": null,
+    "solicitante": null,
+    "origem": "tela",
+    "parada_pedida": false,
+    "parada_combinada": false,
+    "estado": "/api/pedidos-wbc/execucoes/be5449dd646b"
+  }
+}
+```
+
+Duas diferenças para o que a sua página vai ver: ali `"origem": "tela"` e `"solicitante": null`
+(foi feito pela tela original); pela API vêm `"api"` e o nome da pessoa — e o subtítulo E2 ganha
+" · por Ana Souza · API".
+
+**O que cada linha quer dizer** — na ordem em que aparecem:
+
+| Linha do log | O que aconteceu no SAP |
+| --- | --- |
+| "Conectando à Service Layer (SBOALTAMIRAPROD)…" | Começou. `SBOALTAMIRAPROD` é o SAP de produção. |
+| "Pedido 84462 (WBC 00124669) (1/1)…" | Começou o pedido 1 de 1. Com 3 pedidos marcados, viria "(1/3)", "(2/3)"… |
+| "montando a tabela do orçamento..." · "Estrutura detalhada com 43 item(ns)" | Leu o orçamento no WBC: 43 itens na árvore. |
+| "Login na Service Layer efetuado" | Entrou no SAP para gravar. |
+| "Detalhe do Orçamento 546878 criado." | **Gravou** o espelho do orçamento no SAP. |
+| "Pedido congelado: atualizando os campos de controle." | **Marcou o pedido como processado** — antes da primeira OP (é por isso que não há desfazer automático). |
+| "Detalhe do Orçamento do pedido: 546872 → 546878 (conferido no SAP)." | O pedido passou a apontar para o Detalhe novo, e o servidor releu o SAP para conferir. |
+| "peso da linha 0 (…): SAP 3.408,00 kg · esperado 3.408,58 kg (árvore do WBC 3.098,71 kg + 10%)." | Conferência do peso de cada linha (regra: árvore do WBC + 10%). Diferença acima de 1% vira aviso ⚠ com a CAUSA ([7.4.1](#741-peso-diferente-e-a-causa)). |
+| "garantindo que estejam cadastrados (uma consulta por item)..." | Confere cada item da árvore; cria o que faltar. |
+| "Item … está na lista de solda: forçando grupo 332." | Regra da fábrica: item soldado vai para o grupo de produção 332. |
+| "2 grupo(s) de produção a processar." · "grupo 1/2 (…)" | Cada grupo de produção vira uma cascata de OPs. |
+| "Recurso de rateio GGF_… criado" | **Gravou** a linha de custo (transporte, embalagem, montagem) que entra na OP. |
+| "OP criada: DocEntry=159674, item I000003 — … (1 un), 9 linha(s)." | **Criou a OP principal** do grupo. `DocEntry` é o número interno da OP no SAP. |
+| "OP de semiacabado criada: DocEntry=159675, …" | **Criou a OP de cada peça intermediária** (travessa, diagonal, longarina…). |
+| "Gravando U_INO_OP=159674 em 1 linha(s) do pedido 20357." | Ligou a linha do pedido à OP principal. 20357 é o número **interno** (DocEntry) do pedido 84462. |
+| "Pedido 84462 (WBC 00124669): concluído." | Fim do pedido — é também o último `passo`. |
+
+A tela de execução no fim (com os valores que o 84460 vai mostrar):
+
+```
+E1 ┌──────┐ Processar pedidos novos                            E4 [ ← Voltar para Pedidos WBC ]
+   │  🕑  │ 1 pedido(s): 84460 · por Ana Souza · API                                      E2
+   └──────┘
+E5 (● CONCLUÍDA) E6 — 1/1  E7 — 16.0 s  E8 · 06/10/2026 13:31:31
+E9 ███████████████████████████████████████████████████████████████████  (barra verde)
+E10 Pedido 84460 (WBC 00125718): concluído.
+E11 ┌ log ──────────────────────────────────────────────────────────────────────────┐
+    │ 13:31:31  Conectando à Service Layer (SBOALTAMIRAPROD)…                        │
+    │ 13:31:31  Pedido 84460 (WBC 00125718) (1/1)…                                   │
+    │ …                                                                              │
+    │ 13:31:47  Pedido 84460 (WBC 00125718): concluído.                              │
+    └────────────────────────────────────────────────────────────────────────────────┘
+E14 RESULTADO
+    { "processados": [ { "doc_num": "84460", "orc_num": "00125718" } ], "com_erro": [], … }
+```
+
+O botão Interromper (E13) aparece enquanto `terminada` é `false` e some no fim. Para conferir o
+resultado: `desfecho` = `ok`, o 84460 em `resultado.processados`, e `com_erro`, `sem_op` e
+`sem_rateio` vazios.
+
+### 5.8 Quando o pedido dá erro: um caso real
+
+Em 02/10/2026 às 08:42 o processamento do **84454** falhou porque a Service Layer do SAP estava com
+problema (resposta real de `GET /api/pedidos-wbc/execucoes/e8cef1e3f3c6`, resumida):
+
+```json
+{
+  "situacao": "concluída",
+  "terminada": true,
+  "com_falhas": true,
+  "desfecho": "falhas",
+  "passo": "Pedido 84454 (WBC 00125793): ERRO — Falha no login da Service Layer: 400 {\n   \"error\" : {\n      \"code\" : 126,\n      \"message\" : {\n         \"lang\" : \"en-us\",\n         \"value\" : \"Unable to load OBServerDLL.dll\"\n      }\n   }\n}\n",
+  "linhas": [
+    "08:42:36  Conectando à Service Layer (SBOALTAMIRAPROD)…",
+    "08:42:36  Pedido 84454 (WBC 00125793) (1/1)…",
+    "08:42:36  Pedido 00125793 (DocNum 84454): montando a tabela do orçamento...",
+    "08:42:39      Estrutura detalhada com 46 item(ns) — montando o espelho do orçamento.",
+    "08:42:40  ⚠ Erro em preenche_tabela para orc_num=00125793",
+    "08:42:40    Pedido congelado: atualizando os campos de controle.",
+    "08:42:41  ⚠ Erro ao processar pedido novo orc_num=00125793",
+    "08:42:42  ⚠ Pedido 84454 (WBC 00125793): ERRO — Falha no login da Service Layer: 400 {…}"
+  ],
+  "resultado": {
+    "processados": [],
+    "com_erro": [
+      { "orc_num": "00125793", "doc_num": "84454", "motivo": "Falha no login da Service Layer: 400 {…}" }
+    ],
+    "sem_op": [], "sem_rateio": [], "pesos_diferentes": []
+  }
+}
+```
+
+O que a página mostra e por quê:
+
+- **Pílula amarela "concluída com falhas"** — `situacao` diz "concluída" (a execução não quebrou),
+  mas o `desfecho` é `falhas`: tem pedido em `com_erro`. Pinte pelo `desfecho`, nunca de verde.
+- **As linhas com ⚠ em vermelho.**
+- **O `passo` e o `motivo` têm quebras de linha** (`\n`) — o SAP devolveu um JSON de erro. Mostre com
+  `white-space: pre-wrap`, como texto.
+- **O que fazer depois:** volte à lista e veja onde o pedido está. Neste caso o 84454 continuou em
+  "Pedidos novos" e foi processado de novo às 09:02, com sucesso. Se um pedido aparecer em
+  "Pedidos integrados" com OP faltando, fale com o PCP antes de qualquer coisa ([6](#6-conceitos-que-você-precisa-conhecer), "O que Processar grava").
+
+### 5.9 Passo 6 — depois: o 84460 em "Pedidos integrados"
+
+Terminado o Processar, o 84460 **sai** de "Pedidos novos" e **entra** em "Pedidos integrados":
+
+| | Antes (06/10, 13:19, real) | Depois de processar o 84460 |
+| --- | --- | --- |
+| `GET …/pedidos?modo=novos` → `kpi` | 3 Novos | 2 Novos (84464 e 84463) |
+| `GET …/pedidos?modo=integrados` → `kpi` | 93 Integrados, 7 páginas | 94 Integrados |
+| Onde o 84460 aparece | 3ª linha de "novos" | 1ª página de "integrados", entre o 84461 e o 84458 |
+
+Em "Pedidos integrados" a página muda três objetos, tudo pela resposta (`acao`):
+
+- o botão (L16) vira "**Reprocessar selecionados…**", com o ícone de raio;
+- a dica (L17) fica "Marque ao menos um pedido." (lista vazia: "Nenhum pedido para reprocessar.");
+- aparece a faixa amarela (L18), **antes de qualquer clique**: "**Reprocessar** cancela todas as OPs
+  **planejadas** do pedido — de qualquer origem, inclusive as do addon — e **não recria**: o pedido
+  volta para "Pedidos novos" e precisa ser processado de novo."
+
+**Se o 84460 precisar ser refeito** (ex.: o orçamento mudou no WBC depois de processado), o caminho é
+o mesmo, com as rotas do Reprocessar: marca a caixa (oportunidade 15397) →
+`POST /api/pedidos-wbc/reprocessar/conferir` → conferência com o título "Confirmar: Reprocessar
+pedidos integrados" e a faixa vermelha inteira do `aviso.texto` (sem `destaque`) →
+`POST /api/pedidos-wbc/reprocessar/executar` → acompanhamento. O log real do 84454 reprocessado em
+05/10/2026 às 15:15 (`903bf0c9d992`), resumido:
+
+```
+15:15:54  Pedido 84454 (WBC 00125793) (1/1)…
+15:15:58      Detalhe do Orçamento 546895 criado.
+15:15:58    Pedido congelado: atualizando os campos de controle e zerando U_INO_OP nas linhas.
+15:15:58    Vinculando o pedido 84454 à Oportunidade 15507 (status WBC 60)...
+15:15:59      Oportunidade 15507 marcada como Ganha.
+15:15:59    20 OP(s) planejada(s) do pedido 84454 a cancelar antes de recriar.
+15:15:59      OP 157883 cancelada (1/20): I000003 — Porta-Paletes (1 un).
+…
+15:16:03      OP 157902 cancelada (20/20): PAR000PADRA000000000 — CONJ PARAFUSO PADRAO 5/16 x 5/8 Gr 8 (372 un).
+15:16:03    Pedido 84454 reintegrado.
+15:16:03  Pedido 84454 (WBC 00125793): reprocessado — OPs planejadas canceladas; processe de novo em "Pedidos novos" para criar as OPs.
+```
+
+Atenção à linha "a cancelar **antes de recriar**": o Reprocessar **não recria** nada — a última
+linha diz o que fazer: o pedido voltou para "Pedidos novos" e precisa de um **Processar** (os passos
+1 a 5 de novo). O `resultado` vem com `"atualizados": [{"doc_num": "84454", "orc_num": "00125793"}]`.
+
+### 5.10 Todas as mensagens da integração, num lugar só
+
+Os textos que a pessoa pode ver nesta tela. "API" = vem pronto na resposta (use-o como veio);
+"fixo" = a sua página escreve.
+
+| Onde | Mensagem | Quando | Origem |
+| --- | --- | --- | --- |
+| Lista | "Carregando…" | enquanto a lista carrega | fixo |
+| Lista | "Nenhum pedido neste modo." | lista vazia | API `vazio` |
+| Lista | "Marque ao menos um pedido." | nada marcado | fixo |
+| Lista | "Nenhum pedido para processar." / "…para reprocessar." | lista vazia | fixo |
+| Lista | "A seleção vale só para esta página — mudar de página a perde." | mais de uma página | fixo |
+| Lista | "Há uma execução em andamento neste módulo: … Uma nova só é aceita depois que ela terminar — duas ao mesmo tempo disputariam os mesmos pedidos e OPs." | execução rodando | fixo + API `execucao_em_andamento.nome` |
+| Lista | "Reprocessar cancela todas as OPs planejadas do pedido — …" | "Pedidos integrados" | API `acao.aviso` |
+| Lista | "Não foi possível ler o SAP agora — tente de novo em instantes." | `502 sap_indisponivel` | API `motivo` |
+| Conferência | "Nada foi gravado ainda — confira e confirme" | sempre | fixo |
+| Conferência | "**Cria Ordens de Produção**, itens e recursos no SAP, e marca o pedido como processado. Não há desfazer automático." | Processar | API `aviso` |
+| Conferência | "Para cada pedido: grava uma tabela nova do orçamento (OrcDetalhe), … OP cancelada não volta." | Reprocessar | API `aviso.texto` |
+| Conferência | "O que será feito, exatamente — confira antes de confirmar:" | sempre | fixo |
+| Conferência | "Esta conferência vale até … Depois disso é preciso refazê-la — o que seria feito é recalculado sobre o estado atual do SAP." | sempre | fixo + API `valido_ate` |
+| Conferência | "Estes pedidos não estão mais na lista elegível e foram recusados: … Refaça a busca — o estado no SAP mudou desde que a tela foi carregada." | `409 fora_da_lista` | API `motivo` |
+| Conferência | "Nenhum pedido selecionado." | `400 invalido` | API `motivo` |
+| Executar | "Informe 'solicitante': quem pediu a operação (nome ou login), até 80 caracteres. …" | `400 invalido` | API `motivo` |
+| Executar | "O módulo 'pedidos_wbc' já tem uma execução em andamento (…). Duas execuções simultâneas no mesmo módulo disputariam os mesmos pedidos e OPs." | `409 ocupado` | API `motivo` |
+| Executar | "A confirmação venceu. …" · "Confirmação inválida ou já utilizada. …" · "Esta confirmação é de outra operação e não vale aqui. …" | `409 confirmacao_invalida` | API `motivo` |
+| Execução | "Para depois do pedido em curso — ele termina inteiro; os próximos não começam. Não desfaz o que já foi gravado no SAP." | ao lado do Interromper | fixo |
+| Execução | "Interrupção pedida — o que está em curso termina inteiro e o próximo não começa. O que já foi gravado no SAP fica." | depois do Interromper (`cancelada: true`) | fixo |
+| Execução | "Não havia execução em andamento para interromper." | depois do Interromper (`cancelada: false`) | fixo |
+| Execução | "Execução não encontrada. Ela pode ter saído do histórico (ficam as 30 mais recentes) ou o serviço foi reiniciado antes de ela ser guardada." | `404 nao_encontrada` | API `motivo` |
+| Execução | cada linha do log e o `passo` | sempre | API `linhas`, `passo` |
+| Qualquer | "X-API-Key ausente ou incorreta." | `401 sem_chave` | API `motivo` |
+
+### 5.11 O mesmo roteiro, em código
+
+O roteiro completo do 84460 em Python — o mesmo da [seção 11](#11-exemplos-completos-de-código),
+com a busca pelo número do pedido e a confirmação da pessoa no meio. Até o `input` nada é gravado:
+
+```python
+import os
+import time
+
+import requests
+
+BASE = "http://192.168.7.11:8080"
+CABECALHO = {"X-API-Key": os.environ["SIS_API_KEY"]}
+
+
+def chama(metodo: str, caminho: str, corpo: dict | None = None) -> dict:
+    r = requests.request(metodo, BASE + caminho, headers=CABECALHO, json=corpo, timeout=120)
+    dados = r.json()
+    if not dados.get("ok"):
+        raise RuntimeError(f"{r.status_code} {dados['tipo']}: {dados['motivo']}")
+    return dados
+
+
+lista = chama("GET", "/api/pedidos-wbc/pedidos?modo=novos")
+alvo = next((p for p in lista["pedidos"] if p["pedido"] == 84460), None)
+if alvo is None:
+    raise SystemExit("O 84460 não está em Pedidos novos (já foi processado?).")
+
+plano = chama("POST", lista["acao"]["conferir"], {"oportunidades": [alvo["oportunidade"]]})["plano"]
+print(f"Confirmar: {plano['operacao']}")
+print(plano["aviso"]["destaque"] + plano["aviso"]["texto"])
+for item in plano["itens"]:
+    print(f"  {item['pedido']}  {item['oportunidade']}  {item['wbc']}  {item['cliente']}  {item['total_texto']}")
+print(f"Esta conferência vale até {plano['valido_ate'].replace('T', ' ')}.")
+if input("Digite SIM para executar: ").strip() != "SIM":
+    raise SystemExit("Nada foi gravado.")
+
+execucao = chama("POST", plano["executar"], {"token": plano["token"], "solicitante": "Ana Souza"})["execucao"]
+vistas = 0
+while True:
+    for linha in execucao["linhas"][vistas:]:
+        print(linha)
+    vistas = len(execucao["linhas"])
+    if execucao["terminada"]:
+        break
+    time.sleep(2)
+    execucao = chama("GET", execucao["estado"])["execucao"]
+print("Desfecho:", execucao["desfecho"])
+print("Resultado:", execucao["resultado"])
+```
+
+Repare que nenhuma rota foi escrita à mão depois da primeira: `acao.conferir`, `plano.executar` e
+`execucao.estado` vêm nas respostas. Se uma rota mudar de nome, o roteiro continua funcionando.
+
+---
+
+## 6. Conceitos que você precisa conhecer
 
 ### Glossário
 
@@ -408,10 +1067,10 @@ API**, de propósito: ela duplica OP. Mandar `force` (ou `forcar`) em qualquer c
 
 ---
 
-## 6. Referência das rotas
+## 7. Referência das rotas
 
 Todas exigem `X-API-Key`. Respostas de sucesso trazem `"ok": true`; erros trazem
-`{"ok": false, "tipo": "...", "motivo": "..."}` ([seção 9](#9-quando-dá-errado-todos-os-erros)).
+`{"ok": false, "tipo": "...", "motivo": "..."}` ([seção 10](#10-quando-dá-errado-todos-os-erros)).
 
 | Na tela | Na API |
 | --- | --- |
@@ -423,7 +1082,7 @@ Todas exigem `X-API-Key`. Respostas de sucesso trazem `"ok": true`; erros trazem
 | A tela de execução, que se atualiza sozinha | `GET /api/pedidos-wbc/execucoes/{id}` |
 | "Interromper" | `POST /api/pedidos-wbc/execucoes/{id}/cancelar` |
 
-### 6.1 `GET /pedidos` — a lista
+### 7.1 `GET /pedidos` — a lista
 
 | Parâmetro | Valores | Padrão |
 | --- | --- | --- |
@@ -496,14 +1155,14 @@ embaixo da lista:
 | `kpi` | O 1º cartão: número grande + rótulo em caixa alta. |
 | `pagina`/`paginas` | O 2º cartão ("2/7", rótulo "Página") e a paginação. |
 | `primeiro`/`ultimo`/`total` | "16–30 de 93 pedido(s)". |
-| `pedidos[]` | As linhas da tabela. `total` é número: formate em reais ([7.5](#75-formatação)). |
+| `pedidos[]` | As linhas da tabela. `total` é número: formate em reais ([8.5](#85-formatação)). |
 | `vazio` | Com a lista vazia: o texto da linha única da tabela ("Nenhum pedido neste modo."). |
 | `acao.botao` / `acao.verbo` | O rótulo do botão; com seleção vira "`{verbo}` selecionados (`n`)…". |
 | `acao.conferir` | Para onde mandar a seleção. |
 | `acao.aviso` | Só em integrados: o aviso amarelo embaixo do botão. |
-| `execucao_em_andamento` | Não-nulo = há execução rodando: mostre o aviso com o link ([7.2](#72-tela-1--a-lista)). |
+| `execucao_em_andamento` | Não-nulo = há execução rodando: mostre o aviso com o link ([8.2](#82-tela-1--a-lista)). |
 
-### 6.2 `POST /processar/conferir` e `/reprocessar/conferir`
+### 7.2 `POST /processar/conferir` e `/reprocessar/conferir`
 
 **Não grava nada.** Relê a lista no SAP, monta o plano e devolve o token.
 
@@ -568,7 +1227,7 @@ Recusas: lista vazia → `400`; número que não é de oportunidade → `400`; p
 mais na lista** (processado por outra pessoa enquanto a página estava aberta) → `409
 fora_da_lista`, com os números em `fora`. Nesse caso a página deve **recarregar a lista**.
 
-### 6.3 `POST /processar/executar` e `/reprocessar/executar`
+### 7.3 `POST /processar/executar` e `/reprocessar/executar`
 
 **Grava no SAP.** Manda o token da conferência e quem pediu.
 
@@ -615,7 +1274,7 @@ A ordem das checagens protege o token: **sem `solicitante`**, **escrita desligad
 **módulo ocupado** (`409`) recusam **sem gastar o token** — dá para tentar de novo com o mesmo.
 Token vencido, usado ou de outra operação → `409 confirmacao_invalida`: confira de novo.
 
-### 6.4 `GET /execucoes/{id}` — acompanhar
+### 7.4 `GET /execucoes/{id}` — acompanhar
 
 O mesmo estado que a tela de execução consulta a cada 2 segundos. Rodando:
 
@@ -716,11 +1375,11 @@ O que pode vir em `resultado`:
 | `sem_op` | Processar | Grupos do pedido que **não geraram OP**, com `motivo` — o pedido "passou", mas parte dele não produziu nada. |
 | `sem_rateio` | Processar | OPs criadas **sem a linha de rateio** (recurso recusado pelo SAP). |
 | `nao_iniciados` | as duas | Pedidos que **não começaram** porque alguém interrompeu. |
-| `pesos_diferentes` | Processar | Linhas do pedido com o **peso no SAP diferente** da árvore do WBC + 10%, com a **causa** — quem mudou a linha no SAP ([6.4.1](#641-peso-diferente-e-a-causa)). |
+| `pesos_diferentes` | Processar | Linhas do pedido com o **peso no SAP diferente** da árvore do WBC + 10%, com a **causa** — quem mudou a linha no SAP ([7.4.1](#741-peso-diferente-e-a-causa)). |
 
 **Linhas com `⚠`** são erro ou atenção: pinte-as de vermelho (é o que a tela faz).
 
-#### 6.4.1 Peso diferente e a causa
+#### 7.4.1 Peso diferente e a causa
 
 Ao processar, o servidor confere o peso de cada linha do pedido no SAP contra a regra da
 integração: **nível 1 da árvore do WBC + 10%**, para a linha inteira, qualquer que seja a
@@ -784,7 +1443,7 @@ proporção** — ficou 88,45 kg. Não é defeito da integração, e a resposta 
   `⚠ … NÃO volta este peso sozinha: a troca tem mais de 3 dias`). Só muda o log; os campos de
   `pesos_diferentes` são os mesmos.
 
-### 6.5 `POST /execucoes/{id}/cancelar` — interromper
+### 7.5 `POST /execucoes/{id}/cancelar` — interromper
 
 ```http
 POST /api/pedidos-wbc/execucoes/0776d866c322/cancelar
@@ -804,9 +1463,9 @@ A execução para **depois do pedido em curso**: ele termina inteiro, os seguint
 
 ---
 
-## 7. Clonar a tela, peça por peça
+## 8. Clonar a tela, peça por peça
 
-### 7.1 O fluxo
+### 8.1 O fluxo
 
 ```mermaid
 flowchart LR
@@ -818,9 +1477,9 @@ flowchart LR
 ```
 
 Todas as telas abrem com o mesmo **título de página**: um quadrado de 52 px com o ícone, o
-título (h1) e uma linha de subtítulo ([8.4](#84-componentes)).
+título (h1) e uma linha de subtítulo ([9.4](#94-componentes)).
 
-### 7.2 Tela 1 — a lista
+### 8.2 Tela 1 — a lista
 
 ```
 ┌──────┐ Integração de Pedidos (WBC)
@@ -897,7 +1556,7 @@ recarregue a página (F5) para tentar de novo." — a página abre mesmo assim.
 **Recusa na conferência** (`409 fora_da_lista`, etc.): recarregue a lista e mostre o `motivo`
 numa faixa vermelha.
 
-### 7.3 Tela 2 — a conferência
+### 8.3 Tela 2 — a conferência
 
 ```
 ┌──────┐ Confirmar: Processar pedidos novos
@@ -931,7 +1590,7 @@ numa faixa vermelha.
 - `409 ocupado`: mostre o `motivo` e um link "Acompanhar a execução em andamento" para
   `execucao_em_andamento`.
 
-### 7.4 Tela 3 — a execução
+### 8.4 Tela 3 — a execução
 
 ```
 ┌──────┐ Processar pedidos novos                       [ ← Voltar para Pedidos WBC ]
@@ -954,7 +1613,7 @@ numa faixa vermelha.
 - Título = `nome`; subtítulo = `descricao` + (se `origem` = `api`) " · por `solicitante` · API".
 - Botão "← Voltar para Pedidos WBC" (sólido, cor do acento) alinhado à direita do título.
 - Linha de estado: pílula (texto = `situacao`, ou "`situacao` com falhas" se `desfecho` =
-  `falhas`; cor pela tabela da [6.4](#64-get-execucoesid--acompanhar)), " — `passos_feitos`/`passos_total`"
+  `falhas`; cor pela tabela da [7.4](#74-get-execucoesid--acompanhar)), " — `passos_feitos`/`passos_total`"
   (se `passos_total` > 0), " — `duracao_segundos` s" (se houver) e "· `criada_em`" em
   `dd/mm/aaaa hh:mm:ss`.
 - Barra de 6 px: largura = `percentual` % (0 se nulo); cor pelo `desfecho`.
@@ -973,7 +1632,7 @@ numa faixa vermelha.
   o `motivo` + "Nova tentativa em 15 s." e tente em 15 s. Falha de rede: tente de novo em 5 s —
   **a execução continua no servidor** mesmo que a página perca a conexão.
 
-### 7.5 Formatação
+### 8.5 Formatação
 
 | Valor | Da API | Na tela | JavaScript |
 | --- | --- | --- | --- |
@@ -989,12 +1648,12 @@ use `textContent` (ou o equivalente do seu framework), nunca `innerHTML` com val
 
 ---
 
-## 8. Tema: cores, letras, medidas e ícones
+## 9. Tema: cores, letras, medidas e ícones
 
 A tela segue o padrão visual da "Central Integração SAP" (`casa/static/casa.css` +
 `controleproducao/static/style.css`). **Escuro é o padrão**; claro é a alternativa.
 
-### 8.1 Cores
+### 9.1 Cores
 
 | Token | Uso | Escuro (padrão) | Claro |
 | --- | --- | --- | --- |
@@ -1021,7 +1680,7 @@ Transparências do acento (fundo do quadrado do título, destaque da linha): 8 %
 **Uma cor de acento por tela**, com parcimônia — nunca fundo de área grande. O que grava no SAP
 usa o **vermelho semântico**, não um segundo acento.
 
-### 8.2 Letras
+### 9.2 Letras
 
 - Família: `"Inter", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif`.
 - Log e JSON: `ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`.
@@ -1032,7 +1691,7 @@ usa o **vermelho semântico**, não um segundo acento.
 - A página inteira é ampliada **12,5 %** (`zoom: 1.125` no contêiner, máximo de 1600 px); no
   celular (≤ 760 px) fica em `zoom: .9`.
 
-### 8.3 Medidas
+### 9.3 Medidas
 
 | | |
 | --- | --- |
@@ -1045,7 +1704,7 @@ usa o **vermelho semântico**, não um segundo acento.
 | Sombra de cartão (claro) | `0 1px 2px rgb(0 0 0 / .05), 0 6px 20px rgb(0 0 0 / .05)` |
 | Foco do teclado | contorno 2 px `--acento-texto`, afastado 2 px |
 
-### 8.4 Componentes
+### 9.4 Componentes
 
 - **Título de página:** quadrado 52×52 px, raio 14, fundo acento 13 %, contorno interno acento
   40 %, ícone 26 px na cor `--acento-texto`. Variante perigo (conferência): fundo/contorno/ícone
@@ -1073,7 +1732,7 @@ usa o **vermelho semântico**, não um segundo acento.
 > saem **sem fundo**. A página pronta tem o bloco `@supports not (color: color-mix(...))` que
 > resolve isso — copie-o se usar `color-mix`.
 
-### 8.5 Ícones
+### 9.5 Ícones
 
 SVG inline, traço de 2 px, pontas arredondadas, `fill="none"`, `stroke="currentColor"`,
 `viewBox="0 0 24 24"` — herdam a cor do contexto. Sem biblioteca e sem CDN.
@@ -1091,7 +1750,7 @@ SVG inline, traço de 2 px, pontas arredondadas, `fill="none"`, `stroke="current
 
 ---
 
-## 9. Quando dá errado: todos os erros
+## 10. Quando dá errado: todos os erros
 
 Todo erro tem o mesmo formato:
 
@@ -1126,7 +1785,7 @@ As mensagens de token:
 
 ---
 
-## 10. Exemplos completos de código
+## 11. Exemplos completos de código
 
 Os três fazem o mesmo: listam os pedidos novos, conferem um, **mostram o plano e pedem
 confirmação a uma pessoa**, executam e acompanham até o fim.
@@ -1254,7 +1913,7 @@ while (-not $ex.terminada) {
 
 ---
 
-## 11. Como testar sem estragar nada
+## 12. Como testar sem estragar nada
 
 **Não existe ambiente de teste: esta API grava no SAP de produção.** Mas quase tudo dá para
 testar sem gravar.
@@ -1281,7 +1940,7 @@ Tudo o que você grava aparece na tela **Execuções** do Controle de Produção
 
 ---
 
-## 12. Lista de verificação antes de pôr no ar
+## 13. Lista de verificação antes de pôr no ar
 
 Passe por cada item antes de liberar a página para as pessoas usarem.
 
@@ -1313,12 +1972,12 @@ Passe por cada item antes de liberar a página para as pessoas usarem.
 
 **Teste**
 
-- [ ] Lista e conferência comparadas com a tela original, nos dois modos ([11](#11-como-testar-sem-estragar-nada)).
+- [ ] Lista e conferência comparadas com a tela original, nos dois modos ([12](#12-como-testar-sem-estragar-nada)).
 - [ ] Primeira execução real **num pedido combinado com o PCP**, acompanhada até o fim.
 
 ---
 
-## 13. Boas práticas
+## 14. Boas práticas
 
 1. **Conferir → mostrar o plano a uma pessoa → executar.** O plano existe para alguém ler.
    Executar sem mostrar é jogar fora a proteção.
@@ -1340,10 +1999,10 @@ Passe por cada item antes de liberar a página para as pessoas usarem.
 
 ---
 
-## 14. Perguntas frequentes
+## 15. Perguntas frequentes
 
 **Posso testar sem gravar nada?**
-Sim — veja a [seção 11](#11-como-testar-sem-estragar-nada). Listar, conferir e acompanhar não gravam.
+Sim — veja a [seção 12](#12-como-testar-sem-estragar-nada). Listar, conferir e acompanhar não gravam.
 
 **Mandei executar e a resposta não trouxe o resultado. Deu certo?**
 Ainda não se sabe: `202` quer dizer que a execução **começou**. Acompanhe pelo `estado` até
@@ -1375,7 +2034,7 @@ Controle de Produção, por quem conhece o caso.
 **O processamento avisou "peso diferente". A integração errou?**
 Leia `causa` em `resultado.pesos_diferentes` (ou a linha "CAUSA:" do acompanhamento). Nos casos
 vistos até hoje, a integração gravou o peso certo e alguém **mudou a quantidade da linha no SAP**
-depois — o SAP refaz o peso na mesma proporção. Veja a [6.4.1](#641-peso-diferente-e-a-causa).
+depois — o SAP refaz o peso na mesma proporção. Veja a [7.4.1](#741-peso-diferente-e-a-causa).
 
 **Reprocessei e as OPs não voltaram.**
 É o comportamento: Reprocessar **cancela** as OPs planejadas e devolve o pedido a "Pedidos
@@ -1390,7 +2049,7 @@ Confira de novo. O plano é recalculado sobre o estado atual do SAP — que pode
 
 **A tela e a minha página podem ficar diferentes?**
 Nas regras e nos textos que vêm da API, não: são as mesmas funções. No que é só desenho
-(cores, posições), sim — por isso a [seção 8](#8-tema-cores-letras-medidas-e-ícones) e a página
+(cores, posições), sim — por isso a [seção 9](#9-tema-cores-letras-medidas-e-ícones) e a página
 pronta.
 
 **Onde vejo o que já foi feito?**
@@ -1399,7 +2058,7 @@ ou em `GET /execucoes/{id}`.
 
 ---
 
-## 15. Suporte e histórico deste documento
+## 16. Suporte e histórico deste documento
 
 - **O servidor está no ar?** `GET http://192.168.7.11:8080/health` (sem chave).
 - **Chave, dúvida, campo faltando, `502`/`503`:** falar com o Marcelo (TI).
@@ -1408,15 +2067,17 @@ ou em `GET /execucoes/{id}`.
 - **Código:** `controleproducao/modules/pedidos_wbc/api_router.py` (a API) e `acoes.py` (as
   regras, compartilhadas com a tela). Plano: `docs/PLANO_API_PEDIDOS_WBC.md`.
 
-Os exemplos de resposta deste documento saíram da própria API, com o SAP simulado e dados
+Os exemplos de resposta deste documento — fora a [seção 5](#5-caso-real-o-pedido-84460-do-começo-ao-fim),
+que usa respostas reais da .11 — saíram da própria API, com o SAP simulado e dados
 fictícios; só os nomes de pessoa e o servidor de exemplo foram ajustados. No SAP de verdade, as
 `linhas` trazem mais passos (cada OP, item e recurso criado).
 
 | Data | O que mudou |
 | --- | --- |
 | 01/10/2026 | Primeira versão: listar, conferir, executar (Processar e Reprocessar, sem "forçar"), acompanhar e interromper; página pronta `docs/exemplos/pedidos_wbc_clone.html` |
-| 01/10/2026 | `resultado.pesos_diferentes`: linha com peso diferente da árvore do WBC, com a **causa** lida do histórico do SAP (quem mudou, quando, de quanto para quanto) — [6.4.1](#641-peso-diferente-e-a-causa) |
+| 01/10/2026 | `resultado.pesos_diferentes`: linha com peso diferente da árvore do WBC, com a **causa** lida do histórico do SAP (quem mudou, quando, de quanto para quanto) — [7.4.1](#741-peso-diferente-e-a-causa) |
 | 01/10/2026 | Guia mais didático: "A ideia em um minuto" (caminho do pedido e a conversa com a API em desenho), tutorial em 5 etapas com pontos de conferência, glossário, a vida de uma execução e lista de verificação antes de pôr no ar |
 | 05/10/2026 | Campo novo na lista: `nota_espelho` (`true` = pedido marcado como Nota Espelho no SAP); a tela o mostra como pílula "Nota espelho" sob o número do pedido. Pedido e Oportunidade passaram a centralizados |
 | 05/10/2026 | `execucao.descricao`: o pedido com Nota Espelho sai como `84454 (nota espelho)` (ex.: `2 pedido(s): 84201, 84454 (nota espelho)`); as telas Execuções mostram a pílula "Nota espelho" |
-| 05/10/2026 | Linha nova no acompanhamento do Processar, depois da CAUSA: o que a integração faz com o peso reescalado — [6.4.1](#641-peso-diferente-e-a-causa). Os campos não mudaram |
+| 05/10/2026 | Linha nova no acompanhamento do Processar, depois da CAUSA: o que a integração faz com o peso reescalado — [7.4.1](#741-peso-diferente-e-a-causa). Os campos não mudaram |
+| 06/10/2026 | Seção nova [5. Caso real: o pedido 84460, do começo ao fim](#5-caso-real-o-pedido-84460-do-começo-ao-fim): o mapa de todos os objetos da tela (lista, conferência, execução) com o texto exato e de onde vem, as respostas reais da lista e da conferência, o log real de um Processar e de um Reprocessar explicado linha por linha, um erro real e o catálogo de todas as mensagens. As seções seguintes foram renumeradas (6 a 16) |
