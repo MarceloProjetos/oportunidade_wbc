@@ -277,13 +277,44 @@ if defined BEFORE (
 goto :religar
 
 :pullfail
+REM The ff-only merge fails for three different reasons; tell them apart so the message
+REM points at the real one (06/10/2026: a rewritten history was reported as local changes).
+git merge-base --is-ancestor HEAD origin/%BRANCH% >nul 2>&1 && goto :pullfail_local
+git merge-base HEAD origin/%BRANCH% >nul 2>&1 && goto :pullfail_divergiu
+call :registrar erro "git merge --ff-only falhou - historico do remoto reescrito"
+echo.
+echo ERRO: o historico do GitHub foi REESCRITO (force-push): o commit desta pasta
+echo       (!BEFORE!) nao tem nenhum ancestral em comum com origin/%BRANCH%.
+echo       Nada foi alterado. Para alinhar esta pasta com o remoto (uma vez so):
+echo         1. git status --short       (tem de sair VAZIO; se listar algo, pare e avise)
+echo         2. git reset --hard origin/%BRANCH%
+echo         3. rode este deploy de novo.
+echo       (O reset NAO apaga venv\, .env, .env.*, logs\ nem state\.)
+goto :pullfail_fim
+
+:pullfail_divergiu
+call :registrar erro "git merge --ff-only falhou - pasta e remoto divergiram"
+echo.
+echo ERRO: esta pasta e origin/%BRANCH% divergiram: ha commit aqui que o remoto nao tem
+echo       (commit feito direto no servidor, ou o remoto reescreveu os ultimos commits).
+echo       Nada foi alterado. Veja o que so existe aqui:
+echo           git log --oneline origin/%BRANCH%..HEAD
+echo       Se nada ali precisa ficar: git status --short (vazio) e depois
+echo           git reset --hard origin/%BRANCH%
+echo       (O reset NAO apaga venv\, .env, .env.*, logs\ nem state\.)
+goto :pullfail_fim
+
+:pullfail_local
 call :registrar erro "git merge --ff-only falhou - alteracoes locais"
 echo.
 echo ERRO: git merge --ff-only falhou. Ha alteracoes locais em arquivos versionados
 echo       nesta pasta que impedem o fast-forward. Nada foi alterado.
+echo       Veja quais sao: git status --short
 echo       Para descartar as mudancas locais e forcar o estado do remoto:
 echo           git reset --hard origin/%BRANCH%
 echo       (Isso NAO apaga venv\, .env, .env.*, logs\ nem state\.)
+
+:pullfail_fim
 echo [nssm] religando os servicos para nao deixar o servidor parado...
 goto :religar
 

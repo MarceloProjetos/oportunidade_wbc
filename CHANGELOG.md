@@ -6,6 +6,21 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-06] — `deploy_update.bat`: a mensagem diz por que o git não atualizou
+
+Depois que o histórico foi reduzido aos últimos 12 commits (force-push), o deploy da .11 falhou
+dizendo "há alterações locais" — não havia nenhuma. O `git merge --ff-only` falha por três motivos
+e agora cada um tem a sua mensagem e o seu registro em `logs/deploy.log`:
+
+- **histórico do remoto reescrito** (nenhum ancestral em comum): `git status --short` vazio →
+  `git reset --hard origin/master` uma vez → deploy de novo;
+- **pasta e remoto divergiram** (commit feito direto no servidor, ou últimos commits reescritos):
+  mostra `git log --oneline origin/master..HEAD` antes de qualquer reset;
+- **alterações locais** em arquivo versionado: a mensagem de antes, agora com `git status --short`.
+
+Nos três casos nada é alterado e os serviços são religados, como antes. A detecção foi testada nos
+três casos (e no deploy normal) num repositório de teste.
+
 ## [2026-10-06] — Faxina: planos apagados do repositório
 
 A pedido do Marcelo, os planos saíram do repositório; o texto de cada um fica no git.
