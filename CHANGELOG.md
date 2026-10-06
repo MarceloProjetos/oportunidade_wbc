@@ -13,6 +13,8 @@ A pedido do Marcelo, os planos saíram do repositório; o texto de cada um fica 
 - Apagados os 10 `docs/PLANO_*.md` e a pasta `docs/arquivo/` (2 planos encerrados + índice).
 - Apagado `maintenance/medir_porta_paletes.py`: medição só leitura da F0 do plano de porta-paletes,
   já usada (o resultado está em `docs/wbc/DECISOES.md`).
+- Apagado `maintenance/pre_voo_controleproducao.py`: o pré-voo (só leitura) do piloto do Controle
+  de Produção, que está em produção desde 28/09.
 - Cada referência a um desses arquivos virou `PLANO_X.md (removido em 2026-10-06; historico no git)`
   (nos `.md`) ou `(removed 2026-10-06)` (nos comentários de código). Só comentários e documentação
   mudaram — nenhum texto que o código mostra ou grava. `CLAUDE.md` deixou de mandar "abrir o plano".

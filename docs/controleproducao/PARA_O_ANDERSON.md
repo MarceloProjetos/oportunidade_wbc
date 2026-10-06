@@ -160,8 +160,8 @@ pedidos estão com OPs Planejadas vivas de 22–24/09 (84420: 30; 84422: 12; 844
 84426: 67). A 2ª consulta devolve **504 linhas**, quase todas anteriores ao porte e do
 padrão `I000002`/`I000003` com `PlannedQty=1` × quantidade da linha — do jeito que está,
 ela não serve de gate "0 = limpo"; se a regra for outra para o item-conjunto, diga qual.
-Nenhuma OP órfã (OWOR viva com pedido `CANCELED='Y'`). Roteiro completo em
-`maintenance/pre_voo_controleproducao.py`.
+Nenhuma OP órfã (OWOR viva com pedido `CANCELED='Y'`). Roteiro completo no
+`maintenance/pre_voo_controleproducao.py` (removido em 2026-10-06; historico no git).
 
 E, pelo que o diário registra: as OPs em dobro do 84426 (addon + porte), os OrcDetalhe órfãos
 (um novo a cada execução) e itens que podem ter nascido no grupo 358 em vez de 332 antes do

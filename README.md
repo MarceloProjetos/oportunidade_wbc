@@ -664,10 +664,6 @@ módulo 3 (*Manutenção de OP*) libera, replaneja e **encerra com movimentaçã
   `controle_producao_execucoes` (só na .11; DDL em `sql/controle_producao_execucoes.sql`) e
   sobrevivem ao restart. Conferência: `GET :8080/health` → `"historico": "supabase"`.
 - **Quem opera a tela:** `docs/controleproducao/GUIA_OPERADOR.md` (1 página).
-- **Pré-voo do piloto (só leitura, PROD):** `python maintenance/pre_voo_controleproducao.py
-  <orçamento>` — lista os pedidos pendentes de OP, as duas localizações do pedido, as flags
-  INO, linhas/grupos, `GGF_`, `@INO_LOG`, OPs existentes, quem criou OP nos últimos dias
-  (addon vivo?) e a auditoria de OPs órfãs.
 - **Monitoração:** `/status?checks=controle_producao` (aliases `cp`, `producao`) sonda
   `127.0.0.1:CP_PORTA/health`; sem alerta enquanto o serviço nunca subiu na máquina.
 - **Histórico e regras:** `docs/controleproducao/migration_guide.md` (§7 é o diário),

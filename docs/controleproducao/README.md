@@ -134,8 +134,6 @@ revertida pelo Marcelo): cancela todas as OPs planejadas do pedido (de qualquer 
 recria — o pedido volta para "Pedidos novos". Os comandos da CLI que gravam deixam rastro em
 `logs/controleproducao_cli.log`. Quem opera a tela:
 [GUIA_OPERADOR.md](GUIA_OPERADOR.md).
-Pré-voo do piloto (só leitura, PROD): `python maintenance/pre_voo_controleproducao.py
-<orçamento>`.
 
 ## Mapa
 
