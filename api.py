@@ -105,7 +105,7 @@ from extract_ordens_servico_engenharia import (
 from extract_sap_to_supabase import main as sync_oportunidades
 from extract_vendas_bi import main as sync_vendas_bi
 from monitoring import SELECTABLE_CHECKS, AcompanhamentoIndisponivel, collect_status, wbc_orcamento
-from operacao import acoes_agente, conexoes, historico_pedido, log_worker, reinicio, versao
+from operacao import acoes_agente, conexoes, historico_pedido, log_worker, reinicio, ronda_90, versao
 from operacao import servicos as operacao_servicos_mod
 from pipeline_core import (
     FileLockTimeout,
@@ -1578,6 +1578,14 @@ def operacao_deploy():
     return jsonify(ok=True, versao=versao.versao(), ultimo_deploy=versao.ultimo_deploy())
 
 
+@app.get('/operacao/ronda-90')
+@requer_chave('leitura')
+def operacao_ronda_90():
+    """The .90 seen from the .11 (F6 of PLANO_AGENTE_TI, web repo): its state now and the periods
+    it was down, with the real times. Read from the round's file; nothing is tested here."""
+    return jsonify(ok=True, **ronda_90.publico())
+
+
 # --- F3/F4 of PLANO_MIRA_AGENTE_11.md (removed 2026-10-06): the agent asks, a person approves -----------------
 _CANAIS = ('tela', 'whatsapp', 'mira', 'api')
 _LIMITE_PESSOA = 80
@@ -2358,6 +2366,8 @@ def main() -> None:
     # Here in the entrypoint and NOT on import: otherwise the test suite would fire
     # PowerShell.
     windows_update.iniciar_coletor(s)
+    # The .90 seen from here, every 5 min (only on the .11; same reason to start it here).
+    ronda_90.iniciar()
     # Rotulo do Tipo de Montagem passa a vir do SAP (UFD1) em vez do fallback
     # embutido. Aqui e NAO no import, pelo mesmo motivo da linha acima: no import, a
     # suite de testes acabaria falando com o HANA de verdade.

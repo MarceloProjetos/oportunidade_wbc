@@ -6,6 +6,17 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-07] — Ronda do .90 vista da .11 (F6 do PLANO_AGENTE_TI do web)
+
+Todos os vigilantes do OrçaView moram no próprio .90: quando ele cai, ninguém anota a hora.
+`operacao/ronda_90.py` testa o destino da lista fechada `orcaview-90` (DNS, ping, TCP 443 e
+8000, pelo `conexoes.testar`) a cada 5 min, numa thread daemon que só sobe **na .11** (pelo IP,
+`is_production_machine`) e só pelo entrypoint `python api.py` (nunca no import: a suíte não
+pinga o .90). Guarda em `state/ronda_90.json` o estado agora e os períodos fora (início, fim,
+"desligado" ou "app fora"), 14 dias. Rota nova `GET /operacao/ronda-90` (escopo `leitura`): o
+Zelador do .90 lê ao acordar e anota no diário o que perdeu dormindo. Só leitura: sem restart,
+sem WoL, sem mensagem (teste AST `test_ronda_nunca_age`). **Pede deploy da .11** (restart da API).
+
 ## [2026-10-07] — Teste do porte da Situação dos Pedidos: as três funções da V118.521 ficam fora
 
 O pre-commit falhava em todo commit desde o web V118.521 ("busca vazia explica onde o pedido

@@ -401,3 +401,86 @@ def test_ferramentas_chamam_a_rota_certa(fachada, monkeypatch):
         ("/wbc/orcamentos/00125348/log", {"linhas": 1}),
     ]
     assert fachada._tempo_limite("GET", "/operacao/conexoes/github") == fachada._TEMPO_CONEXAO
+
+
+# ---------------------------------------------------------------------------
+# F6 of PLANO_AGENTE_TI (web repo): the .90 seen from the .11 — read only
+# ---------------------------------------------------------------------------
+from datetime import timedelta  # noqa: E402
+
+from operacao import ronda_90  # noqa: E402
+
+
+def _resultado(abertas: bool, ping: bool | None) -> dict:
+    return {"portas": [{"porta": 443, "aberta": abertas}, {"porta": 8000, "aberta": abertas}],
+            "ping": {"responde": ping}}
+
+
+def test_ronda_classifica_ok_app_fora_e_desligado():
+    assert ronda_90.classificar(_resultado(True, None)) == ("ok", None)
+    assert ronda_90.classificar(_resultado(False, True)) == ("fora", "app fora")
+    assert ronda_90.classificar(_resultado(False, False)) == ("fora", "desligado")
+
+
+def test_ronda_fecha_o_periodo_com_hora_real_e_esquece_o_antigo():
+    t = datetime(2026, 10, 7, 10, 0).astimezone()
+    dados = ronda_90.aplicar(ronda_90._vazio(), "ok", None, t)
+    dados = ronda_90.aplicar(dados, "fora", "app fora", t + timedelta(minutes=12))
+    dados = ronda_90.aplicar(dados, "fora", "desligado", t + timedelta(minutes=17))
+    assert dados["estado"] == "fora" and dados["como"] == "desligado" and dados["periodos"] == []
+    dados = ronda_90.aplicar(dados, "ok", None, t + timedelta(minutes=31))
+    [p] = dados["periodos"]
+    assert p == {"inicio": (t + timedelta(minutes=12)).isoformat(timespec="seconds"),
+                 "fim": (t + timedelta(minutes=31)).isoformat(timespec="seconds"), "como": "desligado"}
+    depois = ronda_90.aplicar(dados, "ok", None, t + timedelta(days=ronda_90.DIAS_GUARDADOS + 1))
+    assert depois["periodos"] == [], "período antigo sai"
+
+
+def test_ronda_grava_e_le_o_arquivo_e_teste_quebrado_nao_muda_nada(tmp_path, monkeypatch):
+    arquivo = tmp_path / "ronda_90.json"
+    monkeypatch.setattr(conexoes, "testar", lambda nome, porta=None: _resultado(False, False))
+    assert ronda_90.rodar_uma_vez(arquivo)["estado"] == "fora"
+    assert ronda_90.ler(arquivo)["como"] == "desligado"
+
+    def _quebra(nome, porta=None):
+        raise OSError("sem rede")
+
+    monkeypatch.setattr(conexoes, "testar", _quebra)
+    assert ronda_90.rodar_uma_vez(arquivo)["estado"] == "fora", "sem leitura: o estado fica como estava"
+    arquivo.write_text("{lixo", encoding="utf-8")
+    assert ronda_90.ler(arquivo)["estado"] is None, "arquivo ilegível = estado vazio, nunca exceção"
+
+
+def test_ronda_so_liga_na_11(monkeypatch, tmp_path):
+    from wbcpython import safety
+
+    monkeypatch.setattr(safety, "is_production_machine", lambda: False)
+    assert ronda_90.iniciar(tmp_path / "r.json") is None
+
+
+def test_ronda_nunca_age():
+    """Read only, like the web's vigia (test_vigia_nunca_age): no process control, no restart,
+    no Wake-on-LAN, no write to another machine."""
+    import ast
+    import pathlib
+
+    fonte = pathlib.Path(ronda_90.__file__).read_text(encoding="utf-8")
+    nomes = {n.id for n in ast.walk(ast.parse(fonte)) if isinstance(n, ast.Name)} | {
+        n.attr for n in ast.walk(ast.parse(fonte)) if isinstance(n, ast.Attribute)}
+    importados = {a.name for n in ast.walk(ast.parse(fonte)) if isinstance(n, (ast.Import, ast.ImportFrom))
+                  for a in n.names} | {n.module for n in ast.walk(ast.parse(fonte)) if isinstance(n, ast.ImportFrom)}
+    proibidos = {"subprocess", "system", "Popen", "reinicio", "reiniciar", "acoes_agente", "aprovacoes",
+                 "wake_altservidor_ia", "post", "put", "delete", "requests", "httpx", "kill", "terminate"}
+    assert not (nomes | importados) & proibidos, sorted((nomes | importados) & proibidos)
+    assert "restart-" not in fonte.lower() and "stop-service" not in fonte.lower()
+
+
+def test_rota_da_ronda_pede_leitura_e_devolve_o_estado(api, monkeypatch, tmp_path):
+    _, c, h = api
+    assert c.get("/operacao/ronda-90").status_code == 401
+    monkeypatch.setattr(ronda_90, "ARQUIVO_PADRAO", tmp_path / "r.json")
+    monkeypatch.setattr(ronda_90, "publico", lambda arquivo=None: {
+        "estado": "ok", "desde": "x", "como": None, "ultima_leitura": "y", "periodos": [], "intervalo_s": 300,
+        "destino": "orcaview-90"})
+    corpo = c.get("/operacao/ronda-90", headers=h).get_json()
+    assert corpo["ok"] is True and corpo["estado"] == "ok" and corpo["intervalo_s"] == 300
