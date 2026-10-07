@@ -52,6 +52,10 @@ class Acao:
     validar: Callable[[dict], dict]
     previa: Callable[[dict], dict]
     executar: Callable[[dict, dict, Contexto], tuple[bool, dict]]
+    #: What one request holds (F4 of the web's PLANO_AGENTES_INDEPENDENTES): two OPEN requests
+    #: with the same action and target are the same request. Read from the VALIDATED parameters.
+    #: None = no reservation by target (only the idempotency key) -- never "everything is one".
+    alvo: Callable[[dict], str | None] = lambda _p: None
 
 
 # ---------------------------------------------------------------------------
@@ -210,13 +214,13 @@ def _executar_servico(p: dict, _previa: dict, _ctx: Contexto) -> tuple[bool, dic
 
 CATALOGO: dict[str, Acao] = {a.nome: a for a in (
     Acao("sincronizar_os", "Sincronizar as OS de um pedido", "os:sincronizar", None, 30,
-         _validar_os, _previa_os, _executar_os),
+         _validar_os, _previa_os, _executar_os, alvo=lambda p: str(p["nped"])),
     Acao("forcar_carga", "Forçar a carga de oportunidades", "oportunidades:carga", None, 4,
-         lambda _p: {}, _previa_carga, _executar_carga),
+         lambda _p: {}, _previa_carga, _executar_carga, alvo=lambda _p: "oportunidades"),
     Acao("processar_pedido", "Processar um pedido (cria OPs no SAP)", "pedidos_wbc", PAPEIS_PCP, 10,
-         _validar_pedido, _previa_pedido, _executar_pedido),
+         _validar_pedido, _previa_pedido, _executar_pedido, alvo=lambda p: str(p["pedido"])),
     Acao("reiniciar_servico", "Reiniciar um serviço da .11", "servico:reiniciar", PAPEIS_ADMIN, 3,
-         _validar_servico, _previa_servico, _executar_servico),
+         _validar_servico, _previa_servico, _executar_servico, alvo=lambda p: p["servico"]),
 )}
 
 

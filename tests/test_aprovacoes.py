@@ -226,7 +226,8 @@ def api(monkeypatch):
     falsa = acoes_agente.Acao(
         "sincronizar_os", "Sincronizar as OS de um pedido", "os:sincronizar", None, 2,
         acoes_agente._validar_os, lambda p: {"texto": f"sync {p['nped']}"},
-        lambda p, previa, ctx: (executados.append((p, ctx.pessoa)) or True, {"http": 200}))
+        lambda p, previa, ctx: (executados.append((p, ctx.pessoa)) or True, {"http": 200}),
+        alvo=acoes_agente.CATALOGO["sincronizar_os"].alvo)
     monkeypatch.setitem(acoes_agente.CATALOGO, "sincronizar_os", falsa)
     return apimod, apimod.app.test_client(), executados
 
@@ -271,11 +272,16 @@ def test_pedir_exige_o_escopo_da_acao_e_respeita_o_teto(api):
     assert r.status_code == 403
     assert c.post("/aprovacoes", json={"acao": "rodar_comando"},
                   headers={"X-API-Key": "mestra-de-teste"}).status_code == 400
-    for _ in range(2):
-        assert c.post("/aprovacoes", json={"acao": "sincronizar_os", "parametros": {"nped": 1}},
+    # Distinct targets: a repeat of an OPEN request is the same request (F4), never a new one.
+    for nped in (1, 2):
+        assert c.post("/aprovacoes", json={"acao": "sincronizar_os", "parametros": {"nped": nped}},
                       headers={"X-API-Key": "mestra-de-teste"}).status_code == 201
-    assert c.post("/aprovacoes", json={"acao": "sincronizar_os", "parametros": {"nped": 1}},
+    assert c.post("/aprovacoes", json={"acao": "sincronizar_os", "parametros": {"nped": 3}},
                   headers={"X-API-Key": "mestra-de-teste"}).status_code == 429
+    # Past the cap, a repeat still gets its request back (a retry is never a 429).
+    repetido = c.post("/aprovacoes", json={"acao": "sincronizar_os", "parametros": {"nped": 1}},
+                      headers={"X-API-Key": "mestra-de-teste"})
+    assert repetido.status_code == 200 and repetido.get_json()["ja_existia"] is True
 
 
 def test_aprovar_exige_pessoa_e_papel(api, monkeypatch):
@@ -305,3 +311,191 @@ def test_tela_decide_so_da_mesma_origem(api):
     resposta = c.post(f"/aprovacoes/{r['codigo']}/recusar", json={"pessoa": "Marcelo"},
                       headers={"Origin": "http://localhost"})
     assert resposta.status_code == 200 and resposta.get_json()["aprovacao"]["decidido_canal"] == "tela"
+
+
+# ---------------------------------------------------------------------------
+# F4 of the web's PLANO_AGENTES_INDEPENDENTES: one owner per action
+# ---------------------------------------------------------------------------
+def _reinicio(**extra):
+    return aprovacoes.criar("reiniciar_servico", {"servico": "OrcaView-MCP"}, {"texto": "x"},
+                            pedido_por="ti-agente", alvo="OrcaView-MCP", agora=AGORA, **extra)
+
+
+def test_mesmo_alvo_aberto_e_o_mesmo_pedido():
+    a = _reinicio()
+    b = aprovacoes.criar("reiniciar_servico", {"servico": "OrcaView-MCP"}, {"texto": "y"},
+                         pedido_por="mira-agente", alvo="OrcaView-MCP", agora=AGORA)
+    assert not a["ja_existia"] and b["ja_existia"] and b["id"] == a["id"]
+    outro = aprovacoes.criar("reiniciar_servico", {"servico": "OrcaView-WBC-Painel"}, {"texto": "z"},
+                             pedido_por="mira-agente", alvo="OrcaView-WBC-Painel", agora=AGORA)
+    assert not outro["ja_existia"], "outro alvo é outro pedido"
+    # Once decided and finished, the target is free again.
+    aprovacoes.decidir(a["id"], aprovar=False, pessoa="M", canal="tela", agora=AGORA)
+    assert not _reinicio()["ja_existia"]
+
+
+def test_chave_repetida_devolve_o_mesmo_pedido_em_qualquer_estado():
+    a = _reinicio(chave_idem="k-1234567890")
+    aprovacoes.decidir(a["id"], aprovar=True, pessoa="M", canal="tela", agora=AGORA)
+    aprovacoes.concluir(a["id"], ok=True, resultado={"ok": True}, agora=AGORA)
+    b = _reinicio(chave_idem="k-1234567890")
+    assert b["ja_existia"] and b["id"] == a["id"] and b["estado"] == "executado", "nunca executa 2x"
+
+
+def test_duas_threads_concorrentes_uma_linha_so():
+    import threading
+
+    ids, erros = [], []
+
+    def _pedir():
+        try:
+            for _ in range(50):
+                ids.append(_reinicio()["id"])
+        except Exception as exc:  # pragma: no cover - surfaced by the assert below
+            erros.append(exc)
+
+    threads = [threading.Thread(target=_pedir) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not erros and len(set(ids)) == 1
+    assert len(aprovacoes.listar("pendente", agora=AGORA)) == 1
+
+
+def test_teto_conta_depois_da_repeticao():
+    for servico in ("OrcaView-MCP", "OrcaView-WBC-Painel", "OrcaView-Scheduler"):
+        aprovacoes.criar("reiniciar_servico", {"servico": servico}, {}, pedido_por="m", alvo=servico,
+                         por_hora=3, agora=AGORA)
+    with pytest.raises(aprovacoes.AprovacaoInvalida) as erro:
+        aprovacoes.criar("reiniciar_servico", {"servico": "OrcaView-WBC-Worker"}, {}, pedido_por="m",
+                         alvo="OrcaView-WBC-Worker", por_hora=3, agora=AGORA)
+    assert erro.value.tipo == "limite"
+    repetido = aprovacoes.criar("reiniciar_servico", {"servico": "OrcaView-MCP"}, {}, pedido_por="m",
+                                alvo="OrcaView-MCP", por_hora=3, agora=AGORA)
+    assert repetido["ja_existia"], "uma repetição nunca vira 429"
+
+
+def test_executando_sem_desfecho_libera_o_alvo():
+    a = _reinicio()
+    aprovacoes.decidir(a["id"], aprovar=True, pessoa="M", canal="tela", agora=AGORA)
+    assert _reinicio()["ja_existia"], "executando segura o alvo"
+    depois = AGORA + timedelta(minutes=aprovacoes.ORFA_MIN, seconds=1)
+    aprovacoes.varrer_orfaos(agora=depois)
+    orfao = aprovacoes.obter(a["id"], agora=depois)
+    assert orfao["estado"] == "falhou" and orfao["resultado"] == {"motivo": "sem desfecho"}
+    assert not aprovacoes.criar("reiniciar_servico", {"servico": "OrcaView-MCP"}, {}, pedido_por="m",
+                                alvo="OrcaView-MCP", agora=depois)["ja_existia"]
+
+
+def test_banco_antigo_com_duplicata_aberta_sobe_sem_o_indice(tmp_path, caplog):
+    import sqlite3
+
+    arquivo = tmp_path / "velho.db"
+    conn = sqlite3.connect(arquivo)
+    conn.execute("""CREATE TABLE aprovacoes (
+        id TEXT PRIMARY KEY, codigo TEXT NOT NULL, acao TEXT NOT NULL, parametros TEXT NOT NULL,
+        previa TEXT NOT NULL, motivo TEXT, pedido_por TEXT NOT NULL, em_nome_de TEXT,
+        criado_em TEXT NOT NULL, expira_em TEXT NOT NULL, estado TEXT NOT NULL,
+        decidido_por TEXT, decidido_canal TEXT, decidido_papel TEXT, decidido_cliente TEXT,
+        decidido_em TEXT, motivo_recusa TEXT, resultado TEXT, concluido_em TEXT)""")
+    for i in ("a", "b"):
+        conn.execute("INSERT INTO aprovacoes VALUES (?, ?, 'reiniciar_servico', '{}', '{}', NULL, 'm', NULL, ?, ?, "
+                     "'pendente', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+                     (i, f"000{i}", AGORA.isoformat(), (AGORA + timedelta(minutes=30)).isoformat()))
+    conn.commit()
+    conn.execute("ALTER TABLE aprovacoes ADD COLUMN alvo TEXT")
+    conn.execute("UPDATE aprovacoes SET alvo = 'OrcaView-MCP'")
+    conn.commit()
+    conn.close()
+    with caplog.at_level("ERROR"):
+        assert len(aprovacoes.listar(arquivo=arquivo, agora=AGORA)) == 2, "nenhum pedido apagado"
+    assert "NAO criado" in caplog.text
+    # The transaction still answers with the open one.
+    r = aprovacoes.criar("reiniciar_servico", {}, {}, pedido_por="m", alvo="OrcaView-MCP", agora=AGORA,
+                         arquivo=arquivo)
+    assert r["ja_existia"]
+
+
+def test_rota_devolve_200_ja_existia_e_valida_a_chave(api):
+    _, c, executados = api
+    corpo = {"acao": "sincronizar_os", "parametros": {"nped": 84080}}
+    cab = {"X-API-Key": "mestra-de-teste", "Idempotency-Key": "chave-de-teste-01"}
+    primeiro = c.post("/aprovacoes", json=corpo, headers=cab)
+    segundo = c.post("/aprovacoes", json=corpo, headers=cab)
+    assert primeiro.status_code == 201 and primeiro.get_json()["ja_existia"] is False
+    assert segundo.status_code == 200 and segundo.get_json()["ja_existia"] is True
+    assert segundo.get_json()["aprovacao"]["id"] == primeiro.get_json()["aprovacao"]["id"]
+    ruim = c.post("/aprovacoes", json=corpo, headers={**cab, "Idempotency-Key": "curta"})
+    assert ruim.status_code == 400 and executados == []
+
+
+def test_toda_acao_do_catalogo_declara_o_alvo():
+    """An action without a target would never be reserved: each one names what it holds."""
+    exemplos = {"sincronizar_os": {"nped": 84080}, "forcar_carga": {}, "processar_pedido": {"pedido": 84455},
+                "reiniciar_servico": {"servico": "OrcaView-MCP"}}
+    assert set(exemplos) == set(acoes_agente.CATALOGO)
+    alvos = {nome: acao.alvo(exemplos[nome]) for nome, acao in acoes_agente.CATALOGO.items()}
+    assert alvos == {"sincronizar_os": "84080", "forcar_carga": "oportunidades", "processar_pedido": "84455",
+                     "reiniciar_servico": "OrcaView-MCP"}
+
+
+def test_concorrencia_sem_a_trava_do_processo(monkeypatch):
+    """The transaction and the index hold without the in-process lock (another process)."""
+    import contextlib
+    import threading
+
+    monkeypatch.setattr(aprovacoes, "_trava", contextlib.nullcontext())
+    ids, erros = [], []
+
+    def _pedir():
+        try:
+            for _ in range(50):
+                ids.append(_reinicio()["id"])
+        except Exception as exc:  # pragma: no cover - surfaced by the assert below
+            erros.append(exc)
+
+    threads = [threading.Thread(target=_pedir) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not erros and len(set(ids)) == 1
+
+
+def test_chave_reusada_em_outro_pedido_e_recusada():
+    _reinicio(chave_idem="k-1234567890")
+    with pytest.raises(aprovacoes.AprovacaoInvalida) as erro:
+        aprovacoes.criar("reiniciar_servico", {"servico": "OrcaView-WBC-Painel"}, {}, pedido_por="m",
+                         alvo="OrcaView-WBC-Painel", chave_idem="k-1234567890", agora=AGORA)
+    assert erro.value.tipo == "chave_reusada"
+
+
+def test_subida_da_api_fecha_todo_executando_e_o_reinicio_dela_vale():
+    api_ = aprovacoes.criar("reiniciar_servico", {"servico": "OrcaView-OS-API"}, {}, pedido_por="m",
+                            alvo="OrcaView-OS-API", agora=AGORA)
+    mcp = _reinicio()
+    for r in (api_, mcp):
+        aprovacoes.decidir(r["id"], aprovar=True, pessoa="M", canal="tela", agora=AGORA)
+    aprovacoes.varrer_orfaos(agora=AGORA + timedelta(seconds=30))
+    assert aprovacoes.obter(api_["id"])["estado"] == "executado"
+    assert aprovacoes.obter(mcp["id"])["estado"] == "falhou"
+    # A real outcome that arrives late still wins over "sem desfecho".
+    assert aprovacoes.concluir(mcp["id"], ok=True, resultado={"ok": True})["estado"] == "executado"
+
+
+def test_arquivo_recriado_no_mesmo_processo_ganha_as_colunas(tmp_path):
+    arquivo = tmp_path / "a.db"
+    aprovacoes.listar(arquivo=arquivo, agora=AGORA)
+    arquivo.unlink()
+    r = aprovacoes.criar("forcar_carga", {}, {}, pedido_por="m", alvo="oportunidades", agora=AGORA, arquivo=arquivo)
+    assert r["alvo"] == "oportunidades"
+
+
+def test_rota_responde_409_para_chave_de_outro_pedido(api):
+    _, c, _ = api
+    cab = {"X-API-Key": "mestra-de-teste", "Idempotency-Key": "chave-de-teste-02"}
+    assert c.post("/aprovacoes", json={"acao": "sincronizar_os", "parametros": {"nped": 1}},
+                  headers=cab).status_code == 201
+    assert c.post("/aprovacoes", json={"acao": "sincronizar_os", "parametros": {"nped": 2}},
+                  headers=cab).status_code == 409

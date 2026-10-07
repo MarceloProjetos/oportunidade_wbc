@@ -6,6 +6,10 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-07] — Um dono por ação nos pedidos de aprovação
+
+F4 do `docs/PLANO_AGENTES_INDEPENDENTES.md` do web: dois pedidos iguais nunca viram duas ações. `POST /aprovacoes` aceita `Idempotency-Key` (mesma chave = mesmo pedido, em qualquer estado) e devolve o pedido ABERTO do mesmo alvo da mesma ação em vez de criar outro — `200 {ja_existia: true}`; criado segue `201` (`ja_existia: false`). O `aprovacoes.criar` decide numa transação `BEGIN IMMEDIATE` (chave → alvo aberto → teto/h → `INSERT`; repetir nunca dá 429) e o banco ganha `alvo`, `chave_idem` e o índice único parcial `aprovacoes_um_aberto` (migração idempotente no 1º acesso; com duplicata aberta antiga sobe sem o índice e loga ERRO, sem apagar nada). Cada ação do `acoes_agente.CATALOGO` declara o seu `alvo`. `executando` sem desfecho há 15 min vira `falhou` ("sem desfecho") na subida da API e a cada pedido. Contrato em `docs/APROVACOES_11.md`. **Pede deploy da .11 ANTES do web V118.564** (o .90 passa a mandar a chave e a tratar o 200).
+
 ## [2026-10-07] — Histórico de deploys e a causa de cada início de serviço
 
 `/operacao/deploy` mostrava só o ÚLTIMO deploy: depois do deploy das 14:00, ninguém ligava mais o

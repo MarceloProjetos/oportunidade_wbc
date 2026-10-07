@@ -74,6 +74,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import sys
 import threading
 import time
@@ -1642,12 +1643,29 @@ def aprovacao_pedir():
     if not cliente.pode(acao.escopo):
         return jsonify(ok=False, error='forbidden', tipo='sem_permissao',
                        motivo=f"A credencial '{cliente.nome}' nao tem o escopo '{acao.escopo}'."), 403
-    if aprovacoes.contar_recentes(acao.nome) >= acao.por_hora:
-        return jsonify(ok=False, error='rate_limited',
-                       motivo=f'Limite de {acao.por_hora} pedido(s) de "{acao.titulo}" por hora.'), 429
+    chave_idem = (request.headers.get('Idempotency-Key') or '').strip() or None
+    if chave_idem is not None and not _CHAVE_IDEM.fullmatch(chave_idem):
+        return jsonify(ok=False, error='idempotency_key_invalida',
+                       motivo='Idempotency-Key: 8 a 64 letras, digitos, - ou _.'), 400
     parametros = corpo.get('parametros') if isinstance(corpo.get('parametros'), dict) else {}
     try:
         parametros = acao.validar(parametros)
+    except acoes_agente.AcaoInvalida as exc:
+        return jsonify(ok=False, error='recusado', motivo=str(exc)), 400
+    alvo = acao.alvo(parametros)
+    # F4 (one owner per action): a repeat is answered with the request it repeats -- before the
+    # cap (a retry is never a 429) and before building a new preview. criar() decides again,
+    # atomically; this read only spares the work.
+    try:
+        repetido = aprovacoes.existente(acao.nome, alvo=alvo, chave_idem=chave_idem)
+    except aprovacoes.AprovacaoInvalida as exc:
+        return jsonify(ok=False, error=exc.tipo, motivo=str(exc)), 409
+    if repetido is not None:
+        return _aprovacao_criada(repetido)
+    if aprovacoes.contar_recentes(acao.nome) >= acao.por_hora:
+        return jsonify(ok=False, error='rate_limited',
+                       motivo=f'Limite de {acao.por_hora} pedido(s) de "{acao.titulo}" por hora.'), 429
+    try:
         previa = acao.previa(parametros)
     except acoes_agente.AcaoInvalida as exc:
         return jsonify(ok=False, error='recusado', motivo=str(exc)), 400
@@ -1659,9 +1677,31 @@ def aprovacao_pedir():
         declarado = (request.headers.get('X-SIS-Pedido-Por') or '').strip()
         if declarado and declarado.replace('-', '').replace('_', '').replace('.', '').isalnum():
             pedido_por = declarado[:40]
-    r = aprovacoes.criar(acao.nome, parametros, previa, pedido_por=pedido_por,
-                         em_nome_de=_usuario_declarado(cliente), motivo=corpo.get('motivo'))
-    return jsonify(ok=True, aprovacao=_aprovacao_publica(r),
+    try:
+        r = aprovacoes.criar(acao.nome, parametros, previa, pedido_por=pedido_por,
+                             em_nome_de=_usuario_declarado(cliente), motivo=corpo.get('motivo'),
+                             alvo=alvo, chave_idem=chave_idem, por_hora=acao.por_hora)
+    except aprovacoes.AprovacaoInvalida as exc:
+        if exc.tipo == 'chave_reusada':
+            return jsonify(ok=False, error=exc.tipo, motivo=str(exc)), 409
+        if exc.tipo != 'limite':
+            raise
+        return jsonify(ok=False, error='rate_limited',
+                       motivo=f'Limite de {acao.por_hora} pedido(s) de "{acao.titulo}" por hora.'), 429
+    return _aprovacao_criada(r)
+
+
+#: An agent's retry key: the same key returns the same request, whatever its state.
+_CHAVE_IDEM = re.compile(r'[A-Za-z0-9_-]{8,64}')
+
+
+def _aprovacao_criada(r: dict):
+    """201 for a new request; 200 + ``ja_existia`` for the one a repeat returns (F4)."""
+    if r.get('ja_existia'):
+        return jsonify(ok=True, ja_existia=True, aprovacao=_aprovacao_publica(r),
+                       como_aprovar=(f"Ja existia um pedido igual ({r['codigo']}, {r['estado']}); "
+                                     "nada novo foi criado. Nada foi executado por este pedido.")), 200
+    return jsonify(ok=True, ja_existia=False, aprovacao=_aprovacao_publica(r),
                    como_aprovar=(f"Uma pessoa aprova na Central da .11 (/inicio) ou responde "
                                  f"'aprovar {r['codigo']}' no canal da Mira. Nada foi executado.")), 201
 
@@ -2370,6 +2410,8 @@ def main() -> None:
     windows_update.iniciar_coletor(s)
     # The .90 seen from here, every 5 min (only on the .11; same reason to start it here).
     ronda_90.iniciar()
+    # F4 (one owner per action): an approved action cut by a crash must not hold its target.
+    aprovacoes.varrer_orfaos()
     # Rotulo do Tipo de Montagem passa a vir do SAP (UFD1) em vez do fallback
     # embutido. Aqui e NAO no import, pelo mesmo motivo da linha acima: no import, a
     # suite de testes acabaria falando com o HANA de verdade.

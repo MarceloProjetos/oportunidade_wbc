@@ -40,11 +40,15 @@ agente (MCP)                 .11 (8077)                        pessoa
 - A execução passa pelas rotas de sempre com `X-SIS-Usuario` = a pessoa que aprovou: a auditoria
   da API e do Controle de Produção registra **quem aprovou**, não o agente.
 
+## Um dono por ação (07/10/2026)
+
+Mira, Téo (o agente de TI do .90) e uma pessoa na Central pedindo o MESMO reinício ao mesmo tempo dão UM pedido; todos acompanham o mesmo código. O `criar` roda numa transação `BEGIN IMMEDIATE`: chave conhecida → devolve; `(acao, alvo)` aberto → devolve; só então o teto/h e o `INSERT`. Índice único parcial `aprovacoes_um_aberto` em `(acao, alvo)` nos estados abertos segura também contra um segundo processo no mesmo arquivo. A mesma `Idempotency-Key` com outra ação ou outro alvo é recusada (`409 chave_reusada`). O alvo vem de cada ação (`acoes_agente.CATALOGO[...].alvo`): `reiniciar_servico` → serviço, `processar_pedido` → pedido, `sincronizar_os` → nped, `forcar_carga` → `oportunidades`. Na subida da API, TODO `executando` é órfão (as ações rodam em threads da própria API): vira `falhou` ("sem desfecho"), menos o reinício da própria API, que vira `executado` (ela voltar é o desfecho). A cada pedido novo, o mesmo vale para `executando` há mais de 15 min; um desfecho real que chegue depois ainda substitui o "sem desfecho". Banco com duas linhas abertas para o mesmo alvo (de antes desta versão) sobe SEM o índice, com ERRO no log, e tenta de novo no próximo início; nenhum pedido é apagado. Linhas antigas ficam sem `alvo` (os abertos expiram em 30 min). Efeito para a Central e o MCP: um segundo pedido igual aberto recebe o que já existe.
+
 ## As rotas
 
 | Rota | Escopo | O quê |
 |---|---|---|
-| `POST /aprovacoes` | o da ação | `{acao, parametros, motivo}` → `201 {aprovacao, como_aprovar}`. `X-SIS-Pedido-Por` e `X-SIS-Usuario` só valem de cliente com `declara_usuario` (o MCP carimba o cliente real) |
+| `POST /aprovacoes` | o da ação | `{acao, parametros, motivo}` → `201 {aprovacao, como_aprovar, ja_existia: false}`. `X-SIS-Pedido-Por` e `X-SIS-Usuario` só valem de cliente com `declara_usuario` (o MCP carimba o cliente real). **Um dono por ação (07/10/2026):** cabeçalho opcional `Idempotency-Key` (8–64 de `A-Za-z0-9_-`): a mesma chave devolve o MESMO pedido em qualquer estado; e um pedido ABERTO (`pendente`/`executando`) para o mesmo alvo da mesma ação também é devolvido — nos dois casos `200 {aprovacao, ja_existia: true}` e nada novo é criado. A repetição é conferida ANTES do teto por hora (repetir nunca dá 429) |
 | `GET /aprovacoes[?estado=pendente]` | `leitura` | lista, mais novos primeiro |
 | `GET /aprovacoes/<id ou código>` | `leitura` | um pedido; o processado traz `execucao_atual` do Controle de Produção |
 | `POST /aprovacoes/<id ou código>/aprovar` | `aprovar` | `{pessoa?, canal}` → `202` e executa em segundo plano |
