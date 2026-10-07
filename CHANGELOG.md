@@ -6,6 +6,18 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-07] — `maintenance/quem_loga_no_sap.py`: quem faz login no SAP, de onde e com que processo
+
+Somente leitura, sobre o `USR5` (Access Log do B1: IP, máquina, usuário do Windows, executável e
+PID de cada login). Resumo do dia por usuário × processo × IP com `ritmo` (intervalo típico
+entre logins) e a marca `ROBO` (ritmo cravado sem usuário do Windows); `--usuario X` lista os
+eventos; `--escritas X --desde D` conta cotações/pedidos/oportunidades/OPs criados e alterados.
+Nasceu do "financeiro04 a cada 4 min" que precedia as quedas do Service Layer: é o
+`WBCServConsole.exe` (a integração WBC antiga, em C#, via DI API) **na .12**, numa tarefa ou
+serviço sem usuário do Windows, 06:20–20:56, e **desde 01/10 ele voltou a gravar em produção**
+(cotações e oportunidades) em paralelo com o worker — mesmas `U_INO_COTWBC` com cotações dos dois
+usuários. A .11 não usa o `financeiro04` (lá só `orcaview` pelo SL e `manager` pelo BankPlus).
+
 ## [2026-10-07] — Auditoria: três correções portadas do SAP_RDP V1.10
 
 As mesmas três falhas achadas na revisão da auditoria da .12 (SAP_RDP V1.10) existiam aqui:
