@@ -6,6 +6,26 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-07] — Auditoria: três correções portadas do SAP_RDP V1.10
+
+As mesmas três falhas achadas na revisão da auditoria da .12 (SAP_RDP V1.10) existiam aqui:
+
+- **Linha da auditoria partida por URL forjada.** `registrar` gravava com `ensure_ascii=False` e
+  `ler` usava `splitlines()`: um U+2028/U+2029/U+0085 ou `\x1c`–`\x1e` na URL (toda chamada
+  auditada grava caminho + query, inclusive sem chave) partia uma linha JSONL em duas, e
+  `ler()`/`python -m seguranca auditoria` caíam com `JSONDecodeError`. Agora `ensure_ascii=True`
+  e `ler` corta só em `\n` (lê também os arquivos de hoje, gravados antes).
+- **`X-SIS-Usuario` com controle C1.** O cabeçalho é decodificado em latin-1 e o filtro só
+  barrava `< 32` e `127`: `0x80`–`0x9F` passavam. Agora `not valor.isprintable()` na API 8077
+  (`_usuario_declarado`), no MCP 8078 (`_usuario`) e no Controle de Produção 8080
+  (`core/acesso._usuario_declarado`). Os campos `pessoa`/`solicitante` do corpo não mudaram.
+- **Chamada sem chave enchia o disco.** Toda chamada anônima ou com chave errada gravava uma
+  linha, sem limite. Novo `auditoria.registrar_recusa_anonima(servico, ip, alvo, ...)`: no máximo
+  uma linha por (serviço, IP, alvo) por minuto. Usado no `_audita` da 8077 (alvo = método + regra
+  da rota; caminho desconhecido = um alvo só), na recusa 401 do MCP e na recusa 401 da 8080 (alvo
+  = leitura/POST + escopo). O alvo é sempre um conjunto fechado — nunca o caminho cru, senão cada
+  caminho novo seria uma linha nova. Chamadas com credencial continuam gravando todas.
+
 ## [2026-10-06] — `deploy_update.bat`: a mensagem diz por que o git não atualizou
 
 Depois que o histórico foi reduzido aos últimos 12 commits (force-push), o deploy da .11 falhou

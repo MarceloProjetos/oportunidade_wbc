@@ -135,6 +135,30 @@ def test_auditoria_registra_quem_o_que_e_o_resultado_sem_a_chave(c):
     assert linhas[2]["rota"] == "/historico?key=***"
 
 
+@pytest.mark.parametrize("valor", ["fulano\tforjado", "fulano\x85forjado", "fulano\x9bforjado"])
+def test_usuario_com_caractere_de_controle_e_descartado(c, valor):
+    """Headers decode as latin-1: C1 controls (0x80-0x9F) must be refused like the C0 ones."""
+    chave = credenciais.criar("orcaview-90", ["leitura"], declara_usuario=True)
+    c.get("/historico", headers=_h(chave, **{"X-SIS-Usuario": valor}))
+    assert auditoria.ler("api")[0]["usuario"] is None
+
+
+def test_chamadas_anonimas_nao_enchem_a_auditoria(c):
+    """A LAN caller hammering without a key leaves one line per route per minute."""
+    for _ in range(30):
+        c.get("/historico", headers=_h("errada"))
+    for n in range(30):
+        c.get(f"/nao-existe-{n}")                 # unknown paths share one target, not one each
+    c.delete("/historico", headers=_h("errada"))
+    chave = credenciais.criar("qualquer", ["leitura"])
+    for _ in range(3):
+        c.get("/historico", headers=_h(chave))   # authenticated calls are never throttled
+    linhas = auditoria.ler("api")
+    assert [(l["cliente"], l["metodo"], l["rota"]) for l in linhas] == [
+        (None, "GET", "/historico"), (None, "GET", "/nao-existe-0"), (None, "DELETE", "/historico"),
+        *[("qualquer", "GET", "/historico")] * 3]
+
+
 def test_usuario_declarado_so_vale_de_quem_pode_declarar(c):
     chave = credenciais.criar("qualquer", ["leitura"])
     c.get("/historico", headers=_h(chave, **{"X-SIS-Usuario": "Diretor"}))

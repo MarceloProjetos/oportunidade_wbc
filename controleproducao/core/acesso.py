@@ -79,14 +79,20 @@ def _usuario_declarado(request: Request, cliente: credenciais.Cliente | None) ->
     if not cliente or not cliente.declara_usuario:
         return None
     valor = (request.headers.get("x-sis-usuario") or "").strip()
-    if not valor or len(valor) > LIMITE_USUARIO or any(ord(c) < 32 or ord(c) == 127 for c in valor):
+    if not valor or len(valor) > LIMITE_USUARIO or not valor.isprintable():
         return None
     return valor
 
 
 def _audita(request: Request, cliente: credenciais.Cliente | None, escopo: str, status: int, inicio: float) -> None:
-    auditoria.registrar(
+    gravar, extra = auditoria.registrar, {}
+    if cliente is None:
+        # Rate-limited per IP and scope (bounded), or a LAN caller could fill the disk.
+        gravar = auditoria.registrar_recusa_anonima
+        extra = {"alvo": f"{'POST' if request.method == 'POST' else 'leitura'} {escopo}"}
+    gravar(
         "controleproducao",
+        **extra,
         cliente=cliente.nome if cliente else None,
         usuario=_usuario_declarado(request, cliente),
         metodo=request.method,

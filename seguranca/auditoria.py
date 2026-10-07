@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import threading
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -70,7 +71,8 @@ def registrar(servico: str, **campos: Any) -> None:
         pasta = _pasta()
         linha = {"ts": agora.isoformat(timespec="milliseconds"), "servico": servico,
                  **{k: _curto(v) for k, v in campos.items()}}
-        texto = json.dumps(linha, ensure_ascii=False, default=str) + "\n"
+        # ensure_ascii: U+2028, U+0085 & co. from a crafted URL would otherwise split one line in two.
+        texto = json.dumps(linha, ensure_ascii=True, default=str) + "\n"
         with _trava:
             pasta.mkdir(parents=True, exist_ok=True)
             with open(pasta / f"{servico}-{agora:%Y-%m-%d}.jsonl", "a", encoding="utf-8", newline="\n") as f:
@@ -82,10 +84,32 @@ def registrar(servico: str, **campos: Any) -> None:
         logger.warning("Auditoria: falha ao registrar (%s): %s", servico, exc)
 
 
+_ANONIMOS_JANELA_S = 60.0
+_ANONIMOS_MAXIMO = 1000
+_ultimo_anonimo: dict[tuple[str, str, str], float] = {}
+
+
+def registrar_recusa_anonima(servico: str, ip: str | None, alvo: str = "", **campos: Any) -> None:
+    """A call with no valid credential: at most one line per (service, IP, target) per minute —
+    an anonymous caller on the LAN must not fill the disk through the audit. Per target, so
+    attempts on a write route are not hidden behind a stream of refused reads; callers pass a
+    BOUNDED target (route rule, scope), never the raw path, or each new path would be a new line."""
+    agora = time.monotonic()
+    chave = (servico, ip or "-", alvo)
+    with _trava:
+        if agora - _ultimo_anonimo.get(chave, float("-inf")) < _ANONIMOS_JANELA_S:
+            return
+        if len(_ultimo_anonimo) >= _ANONIMOS_MAXIMO:
+            for velha in [k for k, t in _ultimo_anonimo.items() if agora - t >= _ANONIMOS_JANELA_S]:
+                del _ultimo_anonimo[velha]
+        _ultimo_anonimo[chave] = agora
+    registrar(servico, ip=ip, **campos)
+
+
 def ler(servico: str, dia: date | None = None, pasta: Path | None = None) -> list[dict]:
     """The lines of one service on one day (tests and the CLI)."""
     pasta = pasta or _pasta()
     arquivo = pasta / f"{servico}-{(dia or date.today()):%Y-%m-%d}.jsonl"
     if not arquivo.exists():
         return []
-    return [json.loads(l) for l in arquivo.read_text(encoding="utf-8").splitlines() if l.strip()]
+    return [json.loads(l) for l in arquivo.read_text(encoding="utf-8").split("\n") if l.strip()]

@@ -110,6 +110,9 @@ def _seguranca_isolada(tmp_path_factory: pytest.TempPathFactory, monkeypatch: py
     monkeypatch.setenv("SIS_AUDITORIA_PASTA", str(pasta / "auditoria"))
     monkeypatch.setenv("SIS_AGENTE_INTERRUPTOR", str(pasta / "agente.desligado"))
     monkeypatch.setenv("SIS_APROVACOES_ARQUIVO", str(pasta / "aprovacoes.db"))
+    from seguranca import auditoria
+
+    monkeypatch.setattr(auditoria, "_ultimo_anonimo", {})     # the anonymous-refusal throttle is process state
     yield pasta
 
 

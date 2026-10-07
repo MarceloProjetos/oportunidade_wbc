@@ -177,6 +177,19 @@ def test_auditoria_registra_cada_ferramenta_com_quem_pediu(porta):
     assert chave not in json.dumps(linhas)
 
 
+def test_token_errado_repetido_grava_uma_linha_por_minuto(porta):
+    for _ in range(20):
+        assert _chamar(porta, "inventado", _ferramenta("verificar_saude"))[0] == 401
+    assert len(auditoria.ler("mcp")) == 1
+
+
+def test_usuario_com_controle_c1_e_descartado(porta):
+    """``x-sis-usuario`` decodes as latin-1: U+0085 would split the audit line."""
+    chave = credenciais.criar("orcaview-90", ["mcp", "leitura"], declara_usuario=True)
+    _chamar(porta, chave, _ferramenta("verificar_saude"), usuario="fulano\x85forjado")
+    assert auditoria.ler("mcp")[0]["usuario"] is None
+
+
 def test_toda_ferramenta_do_servidor_tem_um_escopo():
     """A tool added to mcp_server.py without a scope here stays closed (admin) — and this fails."""
     fonte = (RAIZ / "mcp" / "mcp_server.py").read_text(encoding="utf-8")

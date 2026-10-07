@@ -136,6 +136,35 @@ def test_registrar_nunca_derruba_a_chamada(monkeypatch, _seguranca_isolada):
     auditoria.registrar("api", rota="/x")            # must not raise
 
 
+def test_separador_de_linha_unicode_na_rota_nao_quebra_a_leitura():
+    """U+2028/U+0085/\x1e in a crafted URL used to split one JSON line in two (07/10/2026)."""
+    rota = "/historico?x=a\u2028b\u2029c\x85d\x1ce\x1df\x1eg"
+    auditoria.registrar("api", rota=rota)
+    auditoria.registrar("api", rota="/depois")
+    assert [linha["rota"] for linha in auditoria.ler("api")] == [rota, "/depois"]
+
+
+def test_recusa_anonima_grava_uma_linha_por_ip_e_alvo_por_minuto():
+    for _ in range(50):
+        auditoria.registrar_recusa_anonima("api", "10.0.0.9", alvo="GET /historico", rota="/historico", status=401)
+    auditoria.registrar_recusa_anonima("api", "10.0.0.8", alvo="GET /historico", rota="/historico", status=401)
+    auditoria.registrar_recusa_anonima("api", "10.0.0.9", alvo="POST /sincronizar-os", status=401)
+    auditoria.registrar_recusa_anonima("mcp", "10.0.0.9", resultado="recusado")
+    assert [linha["ip"] for linha in auditoria.ler("api")] == ["10.0.0.9", "10.0.0.8", "10.0.0.9"]
+    assert len(auditoria.ler("mcp")) == 1
+
+
+def test_recusa_anonima_volta_a_gravar_depois_da_janela(monkeypatch):
+    agora = [1000.0]
+    monkeypatch.setattr(auditoria.time, "monotonic", lambda: agora[0])
+    auditoria.registrar_recusa_anonima("api", "10.0.0.9", rota="/x")
+    agora[0] += auditoria._ANONIMOS_JANELA_S - 1
+    auditoria.registrar_recusa_anonima("api", "10.0.0.9", rota="/x")
+    agora[0] += 2
+    auditoria.registrar_recusa_anonima("api", "10.0.0.9", rota="/x")
+    assert len(auditoria.ler("api")) == 2
+
+
 def test_texto_longo_e_cortado():
     auditoria.registrar("mcp", argumentos="x" * 5000)
     assert len(auditoria.ler("mcp")[0]["argumentos"]) <= auditoria.LIMITE_TEXTO + 1

@@ -105,7 +105,7 @@ def _usuario(scope: dict, cliente: Cliente) -> str | None:
     if not cliente.declara_usuario:
         return None
     valor = _cabecalho(scope, b"x-sis-usuario").strip()
-    if not valor or len(valor) > LIMITE_USUARIO or any(ord(c) < 32 or ord(c) == 127 for c in valor):
+    if not valor or len(valor) > LIMITE_USUARIO or not valor.isprintable():
         return None
     return valor
 
@@ -183,7 +183,7 @@ class PortaDoMcp:
         cliente = identificar(token, self.legado)
         ip = (scope.get("client") or ("-",))[0]
         if cliente is None:
-            auditoria.registrar("mcp", cliente=None, ip=ip, resultado="recusado: token ausente ou inválido")
+            auditoria.registrar_recusa_anonima("mcp", ip, cliente=None, resultado="recusado: token ausente ou inválido")
             await _responder(send, 401, {"error": "unauthorized"}, [(b"www-authenticate", b"Bearer")])
             return
 

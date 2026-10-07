@@ -1387,7 +1387,7 @@ def _usuario_declarado(cliente: Cliente | None) -> str | None:
     if not cliente or not cliente.declara_usuario:
         return None
     valor = (request.headers.get('X-SIS-Usuario') or '').strip()
-    if not valor or len(valor) > LIMITE_USUARIO or any(ord(c) < 32 or ord(c) == 127 for c in valor):
+    if not valor or len(valor) > LIMITE_USUARIO or not valor.isprintable():
         return None
     return valor
 
@@ -1410,8 +1410,16 @@ def _audita(resposta: Response) -> Response:
         if cliente is None and caminho in ('/', '/status') and resposta.status_code < 400:
             return resposta
         inicio = g.get('sis_inicio')
-        auditoria.registrar(
+        gravar, extra = auditoria.registrar, {}
+        if cliente is None:
+            # Rate-limited per IP and route rule (bounded: an unknown path has no rule), or a
+            # LAN caller could fill the disk.
+            gravar = auditoria.registrar_recusa_anonima
+            regra = request.url_rule.rule if request.url_rule else '-'
+            extra = {'alvo': f'{request.method} {regra}'}
+        gravar(
             'api',
+            **extra,
             cliente=cliente.nome if cliente else None,
             usuario=_usuario_declarado(cliente),
             metodo=request.method,

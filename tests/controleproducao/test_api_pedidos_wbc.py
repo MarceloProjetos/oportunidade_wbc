@@ -235,6 +235,18 @@ def test_toda_chamada_da_api_vai_para_a_auditoria(c, ambiente):
     assert linhas[0]["rota"] == f"{API}/pedidos?modo=novos" and chave not in str(linhas)
 
 
+def test_chave_errada_repetida_grava_uma_linha_por_minuto(c, ambiente):
+    from seguranca import auditoria, credenciais
+
+    for _ in range(20):
+        assert c.get(f"{API}/pedidos", headers={"X-API-Key": "errada"}).status_code == 401
+    chave = credenciais.criar("equipe-pedidos", ["pedidos_wbc"], declara_usuario=True)
+    c.get(f"{API}/pedidos", headers={"X-API-Key": chave, "X-SIS-Usuario": "fulano\x85forjado".encode("latin-1")})
+    linhas = auditoria.ler("controleproducao")
+    assert [(l["cliente"], l["status"]) for l in linhas] == [(None, 401), ("equipe-pedidos", 200)]
+    assert linhas[1]["usuario"] is None          # C1 control in the header: dropped
+
+
 # ---------------------------------------------------------------------------
 # 2. The list — same rows, same page, same labels as the screen
 # ---------------------------------------------------------------------------
