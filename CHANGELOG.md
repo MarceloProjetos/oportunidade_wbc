@@ -6,6 +6,17 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-07] — Teste do porte da Situação dos Pedidos: as três funções da V118.521 ficam fora
+
+O pre-commit falhava em todo commit desde o web V118.521 ("busca vazia explica onde o pedido
+está no SAP"): `test_nenhuma_funcao_publica_do_v117_ficou_de_fora` acusava
+`termo_localizavel`, `classificar_localizados` e `localizar_no_sap`, novas no
+`situacao_pedidos_service.py` do web. Elas entraram em `FORA_DA_COMPARACAO`, não no porte:
+explicam a busca livre **da tela** que não achou nada, pelo `buscar_pedidos` do V118 (linhas
+da ORDR no formato do SL), que a .11 não tem. A .11 já responde a mesma pergunta por pedido
+em `_situacao_fora_da_view` (ORDR por DocNum: `fora_do_recorte` / `pedido_nao_encontrado` /
+Cancelado). Nenhum comportamento da .11 mudou.
+
 ## [2026-10-07] — `maintenance/quem_loga_no_sap.py`: quem faz login no SAP, de onde e com que processo
 
 Somente leitura, sobre o `USR5` (Access Log do B1: IP, máquina, usuário do Windows, executável e

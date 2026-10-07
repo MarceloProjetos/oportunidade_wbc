@@ -60,12 +60,18 @@ CONSTANTES_NUCLEO = (
 #: - ``alerta_liberacao``/``com_alerta``/``filtrar_bloqueio``/
 #:   ``filtrar_liberacao_atrasada``/``resumir``/
 #:   ``BLOQUEIO_FILTROS``/``CAMPOS_RESUMO``: exclusivos da .11, nao existem no V117.
+#: - ``termo_localizavel``/``classificar_localizados``/``localizar_no_sap`` (V118.521):
+#:   web-only — they explain an empty free-text search on the screen via V118's
+#:   ``buscar_pedidos`` (SL-shaped ORDR rows). The .11 answers the same question per order
+#:   in ``api._situacao_fora_da_view`` (ORDR by DocNum: fora_do_recorte/nao_encontrado/
+#:   Cancelado).
 FORA_DA_COMPARACAO = frozenset({
     "fetch_pedidos", "limpar_cache", "_fetch_sync",
     "ValidationError", "now_br",
     "alerta_liberacao", "com_alerta", "filtrar_bloqueio",
     "filtrar_liberacao_atrasada", "resumir",
     "BLOQUEIO_FILTROS", "CAMPOS_RESUMO",
+    "termo_localizavel", "classificar_localizados", "localizar_no_sap",
 })
 
 _IMPORT_RE = re.compile(r"^[ 	]*(?:import|from)\s+.*$", re.MULTILINE)
