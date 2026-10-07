@@ -6,6 +6,19 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-07] — Histórico de deploys e a causa de cada início de serviço
+
+`/operacao/deploy` mostrava só o ÚLTIMO deploy: depois do deploy das 14:00, ninguém ligava mais o
+reinício das 10:42 ao deploy daquela hora, e a Mira chutou "reinício da máquina ou dos serviços"
+(pedido do Marcelo). Agora a rota traz também `deploys` — os 10 últimos, do mais novo ao mais velho
+(início, `inicio_iso`, quem, resultado, versão `de`→`para`); `ultimo_deploy` continua igual e ganha
+`inicio_iso`. A data do `%DATE% %TIME%` segue a máquina (en-US na .11 com o dia da semana em inglês,
+pt-BR sem ele) e vira ISO em `versao.momento_iso`. `/operacao/servicos` ganha `boot` e, por serviço,
+`causa_do_inicio`: `reinicio_aprovado` (código e quem aprovou, do `aprovacoes.db`, só lido se
+existir), `deploy` (até 10 min do início; deploy abortado com "nada parado" não conta), `boot` (até
+15 min do boot) ou `desconhecido` (NSSM religou após queda, ou restart à mão). Descrições das tools
+`estado_servicos` e `ultimo_deploy` do MCP dizem isso. **Pede deploy da .11** (restart da API e do MCP).
+
 ## [2026-10-07] — Ronda do .90: período só na 2ª leitura, pior "como" vence, thread que não morre
 
 Revisão da ronda do .90 (F6): um período abre só na 2ª leitura "fora" seguida (datado pela 1ª; um

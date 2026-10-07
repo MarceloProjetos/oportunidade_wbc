@@ -50,13 +50,46 @@ def test_servicos_estado_desde_quando_e_quem_falta(monkeypatch):
     del estados["OrcaView-MCP"]
     monkeypatch.setattr(servicos, "_psutil", lambda: _psutil_falso(estados))
 
-    r = servicos.estado_servicos(agora=datetime(2026, 10, 2, 11, 32))
+    r = servicos.estado_servicos(agora=datetime(2026, 10, 2, 11, 32), deploys=[], reinicios=[])
     assert r["total"] == 6 and r["rodando"] == 4
     assert r["fora_do_ar"] == ["OrcaView-MCP", "OrcaView-WBC-Worker"]
     api = r["servicos"][0]
     assert api["nome"] == "OrcaView-OS-API" and api["desde"] == "2026-10-02T11:02:00" and api["ha_minutos"] == 30
     mcp = r["servicos"][1]
     assert mcp["instalado"] is False and "não instalado" in mcp["motivo"]
+
+
+def test_servicos_dizem_por_que_subiram_naquela_hora(monkeypatch):
+    estados = {nome: {"status": "running", "start_type": "automatic", "pid": 10} for nome, _ in servicos.SERVICOS}
+    monkeypatch.setattr(servicos, "_psutil", lambda: _psutil_falso(estados))  # every process: 11:02
+    deploy = {"inicio_iso": "2026-10-02T11:01:00", "para": "def4567", "resultado": "fim: OK"}
+    r = servicos.estado_servicos(agora=datetime(2026, 10, 2, 11, 32), deploys=[deploy], reinicios=[])
+    assert r["servicos"][0]["causa_do_inicio"] == {"tipo": "deploy", "quando": "2026-10-02T11:01:00",
+                                                   "versao": "def4567", "resultado": "fim: OK"}
+    # A newer deploy does not hide the one that restarted them (the history, not the last run).
+    novo = {"inicio_iso": "2026-10-02T14:00:00", "para": "aaa1111", "resultado": "fim: OK"}
+    r = servicos.estado_servicos(agora=datetime(2026, 10, 2, 11, 32), deploys=[novo, deploy], reinicios=[])
+    assert r["servicos"][5]["causa_do_inicio"]["versao"] == "def4567"
+
+
+def test_causa_do_inicio_reinicio_boot_e_desconhecido():
+    nove = datetime(2026, 10, 7, 9, 0, 30)
+    reinicio = {"acao": "reiniciar_servico", "parametros": {"servico": "OrcaView-MCP"}, "codigo": "4821",
+                "decidido_por": "Marcelo", "decidido_em": "2026-10-07T09:00:00", "concluido_em": "2026-10-07T09:00:20"}
+    c = servicos.causa_do_inicio("OrcaView-MCP", nove, deploys=[], boot=None, reinicios=[reinicio])
+    assert c == {"tipo": "reinicio_aprovado", "quando": "2026-10-07T09:00:00", "codigo": "4821",
+                 "aprovado_por": "Marcelo"}
+    # The same approval does not explain another service.
+    assert servicos.causa_do_inicio("OrcaView-OS-API", nove, deploys=[], boot=None,
+                                    reinicios=[reinicio]) == {"tipo": "desconhecido"}
+    boot = datetime(2026, 10, 7, 6, 12)
+    assert servicos.causa_do_inicio("OrcaView-OS-API", datetime(2026, 10, 7, 6, 14), deploys=[], boot=boot,
+                                    reinicios=[])["tipo"] == "boot"
+    # An aborted run that stopped nothing restarted nothing.
+    abortado = {"inicio_iso": "2026-10-07T08:59:00", "resultado": "abortado: git fetch falhou - rede; nada parado"}
+    assert servicos.causa_do_inicio("OrcaView-OS-API", nove, deploys=[abortado], boot=boot,
+                                    reinicios=[])["tipo"] == "desconhecido"
+    assert servicos.causa_do_inicio("OrcaView-OS-API", None, deploys=[], boot=boot, reinicios=[]) is None
 
 
 def test_servicos_fora_do_windows_diz_que_nao_sabe(monkeypatch):
@@ -183,6 +216,26 @@ def test_ultimo_deploy_e_a_ultima_execucao(tmp_path):
     arquivo.write_text(DEPLOYS + "02/10/2026 12:00:00,00 | inicio | admin em X\n", encoding="utf-8")
     assert versao.ultimo_deploy(arquivo)["resultado"] == "em_andamento_ou_interrompido"
     assert versao.ultimo_deploy(tmp_path / "nao.log")["registrado"] is False
+
+
+def test_deploys_recentes_do_mais_novo_ao_mais_velho(tmp_path):
+    arquivo = tmp_path / "deploy.log"
+    arquivo.write_text(DEPLOYS.replace("de abc para def", "de dd23f62a237c para f877bc1c8cd6"), encoding="utf-8")
+    novo, velho = versao.deploys_recentes(arquivo)
+    assert novo == {"inicio": "02/10/2026 11:01:00,00", "inicio_iso": "2026-10-02T11:01:00",
+                    "quem": "admin em SAPBUSINESSONEI", "resultado": "fim: OK", "de": "dd23f62", "para": "f877bc1"}
+    assert velho["resultado"].startswith("abortado") and velho["de"] is None
+    assert versao.deploys_recentes(arquivo, limite=1) == [novo]
+    assert versao.deploys_recentes(tmp_path / "nao.log") == []
+
+
+def test_momento_iso_segue_o_formato_da_maquina():
+    assert versao.momento_iso("Wed 10/07/2026 14:00:11.03") == "2026-10-07T14:00:11"  # .11, en-US
+    assert versao.momento_iso("07/10/2026 14:00:11,03") == "2026-10-07T14:00:11"      # pt-BR
+    assert versao.momento_iso("qua 07/10/2026 14:00:11,03") == "2026-10-07T14:00:11"  # pt-BR with weekday
+    assert versao.momento_iso("Thu 10/31/2026  9:05:00.00") == "2026-10-31T09:05:00"  # %TIME% pads with a space
+    assert versao.momento_iso("31/10/2026 09:05:00,00") == "2026-10-31T09:05:00"
+    assert versao.momento_iso("lixo") is None and versao.momento_iso("") is None
 
 
 # ---------------------------------------------------------------------------
@@ -358,8 +411,10 @@ def test_rotas_de_servicos_deploy_e_log(api, monkeypatch):
     monkeypatch.setattr(servicos, "estado_servicos", lambda: {"rodando": 6})
     assert c.get("/operacao/servicos", headers=h).get_json() == {"ok": True, "rodando": 6}
     monkeypatch.setattr(versao, "ultimo_deploy", lambda: {"registrado": False})
+    monkeypatch.setattr(versao, "deploys_recentes", lambda: [{"inicio": "x"}])
     corpo = c.get("/operacao/deploy", headers=h).get_json()
     assert corpo["ultimo_deploy"] == {"registrado": False} and "reinicio_pendente" in corpo["versao"]
+    assert corpo["deploys"] == [{"inicio": "x"}]
     monkeypatch.setattr(log_worker, "log_do_orcamento", lambda n, limite: {"orcamento": n.zfill(8), "linhas": []})
     assert c.get("/wbc/orcamentos/125348/log", headers=h).get_json()["orcamento"] == "00125348"
     assert c.get("/wbc/orcamentos/12a/log", headers=h).status_code == 400

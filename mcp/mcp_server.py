@@ -558,6 +558,11 @@ def estado_servicos() -> dict[str, Any]:
     Use para "os serviços da .11 estão no ar?", "o worker reiniciou?", "desde quando a API
     está rodando?". ``fora_do_ar`` lista os que não estão ``running``. Esta ferramenta não
     liga nem reinicia nada.
+
+    ``causa_do_inicio`` diz POR QUE cada um subiu naquela hora: ``deploy`` (com a versão),
+    ``reinicio_aprovado`` (código e quem aprovou), ``boot`` da máquina (a .11 reinicia todo
+    dia ~06:12) ou ``desconhecido`` (o NSSM religou depois de uma queda, ou alguém reiniciou
+    à mão). Repita essa causa; não suponha outra.
     """
     return _get("/operacao/servicos")
 
@@ -589,8 +594,9 @@ def ultimo_deploy() -> dict[str, Any]:
     Use para "o deploy deu certo?", "o que aconteceu no deploy?", "qual versão está no
     ar?". ``versao.reinicio_pendente`` = true quer dizer que o código no disco é mais novo
     que o processo da API (atualizado, mas não reiniciado). ``ultimo_deploy.etapas`` traz
-    cada passo (fetch, git, pip, health, fim); ``resultado`` diz como terminou. Deploys
-    anteriores a 02/10/2026 não deixaram registro.
+    cada passo (fetch, git, pip, health, fim); ``resultado`` diz como terminou. ``deploys``
+    lista os últimos 10, do mais novo ao mais velho (início, versão de→para, resultado).
+    Deploys anteriores a 02/10/2026 não deixaram registro.
     """
     return _get("/operacao/deploy")
 

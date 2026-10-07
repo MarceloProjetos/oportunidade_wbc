@@ -1574,8 +1574,10 @@ def operacao_testar_conexao(destino: str):
 @app.get('/operacao/deploy')
 @requer_chave('leitura')
 def operacao_deploy():
-    """The running commit (and whether a restart is pending) plus the last deploy's steps."""
-    return jsonify(ok=True, versao=versao.versao(), ultimo_deploy=versao.ultimo_deploy())
+    """The running commit (and whether a restart is pending), the last deploy's steps and the
+    last runs without steps (``deploys``, newest first)."""
+    return jsonify(ok=True, versao=versao.versao(), ultimo_deploy=versao.ultimo_deploy(),
+                   deploys=versao.deploys_recentes())
 
 
 @app.get('/operacao/ronda-90')
