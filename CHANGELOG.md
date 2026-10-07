@@ -6,6 +6,16 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-07] — Ronda do .90: período só na 2ª leitura, pior "como" vence, thread que não morre
+
+Revisão da ronda do .90 (F6): um período abre só na 2ª leitura "fora" seguida (datado pela 1ª; um
+soluço de rede não vira queda); o "como" de um período só piora ("desligado" nunca volta a "app
+fora" no boot, quando o Windows já responde ao ping antes do OrçaView abrir as portas); ping que nem
+rodou não é "desligado"; quando a própria .11 ficou sem ler (restart, deploy) o período diz depois
+de qual leitura começou/terminou (`inicio_apos`/`fim_apos`); a gravação tenta 3× no
+`PermissionError` do Windows e a thread nunca morre calada (`_laco` com try/except). **Pede deploy
+da .11.**
+
 ## [2026-10-07] — Ronda do .90 vista da .11 (F6 do PLANO_AGENTE_TI do web)
 
 Todos os vigilantes do OrçaView moram no próprio .90: quando ele cai, ninguém anota a hora.

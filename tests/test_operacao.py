@@ -420,25 +420,65 @@ def test_ronda_classifica_ok_app_fora_e_desligado():
     assert ronda_90.classificar(_resultado(True, None)) == ("ok", None)
     assert ronda_90.classificar(_resultado(False, True)) == ("fora", "app fora")
     assert ronda_90.classificar(_resultado(False, False)) == ("fora", "desligado")
+    assert ronda_90.classificar(_resultado(False, None)) == ("fora", None), "ping que nem rodou não é 'desligado'"
+
+
+def _iso(t):
+    return t.isoformat(timespec="seconds")
 
 
 def test_ronda_fecha_o_periodo_com_hora_real_e_esquece_o_antigo():
     t = datetime(2026, 10, 7, 10, 0).astimezone()
     dados = ronda_90.aplicar(ronda_90._vazio(), "ok", None, t)
-    dados = ronda_90.aplicar(dados, "fora", "app fora", t + timedelta(minutes=12))
-    dados = ronda_90.aplicar(dados, "fora", "desligado", t + timedelta(minutes=17))
-    assert dados["estado"] == "fora" and dados["como"] == "desligado" and dados["periodos"] == []
-    dados = ronda_90.aplicar(dados, "ok", None, t + timedelta(minutes=31))
+    dados = ronda_90.aplicar(dados, "fora", "app fora", t + timedelta(minutes=5))
+    assert dados["estado"] == "ok", "uma leitura ruim ainda não é período"
+    dados = ronda_90.aplicar(dados, "fora", "desligado", t + timedelta(minutes=10))
+    assert dados["estado"] == "fora" and dados["desde"] == _iso(t + timedelta(minutes=5))
+    assert dados["como"] == "desligado" and dados["periodos"] == []
+    dados = ronda_90.aplicar(dados, "ok", None, t + timedelta(minutes=15))
     [p] = dados["periodos"]
-    assert p == {"inicio": (t + timedelta(minutes=12)).isoformat(timespec="seconds"),
-                 "fim": (t + timedelta(minutes=31)).isoformat(timespec="seconds"), "como": "desligado"}
+    assert p == {"inicio": _iso(t + timedelta(minutes=5)), "fim": _iso(t + timedelta(minutes=15)), "como": "desligado"}
     depois = ronda_90.aplicar(dados, "ok", None, t + timedelta(days=ronda_90.DIAS_GUARDADOS + 1))
     assert depois["periodos"] == [], "período antigo sai"
+
+
+def test_ronda_um_soluco_nao_vira_periodo():
+    t = datetime(2026, 10, 7, 10, 0).astimezone()
+    dados = ronda_90.aplicar(ronda_90._vazio(), "ok", None, t)
+    dados = ronda_90.aplicar(dados, "fora", "desligado", t + timedelta(minutes=5))
+    dados = ronda_90.aplicar(dados, "ok", None, t + timedelta(minutes=10))
+    assert dados["estado"] == "ok" and dados["periodos"] == [] and dados["suspeita"] is None
+    assert dados["desde"] == _iso(t), "o 'ok desde' não recomeça por um soluço"
+
+
+def test_ronda_o_pior_visto_vence_no_boot():
+    """At boot the machine answers ping before the app opens its ports: a night "desligado" must
+    not close as "app fora"."""
+    t = datetime(2026, 10, 7, 18, 0).astimezone()
+    dados = ronda_90.aplicar(ronda_90._vazio(), "ok", None, t)
+    for i, como in enumerate(["desligado", "desligado", "app fora"], start=1):
+        dados = ronda_90.aplicar(dados, "fora", como, t + timedelta(minutes=5 * i))
+    dados = ronda_90.aplicar(dados, "ok", None, t + timedelta(minutes=20))
+    assert dados["periodos"][0]["como"] == "desligado"
+
+
+def test_ronda_com_a_11_parada_diz_entre_quais_leituras():
+    t = datetime(2026, 10, 7, 5, 0).astimezone()
+    dados = ronda_90.aplicar(ronda_90._vazio(), "ok", None, t)
+    # The .11 restarts (~06:12) and comes back long after its last reading.
+    dados = ronda_90.aplicar(dados, "fora", "desligado", t + timedelta(hours=1, minutes=20))
+    dados = ronda_90.aplicar(dados, "fora", "desligado", t + timedelta(hours=1, minutes=25))
+    dados = ronda_90.aplicar(dados, "fora", "desligado", t + timedelta(hours=1, minutes=30))
+    dados = ronda_90.aplicar(dados, "ok", None, t + timedelta(hours=2, minutes=40))
+    [p] = dados["periodos"]
+    assert p["inicio"] == _iso(t + timedelta(hours=1, minutes=20)) and p["inicio_apos"] == _iso(t)
+    assert p["fim_apos"] == _iso(t + timedelta(hours=1, minutes=30))
 
 
 def test_ronda_grava_e_le_o_arquivo_e_teste_quebrado_nao_muda_nada(tmp_path, monkeypatch):
     arquivo = tmp_path / "ronda_90.json"
     monkeypatch.setattr(conexoes, "testar", lambda nome, porta=None: _resultado(False, False))
+    ronda_90.rodar_uma_vez(arquivo)
     assert ronda_90.rodar_uma_vez(arquivo)["estado"] == "fora"
     assert ronda_90.ler(arquivo)["como"] == "desligado"
 
@@ -449,6 +489,16 @@ def test_ronda_grava_e_le_o_arquivo_e_teste_quebrado_nao_muda_nada(tmp_path, mon
     assert ronda_90.rodar_uma_vez(arquivo)["estado"] == "fora", "sem leitura: o estado fica como estava"
     arquivo.write_text("{lixo", encoding="utf-8")
     assert ronda_90.ler(arquivo)["estado"] is None, "arquivo ilegível = estado vazio, nunca exceção"
+
+
+def test_ronda_gravacao_que_falha_nao_derruba_a_passada(tmp_path, monkeypatch):
+    monkeypatch.setattr(conexoes, "testar", lambda nome, porta=None: _resultado(True, True))
+
+    def _negado(dados, arquivo):
+        raise PermissionError(32, "em uso")
+
+    monkeypatch.setattr(ronda_90, "_gravar", _negado)
+    assert ronda_90.rodar_uma_vez(tmp_path / "r.json")["estado"] == "ok", "nunca levanta"
 
 
 def test_ronda_so_liga_na_11(monkeypatch, tmp_path):
