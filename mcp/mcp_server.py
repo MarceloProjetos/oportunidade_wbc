@@ -574,7 +574,8 @@ def testar_conexao(destino: str = "", porta: int = 0) -> dict[str, Any]:
     Use para "a .11 alcança o HANA?", "o .90 responde?", "o deploy falhou por rede?". Só
     destinos de uma lista fechada, pelo nome — sem ``destino`` a ferramenta devolve a lista
     (esta-maquina, orcaview-90, altamira-view, sap-rdp-12, github, sap-hana, service-layer,
-    sql-server-wbc, supabase). ``conclusao`` resume em uma frase. Ping sem resposta com a
+    sql-server-wbc, supabase, gateway = pfSense, dns-casa = ALTSERVIDOR, internet = 8.8.8.8; esses
+    três só na porta 53). ``conclusao`` resume em uma frase. Ping sem resposta com a
     porta aberta é normal em alguns hosts (bloqueiam ping de propósito).
 
     Args:

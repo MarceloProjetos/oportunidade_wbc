@@ -50,6 +50,11 @@ _FIXOS = (
     Destino("altamira-view", "Altamira View (equipe GLMiranda) no .90", "192.168.0.90", (8095,)),
     Destino("sap-rdp-12", "servidor RDP do SAP (.12)", "192.168.7.12", (3389,)),
     Destino("github", "GitHub (o deploy baixa o código de lá)", "github.com", (443,)),
+    # PLANO_TEO_REDE_E_ROTINAS F3 (web): the network seen from here, to tell "the .90's path" from
+    # "the network". Port 53 (TCP) only: these answer DNS, nothing else is asked of them.
+    Destino("gateway", "pfSense (gateway, firewall e DNS encaminhador)", "192.168.0.10", (53,)),
+    Destino("dns-casa", "DNS da casa (ALTSERVIDOR, o controlador de domínio)", "192.168.0.1", (53,)),
+    Destino("internet", "internet (DNS público do Google, 8.8.8.8)", "8.8.8.8", (53,)),
 )
 
 

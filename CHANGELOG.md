@@ -6,6 +6,13 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-08] — Teste de conexão: pfSense, DNS da casa e internet
+
+F3 do `docs/PLANO_TEO_REDE_E_ROTINAS.md` do web: a lista fechada de `/operacao/conexoes/<destino>` (e da tool
+`testar_conexao`) ganha `gateway` (pfSense, 192.168.0.10:53), `dns-casa` (ALTSERVIDOR, 192.168.0.1:53) e
+`internet` (8.8.8.8:53). O Téo e a Mira comparam a rede vista do .90 com a vista da .11 ("o .90 não alcança e a
+.11 alcança" = o caminho do .90). Só a porta 53. **Pede deploy da .11** (o web já aceita os nomes novos).
+
 ## [2026-10-07] — Um dono por ação nos pedidos de aprovação
 
 F4 do `docs/PLANO_AGENTES_INDEPENDENTES.md` do web: dois pedidos iguais nunca viram duas ações. `POST /aprovacoes` aceita `Idempotency-Key` (mesma chave = mesmo pedido, em qualquer estado) e devolve o pedido ABERTO do mesmo alvo da mesma ação em vez de criar outro — `200 {ja_existia: true}`; criado segue `201` (`ja_existia: false`). O `aprovacoes.criar` decide numa transação `BEGIN IMMEDIATE` (chave → alvo aberto → teto/h → `INSERT`; repetir nunca dá 429) e o banco ganha `alvo`, `chave_idem` e o índice único parcial `aprovacoes_um_aberto` (migração idempotente no 1º acesso; com duplicata aberta antiga sobe sem o índice e loga ERRO, sem apagar nada). Cada ação do `acoes_agente.CATALOGO` declara o seu `alvo`. `executando` sem desfecho há 15 min vira `falhou` ("sem desfecho") na subida da API e a cada pedido. Contrato em `docs/APROVACOES_11.md`. **Pede deploy da .11 ANTES do web V118.564** (o .90 passa a mandar a chave e a tratar o 200).

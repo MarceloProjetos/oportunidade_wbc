@@ -118,6 +118,9 @@ def test_lista_fechada_inclui_os_do_env(env_destinos):
     assert d["supabase"].host == "abc.supabase.co" and d["supabase"].portas == (443,)
     assert d["sql-server-wbc"].host == "wbc.local"
     assert {"esta-maquina", "orcaview-90", "altamira-view", "sap-rdp-12", "github", "service-layer"} <= set(d)
+    # F3 of the web's PLANO_TEO_REDE_E_ROTINAS: the network, port 53 only.
+    assert {n: (d[n].host, d[n].portas) for n in ("gateway", "dns-casa", "internet")} == {
+        "gateway": ("192.168.0.10", (53,)), "dns-casa": ("192.168.0.1", (53,)), "internet": ("8.8.8.8", (53,))}
 
 
 def test_destino_ou_porta_fora_da_lista_e_recusado_antes_da_rede(env_destinos, monkeypatch):
