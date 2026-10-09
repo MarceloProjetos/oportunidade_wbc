@@ -67,8 +67,9 @@ Diagnóstico da própria .11 (só leitura): `estado_servicos` (os 6 serviços do
 desde quando), `testar_conexao` (DNS, ping e porta a partir da .11, só destinos de uma
 lista fechada), `ultimo_deploy` (versão no ar e como foi o último deploy),
 `historico_pedido` (o que mudou num pedido e quem mudou — pessoa ou integração),
-`log_orcamento_wbc` (o log do worker sobre um orçamento) e `boots` (por que a .11 reiniciou:
-cada vez que ligou nos últimos 7 dias e como a vida anterior acabou).
+`log_orcamento_wbc` (o log do worker sobre um orçamento), `boots` (por que a .11 reiniciou:
+cada vez que ligou nos últimos 7 dias e como a vida anterior acabou) e `travamentos` (serviços do
+Windows que pararam de responder na última hora: o aviso que vem antes de a máquina travar).
 
 Tudo é leitura, exceto `sincronizar_pedido_os` e `forcar_carga_oportunidades`: essas
 devolvem um preview com `confirmar=False` e só executam com `confirmar=True`, depois do
@@ -623,6 +624,21 @@ def boots() -> dict[str, Any]:
     Rotina: o Hyper-V do host desliga a .11 por volta de 21:02 e a religa por volta de 06:12.
     """
     return _get("/operacao/boots")
+
+
+@mcp.tool(annotations=_ANOTACAO_LEITURA)
+def travamentos() -> dict[str, Any]:
+    """SERVIÇOS DO WINDOWS TRAVANDO NA .11 NA ÚLTIMA HORA — o aviso que vem ANTES de a máquina
+    travar. Use para "a .11 está para travar?", "algum serviço parou de responder?". Só leitura;
+    < 1 s (cache 30 s).
+
+    ``servicos`` = por serviço, os horários em que ``travado`` (SCM 7011/7046/7022), ``caiu``
+    (7031/7034) ou ``nao_iniciou`` (7000/7009). ``cascata`` = 3+ serviços travando em sequência (no
+    máximo 15 min entre um e outro): ``inicio``, ``fim``, ``servicos`` na ordem e ``rede`` = o
+    primeiro é um serviço de rede (aponta a rede da VM / o switch virtual do host). ``agora`` = o
+    relógio da .11.
+    """
+    return _get("/operacao/travamentos")
 
 
 @mcp.tool(annotations=_ANOTACAO_LEITURA)

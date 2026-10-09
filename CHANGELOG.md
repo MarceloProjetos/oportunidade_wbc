@@ -16,6 +16,13 @@ equipe: `docs/API_SITUACAO_PEDIDOS_INCOTERMS.md`. **Antes do deploy da .11, roda
 `alter table ... add column if not exists incoterms` de `sql/orcamentos_espelho.sql`** — sem a coluna, a carga
 do espelho falha (a tabela fica com o snapshot anterior).
 
+## [2026-10-09] — Serviços travando: o aviso antes de a .11 travar
+
+F5b do `docs/PLANO_TEO_REDE_E_ROTINAS.md` do web: **`GET /operacao/travamentos`** (escopo `leitura`) e a tool MCP
+**`travamentos`** — os serviços do Windows que travaram, caíram ou não iniciaram na última hora e a última cascata (3+
+serviços travando em sequência; só o 7011 conta), com `rede`, `agora` e `ligou`. A .11 está no mesmo switch virtual
+da .12, que travou em cascata em 08/10. Idêntico ao SAP_RDP V1.25. **Pede deploy da .11.**
+
 ## [2026-10-09] — O Hyper-V desliga a VM pelo svchost
 
 1ª leitura real do `/operacao/boots`: os desligamentos da .11 (21:02 toda noite e 08/10 09:50:01) vêm de

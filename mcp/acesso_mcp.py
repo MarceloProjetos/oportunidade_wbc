@@ -54,6 +54,7 @@ ESCOPO_DA_FERRAMENTA: dict[str, str] = {
     "testar_conexao": "leitura",
     "ultimo_deploy": "leitura",
     "boots": "leitura",
+    "travamentos": "leitura",
     # F3/F4: requests for a person to approve; the scope is the one of the action asked.
     "pedir_sincronizar_os": "os:sincronizar",
     "pedir_forcar_carga": "oportunidades:carga",
