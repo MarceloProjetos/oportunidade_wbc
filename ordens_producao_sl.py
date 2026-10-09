@@ -46,6 +46,7 @@ import logging
 import random
 import threading
 import time
+from datetime import date
 from typing import Any, Dict, Optional, Tuple
 
 import requests
@@ -574,10 +575,14 @@ def atualizar_status(
     # is there to make sure it is the right OP and the right transition.
     logger.info('OP %s (DocEntry %s): %s -> %s | base %s',
                 doc_num, doc_entry, atual, alvo, s.op_sl_company_db)
-    resp = _request(
-        'PATCH', f'/ProductionOrders({doc_entry})',
-        json_body={'ProductionOrderStatus': alvo},
-    )
+    corpo = {'ProductionOrderStatus': alvo}
+    if alvo == 'boposClosed':
+        # OPs are created with ClosingDate = today + 20 days (controleproducao, as the C#
+        # addon did); a status-only PATCH keeps that future date and SAP refuses it ("Actual
+        # closing date must be equal to or earlier than current system date", 106 OPs on
+        # 2026-09-25). Same as Manutencao de OP: the order closes today.
+        corpo['ClosingDate'] = date.today().isoformat()
+    resp = _request('PATCH', f'/ProductionOrders({doc_entry})', json_body=corpo)
     if resp.status_code not in (200, 204):
         detalhe = _erro_sl(resp)
         logger.error('OP %s: o SAP recusou %s -> %s: %s', doc_num, atual, alvo, detalhe)

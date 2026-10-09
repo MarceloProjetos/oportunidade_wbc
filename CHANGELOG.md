@@ -6,6 +6,16 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-09] — Encerrar OP pela 8077 manda `ClosingDate` de hoje
+
+`POST /ordens-producao/<n>/status` com alvo Encerrada passa a enviar `ClosingDate` = hoje junto do status. A OP
+nasce com `ClosingDate` = hoje + 20 dias (Controle de Produção, igual ao addon C#) e o PATCH só de status mantinha
+essa data futura: o SAP recusava com "Actual closing date must be equal to or earlier than current system date"
+(106 OPs em 25/09; as 528 que fecharam já tinham a data vencida). Mesmo comportamento do Encerrar da Manutenção de
+OP. ⚠️ Encerrar na 8077 continua **fora da allowlist por default** (D9, `OP_STATUS_PERMITIDOS_DEFAULT =
+boposReleased`): só vale com `OP_STATUS_PERMITIDOS=boposReleased,boposClosed` no `.env`, e continua fechando sem
+OIGE/OIGN.
+
 ## [2026-10-09] — TEMPORÁRIO: pedido 84326 liberado na API e no MCP
 
 Pedido do Marcelo, para o teste da outra equipe (romaneio/OS em cima de um pedido real): o **84326** sai

@@ -6,6 +6,7 @@ dá para afirmar não só o que aconteceu, mas o que NÃO aconteceu (o "zero PAT
 idempotência é metade do valor desta suíte).
 """
 
+import datetime as dt
 import json
 
 import pytest
@@ -322,7 +323,11 @@ def test_transicoes_validas_mandam_patch(sessao, atual, alvo):
     assert r['ja_estava'] is False
     (metodo, url, corpo, _), = sessao.patches()
     assert metodo == 'PATCH' and url.endswith('/ProductionOrders(126599)')
-    assert corpo == {'ProductionOrderStatus': opsl.resolver_status(alvo)}
+    esperado = {'ProductionOrderStatus': opsl.resolver_status(alvo)}
+    if esperado['ProductionOrderStatus'] == 'boposClosed':
+        # SAP refuses the future ClosingDate the OP was created with (25/09: 106 OPs).
+        esperado['ClosingDate'] = dt.date.today().isoformat()
+    assert corpo == esperado
 
 
 @pytest.mark.parametrize('atual,alvo', [
