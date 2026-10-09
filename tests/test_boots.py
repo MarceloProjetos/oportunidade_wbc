@@ -78,10 +78,29 @@ def test_pedido_por_conta_de_usuario_e_pelo_menu_iniciar():
     (r"C:\Windows\system32\winlogon.exe", "Outro (planejado)", "", r"AUTORIDADE NT\SISTEMA", "sistema"),
     (r"C:\Windows\system32\shutdown.exe", "Outro (planejado)", "", r"SAPBUSINESSONER\administrador", "usuario"),
     (r"C:\Windows\system32\svchost.exe", "Outro (planejado)", "", r"NT AUTHORITY\NETWORK SERVICE", "sistema"),
+    (r"C:\Windows\system32\winlogon.exe", "Outro (planejado)", "", r"AUTORIDADE NT\SISTEMA", "sistema"),
     (r"C:\Windows\system32\svchost.exe", "Outro (planejado)", "", r"AUTORIDADE NT\SERVIÇO LOCAL", "sistema"),
 ])
 def test_categoria_de_quem_pediu(processo, motivo, comentario, conta, esperada):
     assert boots.categoria(processo, motivo, comentario, conta) == esperada
+
+
+def test_hyperv_desliga_a_vm_pelo_svchost():
+    """Read on the .12 on 09/10: the host's nightly shutdown and the stops of 08/10 come as svchost.exe,
+    SYSTEM, "Outro (planejado)", 0x80000000, no comment -- the Hyper-V guest shutdown service."""
+    lista = boots.por_boot([
+        _e("2026-10-08T06:17:16", 12, KG),
+        _e("2026-10-08T09:49:55", 1074, "User32", [r"C:\Windows\system32\svchost.exe (SAPBUSINESSONER)",
+                                                    "SAPBUSINESSONER", "Outro (planejado)", "0x80000000", "desligar",
+                                                    "", r"AUTORIDADE NT\SISTEMA"]),
+        _e("2026-10-08T09:50:12", 6006, "EventLog"),
+        _e("2026-10-08T09:54:13", 12, KG),
+    ], None)
+    assert lista[0]["como"] == "pedido" and lista[0]["pedido"]["categoria"] == "hyperv"
+    assert lista[0]["frase"] == "desligada pelo Hyper-V (host)" and lista[0]["pedido"]["codigo_motivo"] == "0x80000000"
+    # Same svchost with another reason code (an update's restart) is not the Hyper-V.
+    assert boots.categoria(r"C:\Windows\system32\svchost.exe", "Outro (planejado)", "", r"NT AUTHORITY\SYSTEM",
+                           "0x80020010") == "sistema"
 
 
 def test_pedido_que_nao_terminou_e_tela_azul():

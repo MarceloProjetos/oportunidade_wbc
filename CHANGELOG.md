@@ -6,6 +6,13 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-09] — O Hyper-V desliga a VM pelo svchost
+
+1ª leitura real do `/operacao/boots`: os desligamentos da .11 (21:02 toda noite e 08/10 09:50:01) vêm de
+`svchost.exe`, conta SYSTEM, "Other (Planned)", 0x80000000, sem comentário — o serviço de desligamento do Hyper-V
+dentro da VM. Agora saem como `hyperv` ("desligada pelo Hyper-V (host)"), não "pelo próprio Windows"; o `pedido`
+ganha `codigo_motivo`. Irmão idêntico do SAP_RDP V1.24. **Pede deploy da .11.**
+
 ## [2026-10-09] — Por que a .11 reiniciou
 
 F5 do `docs/PLANO_TEO_REDE_E_ROTINAS.md` do web: **`GET /operacao/boots`** (escopo `leitura`) e a tool MCP

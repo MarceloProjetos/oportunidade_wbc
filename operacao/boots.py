@@ -76,6 +76,11 @@ _POR = {"atualizacao": "por uma atualização do Windows", "hyperv": "pelo Hyper
 _PROCESSOS_DE_ATUALIZACAO = ("trustedinstaller", "tiworker", "mousocoreworker", "musnotification", "usoclient",
                              "wuauclt", "updateorchestrator", "sihclient")
 _MOTIVOS_DE_ATUALIZACAO = ("atualiza", "update", "hotfix", "service pack")
+#: The Hyper-V guest shutdown service (vmicshutdown) runs inside svchost.exe as SYSTEM and asks with
+#: "Other (Planned)", reason code 0x80000000, no comment. Read on the .11 and the .12 on 09/10: every
+#: night at 21:00/21:02 (the host's schedule), 08/10 09:49:55/09:50:01 (both VMs within 6 s) and
+#: 16:15:17/16:45:52 (the Hyper-V stops that failed and ended in a forced power-off).
+_CODIGO_DO_HYPERV = "0x80000000"
 _CONTAS_DO_SISTEMA = ("SYSTEM", "SISTEMA", "LOCAL SERVICE", "NETWORK SERVICE", "SERVIÇO LOCAL", "SERVIÇO DE REDE",
                       "")
 
@@ -145,14 +150,17 @@ def _props(e: dict) -> list[str]:
     return [str(v) if v is not None else "" for v in (p or [])]
 
 
-def categoria(processo: str, motivo: str, comentario: str, conta: str) -> str:
+def categoria(processo: str, motivo: str, comentario: str, conta: str, codigo: str = "") -> str:
     """The 1074's requester as one of :data:`CATEGORIAS`."""
     proc, mot, com = processo.lower(), motivo.lower(), comentario.lower()
     if any(k in proc for k in _PROCESSOS_DE_ATUALIZACAO) or any(k in mot for k in _MOTIVOS_DE_ATUALIZACAO):
         return "atualizacao"
-    if "vmic" in proc or "hyper-v" in com:
+    do_sistema = conta.rsplit("\\", 1)[-1].strip().upper() in _CONTAS_DO_SISTEMA
+    if "vmic" in proc or "hyper-v" in com or (
+            do_sistema and ntpath.basename(proc) == "svchost.exe" and codigo.strip().lower() == _CODIGO_DO_HYPERV
+            and not com.strip()):
         return "hyperv"
-    if conta.rsplit("\\", 1)[-1].strip().upper() in _CONTAS_DO_SISTEMA:
+    if do_sistema:
         return "tarefa" if ntpath.basename(proc) == "shutdown.exe" else "sistema"
     return "usuario"
 
@@ -168,7 +176,8 @@ def pedido(e: dict) -> dict[str, Any]:
     conta = p[6].strip()
     return {"quando": e.get("quando"), "processo": ntpath.basename(caminho) or None, "tipo": tipo,
             "motivo": p[2].strip() or None, "comentario": p[5].strip()[:LIMITE_TEXTO] or None,
-            "conta": conta or None, "categoria": categoria(caminho, p[2], p[5], conta)}
+            "conta": conta or None, "codigo_motivo": p[3].strip() or None,
+            "categoria": categoria(caminho, p[2], p[5], conta, p[3])}
 
 
 def frase(como: str, ped: dict[str, Any] | None = None, codigo: str | None = None) -> str:
