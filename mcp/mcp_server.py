@@ -619,8 +619,8 @@ def boots() -> dict[str, Any]:
     (desligada SEM aviso ao Windows: numa VM = desligada à força no Hyper-V, travou ou faltou
     energia), ``pedido_travou`` (pediram, não terminou e foi forçada), ``tela_azul`` (com o
     código) ou ``sem_registro``; ``desligou_em`` e ``fora_min``; ``frase`` pronta, sem conta nem
-    caminho. ``pedido.conta`` é a conta do Windows: dado pessoal, cite só a quem precisa saber. A
-    .11 reinicia sozinha todo dia por volta de 06:12 (Windows Update + tarefa de religar).
+    caminho. ``pedido.conta`` é a conta do Windows: dado pessoal, cite só a quem precisa saber.
+    Rotina: o Hyper-V do host desliga a .11 por volta de 21:02 e a religa por volta de 06:12.
     """
     return _get("/operacao/boots")
 
