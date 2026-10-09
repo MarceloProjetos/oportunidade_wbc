@@ -57,6 +57,7 @@ ESCOPO_DA_FERRAMENTA: dict[str, str] = {
     "travamentos": "leitura",
     "quem_loga_no_sap": "leitura",
     "estado_backup": "leitura",
+    "estado_hyperv": "leitura",
     # F3/F4: requests for a person to approve; the scope is the one of the action asked.
     "pedir_sincronizar_os": "os:sincronizar",
     "pedir_forcar_carga": "oportunidades:carga",

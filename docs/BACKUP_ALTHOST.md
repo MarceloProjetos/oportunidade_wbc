@@ -29,7 +29,14 @@ próprio try/catch: o que não deu para ler vai em `erros` e o resto segue.
    icacls C:\ProgramData\OrcaView\backup_chave.txt /inheritance:r /grant:r '*S-1-5-18:R' '*S-1-5-32-544:F'
    ```
 
-3. **Copiar o script** para `C:\OrcaView\estado_backup.ps1` (do repo: `maintenance/estado_backup.ps1`).
+3. **Criar a pasta só para administradores e copiar o script** para `C:\OrcaView\estado_backup.ps1` (do repo:
+   `maintenance/estado_backup.ps1`). A tarefa roda o script como SYSTEM; uma pasta na raiz do `C:\` herda "usuários
+   autenticados: modificar" (revisão F5c3a). Instalação já feita: rode só o `icacls`.
+
+   ```powershell
+   New-Item -ItemType Directory -Force C:\OrcaView | Out-Null
+   icacls C:\OrcaView /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F'
+   ```
 
 4. **1º teste, SEM enviar** — conferir a saída contra o console do Veeam (jobs, últimos resultados, réplicas):
 

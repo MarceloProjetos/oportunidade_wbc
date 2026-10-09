@@ -461,6 +461,7 @@ def test_ferramentas_chamam_a_rota_certa(fachada, monkeypatch):
     fachada.travamentos()
     fachada.quem_loga_no_sap(modo="eventos", usuario="financeiro04")
     fachada.estado_backup()
+    fachada.estado_hyperv()
     assert chamadas == [
         ("/operacao/servicos", None), ("/operacao/conexoes", None),
         ("/operacao/conexoes/sap-hana", {"porta": 30015}), ("/operacao/deploy", None),
@@ -468,7 +469,7 @@ def test_ferramentas_chamam_a_rota_certa(fachada, monkeypatch):
         ("/wbc/orcamentos/00125348/log", {"linhas": 1}), ("/operacao/boots", None),
         ("/operacao/travamentos", None),
         ("/operacao/logins-sap", {"modo": "eventos", "usuario": "financeiro04", "limite": 40}),
-        ("/operacao/backup", None),
+        ("/operacao/backup", None), ("/operacao/hyperv", None),
     ]
     assert fachada._tempo_limite("GET", "/operacao/logins-sap") == fachada._TEMPO_LEITURA_HANA
     assert fachada._tempo_limite("GET", "/operacao/conexoes/github") == fachada._TEMPO_CONEXAO

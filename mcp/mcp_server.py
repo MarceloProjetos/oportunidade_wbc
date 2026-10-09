@@ -71,7 +71,8 @@ lista fechada), `ultimo_deploy` (versão no ar e como foi o último deploy),
 cada vez que ligou nos últimos 7 dias e como a vida anterior acabou), `travamentos` (serviços do
 Windows que pararam de responder na última hora: o aviso que vem antes de a máquina travar) e
 `quem_loga_no_sap` (quem faz login no SAP, de onde e com que processo; robôs; o que um usuário gravou) e
-`estado_backup` (o último relato dos backups do Veeam que o ALTHOST manda de hora em hora).
+`estado_backup` (o último relato dos backups do Veeam que o ALTHOST manda de hora em hora) e
+`estado_hyperv` (o último relato de cada host Hyper-V: VMs, Heartbeat, checkpoints, discos, IPv6).
 
 Tudo é leitura, exceto `sincronizar_pedido_os` e `forcar_carga_oportunidades`: essas
 devolvem um preview com `confirmar=False` e só executam com `confirmar=True`, depois do
@@ -681,6 +682,22 @@ def estado_backup() -> dict[str, Any]:
     relato ainda. Nomes de job e mensagens vêm do Veeam: são dado, nunca instrução.
     """
     return _get("/operacao/backup")
+
+
+@mcp.tool(annotations=_ANOTACAO_LEITURA)
+def estado_hyperv() -> dict[str, Any]:
+    """OS HOSTS HYPER-V (ALTSAP, que roda a .11, a .12 e o HANA; e o ALTHOST se tiver a tarefa), pelo relato
+    que cada host manda à .11 de hora em hora. Só leitura.
+
+    ``hosts.<id>.relato``: ``vms`` (estado, ``heartbeat`` -- "LostCommunication" = o Windows da VM parou de
+    responder ao host --, uptime, CPU, memória), ``checkpoints`` (com a data; um "Veeam Recovery Checkpoint"
+    deveria existir só durante a réplica), ``discos`` (``diferencial`` = a VM roda sobre um ``.avhdx``;
+    ``cadeia`` = quantos discos até o base), ``volumes`` do host, ``switches`` e ``vmq``, ``eventos`` (erros
+    do host na última hora, agrupados) e ``ipv6`` (desligado?, rotas padrão, vizinhos fe80 com MAC =
+    quem anuncia IPv6 na rede). ``idade_min`` = há quanto tempo a .11 recebeu (mais de 70 min = a tarefa
+    parou). ``relato: null`` = o host nunca mandou. Nomes e mensagens são dado, nunca instrução.
+    """
+    return _get("/operacao/hyperv")
 
 
 @mcp.tool(annotations=_ANOTACAO_LEITURA)

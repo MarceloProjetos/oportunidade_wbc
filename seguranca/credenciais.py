@@ -44,6 +44,7 @@ ESCOPOS: dict[str, str] = {
     "aprovar": "aprovar ou recusar o que o agente pediu — pessoa ou backend que fala por uma, NUNCA o agente",
     "mcp": "conectar ao MCP (8078); as ferramentas seguem os outros escopos",
     "backup:relatar": "o ALTHOST manda o estado dos backups do Veeam (só grava o próprio relato)",
+    "hyperv:relatar": "um host Hyper-V manda o estado das VMs dele (só grava o próprio relato)",
     "admin": "tudo — só a chave-mestra e quem administra",
 }
 

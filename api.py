@@ -112,6 +112,7 @@ from operacao import (
     boots,
     conexoes,
     historico_pedido,
+    hyperv,
     log_worker,
     logins_sap,
     reinicio,
@@ -1672,6 +1673,43 @@ def operacao_backup_relatar():
 def operacao_backup():
     """The last backup report of the ALTHOST and its age by the .11's receive time."""
     return jsonify(ok=True, **backup.ler())
+
+
+#: F5c3: each Hyper-V host reports once an hour, both on the hour; four a minute is a loop.
+_RATE_HYPERV_MAX = 4
+
+
+@app.post('/operacao/hyperv/estado')
+@requer_chave('hyperv:relatar')
+def operacao_hyperv_relatar():
+    """A Hyper-V host's hourly report (``maintenance/estado_hyperv.ps1``). The origin names the host;
+    same locks as the backup report (key, origin, size, rate, closed shape)."""
+    origem = request.remote_addr or ''
+    if origem not in hyperv.ORIGENS:
+        logger.warning('Relato do Hyper-V recusado: origem %s fora da lista', origem)
+        return jsonify(ok=False, error='origem_nao_permitida'), 403
+    bloqueio = _checar_rate('hyperv', _RATE_HYPERV_MAX)
+    if bloqueio:
+        return bloqueio
+    if (request.content_length or 0) > hyperv.CORPO_MAX:
+        return jsonify(ok=False, error='corpo_grande_demais', limite=hyperv.CORPO_MAX), 413
+    corpo = request.stream.read(hyperv.CORPO_MAX + 1)
+    if len(corpo) > hyperv.CORPO_MAX:
+        return jsonify(ok=False, error='corpo_grande_demais', limite=hyperv.CORPO_MAX), 413
+    try:
+        relato = hyperv.validar(json.loads(corpo.decode('utf-8')))
+    except (ValueError, UnicodeDecodeError) as exc:
+        motivo = str(exc) if isinstance(exc, hyperv.RelatoInvalido) else 'o corpo não é JSON'
+        return jsonify(ok=False, error='relato_invalido', motivo=motivo), 400
+    host = hyperv.gravar(relato, origem)
+    return jsonify(ok=True, host=host, vms=len(relato['vms']), checkpoints=len(relato['checkpoints']))
+
+
+@app.get('/operacao/hyperv')
+@requer_chave('leitura')
+def operacao_hyperv():
+    """The last report of each Hyper-V host and its age by the .11's receive time."""
+    return jsonify(ok=True, **hyperv.ler())
 
 
 @app.get('/operacao/ronda-90')

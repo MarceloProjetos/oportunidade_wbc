@@ -82,7 +82,7 @@ def api(monkeypatch, tmp_path):
     apimod.app.config.update(TESTING=True)
     monkeypatch.setattr(backup, "ARQUIVO", tmp_path / "backup_althost.json")
     monkeypatch.setattr(backup.gravar, "__defaults__", (None, tmp_path / "backup_althost.json"))
-    monkeypatch.setattr(backup.ler, "__defaults__", (None, tmp_path / "backup_althost.json"))
+    monkeypatch.setattr(backup.ler, "__defaults__", (None, tmp_path / "backup_althost.json", backup.SEM_RELATO))
     relator = credenciais.criar("althost-backup", ["backup:relatar"])
     leitor = credenciais.criar("leitor", ["leitura"])
     return apimod.app.test_client(), {"X-API-Key": relator}, {"X-API-Key": leitor}

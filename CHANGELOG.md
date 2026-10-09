@@ -6,6 +6,21 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-09] — Relato dos hosts Hyper-V (ALTSAP → .11)
+
+F5c3 do `docs/PLANO_TEO_REDE_E_ROTINAS.md` do web. Na queda da .12 de 09/10, tudo o que explicava estava no host ALTSAP
+e só se viu com o dono colando comandos. Agora o host **manda** o próprio estado à .11 de hora em hora (como o ALTHOST
+com os backups):
+- `maintenance/estado_hyperv.ps1` (só leitura; ASCII; cada bloco com try/catch; `-SoMostrar`): cada VM com estado e
+  Heartbeat, checkpoints com data, discos (`.avhdx`? cadeia? tamanho), volumes do host, switches e VMQ, erros da última
+  hora agrupados, IPv6 do host (desligado?, rotas padrão, vizinhos fe80 com MAC, endereços por anúncio);
+- `POST /operacao/hyperv/estado` com o escopo novo **`hyperv:relatar`**: o **IP de origem** decide o host
+  (`operacao/hyperv.ORIGENS`: ALTSAP .253, ALTHOST .250; o nome no corpo é só dado), um arquivo por host, mesmas travas
+  do backup (64 KB, forma fechada), 4/min; `GET /operacao/hyperv` (`leitura`) e a tool MCP `estado_hyperv`;
+- `operacao/backup.ler` ganhou `sem_relato` (o texto de quem ainda não mandou) e é reaproveitado.
+
+Instalação: `docs/HYPERV_HOSTS.md`. **Pede deploy da .11** e os passos no ALTSAP.
+
 ## [2026-10-09] — O aviso precoce funciona com a máquina travando
 
 - **`GET /operacao/travamentos` lê o log pelo `wevtutil`** (F5c1 do `web_orcaview_V118/docs/PLANO_TEO_REDE_E_ROTINAS.md`):

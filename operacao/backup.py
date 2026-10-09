@@ -133,13 +133,16 @@ def gravar(relato: dict[str, Any], origem: str, agora: datetime | None = None, a
                 time.sleep(0.2)
 
 
-def ler(agora: datetime | None = None, arquivo: Path = ARQUIVO) -> dict[str, Any]:
-    """The last report and its age by the .11's receive time; ``relato: None`` before the first one."""
+SEM_RELATO = "o ALTHOST ainda não mandou nenhum relato (a tarefa de hora em hora não está instalada?)"
+
+
+def ler(agora: datetime | None = None, arquivo: Path = ARQUIVO, sem_relato: str = SEM_RELATO) -> dict[str, Any]:
+    """The last report and its age by the .11's receive time; ``relato: None`` before the first one.
+    Shared by every pushed report (``operacao/hyperv.py`` too): ``sem_relato`` says who has not sent yet."""
     try:
         dados = json.loads(arquivo.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return {"relato": None, "idade_min": None,
-                "motivo": "o ALTHOST ainda não mandou nenhum relato (a tarefa de hora em hora não está instalada?)"}
+        return {"relato": None, "idade_min": None, "motivo": sem_relato}
     except (OSError, ValueError):
         return {"relato": None, "idade_min": None, "motivo": "o último relato guardado está ilegível"}
     try:
