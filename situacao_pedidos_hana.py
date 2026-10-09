@@ -60,6 +60,12 @@ CACHE_TTL_SEGUNDOS = 120
 #: preferencia de ambiente. O schema, esse sim, vem do ambiente (``SAP_SCHEMA``).
 VIEW_STATUS_PEDIDO = "VW_STATUS_PEDIDO_DDP"
 
+#: TEMPORARY (Marcelo, 2026-10-09): orders this API and the MCP report as released in all
+#: three stages while SAP still blocks them, so another team can test romaneio/OS on a real
+#: order. Only the raw rows read here change: SAP, the web (.90) and the app read their own
+#: sources and keep seeing the real status. Roll back = empty the set.
+LIBERACAO_FORCADA_DOCNUM: frozenset[int] = frozenset({84326})
+
 
 class SAPIndisponivel(RuntimeError):
     """HANA fora do ar, credencial ausente ou consulta que estourou.
@@ -712,8 +718,23 @@ def _buscar_no_hana() -> list[dict[str, Any]]:
         for c in ("Data_Pedido", "Data_Entrega", "Data_Pagto",
                   "Data_Lib_Fin", "Data_Lib_Prod"):
             r[c] = _data_iso(r.get(c))
+    _forcar_liberacao(linhas)
     logger.info("[SIT_PED] %d pedidos lidos da view.", len(linhas))
     return linhas
+
+
+def _forcar_liberacao(linhas: list[dict[str, Any]]) -> None:
+    """Mark the three stages of :data:`LIBERACAO_FORCADA_DOCNUM` as released, in place.
+
+    Runs before the rows enter the cache, so the list, the single-order route and the
+    dashboard KPIs all see the same picture. The ``*_em`` timestamps are left to
+    :func:`liberacao_e_nf`, which still refuses to invent a time it cannot date.
+    """
+    for r in linhas:
+        if _int(r.get("DocNum")) in LIBERACAO_FORCADA_DOCNUM:
+            r["Financeiro"] = r["Producao"] = r["Entrega"] = "Liberado"
+            logger.warning("[SIT_PED] pedido %s: liberacao FORCADA (temporaria, "
+                           "LIBERACAO_FORCADA_DOCNUM).", r.get("DocNum"))
 
 
 def fetch_status_pedidos(*, recarregar: bool = False) -> list[dict[str, Any]]:

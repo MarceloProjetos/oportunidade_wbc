@@ -6,6 +6,16 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-09] — TEMPORÁRIO: pedido 84326 liberado na API e no MCP
+
+Pedido do Marcelo, para o teste da outra equipe (romaneio/OS em cima de um pedido real): o **84326** sai
+**Liberado** em Financeiro, Produção e Entrega em `GET /pedidos/situacao`, `GET /pedidos/<n>/situacao` e nas tools
+MCP (`situacao_pedido`, `pedidos_bloqueados`, `panorama_pedidos`), embora o SAP ainda o bloqueie. Hardcode em
+`situacao_pedidos_hana.LIBERACAO_FORCADA_DOCNUM`, aplicado nas linhas cruas antes do cache; cada leitura do HANA
+loga um WARNING `[SIT_PED] ... liberacao FORCADA`. **Nada muda no SAP, no web (.90, lê o HANA dele) nem no app.**
+`lib_producao_em`/`lib_entrega_em` continuam `null` (não se inventa hora). **Rollback depois dos testes:
+esvaziar o `frozenset` e fazer deploy.**
+
 ## [2026-10-09] — Incoterms (modalidade de frete) do pedido
 
 A `VW_EVOL_ORCAMENTO_ALT` ganhou a 35ª coluna, `Incoterms` (texto: `CIF - Remetente`, `FOB - Destinatário`,
