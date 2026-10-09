@@ -20,7 +20,7 @@ from types import SimpleNamespace
 import pytest
 
 from config import reset_settings
-from operacao import conexoes, historico_pedido, log_worker, servicos, versao
+from operacao import boots, conexoes, historico_pedido, log_worker, servicos, versao
 
 
 # ---------------------------------------------------------------------------
@@ -374,7 +374,7 @@ def api(monkeypatch):
 def test_rotas_pedem_leitura(api):
     _, c, _ = api
     for rota in ("/operacao/servicos", "/operacao/conexoes", "/operacao/conexoes/github",
-                 "/operacao/deploy", "/pedidos/84453/historico", "/wbc/orcamentos/125348/log"):
+                 "/operacao/deploy", "/operacao/boots", "/pedidos/84453/historico", "/wbc/orcamentos/125348/log"):
         assert c.get(rota).status_code == 401, rota
 
 
@@ -421,6 +421,8 @@ def test_rotas_de_servicos_deploy_e_log(api, monkeypatch):
     monkeypatch.setattr(log_worker, "log_do_orcamento", lambda n, limite: {"orcamento": n.zfill(8), "linhas": []})
     assert c.get("/wbc/orcamentos/125348/log", headers=h).get_json()["orcamento"] == "00125348"
     assert c.get("/wbc/orcamentos/12a/log", headers=h).status_code == 400
+    monkeypatch.setattr(boots, "boots", lambda: {"disponivel": True, "boots": [], "ultimo_boot": "2026-10-09T06:12:00"})
+    assert c.get("/operacao/boots", headers=h).get_json()["ultimo_boot"] == "2026-10-09T06:12:00"
 
 
 def test_status_completo_traz_a_versao_e_o_publico_nao(api, monkeypatch):
@@ -452,13 +454,15 @@ def test_ferramentas_chamam_a_rota_certa(fachada, monkeypatch):
     fachada.ultimo_deploy()
     fachada.historico_pedido(84453, versoes=500, chave="docentry")
     fachada.log_orcamento_wbc("00125348", linhas=0)
+    fachada.boots()
     assert chamadas == [
         ("/operacao/servicos", None), ("/operacao/conexoes", None),
         ("/operacao/conexoes/sap-hana", {"porta": 30015}), ("/operacao/deploy", None),
         ("/pedidos/84453/historico", {"versoes": 60, "chave": "docentry"}),
-        ("/wbc/orcamentos/00125348/log", {"linhas": 1}),
+        ("/wbc/orcamentos/00125348/log", {"linhas": 1}), ("/operacao/boots", None),
     ]
     assert fachada._tempo_limite("GET", "/operacao/conexoes/github") == fachada._TEMPO_CONEXAO
+    assert fachada._tempo_limite("GET", "/operacao/boots") == fachada._TEMPO_BOOTS
 
 
 # ---------------------------------------------------------------------------

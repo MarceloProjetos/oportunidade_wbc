@@ -66,8 +66,9 @@ próprias. Não confunda as respostas de Windows Update das duas máquinas.
 Diagnóstico da própria .11 (só leitura): `estado_servicos` (os 6 serviços do Windows e
 desde quando), `testar_conexao` (DNS, ping e porta a partir da .11, só destinos de uma
 lista fechada), `ultimo_deploy` (versão no ar e como foi o último deploy),
-`historico_pedido` (o que mudou num pedido e quem mudou — pessoa ou integração) e
-`log_orcamento_wbc` (o log do worker sobre um orçamento).
+`historico_pedido` (o que mudou num pedido e quem mudou — pessoa ou integração),
+`log_orcamento_wbc` (o log do worker sobre um orçamento) e `boots` (por que a .11 reiniciou:
+cada vez que ligou nos últimos 7 dias e como a vida anterior acabou).
 
 Tudo é leitura, exceto `sincronizar_pedido_os` e `forcar_carga_oportunidades`: essas
 devolvem um preview com `confirmar=False` e só executam com `confirmar=True`, depois do
@@ -133,6 +134,7 @@ _TEMPO_LEITURA_HANA = 45.0       # /pedidos/* and /ordens-servico/*: live HANA r
 _TEMPO_SYNC_OS = 120.0           # POST /ordens-servico/<n>/sincronizar
 _TEMPO_CARGA_OPORTUNIDADES = 180.0
 _TEMPO_CONEXAO = 30.0            # ping (2 x 1 s) + up to 4 TCP connects of 2 s, from the .11
+_TEMPO_BOOTS = 30.0              # /operacao/boots: one Get-WinEvent of 7 days (~1 s; 25 s ceiling there)
 
 
 def _tempo_limite(metodo: str, path: str) -> float:
@@ -146,6 +148,8 @@ def _tempo_limite(metodo: str, path: str) -> float:
         proprio = _TEMPO_LEITURA_HANA
     elif path.startswith("/operacao/conexoes/"):
         proprio = _TEMPO_CONEXAO
+    elif path == "/operacao/boots":
+        proprio = _TEMPO_BOOTS
     else:
         proprio = HTTP_TIMEOUT
     return max(HTTP_TIMEOUT, proprio)
@@ -600,6 +604,25 @@ def ultimo_deploy() -> dict[str, Any]:
     Deploys anteriores a 02/10/2026 não deixaram registro.
     """
     return _get("/operacao/deploy")
+
+
+@mcp.tool(annotations=_ANOTACAO_LEITURA)
+def boots() -> dict[str, Any]:
+    """POR QUE A .11 REINICIOU — cada vez que ela ligou nos últimos 7 dias, da mais nova para a
+    mais velha. Use para "a .11 reiniciou?", "por que caiu às 09:53?", "quem desligou a .11?". Só
+    leitura; 1-3 s (cache de 60 s).
+
+    ``ultimo_boot`` = ligada desde quando. Em ``boots[]``: ``ligou``; ``como`` a vida anterior
+    acabou — ``pedido`` (alguém PEDIU ao Windows: ``pedido.categoria`` = atualizacao, hyperv,
+    tarefa, sistema ou usuario; ``pedido.tipo`` reiniciar/desligar; ``motivo`` e ``comentario``
+    como o Windows gravou), ``normal`` (desligou limpo sem pedido registrado), ``forcado``
+    (desligada SEM aviso ao Windows: numa VM = desligada à força no Hyper-V, travou ou faltou
+    energia), ``pedido_travou`` (pediram, não terminou e foi forçada), ``tela_azul`` (com o
+    código) ou ``sem_registro``; ``desligou_em`` e ``fora_min``; ``frase`` pronta, sem conta nem
+    caminho. ``pedido.conta`` é a conta do Windows: dado pessoal, cite só a quem precisa saber. A
+    .11 reinicia sozinha todo dia por volta de 06:12 (Windows Update + tarefa de religar).
+    """
+    return _get("/operacao/boots")
 
 
 @mcp.tool(annotations=_ANOTACAO_LEITURA)

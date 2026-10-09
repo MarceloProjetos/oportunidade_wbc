@@ -6,6 +6,15 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-09] — Por que a .11 reiniciou
+
+F5 do `docs/PLANO_TEO_REDE_E_ROTINAS.md` do web: **`GET /operacao/boots`** (escopo `leitura`) e a tool MCP
+**`boots`** — cada boot dos últimos 7 dias e como a vida anterior acabou (`pedido` com a `categoria` de quem
+pediu, `normal`, `forcado`, `pedido_travou`, `tela_azul`, `sem_registro`), quando desligou e quanto ficou fora.
+Um `Get-WinEvent` de 7 dias (~1 s), cache de 60 s, teto de 25 s. `operacao/boots.py` e `tests/test_boots.py` são
+**idênticos** aos do SAP_RDP (V1.23). O Téo do .90 lê a cada 10 min (e logo depois de um incidente da .11
+fechar). **Pede deploy da .11.**
+
 ## [2026-10-08] — Teste de conexão: pfSense, DNS da casa e internet
 
 F3 do `docs/PLANO_TEO_REDE_E_ROTINAS.md` do web: a lista fechada de `/operacao/conexoes/<destino>` (e da tool

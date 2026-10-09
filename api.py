@@ -106,7 +106,7 @@ from extract_ordens_servico_engenharia import (
 from extract_sap_to_supabase import main as sync_oportunidades
 from extract_vendas_bi import main as sync_vendas_bi
 from monitoring import SELECTABLE_CHECKS, AcompanhamentoIndisponivel, collect_status, wbc_orcamento
-from operacao import acoes_agente, conexoes, historico_pedido, log_worker, reinicio, ronda_90, versao
+from operacao import acoes_agente, boots, conexoes, historico_pedido, log_worker, reinicio, ronda_90, versao
 from operacao import servicos as operacao_servicos_mod
 from pipeline_core import (
     FileLockTimeout,
@@ -1579,6 +1579,14 @@ def operacao_deploy():
     last runs without steps (``deploys``, newest first)."""
     return jsonify(ok=True, versao=versao.versao(), ultimo_deploy=versao.ultimo_deploy(),
                    deploys=versao.deploys_recentes())
+
+
+@app.get('/operacao/boots')
+@requer_chave('leitura')
+def operacao_boots():
+    """Why the .11 restarted (F5 of PLANO_TEO_REDE_E_ROTINAS, web repo): each boot of the last 7
+    days, newest first, and how the life before it ended. Read only; cached 60 s."""
+    return jsonify(ok=True, **boots.boots())
 
 
 @app.get('/operacao/ronda-90')
