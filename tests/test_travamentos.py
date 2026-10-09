@@ -66,39 +66,77 @@ def test_primeiro_que_nao_e_de_rede():
 
 
 @pytest.fixture
-def ps(monkeypatch):
+def ler(monkeypatch):
     chamadas = []
     monkeypatch.setattr(tr, "_cache", {"em": 0.0, "dados": None})
+    monkeypatch.setattr(tr, "_boot", lambda: "2026-10-08T06:17:16")
 
-    def _definir(dados, erro=None):
-        def _rodar(script, timeout):
-            chamadas.append((script, timeout))
-            return dados, erro
-        monkeypatch.setattr(tr.windows_update, "_rodar_ps", _rodar)
+    def _definir(travados, outros=(), erro="", erro_outros=""):
+        def _ler(ids, maximo):
+            chamadas.append((tuple(sorted(ids)), maximo))
+            if ids == tr.SCM_TRAVADO:
+                return (None, erro) if erro else (list(travados), "")
+            return (None, erro_outros) if erro_outros else (list(outros), "")
+        monkeypatch.setattr(tr, "_ler", _ler)
     return chamadas, _definir
 
 
-def test_leitura_cache_e_falhas(ps):
-    chamadas, definir = ps
-    definir({"boot": "2026-10-08T06:17:16", "travados": [e for e in TARDE if e["id"] in tr.SCM_TRAVADO],
-             "outros": [e for e in TARDE if e["id"] not in tr.SCM_TRAVADO]})
+def test_leitura_cache_e_falhas(ler):
+    chamadas, definir = ler
+    definir([e for e in TARDE if e["id"] in tr.SCM_TRAVADO], [e for e in TARDE if e["id"] not in tr.SCM_TRAVADO])
     r = tr.travamentos()
     assert r["disponivel"] is True and r["cascata"]["inicio"] == "2026-10-08T16:07:37" and r["janela_min"] == 60
-    assert r["ligou"] == "2026-10-08T06:17:16" and r["servicos"]["Audiosrv"]["caiu"]
-    assert r["agora"] and tr.travamentos()["cache"] is True and chamadas == [(tr._PS, tr.TIMEOUT_S)]
+    assert r["ligou"] == "2026-10-08T06:17:16" and r["servicos"]["Audiosrv"]["caiu"] and "parcial" not in r
+    assert r["agora"] and tr.travamentos()["cache"] is True and len(chamadas) == 2   # 2 queries, then cache
     tr._cache.update(em=0.0, dados=None)
-    definir({"travados": {}, "outros": {}})        # nothing in the hour: explicit empty answer
+    definir([], [])                                # nothing in the hour: explicit empty answer
     assert tr.travamentos()["servicos"] == {} and tr._cache["dados"]["cascata"] is None
     tr._cache.update(em=0.0, dados=None)
-    definir({"travados": [], "outros": {"erro": "acesso negado"}})
-    assert tr.travamentos() == {"disponivel": False, "motivo": "acesso negado"}
+    definir(TARDE[:3], erro_outros="acesso negado")  # the hangs are what matters: partial, said so
+    r = tr.travamentos()
+    assert r["disponivel"] is True and r["cascata"] is not None and r["parcial"] == "acesso negado"
     tr._cache.update(em=0.0, dados=None)
-    definir(None, "a coleta passou de 15s")
-    assert tr.travamentos() == {"disponivel": False, "motivo": "a coleta passou de 15s"}
-    assert tr.travamentos()["cache"] is True       # a failure is kept too: no PowerShell storm
+    definir([], erro="a leitura do log passou de 8s")
+    assert tr.travamentos() == {"disponivel": False, "motivo": "a leitura do log passou de 8s"}
+    assert tr.travamentos()["cache"] is True       # a failure is kept too: no process storm
 
 
-def test_script_e_ascii_sem_aspas_duplas():
-    assert tr._PS.isascii() and '"' not in tr._PS
-    for evento_id in (7011, 7046, 7022, 7031, 7034, 7000, 7009):
-        assert str(evento_id) in tr._PS
+#: wevtutil /f:xml as the .12 writes it (UTF-16 decoded): two events, no root element.
+_XML = ("﻿<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System>"
+        "<Provider Name='Service Control Manager'/><EventID Qualifiers='49152'>7011</EventID>"
+        "<TimeCreated SystemTime='2026-10-09T16:03:46.1234567Z'/></System><EventData>"
+        "<Data Name='param1'>30000</Data><Data Name='param2'>iphlpsvc</Data></EventData></Event>"
+        "<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System>"
+        "<Provider Name='Service Control Manager'/><EventID Qualifiers='49152'>7046</EventID>"
+        "<TimeCreated SystemTime='2026-10-09T16:11:15.5Z'/></System><EventData>"
+        "<Data Name='param1'>Redirecionador de Portas do Modo do Usuário</Data></EventData></Event>")
+
+
+def test_xml_do_wevtutil_vira_eventos():
+    eventos = tr.eventos_do_xml(_XML)
+    assert [(e["id"], e["p"]) for e in eventos] == [(7011, ["30000", "iphlpsvc"]),
+                                                   (7046, ["Redirecionador de Portas do Modo do Usuário"])]
+    # UTC in the log, local time out (the rest of the module and the Téo read local time).
+    from datetime import UTC, datetime
+    esperado = datetime(2026, 10, 9, 16, 3, 46, tzinfo=UTC).astimezone().replace(tzinfo=None)
+    assert eventos[0]["quando"] == esperado.isoformat(timespec="seconds")
+    assert tr.agrupar(eventos)["iphlpsvc"]["travado_chave"] == [eventos[0]["quando"]]
+
+
+def test_consulta_so_le_o_scm_da_ultima_hora():
+    q = tr._consulta(tr.SCM_TRAVADO)
+    assert "Service Control Manager" in q and "timediff(@SystemTime) <= 3600000" in q
+    assert all(f"EventID={i}" in q for i in (7011, 7046, 7022)) and "EventID=7036" not in q
+
+
+def test_leitura_em_andamento_nao_segura_quem_chega(ler):
+    """Review of F5c1: a second caller never waits on the lock (a waiting caller holds a server thread)."""
+    _chamadas, definir = ler
+    definir(TARDE[:3])
+    tr._trava.acquire()
+    try:
+        assert tr.travamentos() == {"disponivel": False, "motivo": "leitura em andamento"}
+        tr._cache.update(em=0.0, dados={"disponivel": True, "servicos": {}})
+        assert tr.travamentos() == {"disponivel": True, "servicos": {}, "cache": True}
+    finally:
+        tr._trava.release()

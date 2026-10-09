@@ -11,21 +11,27 @@ every round, in a task of its own, while the machine's API still answers: three 
 hanging in a row is a cascade, and a cascade starting with a network service points at the VM's
 network or the host's virtual switch, not at a program.
 
-One fixed query: Service Control Manager 7011/7046/7022 (hung), 7031/7034 (crashed), 7000/7009 (did
-not start) of the last :data:`JANELA_MIN` minutes. ~0.3 s; cached :data:`CACHE_S`; read only. The
-grouping and the cascade follow SAP_RDP's ``login_rdp`` (V1.21/V1.22), which reads 24 h for the
-logon diagnosis; this one is the light, frequent read.
+Two fixed queries through ``wevtutil`` (F5c1 of the same plan): Service Control Manager 7011/7046/7022
+(hung), 7031/7034 (crashed), 7000/7009 (did not start) of the last :data:`JANELA_MIN` minutes. ~0.05 s,
+cached :data:`CACHE_S`; read only. ``wevtutil`` is the native reader: no PowerShell, no .NET start, no
+WMI -- on 09/10 at 13:06 the PowerShell version took more than 15 s with the .12 hanging (and again
+right after its boot), so the early warning never fired when it mattered. The boot comes from
+``psutil`` for the same reason. The grouping and the cascade follow SAP_RDP's ``login_rdp``
+(V1.21/V1.22), which reads 24 h for the logon diagnosis; this one is the light, frequent read.
 """
 from __future__ import annotations
 
+import subprocess
+import sys
 import threading
 import time
-from datetime import datetime, timedelta
+import xml.etree.ElementTree as ET
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-import windows_update
-
-TIMEOUT_S = 15
+#: wevtutil answers in ~0.05 s; a machine that takes this long is the answer itself. Per query: the
+#: two together stay under the Téo's 15 s (review of F5c1).
+TIMEOUT_S = 6
 CACHE_S = 30.0
 JANELA_MIN = 60
 SCM_TRAVADO = frozenset({7011, 7046, 7022})
@@ -45,45 +51,73 @@ SERVICOS_DE_REDE = frozenset({"iphlpsvc", "NlaSvc", "RasMan", "Dnscache", "Dhcp"
                               "LanmanWorkstation", "nsi"})
 LIMITE_TEXTO = 120
 
-# ASCII only and no double quotes (PS 5.1 through -Command). The first line forces UTF-8 output.
-_PS = r"""
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$ErrorActionPreference = 'Stop'
-function Ler($ids, $max) {
-  try {
-    @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Service Control Manager'
-                                       Id = $ids; StartTime = (Get-Date).AddMinutes(-60) } -MaxEvents $max |
-      ForEach-Object {
-      $p = @($_.Properties | Select-Object -First 2 | ForEach-Object {
-        $v = [string]$_.Value
-        if ($v.Length -gt 120) { $v = $v.Substring(0, 120) }
-        $v
-      })
-      [pscustomobject]@{ quando = $_.TimeCreated.ToString('s'); id = $_.Id; p = $p }
-    })
-  } catch {
-    if ($_.Exception.Message -match 'No events were found|Nenhum evento') { @() }
-    else { @{ erro = $_.Exception.Message } }
-  }
-}
-$boot = $null
-try { $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString('s') } catch { $boot = $null }
-[ordered]@{ boot = $boot; travados = Ler @(7011, 7046, 7022) 300; outros = Ler @(7031, 7034, 7000, 7009) 100 } |
-  ConvertTo-Json -Depth 4 -Compress
-"""
+_EV = "{http://schemas.microsoft.com/win/2004/08/events/event}"
+#: No console window flashes on the server when the service spawns wevtutil.
+_SEM_JANELA = 0x08000000 if sys.platform == "win32" else 0
+
+
+def _consulta(ids: frozenset[int]) -> str:
+    """The XPath of one query: SCM, these ids, the last :data:`JANELA_MIN` minutes."""
+    filtro = " or ".join(f"EventID={i}" for i in sorted(ids))
+    return (f"*[System[Provider[@Name='Service Control Manager'] and ({filtro}) and "
+            f"TimeCreated[timediff(@SystemTime) <= {JANELA_MIN * 60_000}]]]")
+
+
+def eventos_do_xml(texto: str) -> list[dict]:
+    """wevtutil's ``/f:xml`` output (Event elements one after the other, no root) as
+    ``{quando (local, seconds), id, p: [first two Data values]}``. Raises ``ET.ParseError``."""
+    raiz = ET.fromstring("<eventos>" + texto.lstrip(chr(0xFEFF)) + "</eventos>")
+    saida = []
+    for ev in raiz.iter(f"{_EV}Event"):
+        sistema = ev.find(f"{_EV}System")
+        if sistema is None:
+            continue
+        id_ = sistema.findtext(f"{_EV}EventID") or ""
+        criado = sistema.find(f"{_EV}TimeCreated")
+        utc = (criado.get("SystemTime") or "") if criado is not None else ""
+        try:
+            quando = (datetime.fromisoformat(utc[:19]).replace(tzinfo=UTC).astimezone()
+                      .replace(tzinfo=None).isoformat(timespec="seconds"))
+        except ValueError:
+            continue
+        dados = [(d.text or "")[:LIMITE_TEXTO] for d in ev.iter(f"{_EV}Data")][:2]
+        if id_.isdigit():
+            saida.append({"quando": quando, "id": int(id_), "p": dados})
+    return saida
+
+
+def _ler(ids: frozenset[int], maximo: int) -> tuple[list[dict] | None, str]:
+    """One wevtutil query, newest first: ``(events, "")`` or ``(None, why)``."""
+    try:
+        r = subprocess.run(["wevtutil", "qe", "System", "/q:" + _consulta(ids), f"/c:{maximo}", "/rd:true",
+                            "/f:xml", "/uni:true"], capture_output=True, timeout=TIMEOUT_S,
+                           creationflags=_SEM_JANELA)
+    except subprocess.TimeoutExpired:
+        return None, f"a leitura do log passou de {TIMEOUT_S}s"
+    except OSError as e:
+        return None, f"wevtutil indisponível ({type(e).__name__})"
+    if r.returncode != 0:
+        bom = r.stderr[:2] == bytes((0xFF, 0xFE))
+        erro = r.stderr.decode("utf-16-le" if bom else "mbcs" if sys.platform == "win32" else "utf-8",
+                               errors="replace")
+        return None, (" ".join(erro.split()) or f"wevtutil saiu com {r.returncode}")[:LIMITE_TEXTO]
+    try:
+        return eventos_do_xml(r.stdout.decode("utf-16-le", errors="replace")), ""
+    except ET.ParseError:
+        return None, "o log devolveu XML ilegível"
+
+
+def _boot() -> str | None:
+    try:
+        import psutil
+
+        return datetime.fromtimestamp(psutil.boot_time()).replace(microsecond=0).isoformat()
+    except Exception:  # noqa: BLE001 - no psutil, or the counter unreadable: the read still goes
+        return None
+
 
 _trava = threading.Lock()
 _cache: dict[str, Any] = {"em": 0.0, "dados": None}
-
-
-def _lista(valor: Any) -> list[dict] | dict:
-    """``ConvertTo-Json`` turns a 1-item array into an object, an empty one into ``{}`` and an
-    error into ``{erro}``."""
-    if isinstance(valor, dict):
-        if "erro" in valor:
-            return valor
-        valor = [valor]
-    return [v for v in (valor or []) if isinstance(v, dict) and v.get("quando")]
 
 
 def _dt(texto: Any) -> datetime | None:
@@ -141,22 +175,34 @@ def cascata(grupos: dict[str, dict[str, list[str]]]) -> dict[str, Any] | None:
 
 
 def travamentos() -> dict[str, Any]:
-    with _trava:
-        if _cache["dados"] is not None and time.monotonic() - _cache["em"] < CACHE_S:
+    # A read already running answers the others at once (the last data, or "em andamento"): a caller
+    # waiting on the lock holds a server thread, and threads running out is how the monitor's /health
+    # died on 09/10 (review of F5c1).
+    if not _trava.acquire(blocking=False):
+        if _cache["dados"] is not None:
             return {**_cache["dados"], "cache": True}
-        dados, erro = windows_update._rodar_ps(_PS, TIMEOUT_S)
-        if erro:
-            resposta: dict[str, Any] = {"disponivel": False, "motivo": erro}
-        else:
-            travados, outros = _lista(dados.get("travados")), _lista(dados.get("outros"))
-            erro_log = next((x for x in (travados, outros) if isinstance(x, dict)), None)
-            if erro_log is not None:
-                resposta = {"disponivel": False, "motivo": str(erro_log.get("erro"))[:LIMITE_TEXTO]}
-            else:
-                grupos = agrupar([*travados, *outros])
-                # ``ligou``: hangs right after a boot are the boot's own (slow start), not a warning.
-                resposta = {"disponivel": True, "cache": False, "janela_min": JANELA_MIN,
-                            "agora": datetime.now().isoformat(timespec="seconds"), "ligou": dados.get("boot"),
-                            "servicos": grupos, "cascata": cascata(grupos)}
-        _cache.update(em=time.monotonic(), dados=resposta)
-        return resposta
+        return {"disponivel": False, "motivo": "leitura em andamento"}
+    try:
+        return _ler_com_cache()
+    finally:
+        _trava.release()
+
+
+def _ler_com_cache() -> dict[str, Any]:
+    if _cache["dados"] is not None and time.monotonic() - _cache["em"] < CACHE_S:
+        return {**_cache["dados"], "cache": True}
+    # Two queries: a flood of crashes must not push the hangs out of the count.
+    travados, erro = _ler(SCM_TRAVADO, 300)
+    outros, erro_outros = _ler(SCM_CAIU | SCM_NAO_INICIOU, 100) if travados is not None else ([], "")
+    if travados is None:
+        resposta: dict[str, Any] = {"disponivel": False, "motivo": erro}
+    else:
+        grupos = agrupar([*travados, *(outros or [])])
+        # ``ligou``: hangs right after a boot are the boot's own (slow start), not a warning.
+        resposta = {"disponivel": True, "cache": False, "janela_min": JANELA_MIN,
+                    "agora": datetime.now().isoformat(timespec="seconds"), "ligou": _boot(),
+                    "servicos": grupos, "cascata": cascata(grupos)}
+        if outros is None:  # the hangs are what the warning needs: partial, and said so
+            resposta["parcial"] = erro_outros
+    _cache.update(em=time.monotonic(), dados=resposta)
+    return resposta

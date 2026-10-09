@@ -6,6 +6,17 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-09] — O aviso precoce funciona com a máquina travando
+
+- **`GET /operacao/travamentos` lê o log pelo `wevtutil`** (F5c1 do `web_orcaview_V118/docs/PLANO_TEO_REDE_E_ROTINAS.md`):
+  em 09/10 às 13:03 a .12 travou de novo e a leitura antiga (PowerShell + `Get-WinEvent` + `Get-CimInstance`) passou de
+  15 s exatamente enquanto ela travava (e de novo logo depois do boot): o aviso precoce nunca disparou. Agora duas
+  consultas `wevtutil qe System` (nativo, sem PowerShell, sem .NET, sem WMI; ~0,02 s cada, prazo de 6 s), o boot pelo
+  `psutil`, resposta `parcial` quando só a segunda consulta falha, e a trava sem espera (leitura em andamento devolve o
+  último dado na hora, sem prender uma thread do servidor). **`operacao/travamentos.py` e o teste continuam IDÊNTICOS.**
+
+**Pede deploy da .11.**
+
 ## [2026-10-09] — Relato dos backups do Veeam (ALTHOST → .11)
 
 F7 do `docs/PLANO_TEO_REDE_E_ROTINAS.md` do web. O ALTHOST (console do Veeam) **manda** o estado dos backups à .11 de
