@@ -35,6 +35,7 @@ PowerShell, dentro de `C:\Python\ServidorIntegracaoSAP`.
 | `servico:reiniciar` | **pedir** o reinício de um dos 6 serviços (só roda com aprovação de uma pessoa) |
 | `aprovar` | aprovar/recusar o que o agente pediu — pessoa ou backend que fala por uma, **nunca** o agente |
 | `mcp` | conectar ao MCP (as ferramentas seguem os outros escopos) |
+| `backup:relatar` | o ALTHOST manda o relato dos backups do Veeam (`POST /operacao/backup/estado`; só grava o próprio relato — ver `docs/BACKUP_ALTHOST.md`) |
 | `admin` | tudo (só a chave-mestra) |
 
 `python -m seguranca escopos` mostra a mesma lista.

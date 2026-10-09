@@ -6,6 +6,20 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-09] — Relato dos backups do Veeam (ALTHOST → .11)
+
+F7 do `docs/PLANO_TEO_REDE_E_ROTINAS.md` do web. O ALTHOST (console do Veeam) **manda** o estado dos backups à .11 de
+hora em hora — nenhum agente ganha senha nas máquinas de backup:
+- `maintenance/estado_backup.ps1` (só leitura no Veeam; ASCII; cada bloco com try/catch; `-SoMostrar` para o 1º teste):
+  última sessão de cada job, ponto mais novo de cada réplica, espaço dos repositórios, serviços do Veeam;
+- `POST /operacao/backup/estado` com o escopo novo **`backup:relatar`**: origem conferida (`operacao/backup.ORIGENS`),
+  corpo ≤64 KB (413), 2/min (429), forma fechada (400), hora de recebimento da .11; `GET /operacao/backup` (`leitura`)
+  e a tool MCP `estado_backup`;
+- lista com mais de 60 itens é cortada (no script e na .11) e o corte vai em `erros` — o relato nunca se perde; réplica
+  não lida com job de réplica existente também vai em `erros` (o Téo distingue "sem réplica" de "não li");
+- passos da instalação no ALTHOST em `docs/BACKUP_ALTHOST.md` (credencial, chave só para SYSTEM, tarefa de hora em hora).
+**Pede deploy da .11** (e os passos do dono no ALTHOST).
+
 ## [2026-10-09] — Encerrar OP pela 8077 manda `ClosingDate` de hoje
 
 `POST /ordens-producao/<n>/status` com alvo Encerrada passa a enviar `ClosingDate` = hoje junto do status. A OP

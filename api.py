@@ -108,6 +108,7 @@ from extract_vendas_bi import main as sync_vendas_bi
 from monitoring import SELECTABLE_CHECKS, AcompanhamentoIndisponivel, collect_status, wbc_orcamento
 from operacao import (
     acoes_agente,
+    backup,
     boots,
     conexoes,
     historico_pedido,
@@ -1634,6 +1635,43 @@ def operacao_logins_sap():
         return jsonify(ok=False, error='usuario_nao_encontrado', motivo=str(exc)), 404
     except sit_ped_hana.SAPIndisponivel as exc:
         return jsonify(ok=False, error=str(exc)), 503
+
+
+#: F7 of PLANO_TEO_REDE_E_ROTINAS (web repo): the ALTHOST reports once an hour; two a minute is a loop.
+_RATE_BACKUP_MAX = 2
+
+
+@app.post('/operacao/backup/estado')
+@requer_chave('backup:relatar')
+def operacao_backup_relatar():
+    """The ALTHOST's hourly report of the Veeam backups (``maintenance/estado_backup.ps1``). The key is
+    the first lock, the origin the second; the body is capped and reduced to a closed shape."""
+    origem = request.remote_addr or ''
+    if origem not in backup.ORIGENS:
+        logger.warning('Relato de backup recusado: origem %s fora da lista', origem)
+        return jsonify(ok=False, error='origem_nao_permitida'), 403
+    bloqueio = _checar_rate('backup', _RATE_BACKUP_MAX)
+    if bloqueio:
+        return bloqueio
+    if (request.content_length or 0) > backup.CORPO_MAX:
+        return jsonify(ok=False, error='corpo_grande_demais', limite=backup.CORPO_MAX), 413
+    corpo = request.stream.read(backup.CORPO_MAX + 1)   # chunked bodies carry no length: read at most this
+    if len(corpo) > backup.CORPO_MAX:
+        return jsonify(ok=False, error='corpo_grande_demais', limite=backup.CORPO_MAX), 413
+    try:
+        relato = backup.validar(json.loads(corpo.decode('utf-8')))
+    except (ValueError, UnicodeDecodeError) as exc:   # RelatoInvalido is a ValueError too
+        motivo = str(exc) if isinstance(exc, backup.RelatoInvalido) else 'o corpo não é JSON'
+        return jsonify(ok=False, error='relato_invalido', motivo=motivo), 400
+    backup.gravar(relato, origem)
+    return jsonify(ok=True, jobs=len(relato['jobs']), replicas=len(relato['replicas']))
+
+
+@app.get('/operacao/backup')
+@requer_chave('leitura')
+def operacao_backup():
+    """The last backup report of the ALTHOST and its age by the .11's receive time."""
+    return jsonify(ok=True, **backup.ler())
 
 
 @app.get('/operacao/ronda-90')
