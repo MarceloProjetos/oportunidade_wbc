@@ -374,7 +374,7 @@ def api(monkeypatch):
 def test_rotas_pedem_leitura(api):
     _, c, _ = api
     for rota in ("/operacao/servicos", "/operacao/conexoes", "/operacao/conexoes/github",
-                 "/operacao/deploy", "/operacao/boots", "/operacao/travamentos",
+                 "/operacao/deploy", "/operacao/boots", "/operacao/travamentos", "/operacao/logins-sap",
                  "/pedidos/84453/historico", "/wbc/orcamentos/125348/log"):
         assert c.get(rota).status_code == 401, rota
 
@@ -459,13 +459,16 @@ def test_ferramentas_chamam_a_rota_certa(fachada, monkeypatch):
     fachada.log_orcamento_wbc("00125348", linhas=0)
     fachada.boots()
     fachada.travamentos()
+    fachada.quem_loga_no_sap(modo="eventos", usuario="financeiro04")
     assert chamadas == [
         ("/operacao/servicos", None), ("/operacao/conexoes", None),
         ("/operacao/conexoes/sap-hana", {"porta": 30015}), ("/operacao/deploy", None),
         ("/pedidos/84453/historico", {"versoes": 60, "chave": "docentry"}),
         ("/wbc/orcamentos/00125348/log", {"linhas": 1}), ("/operacao/boots", None),
         ("/operacao/travamentos", None),
+        ("/operacao/logins-sap", {"modo": "eventos", "usuario": "financeiro04", "limite": 40}),
     ]
+    assert fachada._tempo_limite("GET", "/operacao/logins-sap") == fachada._TEMPO_LEITURA_HANA
     assert fachada._tempo_limite("GET", "/operacao/conexoes/github") == fachada._TEMPO_CONEXAO
     assert fachada._tempo_limite("GET", "/operacao/boots") == fachada._TEMPO_BOOTS
 
@@ -601,3 +604,35 @@ def test_rota_da_ronda_pede_leitura_e_devolve_o_estado(api, monkeypatch, tmp_pat
         "destino": "orcaview-90"})
     corpo = c.get("/operacao/ronda-90", headers=h).get_json()
     assert corpo["ok"] is True and corpo["estado"] == "ok" and corpo["intervalo_s"] == 300
+
+
+# ---------------------------------------------------------------------------
+# F6 of PLANO_TEO_REDE_E_ROTINAS (web repo): who logs into the SAP
+
+def test_rota_de_logins_sap_codigos_e_teto(api, monkeypatch):
+    import situacao_pedidos_hana as hana
+    from operacao import logins_sap
+
+    _, c, h = api
+    pedidos = []
+
+    def _ler(modo, **kw):
+        pedidos.append((modo, kw))
+        if kw.get("usuario") == "ninguem":
+            raise logins_sap.UsuarioNaoEncontrado("o usuário ninguem não existe no SAP")
+        if kw.get("usuario") == "hana":
+            raise hana.SAPIndisponivel("SAP HANA fora do ar")
+        if modo == "torto":
+            raise logins_sap.PedidoInvalido("'modo' tem de ser resumo, eventos ou escritas")
+        return {"modo": modo, "grupos": []}
+    monkeypatch.setattr(logins_sap, "ler", _ler)
+    assert c.get("/operacao/logins-sap?dia=2026-10-09", headers=h).get_json() == {"ok": True, "modo": "resumo",
+                                                                                 "grupos": []}
+    assert pedidos[0] == ("resumo", {"dia": "2026-10-09", "usuario": "", "limite": "", "desde": ""})
+    assert c.get("/operacao/logins-sap?modo=torto", headers=h).status_code == 400
+    assert c.get("/operacao/logins-sap?modo=escritas&usuario=ninguem", headers=h).status_code == 404
+    assert c.get("/operacao/logins-sap?modo=eventos&usuario=hana", headers=h).status_code == 503
+    for _ in range(2):
+        c.get("/operacao/logins-sap", headers=h)
+    r = c.get("/operacao/logins-sap", headers=h)          # the 7th in a minute
+    assert r.status_code == 429 and "muitas leituras" in r.get_json()["motivo"]

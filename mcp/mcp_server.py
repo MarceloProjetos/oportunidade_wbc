@@ -68,8 +68,9 @@ desde quando), `testar_conexao` (DNS, ping e porta a partir da .11, só destinos
 lista fechada), `ultimo_deploy` (versão no ar e como foi o último deploy),
 `historico_pedido` (o que mudou num pedido e quem mudou — pessoa ou integração),
 `log_orcamento_wbc` (o log do worker sobre um orçamento), `boots` (por que a .11 reiniciou:
-cada vez que ligou nos últimos 7 dias e como a vida anterior acabou) e `travamentos` (serviços do
-Windows que pararam de responder na última hora: o aviso que vem antes de a máquina travar).
+cada vez que ligou nos últimos 7 dias e como a vida anterior acabou), `travamentos` (serviços do
+Windows que pararam de responder na última hora: o aviso que vem antes de a máquina travar) e
+`quem_loga_no_sap` (quem faz login no SAP, de onde e com que processo; robôs; o que um usuário gravou).
 
 Tudo é leitura, exceto `sincronizar_pedido_os` e `forcar_carga_oportunidades`: essas
 devolvem um preview com `confirmar=False` e só executam com `confirmar=True`, depois do
@@ -151,6 +152,8 @@ def _tempo_limite(metodo: str, path: str) -> float:
         proprio = _TEMPO_CONEXAO
     elif path == "/operacao/boots":
         proprio = _TEMPO_BOOTS
+    elif path == "/operacao/logins-sap":
+        proprio = _TEMPO_LEITURA_HANA
     else:
         proprio = HTTP_TIMEOUT
     return max(HTTP_TIMEOUT, proprio)
@@ -639,6 +642,30 @@ def travamentos() -> dict[str, Any]:
     relógio da .11.
     """
     return _get("/operacao/travamentos")
+
+
+@mcp.tool(annotations=_ANOTACAO_LEITURA)
+def quem_loga_no_sap(modo: str = "resumo", dia: str = "", usuario: str = "", desde: str = "",
+                     limite: int = 40) -> dict[str, Any]:
+    """QUEM FAZ LOGIN NO SAP B1, de onde e com que processo (log de acesso USR5). Só leitura; cache
+    de 120 s; no máximo 6 leituras por minuto.
+
+    ``modo="resumo"`` (``dia`` AAAA-MM-DD, padrão hoje, até 31 dias atrás): por usuário do SAP +
+    processo + IP + máquina + usuário do Windows: ``logins``, ``logouts``, ``sem_logout`` (sessão que o
+    programa abre e não fecha), ``falhas``, ``primeiro``/``ultimo``, ``ritmo`` (intervalo típico) e
+    ``parece_robo`` (heurística: muitos logins em ritmo regular sem usuário do Windows = provável tarefa
+    agendada ou serviço; a falta da marca NÃO quer dizer que é gente); ``parecem_robos`` à parte;
+    ``truncado`` = o dia tinha mais de 20 mil linhas. ``modo="eventos"`` + ``usuario``: os últimos
+    ``limite`` eventos dele nos últimos 31 dias (login, logout, falha) com IP, máquina, usuário do
+    Windows, processo e PID. ``modo="escritas"`` + ``usuario`` (+ ``desde``, até 31 dias): por dia,
+    quantas cotações, pedidos, oportunidades e OPs ele criou ou alterou — contagem MÍNIMA: o SAP guarda
+    só a última alteração de cada documento, e zero não prova que ele não gravou. Use para "quem está
+    logado no SAP?", "o Service Layer caiu — quem gravava?", "quem é o
+    financeiro04 que loga a cada 4 min?", "quem criou cotações ontem?". Usuário do Windows e máquina
+    são dados de pessoa: cite só a quem precisa saber.
+    """
+    params = {"modo": modo, "dia": dia, "usuario": usuario, "desde": desde, "limite": limite}
+    return _get("/operacao/logins-sap", {k: v for k, v in params.items() if v not in ("", None)})
 
 
 @mcp.tool(annotations=_ANOTACAO_LEITURA)

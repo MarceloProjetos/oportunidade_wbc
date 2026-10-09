@@ -112,6 +112,7 @@ from operacao import (
     conexoes,
     historico_pedido,
     log_worker,
+    logins_sap,
     reinicio,
     ronda_90,
     travamentos,
@@ -245,15 +246,16 @@ class _RateLimiter:
 _rate_limiter = _RateLimiter()
 
 
-def _checar_rate(bucket: str, limite: int):
-    """If the rate limit is blown, returns ``(response_429, 429)`` to return; else ``None``."""
+def _checar_rate(bucket: str, limite: int, oque: str = 'escritas'):
+    """If the rate limit is blown, returns ``(response_429, 429)`` to return; else ``None``.
+    ``oque`` names what is being limited in the message ("leituras" for a heavy read)."""
     permitido, retry = _rate_limiter.check(bucket, limite, _RATE_WINDOW_S)
     if permitido:
         return None
     espera = int(retry) + 1
     resp = jsonify(
         ok=False, error='rate_limited', retry_after_s=espera,
-        motivo=(f'Trava anti-loop: muitas escritas em menos de {int(_RATE_WINDOW_S)}s '
+        motivo=(f'Trava anti-loop: muitas {oque} em menos de {int(_RATE_WINDOW_S)}s '
                 f'(limite {limite}). Aguarde ~{espera}s e tente de novo.'),
     )
     resp.headers['Retry-After'] = str(espera)
@@ -1605,6 +1607,33 @@ def operacao_travamentos():
     """Windows services that hung, crashed or did not start in the last hour, and the latest
     cascade (F5b of PLANO_TEO_REDE_E_ROTINAS, web repo): the early warning before a hang."""
     return jsonify(ok=True, **travamentos.travamentos())
+
+
+#: F6 of PLANO_TEO_REDE_E_ROTINAS (web repo): a USR5/OUSR read opens a HANA connection; an agent's
+#: loop must not turn it into load on the SAP.
+_RATE_LOGINS_SAP_MAX = 6
+
+
+@app.get('/operacao/logins-sap')
+@requer_chave('leitura')
+def operacao_logins_sap():
+    """Who logs into the SAP B1 (USR5), from where and with which process. ``?modo=`` resumo
+    (``dia``), eventos (``usuario``, ``limite``) or escritas (``usuario``, ``desde`` <= 31 days).
+    Read only, cached 120 s; 400 bad parameter, 404 unknown SAP user, 503 HANA down."""
+    bloqueio = _checar_rate('logins_sap', _RATE_LOGINS_SAP_MAX, 'leituras')
+    if bloqueio:
+        return bloqueio
+    a = request.args
+    try:
+        return jsonify(ok=True, **logins_sap.ler(a.get('modo', 'resumo'), dia=a.get('dia', ''),
+                                                  usuario=a.get('usuario', ''), limite=a.get('limite', ''),
+                                                  desde=a.get('desde', '')))
+    except logins_sap.PedidoInvalido as exc:
+        return jsonify(ok=False, error='parametro_invalido', motivo=str(exc)), 400
+    except logins_sap.UsuarioNaoEncontrado as exc:
+        return jsonify(ok=False, error='usuario_nao_encontrado', motivo=str(exc)), 404
+    except sit_ped_hana.SAPIndisponivel as exc:
+        return jsonify(ok=False, error=str(exc)), 503
 
 
 @app.get('/operacao/ronda-90')

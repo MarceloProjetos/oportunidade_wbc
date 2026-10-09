@@ -16,6 +16,16 @@ equipe: `docs/API_SITUACAO_PEDIDOS_INCOTERMS.md`. **Antes do deploy da .11, roda
 `alter table ... add column if not exists incoterms` de `sql/orcamentos_espelho.sql`** — sem a coluna, a carga
 do espelho falha (a tabela fica com o snapshot anterior).
 
+## [2026-10-09] — Quem loga no SAP: rota, MCP e a CLI fina
+
+F6 do `docs/PLANO_TEO_REDE_E_ROTINAS.md` do web: **`GET /operacao/logins-sap`** (escopo `leitura`, 6 leituras/min com
+mensagem própria) e a tool MCP **`quem_loga_no_sap`** sobre o novo `operacao/logins_sap.py` (USR5/OUSR pelo
+`situacao_pedidos_hana`: uma conexão por chamada, disjuntor, `SAPIndisponivel` → 503; consultas com `sql(t"...")`;
+cache 120 s). Modos: `resumo` (dia ≤31 dias; por usuário + processo + IP + máquina + usuário do Windows, sessões sem
+logout, ritmo e `parece_robo`; no máximo 20 mil linhas, `truncado`), `eventos` (usuário, últimos 31 dias, ≤200) e
+`escritas` (usuário, ≤31 dias; contagem MÍNIMA — o SAP guarda só a última alteração de cada documento).
+`maintenance/quem_loga_no_sap.py` virou CLI fina sobre o módulo (mesmos números). **Pede deploy da .11.**
+
 ## [2026-10-09] — Serviços travando: o aviso antes de a .11 travar
 
 F5b do `docs/PLANO_TEO_REDE_E_ROTINAS.md` do web: **`GET /operacao/travamentos`** (escopo `leitura`) e a tool MCP
