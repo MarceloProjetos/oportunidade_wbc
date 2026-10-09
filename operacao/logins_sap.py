@@ -74,9 +74,21 @@ def _segundos(hhmmss: Any) -> int:
     return v // 10000 * 3600 + v // 100 % 100 * 60 + v % 100
 
 
+#: Scheduled: at least this share of the gaps within :data:`TOLERANCIA_RITMO` of the median gap,
+#: and a median of at least :data:`RITMO_MINIMO_S` (a burst of logins in seconds is not a schedule)
+#: -- unless there are :data:`LACO_MINIMO` gaps or more: a login loop every 20-30 s is exactly the
+#: kind that drains the Service Layer's sessions.
+REGULARES_MIN = 0.8
+TOLERANCIA_RITMO = 0.1
+RITMO_MINIMO_S = 60
+LACO_MINIMO = 20
+
+
 def ritmo(horas: list[Any]) -> tuple[str, bool]:
-    """Median gap between consecutive logins ("4m00s") and whether it looks scheduled (low spread:
-    scheduled jobs hit the same second; humans and add-ons do not)."""
+    """Median gap between consecutive logins ("4m00s") and whether it looks scheduled: most gaps
+    within 10 % (or 5 s) of the median. A share, not a standard deviation: on 07/10 the real robot
+    (financeiro04 / WBCServConsole.exe every 4 min) had ONE 8-min gap at 06:20 that pushed the
+    deviation to 31 s and hid it (first real reading of F6b)."""
     if len(horas) < 3:
         return "", False
     seg = sorted(_segundos(h) for h in horas)
@@ -84,7 +96,9 @@ def ritmo(horas: list[Any]) -> tuple[str, bool]:
     if len(gaps) < 2:
         return "", False
     med = statistics.median(gaps)
-    regular = statistics.pstdev(gaps) <= max(5.0, med * 0.1)
+    tolerancia = max(5.0, med * TOLERANCIA_RITMO)
+    dentro = sum(1 for g in gaps if abs(g - med) <= tolerancia)
+    regular = (med >= RITMO_MINIMO_S or len(gaps) >= LACO_MINIMO) and dentro / len(gaps) >= REGULARES_MIN
     return f"{int(med) // 60}m{int(med) % 60:02d}s", regular
 
 

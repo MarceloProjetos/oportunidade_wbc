@@ -36,6 +36,15 @@ equipe: `docs/API_SITUACAO_PEDIDOS_INCOTERMS.md`. **Antes do deploy da .11, roda
 `alter table ... add column if not exists incoterms` de `sql/orcamentos_espelho.sql`** — sem a coluna, a carga
 do espelho falha (a tabela fica com o snapshot anterior).
 
+## [2026-10-09] — Robô no SAP: a regra do ritmo pelo caso real
+
+1ª leitura real da F6b: o robô que originou o plano (`financeiro04` / `WBCServConsole.exe`, 55 logins a cada 4 min em
+07/10, sem usuário do Windows) saía `parece_robo: false` — um único intervalo de 8 min no começo do dia levava o
+desvio-padrão a ~31 s. Agora `ritmo` é regular quando ≥80% dos intervalos ficam a até 10% (ou 5 s) da mediana, com
+mediana ≥60 s (uma rajada em segundos não é agenda) ou ≥20 intervalos (um laço a cada 20–30 s é justamente o que esgota as
+sessões do Service Layer). Conferido contra o HANA de produção: 07/10 marca só o `WBCServConsole.exe`; 08 e 09/10, nenhum.
+**Pede deploy da .11.**
+
 ## [2026-10-09] — Quem loga no SAP: rota, MCP e a CLI fina
 
 F6 do `docs/PLANO_TEO_REDE_E_ROTINAS.md` do web: **`GET /operacao/logins-sap`** (escopo `leitura`, 6 leituras/min com

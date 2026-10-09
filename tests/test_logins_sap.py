@@ -32,6 +32,23 @@ def test_hora_e_ritmo():
     assert ls.ritmo([80000, 80013, 81500, 90000])[1] is False
 
 
+def test_o_robo_real_de_07_10_com_um_buraco():
+    """First real reading of F6b: the WBCServConsole.exe of 07/10 logged every 4 min from 06:28 to
+    10:00, with ONE 8-min gap after 06:20:12 -- the old standard deviation called it irregular."""
+    def hhmmss(s: int) -> int:
+        return s // 3600 * 10000 + s % 3600 // 60 * 100 + s % 60
+
+    horas = [62012] + [hhmmss(6 * 3600 + 28 * 60 + 3 + 240 * i) for i in range(53)]   # 06:20:12, 06:28:03…
+    assert ls.ritmo(horas) == ("4m00s", True)
+    assert ls.agrupar([{"UserCode": "financeiro04", "ProcName": "WBCServConsole.exe", "ClientIP": "192.168.7.12",
+                        "ClientName": "SAPBusinessOneR", "WinUsrName": "", "Action": "I", "Time": h}
+                       for h in horas])[0]["parece_robo"] is True
+    # A burst of logins in seconds (a person opening the client, an add-on) is no schedule.
+    assert ls.ritmo([80000, 80002, 80004, 80006, 80008, 80010])[1] is False
+    # ... but a loop of dozens of logins every 20 s is (the kind that drains the Service Layer).
+    assert ls.ritmo([hhmmss(8 * 3600 + 20 * i) for i in range(30)]) == ("0m20s", True)
+
+
 def test_agrupa_e_acha_o_robo():
     grupos = ls.agrupar(ROBO + GENTE)
     robo, gente = grupos
