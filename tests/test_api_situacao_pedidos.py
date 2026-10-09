@@ -505,12 +505,12 @@ def test_pedido_sem_linha_crua_recebe_o_endereco_vazio_com_as_mesmas_chaves(clie
 
 CAMPOS_LIBERACAO_NF = {"lib_fin_em", "sinal_pago_em", "lib_producao_em", "lib_entrega_em",
                        "data_criacao_pn", "representante", "nf_doc_num",
-                       "nf_numero_fiscal", "nf_data", "primeira_nf_emitida"}
+                       "nf_numero_fiscal", "nf_data", "primeira_nf_emitida", "incoterms"}
 
 _LIBERACAO = {"Sinal": "S", "_LibFinEm": "2026-09-23T16:51:16-03:00",
               "_SinalPagoEm": "2026-09-24T10:15:00-03:00", "_DataCriacaoPN": "2025-03-10",
               "_Representante": "Neto", "_NfDocNum": 5729, "_NfNumeroFiscal": 32228,
-              "_NfData": "2026-09-17"}
+              "_NfData": "2026-09-17", "_Incoterms": "CIF - Remetente"}
 
 
 def test_o_completo_traz_a_liberacao_real_e_a_primeira_nf(client, monkeypatch):
@@ -521,6 +521,7 @@ def test_o_completo_traz_a_liberacao_real_e_a_primeira_nf(client, monkeypatch):
     assert p['lib_producao_em'] == p['lib_entrega_em'] == '2026-09-24T10:15:00-03:00'
     assert (p['nf_doc_num'], p['nf_numero_fiscal'], p['primeira_nf_emitida']) == (5729, 32228, True)
     assert p['representante'] == 'Neto' and p['vendedor'] == 'MARCOS'
+    assert p['incoterms'] == 'CIF - Remetente'
     # Os campos antigos ficam como estavam: nada muda de nome nem de valor.
     assert p['data_lib_prod'] == '2026-01-23'
     lista = client.get('/pedidos/situacao?campos=completo').get_json()['pedidos'][0]

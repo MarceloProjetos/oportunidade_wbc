@@ -40,7 +40,7 @@
 create table if not exists public.orcamentos_espelho (
   id                    bigint generated always as identity primary key,
 
-  -- ===== Colunas da view VW_EVOL_ORCAMENTO_ALT (34) =====
+  -- ===== Colunas da view VW_EVOL_ORCAMENTO_ALT (35) =====
   cotacao               integer,
   tipo_doc              text,          -- '23' = cotação, '17' = pedido
   num_doc               integer,
@@ -75,12 +75,19 @@ create table if not exists public.orcamentos_espelho (
   num_nf                integer,
   data_nf               date,
   nf_quitada            boolean,       -- NULL = sem nota emitida (ver decisões acima)
+  incoterms             text,          -- freight mode label; orders only (TipoDoc '17')
 
   -- ===== Controle / auditoria (postos pelo pipeline; não estão na view) =====
   id_execucao           uuid,          -- UUID da carga; a poda do snapshot usa esta coluna
   data_hora_extracao    timestamptz,
   inserted_at           timestamptz default now()
 );
+
+-- 10/2026: the view gained a 35th column, Incoterms. Extends the existing table in place.
+alter table public.orcamentos_espelho add column if not exists incoterms text;
+
+comment on column public.orcamentos_espelho.incoterms is
+  'Modalidade de frete do pedido, em texto: CIF - Remetente | FOB - Destinatário | Terceiros | Próprio Remetente | Próprio Destinatário | Sem Frete. Só pedido (tipo_doc 17); cotação = NULL.';
 
 comment on table public.orcamentos_espelho is
   'Espelho da view SAP HANA VW_EVOL_ORCAMENTO_ALT (34 colunas: orçamento + CNAE + montagem + nota fiscal). Snapshot de hora em hora por extract_orcamentos_espelho.py. nf_quitada NULL = sem nota. Escrita só service_role; leitura p/ authenticated.';

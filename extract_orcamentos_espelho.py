@@ -22,6 +22,10 @@ inteira, 5.643 linhas):
 - a janela é a view inteira: ela **não tem mais 2024** (começa em 06/01/2025), e
   filtrar por data aqui só esconderia isso de quem lê o espelho.
 
+In 10/2026 the view gained a 35th column, ``Incoterms`` (freight mode, already a text
+label). Only order rows (``TipoDoc = '17'``) carry it; quotations are always ``NULL``.
+The Supabase column must exist before this code runs (``sql/orcamentos_espelho.sql``).
+
 A ``VW_ORCAMENTO_ALT``, a outra view de cotação, continua com 16 colunas e
 nenhum dos campos novos — por isso o espelho é desta view e só dela.
 """
@@ -100,7 +104,8 @@ def sql_orcamentos(schema: str) -> str:
                "DataNF" AS "data_nf",
                CASE WHEN "NumNF" IS NULL THEN NULL
                     WHEN "QuitacaoNF" = 'Sim' THEN TRUE
-                    ELSE FALSE END AS "nf_quitada"
+                    ELSE FALSE END AS "nf_quitada",
+               NULLIF(TRIM("Incoterms"), '') AS "incoterms"
           FROM "{schema}"."{VIEW}"
     '''
 

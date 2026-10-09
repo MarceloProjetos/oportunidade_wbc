@@ -2,7 +2,7 @@
 
 O alvo é o que decide DADO, não o que fala com banco:
 
-1. O SELECT traz as 34 colunas da view, já em ``snake_case`` do Postgres — o
+1. O SELECT traz as 35 colunas da view, já em ``snake_case`` do Postgres — o
    espelho existe para os campos novos (CNAE, montagem, nota fiscal);
 2. ``nf_quitada`` é booleano de TRÊS estados: ``NULL`` sem nota. O ``QuitacaoNF``
    cru diz "Não" para 4.310 das 5.643 linhas só porque nota nenhuma foi emitida
@@ -25,13 +25,13 @@ COLUNAS = (
     "representante", "valor", "data_oport", "data_cotacao", "uf", "municipio",
     "data_contato_cliente", "acao_contato", "lead", "situacao_cliente", "n_bitrix",
     "pct_comissao", "retorno", "indice", "cnae", "descricao_cnae", "tipo_montagem",
-    "valor_montagem", "montador", "num_nf", "data_nf", "nf_quitada",
+    "valor_montagem", "montador", "num_nf", "data_nf", "nf_quitada", "incoterms",
 )
 
 
 # ── O SELECT ─────────────────────────────────────────────────────────────────
 
-def test_sql_traz_as_34_colunas_em_snake_case() -> None:
+def test_sql_traz_as_35_colunas_em_snake_case() -> None:
     sql = etl.sql_orcamentos("SBOALTAMIRAPROD")
     for coluna in COLUNAS:
         assert f'AS "{coluna}"' in sql, f"faltou {coluna}"

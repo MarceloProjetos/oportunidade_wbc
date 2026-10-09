@@ -6,6 +6,16 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-09] — Incoterms (modalidade de frete) do pedido
+
+A `VW_EVOL_ORCAMENTO_ALT` ganhou a 35ª coluna, `Incoterms` (texto: `CIF - Remetente`, `FOB - Destinatário`,
+`Próprio Remetente`…; só pedido, cotação = `NULL`). Entra como **`incoterms`** no perfil `completo` da Situação
+dos Pedidos (`GET /pedidos/<n>/situacao`, `?campos=completo`; 47 → 48 campos) e nas tools MCP `situacao_pedido` /
+`panorama_pedidos`; o `resumo` não muda. Espelho `orcamentos_espelho` ganha a coluna `incoterms`. Guia para a outra
+equipe: `docs/API_SITUACAO_PEDIDOS_INCOTERMS.md`. **Antes do deploy da .11, rodar no Supabase o
+`alter table ... add column if not exists incoterms` de `sql/orcamentos_espelho.sql`** — sem a coluna, a carga
+do espelho falha (a tabela fica com o snapshot anterior).
+
 ## [2026-10-09] — O Hyper-V desliga a VM pelo svchost
 
 1ª leitura real do `/operacao/boots`: os desligamentos da .11 (21:02 toda noite e 08/10 09:50:01) vêm de

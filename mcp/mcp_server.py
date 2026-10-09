@@ -662,6 +662,11 @@ def situacao_pedido(pedido: int, chave: str = "docnum") -> dict[str, Any]:
     para afirmar a hora; diga isso em vez de estimar. ``primeira_nf_emitida`` diz se a
     primeira nota fiscal já saiu; ``nf_numero_fiscal`` é o número da DANFE.
 
+    **Frete:** ``incoterms`` é a modalidade de frete do pedido, em texto: ``"CIF -
+    Remetente"`` (a Altamira paga e contrata), ``"FOB - Destinatário"`` (o cliente paga e
+    retira/contrata), ``"Terceiros"``, ``"Próprio Remetente"``, ``"Próprio Destinatário"``
+    ou ``"Sem Frete"``. ``null`` = não preenchido no pedido — diga isso, não suponha CIF.
+
     **Endereço de entrega:** ``entrega_endereco`` traz o endereço de **despacho JÁ
     RESOLVIDO** — é para lá que a mercadoria vai. Responda com ele. O
     ``entrega_endereco.ponto_entrega`` aninhado é o cadastro do cliente, **não** o

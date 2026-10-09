@@ -1927,7 +1927,7 @@ def _aplicar_endereco(pedidos: list, linhas: list) -> None:
 
 
 def _aplicar_liberacao_e_nf(pedidos: list, linhas: list) -> None:
-    """Poe os 10 campos de liberacao real + primeira NF em cada pedido, **no lugar**.
+    """Poe os 11 campos de liberacao real + primeira NF + Incoterms em cada pedido, **no lugar**.
 
     Mesmo desenho do :func:`_aplicar_endereco` (e fora do nucleo portado pelo mesmo
     motivo): casa por ``DocEntry`` e pedido sem linha crua recebe as MESMAS chaves, com
