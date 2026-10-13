@@ -6,6 +6,19 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-13] — Observação de montagem (`obs_montagem`) do pedido
+
+A `VW_EVOL_ORCAMENTO_ALT` ganhou a 36ª coluna, `ObsMontagem` (`VARCHAR(2000)`, texto livre; só pedido, cotação =
+`NULL`; no HANA de 13/10: 1228 de 1543 pedidos preenchidos, 419 com quebra de linha, maior com 230 caracteres). Entra
+como **`obs_montagem`** no perfil `completo` da Situação dos Pedidos (`GET /pedidos/<n>/situacao`,
+`?campos=completo`; 48 → 49 campos) e na tool MCP `situacao_pedido`; o `resumo` não muda. O SAP grava a quebra de linha
+como `\r` sozinho: a API devolve `\n` (`situacao_pedidos_hana.texto_livre`); vazio ou `"-"` = `null`. No
+`panorama_pedidos(campos="completo")` o texto vem cortado em 200 caracteres (`obs_montagem_cortada: true`). Espelho
+`orcamentos_espelho` ganha a coluna `obs_montagem` (mesma troca de `\r` por `\n`, no SELECT do HANA). Guia para a outra
+equipe: `docs/API_SITUACAO_PEDIDOS_OBS_MONTAGEM.md`. **Antes do deploy da .11, rodar no Supabase o
+`alter table ... add column if not exists obs_montagem` de `sql/orcamentos_espelho.sql`** — sem a coluna, a carga do
+espelho falha (a tabela fica com o snapshot anterior).
+
 ## [2026-10-13] — A .11 reinicia o servidor do SAP (com aprovação)
 
 `PLANO_RESET_SAP_TEO` do web. Em 12/10 o login do Service Layer ficou fora por horas com o `/ping` dele respondendo; a

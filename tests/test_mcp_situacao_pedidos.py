@@ -345,6 +345,28 @@ def test_panorama_completo_mantem_o_objeto_inteiro(fachada, carteira_com_enderec
     assert p['entrega_endereco']['ponto_entrega']['cidade'] == 'BELO HORIZONTE'
 
 
+def test_panorama_completo_corta_a_obs_de_montagem(fachada, monkeypatch):
+    """Até 2000 caracteres por pedido no SAP: a lista leva 200, o pedido único leva tudo."""
+    def _fake(path, params=None):
+        base = _carteira(2)
+        base['pedidos'][0]['obs_montagem'] = 'x' * 1500
+        base['pedidos'][1]['obs_montagem'] = 'curta'
+        return base
+
+    monkeypatch.setattr(fachada, '_get', _fake)
+    pedidos = fachada.panorama_pedidos(campos='completo')['pedidos']
+    longa = next(p for p in pedidos if p['obs_montagem'] != 'curta')
+    curta = next(p for p in pedidos if p['obs_montagem'] == 'curta')
+    assert longa['obs_montagem'] == 'x' * 200 + '…' and longa['obs_montagem_cortada'] is True
+    assert 'obs_montagem_cortada' not in curta
+
+
+def test_a_descricao_explica_a_obs_de_montagem(fachada):
+    tools = {t.name: t for t in asyncio.run(fachada.mcp.list_tools())}
+    assert 'obs_montagem' in tools['situacao_pedido'].description
+    assert 'obs_montagem_cortada' in tools['panorama_pedidos'].description
+
+
 def test_o_resumo_do_endereco_e_o_mesmo_venha_de_onde_vier(fachada):
     """As duas formas da API têm de produzir os mesmos 3 campos."""
     do_resumo = {'entrega_linha': _END_COMPLETO['linha'],

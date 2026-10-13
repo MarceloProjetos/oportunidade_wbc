@@ -26,16 +26,24 @@ COLUNAS = (
     "data_contato_cliente", "acao_contato", "lead", "situacao_cliente", "n_bitrix",
     "pct_comissao", "retorno", "indice", "cnae", "descricao_cnae", "tipo_montagem",
     "valor_montagem", "montador", "num_nf", "data_nf", "nf_quitada", "incoterms",
+    "obs_montagem",
 )
 
 
 # ── O SELECT ─────────────────────────────────────────────────────────────────
 
-def test_sql_traz_as_35_colunas_em_snake_case() -> None:
+def test_sql_traz_as_36_colunas_em_snake_case() -> None:
     sql = etl.sql_orcamentos("SBOALTAMIRAPROD")
     for coluna in COLUNAS:
         assert f'AS "{coluna}"' in sql, f"faltou {coluna}"
     assert 'FROM "SBOALTAMIRAPROD"."VW_EVOL_ORCAMENTO_ALT"' in sql
+
+
+def test_sql_troca_o_cr_do_sap_por_lf_na_obs_de_montagem() -> None:
+    """SAP stores line breaks as a bare CR; the mirror keeps the same text as the API."""
+    sql = etl.sql_orcamentos("SBOALTAMIRAPROD")
+    assert 'REPLACE("ObsMontagem", CHAR(13) || CHAR(10), CHAR(10))' in sql
+    assert "CHAR(13), CHAR(10))), '') AS \"obs_montagem\"" in sql
 
 
 def test_sql_deriva_nf_quitada_com_nulo_quando_nao_ha_nota() -> None:

@@ -49,7 +49,7 @@ class _Cursor:
             cols, linhas = ["DocEntry", "CreateDate", "CreateTS", "Canceled"], self._c.rct
         elif "VW_EVOL_ORCAMENTO_ALT" in sql:
             cols, linhas = (["NumDoc", "DataCriacaoPN", "Representante", "NumNF", "DataNF",
-                             "Serial", "Incoterms"], self._c.evol)
+                             "Serial", "Incoterms", "ObsMontagem"], self._c.evol)
         else:
             cols, linhas = self._c.colunas, self._c.linhas
         self.description = [(c,) for c in cols]
@@ -674,7 +674,7 @@ def _crua(**over: Any) -> dict:
             "_LibFinEm": "2026-09-23T16:51:16-03:00", "_SinalPagoEm": None,
             "_DataCriacaoPN": "2025-03-10", "_Representante": "Neto",
             "_NfDocNum": 5729, "_NfNumeroFiscal": 32228, "_NfData": "2026-09-17",
-            "_Incoterms": "FOB - Destinatário"}
+            "_Incoterms": "FOB - Destinatário", "_ObsMontagem": "Montagem em 2 dias"}
     base.update(over)
     return base
 
@@ -719,8 +719,9 @@ def test_primeira_nf_e_as_chaves_do_contrato():
     assert set(cheio) == set(vazio) == {
         "lib_fin_em", "sinal_pago_em", "lib_producao_em", "lib_entrega_em",
         "data_criacao_pn", "representante", "nf_doc_num", "nf_numero_fiscal",
-        "nf_data", "primeira_nf_emitida", "incoterms"}
+        "nf_data", "primeira_nf_emitida", "incoterms", "obs_montagem"}
     assert cheio["incoterms"] == "FOB - Destinatário"
+    assert cheio["obs_montagem"] == "Montagem em 2 dias"
     assert all(v is None for k, v in vazio.items() if k != "primeira_nf_emitida")
 
 
@@ -732,7 +733,8 @@ def _conexao_com_liberacao(**over):
         odpi=[(15118, 2627, "C", "N")],
         rct=[(2627, dt.datetime(2026, 9, 24), 101500, "N")],
         evol=[(84260, dt.datetime(2025, 3, 10), "Neto  ", 5729,
-               dt.datetime(2026, 9, 17), 32228, "CIF - Remetente  ")])
+               dt.datetime(2026, 9, 17), 32228, "CIF - Remetente  ",
+               "VALOR PARA 3 MONTADORES.\r\rContato: 11 2295-5614  ")])
     kw.update(over)
     return _ConexaoFalsa(**kw)
 
@@ -745,17 +747,28 @@ def test_a_leitura_injeta_liberacao_e_nf_nas_linhas(monkeypatch):
     assert (r["_DataCriacaoPN"], r["_Representante"]) == ("2025-03-10", "Neto")
     assert (r["_NfDocNum"], r["_NfNumeroFiscal"], r["_NfData"]) == (5729, 32228, "2026-09-17")
     assert r["_Incoterms"] == "CIF - Remetente"
+    assert r["_ObsMontagem"] == "VALOR PARA 3 MONTADORES.\n\nContato: 11 2295-5614"
     adoc = next(s for s in c.sqls if '"ADOC"' in s)
     assert "\"ObjType\" = '17'" in adoc and "IN (15118)" in adoc
     evol = next(s for s in c.sqls if "VW_EVOL_ORCAMENTO_ALT" in s)
     assert "\"TipoDoc\" = '17'" in evol and "LEFT JOIN" in evol
-    assert 'e."Incoterms"' in evol
+    assert 'e."Incoterms"' in evol and 'e."ObsMontagem"' in evol
 
 
 def test_incoterms_em_branco_vira_none(monkeypatch):
-    evol = [(84260, dt.datetime(2025, 3, 10), "Neto", None, None, None, "   ")]
+    evol = [(84260, dt.datetime(2025, 3, 10), "Neto", None, None, None, "   ", " - ")]
     _ligar(monkeypatch, _conexao_com_liberacao(evol=evol))
-    assert hana.fetch_status_pedidos()[0]["_Incoterms"] is None
+    r = hana.fetch_status_pedidos()[0]
+    assert r["_Incoterms"] is None and r["_ObsMontagem"] is None
+
+
+def test_texto_livre_normaliza_quebra_e_vazio():
+    assert hana.texto_livre("A\r\nB\rC") == "A\nB\nC"
+    assert hana.texto_livre("  linha só  ") == "linha só"
+    assert hana.texto_livre(None) is None
+    assert hana.texto_livre("  ") is None
+    assert hana.texto_livre("-") is None
+    assert hana.texto_livre("- item") == "- item"
 
 
 def test_a_leitura_reconhece_o_historico_cortado_pelo_sap(monkeypatch):

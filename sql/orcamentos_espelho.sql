@@ -40,7 +40,7 @@
 create table if not exists public.orcamentos_espelho (
   id                    bigint generated always as identity primary key,
 
-  -- ===== Colunas da view VW_EVOL_ORCAMENTO_ALT (35) =====
+  -- ===== Colunas da view VW_EVOL_ORCAMENTO_ALT (36) =====
   cotacao               integer,
   tipo_doc              text,          -- '23' = cotação, '17' = pedido
   num_doc               integer,
@@ -76,6 +76,7 @@ create table if not exists public.orcamentos_espelho (
   data_nf               date,
   nf_quitada            boolean,       -- NULL = sem nota emitida (ver decisões acima)
   incoterms             text,          -- freight mode label; orders only (TipoDoc '17')
+  obs_montagem          text,          -- free-text assembly note (<= 2000 chars); orders only
 
   -- ===== Controle / auditoria (postos pelo pipeline; não estão na view) =====
   id_execucao           uuid,          -- UUID da carga; a poda do snapshot usa esta coluna
@@ -89,8 +90,14 @@ alter table public.orcamentos_espelho add column if not exists incoterms text;
 comment on column public.orcamentos_espelho.incoterms is
   'Modalidade de frete do pedido, em texto: CIF - Remetente | FOB - Destinatário | Terceiros | Próprio Remetente | Próprio Destinatário | Sem Frete. Só pedido (tipo_doc 17); cotação = NULL.';
 
+-- 10/2026: the 36th column, ObsMontagem. Same in-place extension.
+alter table public.orcamentos_espelho add column if not exists obs_montagem text;
+
+comment on column public.orcamentos_espelho.obs_montagem is
+  'Observação de montagem do pedido, texto livre (até 2000 caracteres), quebras de linha em LF. Só pedido (tipo_doc 17); cotação = NULL.';
+
 comment on table public.orcamentos_espelho is
-  'Espelho da view SAP HANA VW_EVOL_ORCAMENTO_ALT (34 colunas: orçamento + CNAE + montagem + nota fiscal). Snapshot de hora em hora por extract_orcamentos_espelho.py. nf_quitada NULL = sem nota. Escrita só service_role; leitura p/ authenticated.';
+  'Espelho da view SAP HANA VW_EVOL_ORCAMENTO_ALT (36 colunas: orçamento + CNAE + montagem + nota fiscal + frete + obs. de montagem). Snapshot de hora em hora por extract_orcamentos_espelho.py. nf_quitada NULL = sem nota. Escrita só service_role; leitura p/ authenticated.';
 
 comment on column public.orcamentos_espelho.nf_quitada is
   'NULL = nota ainda não emitida; true/false só quando num_nf existe. O QuitacaoNF cru da view diz "Não" para todo orçamento sem nota.';

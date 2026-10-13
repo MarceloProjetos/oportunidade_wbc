@@ -14,6 +14,9 @@ vai** (§2.7):
 
 As duas leem exatamente a mesma coisa; a MCP é uma camada fina sobre a REST.
 
+> **Novidade de 13/10/2026:** campo `obs_montagem` — a observação de montagem digitada no pedido.
+> Guia: [`docs/API_SITUACAO_PEDIDOS_OBS_MONTAGEM.md`](docs/API_SITUACAO_PEDIDOS_OBS_MONTAGEM.md).
+
 > **Novidade de 09/10/2026:** campo `incoterms` — a modalidade de frete do pedido (CIF, FOB…).
 > Guia: [`docs/API_SITUACAO_PEDIDOS_INCOTERMS.md`](docs/API_SITUACAO_PEDIDOS_INCOTERMS.md).
 
@@ -487,7 +490,7 @@ errado. Se precisar dele, peça `campos=completo`.
 As três etapas (`financeiro`, `producao`, `entrega`) trazem `"Liberado"`, `"Bloqueado"`
 ou — em pedido cancelado no SAP — `"Cancelado"` (2.2).
 
-### 6.2 Perfil `completo` — 48 campos
+### 6.2 Perfil `completo` — 49 campos
 
 | Campo | Tipo | O que é |
 | --- | --- | --- |
@@ -529,6 +532,7 @@ ou — em pedido cancelado no SAP — `"Cancelado"` (2.2).
 | `nf_data` | str \| null | Data da primeira nota fiscal, ISO |
 | **`primeira_nf_emitida`** | bool | `true` quando a primeira nota fiscal do pedido já foi emitida |
 | **`incoterms`** | str \| null | **Modalidade de frete** do pedido, em texto: `"CIF - Remetente"`, `"FOB - Destinatário"`, `"Terceiros"`, `"Próprio Remetente"`, `"Próprio Destinatário"` ou `"Sem Frete"`. `null` = não preenchido. Guia: [`docs/API_SITUACAO_PEDIDOS_INCOTERMS.md`](docs/API_SITUACAO_PEDIDOS_INCOTERMS.md) |
+| **`obs_montagem`** | str \| null | **Observação de montagem** digitada no pedido (texto livre, até 2000 caracteres): o que vai montado, contato para agendar, o que o valor inclui. Quebras de linha em `\n`. `null` = não preenchida. Guia: [`docs/API_SITUACAO_PEDIDOS_OBS_MONTAGEM.md`](docs/API_SITUACAO_PEDIDOS_OBS_MONTAGEM.md) |
 | `valor_total` | float | Valor do pedido |
 | `moeda` | str | Ex.: `"R$"` |
 | `vendedor` | str | Nome do vendedor |
@@ -555,7 +559,7 @@ ou — em pedido cancelado no SAP — `"Cancelado"` (2.2).
 > `lib_entrega_em`), que são ISO completo com fuso: `2026-09-25T08:13:35-03:00`. Campo sem
 > valor vem **`null`**, nunca `""` nem `0`.
 >
-> **Os campos da nota, do cliente e do frete** (`data_criacao_pn`, `representante`, `nf_*`, `incoterms`) vêm da
+> **Os campos da nota, do cliente, do frete e da obs. de montagem** (`data_criacao_pn`, `representante`, `nf_*`, `incoterms`, `obs_montagem`) vêm da
 > view de orçamentos do SAP, que começa em 06/01/2025: pedido mais antigo vem com eles
 > `null` e `primeira_nf_emitida: false`.
 
@@ -685,6 +689,8 @@ usuário que são consulta, não ação.
 - *"Tem alguma coisa presa na produção?"* → `pedidos_bloqueados(bloqueio="producao")`
 - *"Quantos pedidos estão atrasados?"* → `panorama_pedidos` (leia `kpis.atrasados`)
 - *"O frete do pedido 84466 é CIF ou FOB?"* → `situacao_pedido` (leia `incoterms`)
+- *"Qual a observação de montagem do 84439?"* → `situacao_pedido` (leia `obs_montagem`; no
+  `panorama_pedidos(campos="completo")` ela vem cortada em 200 caracteres)
 - *"O que está preso há mais de 10 dias?"* → `pedidos_bloqueados(bloqueio="financeiro")`
   e leia o campo `alerta_liberacao` de cada pedido. **Não existe tool separada para
   isso** — são poucos pedidos e o texto já vem pronto.

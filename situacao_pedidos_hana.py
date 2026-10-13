@@ -309,7 +309,18 @@ VIEW_ORCAMENTOS = "VW_EVOL_ORCAMENTO_ALT"
 #: como :data:`MUNICIPIO_CHAVES`. Existem sempre; ``None`` = "nao foi possivel saber".
 LIBERACAO_CHAVES = ("_LibFinEm", "_LibFinAte", "_SinalPagoEm", "_DataCriacaoPN",
                     "_Representante", "_NfDocNum", "_NfNumeroFiscal", "_NfData",
-                    "_Incoterms")
+                    "_Incoterms", "_ObsMontagem")
+
+
+def texto_livre(valor: Any) -> str | None:
+    """Free text typed in SAP (``ObsMontagem``) → API text, or ``None`` when empty.
+
+    SAP B1 stores line breaks as a bare CR (measured 13/10/2026: 419 of 1228 orders),
+    which most JSON consumers do not render; they become LF and stay. ``"-"`` is what
+    SAP keeps in place of an empty field elsewhere, so it also means "not filled in".
+    """
+    texto = str(valor or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    return None if texto in ("", "-") else texto
 
 
 def momento(data: Any, hhmmss: Any) -> datetime | None:
@@ -470,7 +481,7 @@ def _injetar_liberacao_e_nf(conn, schema: str, linhas: list[dict[str, Any]]) -> 
         por_docnum: dict[int, dict[str, Any]] = {}
         for v in _linhas(conn,
                          f'SELECT e."NumDoc", e."DataCriacaoPN", e."Representante", '
-                         f'e."NumNF", e."DataNF", i."Serial", e."Incoterms" '
+                         f'e."NumNF", e."DataNF", i."Serial", e."Incoterms", e."ObsMontagem" '
                          f'FROM "{schema}"."{VIEW_ORCAMENTOS}" e '
                          f'LEFT JOIN "{schema}"."OINV" i ON i."DocNum" = e."NumNF" '
                          f'WHERE e."TipoDoc" = \'17\' '
@@ -490,12 +501,13 @@ def _injetar_liberacao_e_nf(conn, schema: str, linhas: list[dict[str, Any]]) -> 
             r["_NfData"] = _data_iso(v.get("DataNF")) if r["_NfDocNum"] else None
             # Freight mode as the view labels it (its CASE over RDR12.Incoterms); blank → None.
             r["_Incoterms"] = (str(v.get("Incoterms") or "").strip() or None)
+            r["_ObsMontagem"] = texto_livre(v.get("ObsMontagem"))
     except Exception as e:
         logger.warning("[SIT_PED] %s indisponivel (%s) — seguindo sem.", VIEW_ORCAMENTOS, e)
 
 
 def liberacao_e_nf(r: dict[str, Any]) -> dict[str, Any]:
-    """Linha crua (com :data:`LIBERACAO_CHAVES`) → os 11 campos do contrato.
+    """Linha crua (com :data:`LIBERACAO_CHAVES`) → os 13 campos do contrato.
 
     Pura. ``lib_producao_em`` so existe com a Producao liberada AGORA e com todas as
     condicoes datadas: sem a hora do Financeiro, ou com sinal exigido e sem a hora do
@@ -530,6 +542,7 @@ def liberacao_e_nf(r: dict[str, Any]) -> dict[str, Any]:
         "nf_data": r.get("_NfData"),
         "primeira_nf_emitida": nf is not None,
         "incoterms": r.get("_Incoterms"),
+        "obs_montagem": r.get("_ObsMontagem"),
     }
 
 

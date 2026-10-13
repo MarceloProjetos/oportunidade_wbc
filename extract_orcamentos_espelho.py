@@ -25,6 +25,8 @@ inteira, 5.643 linhas):
 In 10/2026 the view gained a 35th column, ``Incoterms`` (freight mode, already a text
 label). Only order rows (``TipoDoc = '17'``) carry it; quotations are always ``NULL``.
 The Supabase column must exist before this code runs (``sql/orcamentos_espelho.sql``).
+The 36th, ``ObsMontagem`` (free text, up to 2000 chars, orders only), arrives with SAP's
+bare CR line breaks turned into LF, the same text the ``/pedidos`` API returns.
 
 A ``VW_ORCAMENTO_ALT``, a outra view de cotação, continua com 16 colunas e
 nenhum dos campos novos — por isso o espelho é desta view e só dela.
@@ -105,7 +107,9 @@ def sql_orcamentos(schema: str) -> str:
                CASE WHEN "NumNF" IS NULL THEN NULL
                     WHEN "QuitacaoNF" = 'Sim' THEN TRUE
                     ELSE FALSE END AS "nf_quitada",
-               NULLIF(TRIM("Incoterms"), '') AS "incoterms"
+               NULLIF(TRIM("Incoterms"), '') AS "incoterms",
+               NULLIF(TRIM(REPLACE(REPLACE("ObsMontagem", CHAR(13) || CHAR(10), CHAR(10)),
+                                   CHAR(13), CHAR(10))), '') AS "obs_montagem"
           FROM "{schema}"."{VIEW}"
     '''
 
