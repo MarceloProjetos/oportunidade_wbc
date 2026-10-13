@@ -13,6 +13,7 @@ o pedido — e a lista do que difere não é pequena.
 | `U_INO_VL_MT` | **`ORCBAS3`** |
 | `U_INO_COM` | `ORCPERCOM` |
 | `U_INO_VL_COM` | `ORCVALCOM` |
+| `TaxExtension.MainUsage` + `Usage` das linhas | `9` fixo, **só na criação** (`com_uso_principal`) |
 
 **Linhas**: além de `U_INO_ORCITM` e `U_INO_D_Adicionais`, o pedido leva
 `U_INO_Composicao` e `U_INO_Id_IntWBC` (`:378-395`, `:653-667`) — e **não** leva
@@ -134,6 +135,33 @@ def linhas(
         deposito=deposito,
         pesos=pesos,
     )
+
+
+#: SAP B1 Brazil "Uso principal" for every order the integration creates: ``OUSG.ID`` 9,
+#: "Venda Prod. Própria" (Marcelo, 13/10/2026). Not left to the partner default
+#: (``OCRD.MainUsage``): 195 customers have none, and order 84451 (30/09/2026) was
+#: born with an empty usage on the header and on its line, and so with no tax code.
+#: Homolog test 13/10/2026 (order 84398, same customer, cancelled): 9 on both levels,
+#: CFOP 5101 and tax code 5101#013, the code 410 of 463 production 5101 lines carry.
+USO_PRINCIPAL = 9
+
+
+def com_uso_principal(dados: dict[str, Any]) -> dict[str, Any]:
+    """Copy of an order body with the main usage set, for **creation only**.
+
+    Two places, because SAP keeps two: the header (``RDR12.MainUsage``, Service Layer
+    ``TaxExtension.MainUsage``) and each line (``RDR1.Usage``, the one that drives CFOP
+    and tax code). Setting only the header through the Service Layer does not reach
+    the lines. An update never gets this: a usage changed by hand on an existing order
+    (e.g. 85 for a remittance) stays as the person left it.
+    """
+    novo = dict(dados)
+    novo["TaxExtension"] = {**(dados.get("TaxExtension") or {}), "MainUsage": USO_PRINCIPAL}
+    if dados.get("DocumentLines"):
+        novo["DocumentLines"] = [
+            {**linha, "Usage": USO_PRINCIPAL} for linha in dados["DocumentLines"]
+        ]
+    return novo
 
 
 def montar_payload(

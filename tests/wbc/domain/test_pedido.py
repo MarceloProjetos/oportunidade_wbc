@@ -25,6 +25,31 @@ from wbcpython.domain import pedido
 from wbcpython.domain.venda_comum import LIMITE_COMENTARIO
 
 
+class TestUsoPrincipal:
+    def test_cabecalho_e_cada_linha_recebem_o_9(self) -> None:
+        dados = {"CardCode": "C1", "DocumentLines": [{"ItemCode": "A"}, {"ItemCode": "B"}]}
+        novo = pedido.com_uso_principal(dados)
+        assert novo["TaxExtension"] == {"MainUsage": 9}
+        assert [linha["Usage"] for linha in novo["DocumentLines"]] == [9, 9]
+        assert novo["CardCode"] == "C1"
+
+    def test_nao_altera_o_dicionario_recebido(self) -> None:
+        """The same body is reused for the value check; the copy must not leak back."""
+        dados = {"DocumentLines": [{"ItemCode": "A"}]}
+        pedido.com_uso_principal(dados)
+        assert dados == {"DocumentLines": [{"ItemCode": "A"}]}
+
+    def test_preserva_outros_campos_do_tax_extension_e_aceita_sem_linhas(self) -> None:
+        novo = pedido.com_uso_principal({"TaxExtension": {"Incoterms": "0"}})
+        assert novo["TaxExtension"] == {"Incoterms": "0", "MainUsage": 9}
+        assert "DocumentLines" not in novo
+
+    def test_o_payload_comum_nao_leva_o_uso(self) -> None:
+        """`montar_payload` serves create and update alike; only creation adds the usage."""
+        payload = pedido.montar_payload(_orcamento(), parceiro="C1", filial=1)
+        assert "TaxExtension" not in payload
+
+
 class TestComentario:
     def test_e_a_condicao_de_pagamento_crua(self) -> None:
         """Produção grava o `PGTCOD` como veio — sem trocar `|` e `;`.

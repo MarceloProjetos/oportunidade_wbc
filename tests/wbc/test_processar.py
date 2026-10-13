@@ -1425,6 +1425,61 @@ class TestPesoNoPedidoCriado:
         assert "Weight1" not in criados[0][2]["DocumentLines"][0]
 
 
+class TestUsoPrincipalDoPedido:
+    """Main usage 9 on the orders the cycle **creates**, never on an update (13/10/2026)."""
+
+    @staticmethod
+    def _com_uso(dados) -> bool:
+        return dados["TaxExtension"] == {"MainUsage": 9} and all(
+            linha["Usage"] == 9 for linha in dados["DocumentLines"]
+        )
+
+    def test_pedido_criado_leva_o_uso_no_cabecalho_e_nas_linhas(self, tracking) -> None:
+        docs = DocumentosFalso(tem_cotacao=True)
+        _processador(
+            tracking, WbcFalso(_orcamento(sitcode=60)), docs, OportunidadesFalso(), OrcDetalheFalso()
+        ).processar(_oportunidade(U_INO_StatusWBC="60"))
+
+        pedido = next(c[2] for c in docs.chamadas if c[0] == "criar" and c[1] is TipoDocumento.PEDIDO)
+        assert self._com_uso(pedido)
+
+    def test_pedido_recriado_na_troca_de_parceiro_tambem(self, tracking) -> None:
+        docs = DocumentosFalso(
+            tem_cotacao=True, tem_pedido=True, parceiros={TipoDocumento.PEDIDO: "C001"}
+        )
+        _processador(
+            tracking, WbcFalso(_orcamento(sitcode=60)), docs, OportunidadesFalso(), OrcDetalheFalso()
+        ).processar(_oportunidade(U_INO_PN_Correc="C999", U_INO_Update="Y"))
+
+        assert self._com_uso(next(c[2] for c in docs.chamadas if c[0] == "cancelar_e_recriar"))
+
+    def test_atualizacao_nao_mexe_no_uso(self, tracking) -> None:
+        """A usage changed by hand on an existing order (e.g. 85, a remittance) stays."""
+        docs = DocumentosFalso(
+            tem_cotacao=True, tem_pedido=True, revisoes={TipoDocumento.PEDIDO: "A"}
+        )
+        _processador(
+            tracking, WbcFalso(_orcamento(sitcode=60, revisao="D")), docs,
+            OportunidadesFalso(), OrcDetalheFalso(),
+        ).processar(_oportunidade(U_INO_Update="Y"))
+
+        atualizado = next(c[2] for c in docs.chamadas if c[0] == "atualizar" and c[1] is TipoDocumento.PEDIDO)
+        assert "TaxExtension" not in atualizado
+        assert all("Usage" not in linha for linha in atualizado.get("DocumentLines") or ())
+
+    def test_a_cotacao_nao_leva(self, tracking) -> None:
+        docs = DocumentosFalso()
+        _processador(
+            tracking, WbcFalso(_orcamento(sitcode=60)), docs, OportunidadesFalso(), OrcDetalheFalso()
+        ).processar(_oportunidade(U_INO_StatusWBC="60"))
+
+        cotacoes = [c[2] for c in docs.chamadas if c[1] is TipoDocumento.COTACAO]
+        assert cotacoes
+        for dados in cotacoes:
+            assert "TaxExtension" not in dados
+            assert all("Usage" not in linha for linha in dados.get("DocumentLines") or ())
+
+
 class TestPedidoFechado:
     """O ciclo não escreve em pedido fechado — verificado no orquestrador.
 

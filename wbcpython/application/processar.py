@@ -802,7 +802,10 @@ class ProcessadorDeOrcamento:
             # caso `_parceiro_existe` devolve True sem ir à rede.
             if not self._parceiro_existe(estado, orcamento.orcnum):
                 return None, None
-            return self._documentos.criar(tipo, snapshot.no_payload(dados)), tipo
+            return (
+                self._documentos.criar(tipo, regras_pedido.com_uso_principal(snapshot.no_payload(dados))),
+                tipo,
+            )
         if acao is Acao.CANCELAR_E_RECRIAR_PEDIDO:
             # `cancelar_e_recriar` cancela **antes** de criar. Se o parceiro
             # corrigido não existir no SAP, o orçamento fica sem pedido nenhum
@@ -813,7 +816,8 @@ class ProcessadorDeOrcamento:
             # O payload já prioriza o PN novo quando há troca de parceiro.
             return (
                 self._documentos.cancelar_e_recriar(
-                    tipo, orcamento.orcnum, snapshot.no_payload(dados)
+                    tipo, orcamento.orcnum,
+                    regras_pedido.com_uso_principal(snapshot.no_payload(dados)),
                 ),
                 tipo,
             )

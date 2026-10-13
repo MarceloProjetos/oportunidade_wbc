@@ -6,6 +6,16 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-13] — Pedido criado pela integração sai com Uso principal 9
+
+Todo pedido que o worker WBC **cria** (`CRIAR_PEDIDO` e o `cancelar_e_recriar` da troca de parceiro) leva
+`TaxExtension.MainUsage = 9` (`RDR12`) e `Usage = 9` em cada linha (`RDR1`, a que decide CFOP e imposto) — "Venda
+Prod. Própria" (`OUSG.ID` 9). Antes o uso vinha só do cadastro do cliente (`OCRD.MainUsage`; 195 clientes sem
+nenhum): o 84451 (30/09) nasceu sem uso e sem código de imposto. **Atualização de pedido não mexe no uso** (um 85
+posto à mão continua) e a cotação não muda. `wbcpython.domain.pedido.com_uso_principal`. Ensaio na homologação
+(pedido 84398, cliente C007033, cancelado em seguida): 9 nos dois níveis, CFOP 5101, imposto `5101#013` — o de 410
+das 463 linhas 5101 da produção desde agosto. O 84451 da produção ficou como está. **Pede deploy da .11.**
+
 ## [2026-10-13] — Observação de montagem (`obs_montagem`) do pedido
 
 A `VW_EVOL_ORCAMENTO_ALT` ganhou a 36ª coluna, `ObsMontagem` (`VARCHAR(2000)`, texto livre; só pedido, cotação =
