@@ -89,7 +89,10 @@ def test_acrescentar_liga_declara_usuario_sem_trocar_chave():
 # Actions
 # ---------------------------------------------------------------------------
 def test_catalogo_fechado_e_papeis():
-    assert set(acoes_agente.CATALOGO) == {"sincronizar_os", "forcar_carga", "processar_pedido", "reiniciar_servico"}
+    assert set(acoes_agente.CATALOGO) == {"sincronizar_os", "forcar_carga", "processar_pedido", "reiniciar_servico",
+                                          "reiniciar_sap_servertools"}
+    sap = acoes_agente.CATALOGO["reiniciar_sap_servertools"]
+    assert sap.escopo == "sap:reiniciar" and sap.por_hora == 2 and not acoes_agente.pode_aprovar(sap, "pcp")
     pedido = acoes_agente.CATALOGO["processar_pedido"]
     assert acoes_agente.pode_aprovar(pedido, "pcp") and acoes_agente.pode_aprovar(pedido, "admin")
     assert not acoes_agente.pode_aprovar(pedido, None) and not acoes_agente.pode_aprovar(pedido, "vendas")
@@ -433,11 +436,11 @@ def test_rota_devolve_200_ja_existia_e_valida_a_chave(api):
 def test_toda_acao_do_catalogo_declara_o_alvo():
     """An action without a target would never be reserved: each one names what it holds."""
     exemplos = {"sincronizar_os": {"nped": 84080}, "forcar_carga": {}, "processar_pedido": {"pedido": 84455},
-                "reiniciar_servico": {"servico": "OrcaView-MCP"}}
+                "reiniciar_servico": {"servico": "OrcaView-MCP"}, "reiniciar_sap_servertools": {}}
     assert set(exemplos) == set(acoes_agente.CATALOGO)
     alvos = {nome: acao.alvo(exemplos[nome]) for nome, acao in acoes_agente.CATALOGO.items()}
     assert alvos == {"sincronizar_os": "84080", "forcar_carga": "oportunidades", "processar_pedido": "84455",
-                     "reiniciar_servico": "OrcaView-MCP"}
+                     "reiniciar_servico": "OrcaView-MCP", "reiniciar_sap_servertools": "sapb1servertools"}
 
 
 def test_concorrencia_sem_a_trava_do_processo(monkeypatch):

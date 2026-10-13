@@ -41,6 +41,7 @@ ESCOPOS: dict[str, str] = {
     "pedidos_wbc": "API dos Pedidos WBC do Controle de Produção (lê e grava no SAP)",
     "manutencao_op": "API da Manutenção de OP do Controle de Produção (lê e grava no SAP)",
     "servico:reiniciar": "pedir o reinício de um dos 6 serviços da .11 (só com aprovação de uma pessoa)",
+    "sap:reiniciar": "pedir o reinício do servidor do SAP (sapb1servertools, por SSH; só com aprovação de admin)",
     "aprovar": "aprovar ou recusar o que o agente pediu — pessoa ou backend que fala por uma, NUNCA o agente",
     "mcp": "conectar ao MCP (8078); as ferramentas seguem os outros escopos",
     "backup:relatar": "o ALTHOST manda o estado dos backups do Veeam (só grava o próprio relato)",

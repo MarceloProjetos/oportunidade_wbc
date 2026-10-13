@@ -39,6 +39,8 @@ state/*.db-shm
 state/deps.sha256
 # interruptor do agente (seguranca/agente.py) — estado da maquina, nunca versionar
 state/agente.desligado
+# SSH key of the SAP VM restart (web PLANO_RESET_SAP_TEO): never in this public repo
+state/ssh/
 
 # ── Handoffs com chaves/credenciais (passados a terceiros — NÃO versionar) ──
 HANDOFF_*.md

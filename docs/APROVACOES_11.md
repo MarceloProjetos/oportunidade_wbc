@@ -28,6 +28,7 @@ agente (MCP)                 .11 (8077)                        pessoa
 | `forcar_carga` | `oportunidades:carga` | qualquer pessoa identificada | 4/h |
 | `processar_pedido` (pedido) | `pedidos_wbc` | `pcp` ou `admin` | 10/h |
 | `reiniciar_servico` (um dos 6) | `servico:reiniciar` | só `admin` | 3/h |
+| `reiniciar_sap_servertools` (VM do SAP) | `sap:reiniciar` (só o Téo) | só `admin` | 2/h |
 
 - O pedido vale **30 minutos** e é decidido **uma vez** (duas aprovações — tela e WhatsApp — nunca
   rodam as duas: a troca de estado é um UPDATE atômico).
@@ -39,6 +40,20 @@ agente (MCP)                 .11 (8077)                        pessoa
   responde antes de cair.
 - A execução passa pelas rotas de sempre com `X-SIS-Usuario` = a pessoa que aprovou: a auditoria
   da API e do Controle de Produção registra **quem aprovou**, não o agente.
+
+## O servidor do SAP (12/10/2026, PLANO_RESET_SAP_TEO do web)
+
+`reiniciar_sap_servertools` reinicia o `sapb1servertools` na VM do SAP por SSH (`operacao/sap_servertools.py`).
+A prévia e a execução **recusam se a porta 40000 já responde** (aprovação atrasada nunca reinicia um SAP de pé);
+executa só na .11 (pelo IP), sem senha (`BatchMode`), com a VM conferida (`state\ssh\known_hosts`), e depois
+espera a 40000 abrir (até 3 min). A chave mora em `state\ssh\` (fora do git: este repo é público) e, na VM, só
+roda esse comando (`restrict,from="192.168.7.11",command=...`). Preparar uma vez, na .11, como administrador:
+
+```
+python -m operacao.sap_servertools --preparar    # chave + known_hosts + a linha do authorized_keys
+python -m operacao.sap_servertools --estado      # a 40000 responde? (só lê)
+python -m operacao.sap_servertools --ensaio      # reinicia DE VERDADE e mede (fora do pico)
+```
 
 ## Um dono por ação (07/10/2026)
 

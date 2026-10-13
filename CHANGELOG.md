@@ -6,6 +6,18 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-13] — A .11 reinicia o servidor do SAP (com aprovação)
+
+`PLANO_RESET_SAP_TEO` do web. Em 12/10 o login do Service Layer ficou fora por horas com o `/ping` dele respondendo; a
+porta 40000 da VM do SAP recusava, e só `systemctl restart sapb1servertools` resolveu.
+- Ação nova no catálogo: **`reiniciar_sap_servertools`** (escopo novo `sap:reiniciar`, só `admin` aprova, 2/h, um pedido
+  aberto por vez). `operacao/sap_servertools.py`: só na .11, recusa se a 40000 já responde, SSH com chave restrita ao
+  comando, espera a 40000 voltar (até 3 min). CLI `--preparar`, `--estado`, `--ensaio`.
+- `state/ssh/` no `.gitignore` (a chave nunca entra no repo público).
+
+**Pede deploy da .11**, `python -m seguranca acrescentar ti-agente --escopos sap:reiniciar`, o `--preparar` e a linha
+no `authorized_keys` do root na VM do SAP (`docs/APROVACOES_11.md`).
+
 ## [2026-10-09] — Relato dos hosts Hyper-V (ALTSAP → .11)
 
 F5c3 do `docs/PLANO_TEO_REDE_E_ROTINAS.md` do web. Na queda da .12 de 09/10, tudo o que explicava estava no host ALTSAP

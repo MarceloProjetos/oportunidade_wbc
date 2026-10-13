@@ -20,7 +20,7 @@ from dataclasses import dataclass
 import httpx
 
 from config import get_settings
-from operacao import reinicio
+from operacao import reinicio, sap_servertools
 
 #: Who may approve, by role. ``None`` = any identified person.
 PAPEIS_ADMIN = frozenset({"admin"})
@@ -212,6 +212,24 @@ def _executar_servico(p: dict, _previa: dict, _ctx: Contexto) -> tuple[bool, dic
     return bool(resultado.get("ok")), resultado
 
 
+# ---------------------------------------------------------------------------
+# reiniciar_sap_servertools (the SAP VM, over SSH -- web PLANO_RESET_SAP_TEO)
+# ---------------------------------------------------------------------------
+def _previa_sap(_p: dict) -> dict:
+    try:
+        return sap_servertools.previa()
+    except sap_servertools.Recusado as exc:
+        raise AcaoInvalida(str(exc)) from exc
+
+
+def _executar_sap(_p: dict, _previa: dict, _ctx: Contexto) -> tuple[bool, dict]:
+    try:
+        resultado = sap_servertools.reiniciar()
+    except sap_servertools.Recusado as exc:
+        return False, {"motivo": str(exc)}
+    return bool(resultado.get("ok")), resultado
+
+
 CATALOGO: dict[str, Acao] = {a.nome: a for a in (
     Acao("sincronizar_os", "Sincronizar as OS de um pedido", "os:sincronizar", None, 30,
          _validar_os, _previa_os, _executar_os, alvo=lambda p: str(p["nped"])),
@@ -221,6 +239,9 @@ CATALOGO: dict[str, Acao] = {a.nome: a for a in (
          _validar_pedido, _previa_pedido, _executar_pedido, alvo=lambda p: str(p["pedido"])),
     Acao("reiniciar_servico", "Reiniciar um serviço da .11", "servico:reiniciar", PAPEIS_ADMIN, 3,
          _validar_servico, _previa_servico, _executar_servico, alvo=lambda p: p["servico"]),
+    # Its own scope: only the Téo's key (ti-agente) holds it -- the Téo is the one infrastructure agent.
+    Acao("reiniciar_sap_servertools", "Reiniciar o servidor do SAP (sapb1servertools)", "sap:reiniciar",
+         PAPEIS_ADMIN, 2, lambda _p: {}, _previa_sap, _executar_sap, alvo=lambda _p: sap_servertools.SERVICO),
 )}
 
 
