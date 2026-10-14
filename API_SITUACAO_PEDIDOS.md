@@ -87,6 +87,13 @@ desenha a etapa na tela escreve "Cancelado" **sem mudar uma linha**.
 > de quem consome — foi o caso dos pedidos 84282, 84305 e 84314, cancelados no SAP com
 > as Ordens de Produção ainda vivas. Cancelado **é** uma situação, e agora ela vem.
 
+**Pedido fechado também** (desde 14/10/2026): o pedido já encerrado no SAP (entregue/
+faturado) que saiu da view responde `200` pelo mesmo caminho, com as três etapas em
+`"Fechado"`, `status_pedido: "Fechado"`, `pedido_cancelado: false` e
+`aviso.tipo: "pedido_fechado"`. Nele `primeira_nf_emitida` vem `null` (a NF não é
+consultada nesse caminho — não quer dizer "sem NF"). Foi o caso do 83411, fechado em
+28/11/2025, que a tela mostrava como "sem situação".
+
 ### 2.3 `404` quer dizer "não sei", **nunca** "está liberado"
 
 Sobrou `404` para o que realmente não dá para afirmar — e ele **nunca vem mudo**: o campo
@@ -94,7 +101,7 @@ Sobrou `404` para o que realmente não dá para afirmar — e ele **nunca vem mu
 
 | `motivo` | O que é | O que mostrar |
 | --- | --- | --- |
-| `fora_do_recorte` | O pedido **existe** no SAP, mas a view carrega só os correntes (um pedido de 2024 não está lá). Vem com `status_pedido` (`"Aberto"` \| `"Fechado"`) | "fora do período" — e, se quiser, o `status_pedido` |
+| `fora_do_recorte` | O pedido **existe** no SAP, mas a view carrega só os correntes (um pedido de 2024 não está lá) e está **aberto** — fechado e cancelado respondem 200 (2.2). Vem com `status_pedido: "Aberto"` | "fora do período" — e, se quiser, o `status_pedido` |
 | `pedido_nao_encontrado` | Não existe DocNum assim na ORDR. Quase sempre é DocEntry mandado sem `chave=docentry` (2.1) | "pedido não encontrado" |
 | `indeterminado` | O SAP não respondeu agora. `pedido_cancelado` vem `null` = **não se sabe** | "indisponível, tente de novo" |
 
@@ -976,7 +983,7 @@ if e["cidade"] != e["ponto_entrega"]["cidade"]:
 | --- | --- |
 | "Meu número não bate com a tela" | O `status` (armadilha 2.4). Tente `status=todos` |
 | "Esse pedido existe, mas dá 404" | Veja o `motivo` (2.3): ele não está no recorte da view (só os correntes), **ou** você mandou DocEntry sem `chave=docentry` |
-| "A tela mostra 'sem situação'" | Pedido **cancelado** no SAP responde `200` com `status_pedido: "Cancelado"` desde 03/09/2026 (2.2). Se ainda vier vazio, é o `404` — leia o `motivo` |
+| "A tela mostra 'sem situação'" | Pedido **cancelado** no SAP responde `200` com `status_pedido: "Cancelado"` desde 03/09/2026, e **fechado** com `"Fechado"` desde 14/10/2026 (2.2). Se ainda vier vazio, é o `404` — leia o `motivo` |
 | "O dado está velho" | Cache de 120 s. Veja `cache_idade_s` |
 | "Deu 401" | Cabeçalho `X-API-Key` ausente, com espaço, ou chave errada — ou a chave foi na URL (`?key=`), que não vale para chave de equipe |
 | "Deu 403" | A chave não tem o escopo `leitura`. Mande-nos o `motivo` da resposta |

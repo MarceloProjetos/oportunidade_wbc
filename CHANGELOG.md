@@ -6,6 +6,16 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-14] — Pedido fechado responde "Fechado" em vez de 404
+
+`GET /pedidos/<n>/situacao`: pedido fora da view e **fechado** na ORDR (`DocStatus = 'C'`, entregue/faturado)
+deixa o `404 fora_do_recorte` e responde `200` pelo mesmo caminho do cancelado (§2.2 do contrato): `fonte: "ordr"`,
+as três etapas e o `status_pedido` em `"Fechado"`, `pedido_cancelado: false`, `aviso.tipo: "pedido_fechado"`,
+`primeira_nf_emitida: null` (a NF não é consultada ali). Caso real: 83411 (CANON, fechado em 28/11/2025 pela
+vendas02), que a tela de quem consome mostrava como "sem situação". `fora_do_recorte` agora é só o pedido aberto
+fora da view. `_pedido_cancelado_ordr` → `_pedido_encerrado_ordr(n, info, situacao)`. Contrato e tool MCP
+`situacao_pedido` atualizados. **Pede deploy da .11.**
+
 ## [2026-10-13] — Pedido criado pela integração sai com Uso principal 9
 
 Todo pedido que o worker WBC **cria** (`CRIAR_PEDIDO` e o `cancelar_e_recriar` da troca de parceiro) leva

@@ -717,6 +717,9 @@ def situacao_pedido(pedido: int, chave: str = "docnum") -> dict[str, Any]:
     ``pedido_cancelado: true`` e as três etapas em ``"Cancelado"`` (a situação vem da
     ORDR, ``fonte: "ordr"``). Diga que o pedido foi **cancelado** — não "está liberado"
     nem "não achei": não há etapa a liberar, e ele não deve ser produzido nem entregue.
+    **Pedido fechado** (já entregue/faturado, fora da view) responde igual, com
+    ``status_pedido: "Fechado"``, ``pedido_cancelado: false`` e as etapas em ``"Fechado"``:
+    diga que o pedido está **fechado** no SAP. Ali ``primeira_nf_emitida`` vem ``null``.
 
     Devolve ``{"ok": false, ...}`` com **404** quando não dá para afirmar a situação. O
     campo ``motivo`` diz qual caso é: ``fora_do_recorte`` (o pedido existe no SAP, mas

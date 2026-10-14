@@ -89,7 +89,7 @@ LOTE = [
 def _ordr(**over: Any) -> dict[str, Any]:
     """Resposta do ``consultar_status_pedido`` (ORDR), como a rota a recebe."""
     base: dict[str, Any] = {
-        'pedido_existe': True, 'pedido_cancelado': False, 'pedido_status': 'Fechado',
+        'pedido_existe': True, 'pedido_cancelado': False, 'pedido_status': 'Aberto',
         'card_code': 'C011388', 'card_name': 'DIVENA AUTOMOVEIS LTDA',
         'data_pedido': '2026-08-18', 'valor_total': 12345.67, 'moeda': 'R$',
     }
@@ -291,7 +291,38 @@ def test_pedido_fora_do_recorte_e_404_que_nao_mente(client):
     assert 'NAO quer dizer que ele esteja sem bloqueio' in b['error']
     # e nunca mudo: quem consome decide pelo `motivo`, não pelo texto
     assert b['motivo'] == 'fora_do_recorte'
+    assert b['status_pedido'] == 'Aberto' and b['pedido_cancelado'] is False
+
+
+# --- pedido fechado no SAP (83411, 2026-10-14) ---------------------------------
+# Fora da view e fechado (entregue/faturado): o chip de quem consome escrevia
+# "sem situação". Fechado É uma situação — mesmo caminho e formato do cancelado.
+
+def test_pedido_fechado_responde_200_dizendo_fechado(client, monkeypatch):
+    monkeypatch.setattr(apimod, 'consultar_status_pedido',
+                        lambda n: _ordr(pedido_status='Fechado'))
+    r = client.get('/pedidos/83411/situacao')
+    assert r.status_code == 200
+    b = r.get_json()
+    assert b['ok'] is True and b['fonte'] == 'ordr'
     assert b['status_pedido'] == 'Fechado' and b['pedido_cancelado'] is False
+    assert b['aviso']['tipo'] == 'pedido_fechado'
+    p = b['pedido']
+    assert p['doc_num'] == 83411 and p['status_pedido'] == 'Fechado'
+    assert (p['financeiro'], p['producao'], p['entrega']) == ('Fechado',) * 3
+    assert p['alerta_liberacao'] is None and p['fin_liberacao_atrasada'] is False
+    # NF não foi consultada: null ("não se sabe"), nunca um false que diga "sem NF"
+    assert p['primeira_nf_emitida'] is None
+
+
+def test_pedido_fechado_tem_o_mesmo_formato_do_caminho_da_view(client, monkeypatch):
+    da_view = client.get('/pedidos/84260/situacao').get_json()['pedido']
+    monkeypatch.setattr(apimod, 'consultar_status_pedido',
+                        lambda n: _ordr(pedido_status='Fechado'))
+    assert set(client.get('/pedidos/83411/situacao').get_json()['pedido']) == set(da_view)
+    resumo = client.get('/pedidos/83411/situacao?campos=resumo').get_json()['pedido']
+    assert set(resumo) == set(sit_ped.CAMPOS_RESUMO) | CAMPOS_ENTREGA_RESUMO
+    assert resumo['financeiro'] == 'Fechado'
 
 
 # --- pedido cancelado no SAP (incidente 84282/84305/84314, 2026-09-03) -------

@@ -2178,6 +2178,9 @@ def situacao_pedido_unico(numero: str):
     view exclui cancelado, entao a resposta vem da ORDR ao vivo, no MESMO formato: as
     tres etapas viram ``"Cancelado"``, com ``fonte: "ordr"``, ``pedido_cancelado: true``
     e ``aviso``. Quem consome nao precisa de outra chamada nem de outro `if`.
+    Closed pedido (``ORDR.DocStatus = 'C'``, 2026-10-14) takes the same path: 200 with
+    the three stages ``"Fechado"``, ``pedido_cancelado: false`` and
+    ``aviso.tipo = "pedido_fechado"``.
 
     **404 quer dizer "nao da' para afirmar a situacao", nao "sem bloqueio"** -- e nunca
     vem mudo: ``motivo`` diz qual dos tres casos e' (``fora_do_recorte``, o pedido de
@@ -2240,6 +2243,8 @@ SIT_PED_MOTIVOS = {
 #: Frase unica do pedido cancelado — a MESMA de ``/ordens-servico/<nped>``.
 SIT_PED_AVISO_CANCELADO = ('Pedido cancelado no SAP - nao ha etapa a liberar; '
                            'nao produza nem entregue por ele.')
+SIT_PED_AVISO_FECHADO = ('Pedido fechado no SAP - ja foi encerrado (entregue/faturado); '
+                         'nao ha etapa a liberar.')
 
 
 def _situacao_fora_da_view(n: int, campo: str):
@@ -2270,19 +2275,29 @@ def _situacao_fora_da_view(n: int, campo: str):
         except Exception as exc:  # ORDR fora nunca vira 500 nesta rota
             logger.error("[SIT_PED] falha ao consultar a ORDR do pedido %s: %s", n, exc)
 
+    # Closed is a situation too (83411, 2026-10-14): the consumer's chip read "sem
+    # situacao" for a pedido fully delivered/invoiced months ago. Same 200 + same shape
+    # as the cancelled branch, so the chip writes "Fechado" without a code change there.
+    situacao = None
     if info and info.get('pedido_cancelado'):
-        logger.info("[SIT_PED] pedido %s cancelado no SAP (fora da view).", n)
-        pedido = _pedido_cancelado_ordr(n, info)
+        situacao = 'Cancelado'
+    elif info and info.get('pedido_existe') and info.get('pedido_status') == 'Fechado':
+        situacao = 'Fechado'
+    if situacao:
+        logger.info("[SIT_PED] pedido %s %s no SAP (fora da view).", n, situacao.lower())
+        pedido = _pedido_encerrado_ordr(n, info, situacao)
         if _campos_resumo(False):
             pedido = _resumir([pedido])[0]
+        cancelado = situacao == 'Cancelado'
         return jsonify(ok=True,
                        gerado_em=sit_ped.now_br().isoformat(timespec='seconds'),
                        cache_idade_s=sit_ped_hana.idade_do_cache_s(),
                        fonte='ordr',
-                       status_pedido='Cancelado',
-                       pedido_cancelado=True,
-                       aviso={'tipo': 'pedido_cancelado',
-                              'motivo': SIT_PED_AVISO_CANCELADO},
+                       status_pedido=situacao,
+                       pedido_cancelado=cancelado,
+                       aviso=({'tipo': 'pedido_cancelado', 'motivo': SIT_PED_AVISO_CANCELADO}
+                              if cancelado else
+                              {'tipo': 'pedido_fechado', 'motivo': SIT_PED_AVISO_FECHADO}),
                        pedido=pedido)
 
     if info is None:
@@ -2300,19 +2315,19 @@ def _situacao_fora_da_view(n: int, campo: str):
     ), 404
 
 
-def _pedido_cancelado_ordr(n: int, info: dict) -> dict:
-    """Linha da ORDR -> o MESMO dict que a view produz, com as etapas ``"Cancelado"``.
+def _pedido_encerrado_ordr(n: int, info: dict, situacao: str) -> dict:
+    """ORDR row -> the SAME dict the view yields, with the three stages = ``situacao``.
 
-    Monta uma linha crua (PascalCase) e a entrega ao ``normalizar`` do nucleo portado,
-    em vez de escrever o dict a mao: assim o formato **nao consegue** divergir do
-    caminho da view quando alguem acrescentar um campo la. ``com_alerta`` fecha o
-    ``alerta_liberacao`` (sempre ``None`` aqui — cancelado nao alarma os 10 dias).
+    ``situacao`` is ``"Cancelado"`` or ``"Fechado"``. Builds a raw PascalCase row and
+    hands it to the ported core's ``normalizar`` instead of writing the dict by hand, so
+    the shape cannot drift from the view path. ``alerta_liberacao`` is always ``None``
+    here: neither case alarms the 10-day finance limit.
     """
     crua = {'DocNum': n, 'CardCode': info.get('card_code'),
             'CardName': info.get('card_name'), 'Data_Pedido': info.get('data_pedido'),
             'DocTotal': info.get('valor_total'), 'DocCur': info.get('moeda'),
-            'Financeiro': 'Cancelado', 'Producao': 'Cancelado', 'Entrega': 'Cancelado',
-            'StatusPedido': 'Cancelado'}
+            'Financeiro': situacao, 'Producao': situacao, 'Entrega': situacao,
+            'StatusPedido': situacao}
     # D5: o endereco vem da RDR12 daquele DocNum, nao de nulos. Pedido cancelado
     # tambem tem endereco, e a chave nao pode faltar so aqui — ha teste comparando as
     # chaves dos dois caminhos. Best-effort: SAP fora nao derruba a resposta de "este
@@ -2320,12 +2335,17 @@ def _pedido_cancelado_ordr(n: int, info: dict) -> dict:
     try:
         crua.update(sit_ped_hana.fetch_endereco_do_pedido(n))
     except Exception as exc:
-        logger.warning("[SIT_PED] endereco do pedido cancelado %s indisponivel: %s", n, exc)
+        logger.warning("[SIT_PED] endereco do pedido %s %s indisponivel: %s",
+                       situacao.lower(), n, exc)
     pedido = sit_ped.com_alerta(sit_ped.normalizar([crua]))[0]
     _aplicar_endereco([pedido], [{**crua, 'DocEntry': pedido.get('doc_entry')}])
     # Cancelado nao passa pela view nem pelas consultas de liberacao: as chaves entram
     # nulas (primeira_nf_emitida = false), para o formato ser o mesmo do caminho da view.
     _aplicar_liberacao_e_nf([pedido], [])
+    if situacao == 'Fechado':
+        # A closed pedido was usually invoiced, but the NF was not looked up here:
+        # null ("unknown") instead of a false "no NF yet".
+        pedido['primeira_nf_emitida'] = None
     return pedido
 
 
