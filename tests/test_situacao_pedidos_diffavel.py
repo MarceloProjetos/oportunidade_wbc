@@ -40,6 +40,7 @@ FUNCOES_NUCLEO = (
     "montar_dashboard",
     "montadores_do_recorte",
     "filtrar",
+    "entrega_combinada",
 )
 
 #: Constantes que valem contrato (mudar uma delas de um lado so muda a resposta).
@@ -49,6 +50,7 @@ CONSTANTES_NUCLEO = (
     "MONTADOR_SEM",
     "FIN_LIBERACAO_LIMITE_DIAS",
     "_MAX_LINHAS",
+    "MOTIVOS_ENTREGA",
 )
 
 #: FORA da comparacao, de proposito -- e cada um por um motivo diferente:

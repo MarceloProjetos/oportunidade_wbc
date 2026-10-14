@@ -42,10 +42,12 @@ __all__ = [
     "FIN_LIBERACAO_LIMITE_DIAS",
     "KPI_FILTROS",
     "MONTADOR_SEM",
+    "MOTIVOS_ENTREGA",
     "STATUS_CHIPS",
     "ValidationError",
     "alerta_liberacao",
     "com_alerta",
+    "entrega_combinada",
     "filtrar",
     "filtrar_bloqueio",
     "filtrar_liberacao_atrasada",
@@ -97,6 +99,16 @@ STATUS_CHIPS = ("todos", "aberto", "fechado")
 #: CNPJ nor the empty string: ``""`` already means "all" in the param, and without
 #: it the most useful cut of the filter (no montador defined yet) is unreachable.
 MONTADOR_SEM = "__sem__"
+
+#: Reasons for changing the agreed delivery date (PLANO_DATA_ENTREGA_COMBINADA), code →
+#: label, in display order. Whether a reason counts as OUR delay is NOT here: it is the
+#: generated column ``pedidos_entrega_alteracoes.gera_atraso`` — one rule, one place.
+MOTIVOS_ENTREGA = {
+    "producao_sobrecarregada": "Produção sobrecarregada",
+    "tempo_producao_apertado": "Tempo de produção apertado",
+    "quebra_maquina": "Quebra de máquina",
+    "alteracao_cliente": "Alteração por parte do cliente",
+}
 
 #: Days the finance release may take before it counts as LATE (owner's rule,
 #: 2026-08-19): an OPEN order with ``Financeiro = Bloqueado`` more than this many
@@ -414,6 +426,84 @@ def filtrar(
         return True
 
     return [p for p in pedidos if passa(p)]
+
+
+def entrega_combinada(
+    data_sap: str | None,
+    alteracoes: list[dict[str, Any]],
+    *,
+    hoje: date,
+    aberto: bool | None,
+    atrasado_sap: bool | None,
+) -> dict[str, Any]:
+    """Agreed delivery date of ONE order, from its rows in ``pedidos_entrega_alteracoes``.
+
+    The agreed date is never stored when the order is born: with no approved row it IS
+    the SAP date. Rules (PLANO_DATA_ENTREGA_COMBINADA §2):
+
+    - ``data_vigente``: ``data_nova`` of the LAST approved row (by decision time — a
+      pending request approved after a direct change wins), else the SAP date;
+    - ``data_referencia``: the SAP date, replaced by every approved row whose
+      ``gera_atraso`` is false (the customer asked) — our delay is measured from it;
+    - ``atraso_nosso_dias``: vigente − referência when positive, else 0;
+    - ``atrasado``: with no approved row the SAP flag stands (``fonte='sap'``); with one,
+      open and (vigente > referência or today > vigente) (``fonte='combinada'``).
+      ``None`` means only "cannot tell" (unknown SAP flag, or unknown open/closed).
+
+    Args:
+        data_sap: SAP ``Data_Entrega`` (ISO date or timestamp; ``None`` when missing).
+        alteracoes: The order's rows, any order, as Supabase returns them.
+        hoje: Today's date (Brasília).
+        aberto: The order is open in SAP; ``None`` = unknown.
+        atrasado_sap: The view's own late flag for this order; ``None`` = unknown.
+
+    Returns:
+        ``data_sap``/``data_vigente``/``data_referencia`` (ISO dates), ``atraso_nosso_dias``,
+        ``alterada``, ``pendente`` (the pending row or ``None``), ``atrasado``,
+        ``atrasado_fonte`` and ``conversa`` (the rows by ``id``).
+    """
+    from datetime import datetime
+
+    def dia(v: Any) -> date | None:
+        return date.fromisoformat(str(v)[:10]) if v else None
+
+    sap = dia(data_sap)
+    conversa = sorted(alteracoes, key=lambda a: a["id"])
+    aprovadas = sorted(
+        (a for a in conversa if a["situacao"] == "aprovada"),
+        key=lambda a: (datetime.fromisoformat(a["decidido_em"]), a["id"]),
+    )
+    pendente = next((a for a in conversa if a["situacao"] == "pendente"), None)
+
+    vigente = dia(aprovadas[-1]["data_nova"]) if aprovadas else sap
+    referencia = sap
+    for a in aprovadas:
+        if not a["gera_atraso"]:
+            referencia = dia(a["data_nova"])
+
+    atraso = None
+    if vigente and referencia:
+        atraso = max(0, (vigente - referencia).days)
+
+    if not aprovadas:
+        atrasado, fonte = atrasado_sap, "sap"
+    elif aberto is None:
+        atrasado, fonte = None, "combinada"
+    else:
+        passou = bool(vigente and hoje > vigente)
+        atrasado, fonte = bool(aberto and (bool(atraso) or passou)), "combinada"
+
+    return {
+        "data_sap": sap.isoformat() if sap else None,
+        "data_vigente": vigente.isoformat() if vigente else None,
+        "data_referencia": referencia.isoformat() if referencia else None,
+        "atraso_nosso_dias": atraso,
+        "alterada": bool(aprovadas),
+        "pendente": pendente,
+        "atrasado": atrasado,
+        "atrasado_fonte": fonte,
+        "conversa": conversa,
+    }
 
 
 # ---------------------------------------------------------------------------
