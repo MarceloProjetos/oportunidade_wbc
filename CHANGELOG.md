@@ -6,6 +6,13 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-15] — Aviso de lacuna: "as N primeiras", não "no meio"
+
+Na primeira leitura de um pedido que já passou de 99 versões, o arquivo grava uma linha de lacuna a partir da versão 1;
+`historico_pedido._lacuna` contava essa linha como buraco no meio e o 84080 mostrava "1947 no meio deste pedido".
+Agora lacuna que começa na versão 1 conta como o começo. Só o texto (e `versoes_apagadas`, que já estava certo) —
+nada gravado muda (D11).
+
 ## [2026-10-15] — Condição de pagamento conta como quebra (D10)
 
 Decisão do Marcelo (15/10): pessoa mudando `GroupNum` no pedido = fora do processo. `historico_pedido.QUEBRA` ganha

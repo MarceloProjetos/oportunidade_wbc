@@ -403,9 +403,15 @@ def de_arquivo(r: dict) -> dict:
 
 
 def _lacuna(primeira: int, perdidas: list[dict]) -> dict[str, Any] | None:
-    """What the SAP dropped before anyone read it: the start, and gaps the archiver logged."""
-    antes = max(0, primeira - 1)
-    meio = sum(int(r["log_instanc_ate"]) - int(r["log_instanc"]) + 1 for r in perdidas)
+    """What the SAP dropped before anyone read it: the start, and gaps the archiver logged.
+
+    A gap row starting at version 1 is the START (the first read of an order already past 99
+    versions), not a hole in the middle -- 84080 showed "1947 no meio" on 15/10/2026."""
+    def tamanho(r: dict) -> int:
+        return int(r["log_instanc_ate"]) - int(r["log_instanc"]) + 1
+
+    antes = max(0, primeira - 1) + sum(tamanho(r) for r in perdidas if int(r["log_instanc"]) == 1)
+    meio = sum(tamanho(r) for r in perdidas if int(r["log_instanc"]) != 1)
     if not antes and not meio:
         return None
     partes = ([f"as {antes} primeiras"] if antes else []) + ([f"{meio} no meio"] if meio else [])

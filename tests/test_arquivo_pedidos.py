@@ -263,6 +263,19 @@ def test_historico_junta_arquivo_e_sap_vivo():
     assert r["eventos_worker"][0]["regra"] == "pedido_corrigido_a_mao"
 
 
+def test_lacuna_da_primeira_leitura_e_o_comeco_nao_o_meio():
+    # 84080 on 15/10/2026: the first read stored a gap row 1..1947; the note said "no meio".
+    arquivo = [
+        {"fonte": "sap_adoc", "log_instanc": 1, "log_instanc_ate": 1947, "lacuna": True,
+         "momento": "2026-08-27T08:33:00-03:00", "resumo": "1947 versão(ões) apagadas"},
+        {"fonte": "sap_adoc", "log_instanc": 1948, "log_instanc_ate": 1948, "momento": "2026-08-27T08:33:00-03:00",
+         "usuario_codigo": "projeto06", "origem": "pessoa", "resumo": hp.MAIS_ANTIGA},
+    ]
+    r = hp.montar(84080, 18023, [_versao(1948, "projeto06")], [_linha(1948)], arquivo=arquivo)
+    assert r["lacuna"]["versoes_apagadas"] == 1947
+    assert "as 1947 primeiras" in r["lacuna"]["texto"] and "no meio" not in r["lacuna"]["texto"]
+
+
 def test_historico_continua_se_o_arquivo_falhar(monkeypatch):
     monkeypatch.setattr(hp.hana, "_schema", lambda: "SBO")
     monkeypatch.setattr(hp.hana, "_conectar", lambda: type("C", (), {"close": lambda self: None})())
