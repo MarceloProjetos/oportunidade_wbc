@@ -215,7 +215,9 @@ def consultar_status_pedido(nped: object) -> dict | None:
     Returns:
         ``{'pedido_existe': bool, 'pedido_cancelado': bool, 'pedido_status': str|None,
         'card_code': str, 'card_name': str, 'data_pedido': str|None (ISO),
-        'valor_total': float, 'moeda': str}`` (``pedido_status`` is ``None`` when the
+        'data_entrega': str|None (ISO, ORDR.DocDueDate — the same date the status view calls
+        Data_Entrega, measured 317/317 on 15/10/2026), 'valor_total': float, 'moeda': str}``
+        (``pedido_status`` is ``None`` when the
         pedido is not in ORDR, and the identity keys come empty), or ``None`` when SAP is
         not configured/reachable or the query fails.
 
@@ -237,7 +239,7 @@ def consultar_status_pedido(nped: object) -> dict | None:
 
     ordr = build_view_query('ORDR', settings.sap_schema)  # "SCHEMA"."ORDR"
     df_ped = sap.execute_query(*sql(
-        t'SELECT "CANCELED", "DocStatus", "CardCode", "CardName", "DocDate", '
+        t'SELECT "CANCELED", "DocStatus", "CardCode", "CardName", "DocDate", "DocDueDate", '
         t'"DocTotal", "DocCur" FROM {ordr:ident} WHERE "DocNum" = {nped_int}'
     ))
     sap.close()
@@ -245,7 +247,7 @@ def consultar_status_pedido(nped: object) -> dict | None:
         logger.error("Falha ao consultar o status do pedido %s na ORDR", nped_int)
         return None
 
-    vazio = {'card_code': '', 'card_name': '', 'data_pedido': None,
+    vazio = {'card_code': '', 'card_name': '', 'data_pedido': None, 'data_entrega': None,
              'valor_total': 0.0, 'moeda': ''}
     if len(df_ped) == 0:
         return {'pedido_existe': False, 'pedido_cancelado': False, 'pedido_status': None,
@@ -256,6 +258,7 @@ def consultar_status_pedido(nped: object) -> dict | None:
             'card_code': str(row.get('CardCode') or '').strip(),
             'card_name': str(row.get('CardName') or '').strip(),
             'data_pedido': _data_iso(row.get('DocDate')),
+            'data_entrega': _data_iso(row.get('DocDueDate')),
             'valor_total': float(row.get('DocTotal') or 0.0),
             'moeda': str(row.get('DocCur') or '').strip()}
 

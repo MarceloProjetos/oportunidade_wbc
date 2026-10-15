@@ -6,6 +6,15 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-15] — Data de entrega: pedido fora da view traz a data do SAP
+
+`GET /pedidos/<n>/data-entrega` de pedido **fora** da Situação dos Pedidos (fechado, cancelado) devolvia
+`data_sap: null`, e a equipe do PCP leu o 83411 (fechado desde 28/11/2025) como "lançado errado no SAP". Agora a
+data vem da ORDR ao vivo (`DocDueDate`): `consultar_status_pedido` ganha `data_entrega` (a mesma coluna que a view
+chama `Data_Entrega` — conferido 317/317 em 15/10/2026). Informativa: fechado/cancelado seguem `atrasado: false`;
+aberto fora da view passa a ter referência. Pedido do Marcelo. Contrato e guia do PCP atualizados; +2 testes.
+**Pede deploy da .11.**
+
 ## [2026-10-15] — Aviso de lacuna: "as N primeiras", não "no meio"
 
 Na primeira leitura de um pedido que já passou de 99 versões, o arquivo grava uma linha de lacuna a partir da versão 1;

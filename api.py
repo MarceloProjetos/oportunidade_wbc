@@ -2430,13 +2430,17 @@ def _pedido_da_view(n: int) -> dict | None:
     return achados[0] if achados else None
 
 
-def _fora_da_view(n: int) -> entrega.Recusa:
-    """Why an order outside the view cannot get a request (D9 as adjusted on 14/10)."""
+def _ordr_do_pedido(n: int) -> dict | None:
+    """The order's ORDR row (status, identity, SAP delivery date), or ``None`` when SAP is down."""
     try:
-        info = consultar_status_pedido(n)
+        return consultar_status_pedido(n)
     except Exception as exc:  # the ORDR being down is never a silent 500
         logger.error("[ENTREGA] falha ao consultar a ORDR do pedido %s: %s", n, exc)
-        info = None
+        return None
+
+
+def _fora_da_view(n: int, info: dict | None) -> entrega.Recusa:
+    """Why an order outside the view cannot get a request (D9 as adjusted on 14/10)."""
     if info is None:
         return entrega.Recusa(503, 'indeterminado',
                               f'pedido {n} fora da view e o SAP nao respondeu agora - nada foi gravado')
@@ -2451,10 +2455,12 @@ def _fora_da_view(n: int) -> entrega.Recusa:
 
 
 def _bloco_entrega(n: int, linhas: list, pedido: dict | None, *, sap_disponivel: bool,
-                   status: str | None) -> dict:
+                   status: str | None, data_sap_ordr: str | None = None) -> dict:
     """Dates + thread of one order (``situacao_pedidos.entrega_combinada``) + where they came from.
 
-    In the view: SAP date, status and late flag come from its row. Outside it: no SAP date;
+    In the view: SAP date, status and late flag come from its row. Outside it: the SAP delivery
+    date read live from ORDR (``DocDueDate``, informative — the same date the view calls
+    Data_Entrega; owner's request 15/10/2026, so a closed order no longer comes back empty);
     open → late flag unknown (``null``), closed/cancelled → not late; SAP down → unknown.
     """
     if pedido is not None:
@@ -2465,7 +2471,7 @@ def _bloco_entrega(n: int, linhas: list, pedido: dict | None, *, sap_disponivel:
     else:
         aberto = None if status is None else status == 'Aberto'
         atrasado_sap = None if aberto is None or aberto else False
-        bloco = sit_ped.entrega_combinada(None, linhas, hoje=sit_ped.now_br().date(),
+        bloco = sit_ped.entrega_combinada(data_sap_ordr, linhas, hoje=sit_ped.now_br().date(),
                                           aberto=aberto, atrasado_sap=atrasado_sap)
         # No SAP date = no reference: "not late" cannot be asserted for an open order (only
         # "today is past the agreed date" can). null is the one "cannot tell".
@@ -2537,7 +2543,7 @@ def entrega_solicitar(numero: str):
         return _recusa_entrega(n, entrega.Recusa(503, 'indeterminado',
                                                  'SAP indisponivel agora - nada foi gravado'))
     if pedido is None:
-        return _recusa_entrega(n, _fora_da_view(n))
+        return _recusa_entrega(n, _fora_da_view(n, _ordr_do_pedido(n)))
     if str(pedido.get('status_pedido') or '').casefold() == 'fechado':
         return _recusa_entrega(n, entrega.Recusa(409, 'pedido_fechado', f'pedido {n} esta fechado no SAP'))
     if not pedido.get('data_entrega'):
@@ -2622,7 +2628,7 @@ def entrega_do_pedido(numero: str):
         logger.error("[ENTREGA] leitura da base falhou (pedido %s): %s", n, exc)
         return _recusa_entrega(n, entrega.Recusa(503, 'base_indisponivel', 'base de dados indisponivel agora'))
 
-    sap_disponivel, pedido, status = True, None, None
+    sap_disponivel, pedido, status, data_sap_ordr = True, None, None, None
     try:
         pedido = _pedido_da_view(n)
     except entrega.Recusa as exc:
@@ -2633,7 +2639,9 @@ def entrega_do_pedido(numero: str):
     if pedido is not None:
         status = pedido.get('status_pedido')
     elif sap_disponivel:
-        recusa = _fora_da_view(n)
+        info = _ordr_do_pedido(n)
+        data_sap_ordr = (info or {}).get('data_entrega')
+        recusa = _fora_da_view(n, info)
         if recusa.motivo == 'indeterminado':
             sap_disponivel = False
         elif recusa.motivo == 'pedido_cancelado':
@@ -2647,7 +2655,8 @@ def entrega_do_pedido(numero: str):
     if not sap_disponivel and not linhas:
         return _recusa_entrega(n, entrega.Recusa(
             503, 'indeterminado', f'pedido {n} sem conversa e o SAP nao respondeu agora'))
-    return jsonify(_bloco_entrega(n, linhas, pedido, sap_disponivel=sap_disponivel, status=status))
+    return jsonify(_bloco_entrega(n, linhas, pedido, sap_disponivel=sap_disponivel, status=status,
+                                  data_sap_ordr=data_sap_ordr))
 
 
 @app.get('/pedidos/data-entrega/solicitacoes')

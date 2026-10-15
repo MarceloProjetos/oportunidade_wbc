@@ -291,6 +291,8 @@ def api_pedir(docnum: int, dados: PedidoNovaData, usuario=Depends(usuario_da_pro
 | qualquer outro | "Não deu para ler a situação da data agora. Tente abrir o pedido de novo em alguns minutos." |
 
 `status_pedido` só pode ser `"Aberto"`, `"Fechado"`, `"Cancelado"` ou `null` (não se sabe).
+Pedido **fechado** ou **cancelado** também traz `data_sap` (a data de entrega que ficou no SAP): mostre-a como
+informação, junto com "Pedido fechado no SAP". Não é erro de lançamento.
 `pendente`, quando existe, tem **os mesmos campos** de um item da conversa (parte 7).
 
 **4.2 O formulário** (abre ao clicar no botão):

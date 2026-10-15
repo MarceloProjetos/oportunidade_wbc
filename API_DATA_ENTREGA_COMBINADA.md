@@ -102,7 +102,9 @@ timeout). A `observacao` nova é ignorada.
  "pendente": null, "conversa": [ "...linhas no formato de 'solicitacao', mais antiga primeiro" ]}
 ```
 
-Pedido fora da tela do Comercial: `data_sap: null`, status lido do SAP ao vivo; aberto → `atrasado: null`.
+Pedido fora da tela do Comercial (ex.: **fechado** ou **cancelado**): status e `data_sap` lidos do SAP ao vivo
+(`data_sap` = a data de entrega do pedido no SAP, `DocDueDate` — informativa, desde 15/10/2026); fechado ou
+cancelado → `atrasado: false`. Só vem `data_sap: null` se o SAP não responder ou o pedido não tiver data.
 
 ## 7. `GET /pedidos/data-entrega/solicitacoes`
 

@@ -472,3 +472,27 @@ def test_listar_monta_os_filtros_de_cada_situacao():
         else:
             assert ("or_", (f"solicitado_em.gte.{desde},decidido_em.gte.{desde}",)) in nomes
         assert ("limit", (50,)) in nomes
+
+
+def test_get_pedido_fechado_fora_da_view_traz_a_data_de_entrega_do_sap(c, pcp, monkeypatch):
+    """83411 (15/10/2026): closed, out of the view, no thread — the SAP delivery date still comes
+    (ORDR.DocDueDate, informative), instead of an empty date that looked like a bad SAP entry."""
+    monkeypatch.setattr(apimod, "consultar_status_pedido", lambda n: {
+        "pedido_existe": True, "pedido_cancelado": False, "pedido_status": "Fechado",
+        "data_entrega": "2025-12-18"})
+    r = c.get("/pedidos/83411/data-entrega", headers=pcp)
+    b = r.get_json()
+    assert r.status_code == 200 and b["status_pedido"] == "Fechado"
+    assert b["data_sap"] == b["data_vigente"] == "2025-12-18"
+    assert b["alterada"] is False and b["atrasado"] is False     # a closed order is not late
+
+
+def test_get_aberto_fora_da_view_com_data_do_sap_ja_tem_referencia(c, pcp, base, monkeypatch):
+    base.linhas.append({**_pendente(doc_num=70000, id_=1), "situacao": "aprovada",
+                        "decidido_por": "v", "decidido_em": "2026-11-09T15:00:00+00:00"})
+    monkeypatch.setattr(apimod, "consultar_status_pedido", lambda n: {
+        "pedido_existe": True, "pedido_cancelado": False, "pedido_status": "Aberto",
+        "data_entrega": "2026-11-20"})
+    b = c.get("/pedidos/70000/data-entrega", headers=pcp).get_json()
+    assert (b["data_sap"], b["data_referencia"], b["atraso_nosso_dias"]) == ("2026-11-20", "2026-11-20", 7)
+    assert b["atrasado"] is True

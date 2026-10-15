@@ -386,11 +386,12 @@ def test_consultar_status_pedido_cancelado(monkeypatch):
     monkeypatch.setattr(mod, 'SAPExtractor', _fake_sap_diag([], [{
         'CANCELED': 'Y', 'DocStatus': 'C', 'CardCode': ' C011388 ',
         'CardName': 'DIVENA AUTOMOVEIS LTDA', 'DocDate': datetime(2026, 8, 18),
-        'DocTotal': 12345.67, 'DocCur': 'R$'}]))
+        'DocDueDate': datetime(2026, 9, 30), 'DocTotal': 12345.67, 'DocCur': 'R$'}]))
     assert mod.consultar_status_pedido(84314) == {
         'pedido_existe': True, 'pedido_cancelado': True, 'pedido_status': 'Cancelado',
         'card_code': 'C011388', 'card_name': 'DIVENA AUTOMOVEIS LTDA',
-        'data_pedido': '2026-08-18', 'valor_total': 12345.67, 'moeda': 'R$'}
+        'data_pedido': '2026-08-18', 'data_entrega': '2026-09-30',
+        'valor_total': 12345.67, 'moeda': 'R$'}
 
 
 def test_consultar_status_pedido_inexistente(monkeypatch):
@@ -398,7 +399,7 @@ def test_consultar_status_pedido_inexistente(monkeypatch):
     monkeypatch.setattr(mod, 'SAPExtractor', _fake_sap_diag([], []))
     assert mod.consultar_status_pedido(99999) == {
         'pedido_existe': False, 'pedido_cancelado': False, 'pedido_status': None,
-        'card_code': '', 'card_name': '', 'data_pedido': None,
+        'card_code': '', 'card_name': '', 'data_pedido': None, 'data_entrega': None,
         'valor_total': 0.0, 'moeda': ''}
 
 
