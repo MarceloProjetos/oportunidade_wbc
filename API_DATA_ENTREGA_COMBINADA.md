@@ -4,6 +4,9 @@ Contrato técnico das rotas e ferramentas da .11 (`192.168.7.11`) para a **Produ
 entrega de um pedido de venda e acompanhar a decisão do **Comercial**. Desenho completo:
 `docs/DESENHO_DATA_ENTREGA_COMBINADA.md`. Versão de 15/10/2026.
 
+> **Equipe do PCP:** comece pelo guia passo a passo `docs/GUIA_EQUIPE_PCP_DATA_ENTREGA.md` — este arquivo é a
+> referência técnica.
+
 ## 1. O que é
 
 - **Vocabulário:** "pedido" = pedido de venda (o **DocNum**, o número da tela). "Solicitação" = o pedido de
