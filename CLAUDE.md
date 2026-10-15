@@ -14,9 +14,10 @@ Serviço de integração SAP B1 → Supabase **e** Integração WBC → SAP. Rod
 - **API HTTP** (porta 8077, `OrcaView-OS-API`) — gatilhos sob demanda + consultas + Painel de
   Sincronização (`GET /sincronizar`). `GET /` é a **entrada**: leva ao painel WBC
   (`web/entrada.html` sonda a porta e, se o painel não responde, mostra o caminho para `/sincronizar`).
-- **Agendador** (`OrcaView-Scheduler`) — 4 jobs: oportunidades (intervalo, janela útil),
+- **Agendador** (`OrcaView-Scheduler`) — 5 jobs: oportunidades (intervalo, janela útil),
   Vendas BI a cada 15 min na janela, Vendas BI de hora em hora 24/7 fora dela, espelho de
-  orçamentos (janela útil).
+  orçamentos (janela útil) e o arquivo de quem mexeu nos pedidos (`arquivo_pedidos`, 2 min, 24/7,
+  só grava na .11).
 - **Fachada MCP** (`OrcaView-MCP`) — stdio no cliente (`mcp/mcp_server.py`) ou HTTP na .11
   (`mcp/serve_http.py`, porta 8078).
 - **Painel WBC** (porta `PAINEL_PORTA`=8079, `OrcaView-WBC-Painel`, FastAPI) — a **porta de
@@ -53,6 +54,7 @@ texto, no git. Guia do pacote:
 | `extract_ordens_servico_engenharia.py` | Pipeline OS por N_PED (sob demanda) da view HANA consolidada `VW_OS_INTEGRACAO` → tabela única `vw_os_integracao` + `diagnosticar_nped` + `consultar_status_pedido` (ORDR) |
 | `extract_vendas_bi.py` | Pipeline VENDAS BI (agendado): `VW_PEDIDO_ALTA` + `VW_FATO_FATURAMENTO` → agregados `bi_vendas_*` que o app desenha no modo Vendas do Dashboard |
 | `extract_orcamentos_espelho.py` | Espelho de `VW_EVOL_ORCAMENTO_ALT` no Supabase (agendado) |
+| `arquivo_pedidos.py` | F2 do `PLANO_PEDIDOS_QUEM_MEXEU` (web): a cada 2 min, só na .11 (IP), copia as versões novas do `ADOC` (pedidos de venda) para `pedidos_sap_alteracoes` antes de o SAP apagar (teto de 99), classificadas pela `operacao/historico_pedido.py`, + eventos do worker que provam mudança manual; casa a versão `orcaview` com a linha que a tela de Pedidos do .90 grava antes do PATCH. Cursor em `state/arquivo_pedidos.json` (refeito da tabela se sumir); `python -m arquivo_pedidos --simular` só lê, em qualquer máquina |
 | `situacao_pedidos.py` | `/pedidos/situacao`: regra pura, **porte** do `situacao_pedidos_service.py` do web — diffável, com teste (`test_situacao_pedidos_diffavel.py`) |
 | `situacao_pedidos_hana.py` | Leitura HANA + cache + endereço de entrega das rotas `/pedidos/*` |
 | `entrega_combinada.py` | Data de entrega combinada (Produção pede, Comercial decide no .90): validação do corpo e as 3 chamadas à tabela `pedidos_entrega_alteracoes`; a conta das datas é `situacao_pedidos.entrega_combinada` (porte). Rotas `/pedidos/<n>/data-entrega*` no `api.py`; contrato `API_DATA_ENTREGA_COMBINADA.md`; testes `tests/test_api_data_entrega.py` + `tests/test_mcp_data_entrega.py` |
@@ -120,6 +122,7 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
 | Trava pelo IP / `/Logout` no Controle de Produção | `controleproducao/core/service_layer_client.py` + `core/guardas.py` + `tests/controleproducao/test_service_layer_client.py` |
 | Variável do Controle de Produção (`CP_*`, `HANA_SCHEMA_LEGADO`, `SL_BUSINESS_PLACE_ID`, `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` do histórico) | `controleproducao/config.py` + `.env.example` (bloco CP) + `tests/controleproducao/test_config.py` + `tests/test_config_paridade_wbc.py` |
 | Check `controle_producao` do `/status` | `monitoring.py` (`_controle_producao_signal`) + `tests/test_monitoring.py` |
+| Arquivo de quem mexeu nos pedidos (ADOC → `pedidos_sap_alteracoes`, cursor, lacuna, casamento com a tela) | `arquivo_pedidos.py` + `tests/test_arquivo_pedidos.py` (+ `operacao/historico_pedido.py`, que classifica) |
 | Leituras da própria .11 para o agente (serviços, conexões, histórico de pedido, log por orçamento, deploy/versão) | `operacao/` + `tests/test_operacao.py` (+ `mcp/mcp_server.py` e `ESCOPO_DA_FERRAMENTA`) |
 | Credencial, escopo, auditoria, interruptor do agente (API 8077, `/api/*` da 8080, MCP 8078) | `seguranca/` + `tests/test_seguranca.py`, `tests/test_api_seguranca.py`, `tests/test_mcp_acesso.py`, `tests/controleproducao/test_api_pedidos_wbc.py` (+ `docs/SEGURANCA_11.md`, `PLANO_MIRA_AGENTE_11.md (removido em 2026-10-06; historico no git)`) |
 

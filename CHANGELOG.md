@@ -6,6 +6,25 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-15] — Arquivo de quem mexeu nos pedidos (antes de o SAP apagar)
+
+F2 do `PLANO_PEDIDOS_QUEM_MEXEU` (plano no web). O SAP guarda só 99 versões por documento (`OADM.MaxHistory`); o
+84080 está na 2.046. **Precisa da tabela `pedidos_sap_alteracoes`** (DDL no web:
+`backend/utilitarios/migracoes/sql/pedidos_sap_alteracoes.sql`) — sem ela o job loga erro e não arquiva.
+- **`arquivo_pedidos.py` (novo):** job do agendador a cada **2 min, 24/7**, só grava na .11 (IP). Sonda
+  `MAX(LogInstanc)` por pedido no `ADOC` (0,03 s), lê só os pedidos com versão nova (os nunca vistos, 40 por ciclo, os
+  mais recentes primeiro) e grava as entradas da `historico_pedido` (mesmo código da rota). Versões que o SAP apagou
+  antes da leitura viram linha `lacuna`; num pedido já acompanhado isso é **ERRO no log**. Copia também os eventos do
+  worker que provam mudança manual (`pedido_corrigido_a_mao`, `troca_de_pn*`, `peso_reescalado`) antes da faxina de 6
+  dias. Upsert ignorando duplicado (índices únicos não parciais): perder o cursor (`state/arquivo_pedidos.json`) não
+  duplica nada — ele é refeito da tabela. Lock de arquivo `arquivo_pedidos_lock`. `python -m arquivo_pedidos --simular`
+  só lê, em qualquer máquina (conferido em PROD: 30 pedidos → 209 linhas, 36 quebras, 0 versões perdidas).
+- **Tela do OrçaView:** versão gravada pelo `orcaview` até 2 min antes / 5 min depois de uma linha `fonte='tela'` (que o
+  .90 grava antes de cada PATCH de Pedidos) vira da **pessoa** (`pela_tela`, `pessoa`, `tela_id`).
+- **`/pedidos/<n>/historico`:** com a service_role, junta o arquivo (o que o SAP apagou, `arquivado: true`), o ADOC vivo
+  depois dele, `eventos_worker` e a pessoa da tela; `lacuna` passa a contar o começo e os buracos do meio. Base fora =
+  `aviso_arquivo`, resposta do SAP sai igual.
+
 ## [2026-10-15] — Histórico do pedido diz quem quebrou o processo
 
 F1 do `PLANO_PEDIDOS_QUEM_MEXEU` (plano no web). `operacao/historico_pedido.py` (rota `/pedidos/<n>/historico` e tool

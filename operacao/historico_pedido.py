@@ -125,20 +125,23 @@ def _usuarios_da_integracao() -> set[str]:
     return {n.strip().lower() for n in nomes if n and n.strip()}
 
 
-def _sql_versoes(schema: str) -> str:
+def _sql_versoes(schema: str, *, desde: bool = False) -> str:
+    """``desde=True`` adds a second parameter: only versions >= it (the archiver's cursor)."""
+    filtro = ' AND T1."LogInstanc" >= ?' if desde else ""
     return (
         f'SELECT T1.*, T2."U_NAME" AS "_U_NAME", T2."USER_CODE" AS "_USER_CODE" '
         f'FROM "{schema}"."ADOC" T1 '
         f'LEFT JOIN "{schema}"."OUSR" T2 ON T2."USERID" = COALESCE(T1."UserSign2", T1."UserSign") '
-        f'WHERE T1."ObjType" = \'17\' AND T1."DocEntry" = ? ORDER BY T1."LogInstanc"'
+        f'WHERE T1."ObjType" = \'17\' AND T1."DocEntry" = ?{filtro} ORDER BY T1."LogInstanc"'
     )
 
 
-def _sql_linhas(schema: str) -> str:
+def _sql_linhas(schema: str, *, desde: bool = False) -> str:
     colunas = ", ".join(f'"{c}"' for c in CAMPOS_LINHA)
+    filtro = ' AND "LogInstanc" >= ?' if desde else ""
     return (
         f'SELECT "LogInstanc", "LineNum", {colunas} FROM "{schema}"."ADO1" '
-        f'WHERE "ObjType" = \'17\' AND "DocEntry" = ? ORDER BY "LogInstanc", "LineNum"'
+        f'WHERE "ObjType" = \'17\' AND "DocEntry" = ?{filtro} ORDER BY "LogInstanc", "LineNum"'
     )
 
 
@@ -299,9 +302,16 @@ def _dobrar(itens: list[dict]) -> list[dict]:
     return saida
 
 
-def montar(doc_num: int, doc_entry: int, versoes: list[dict], linhas: list[dict],
-           limite: int = VERSOES_PADRAO) -> dict[str, Any]:
-    """Pure part: the rows of ADOC/ADO1 → the answer (tested without a HANA)."""
+MAIS_ANTIGA = "versão mais antiga que o SAP ainda guarda (as anteriores foram apagadas)"
+
+
+def entradas(versoes: list[dict], linhas: list[dict]) -> list[dict]:
+    """ADOC/ADO1 rows → classified and folded entries, OLDEST first.
+
+    The first version has nothing to diff against: it is the creation (LogInstanc 1), the
+    oldest one the SAP still keeps, or -- for the archiver -- the cursor version it already
+    stored (the caller drops that one).
+    """
     por_versao: dict[Any, dict[int, dict]] = {}
     for linha in linhas:
         por_versao.setdefault(linha["LogInstanc"], {})[int(linha["LineNum"])] = linha
@@ -313,36 +323,147 @@ def montar(doc_num: int, doc_entry: int, versoes: list[dict], linhas: list[dict]
         itens.append(_entrada(v, atual_linhas, anterior, integracao))
         anterior = (v, atual_linhas)
     if versoes and int(versoes[0]["LogInstanc"]) > 1:
-        # The oldest kept version is not the creation: its "criado com" would lie.
-        primeira = itens[0]
-        primeira["resumo"] = "versão mais antiga que o SAP ainda guarda (as anteriores foram apagadas)"
-    entradas = _dobrar(itens)
-    for e in entradas:
+        # Not the creation: its "criado com" would lie.
+        itens[0]["resumo"] = MAIS_ANTIGA
+    saida = _dobrar(itens)
+    for e in saida:
         e.pop("_primeira", None)
         e.pop("_so_peso", None)
+    return saida
+
+
+# --- The Pedidos screen (.90) writes to SAP as the integration user (plan T8) ----------
+#: How far a SAP version may be from the screen row written before its PATCH. The PATCH and
+#: the reread take seconds; a version's time has minute precision.
+TELA_ANTES_S = 300
+TELA_DEPOIS_S = 120
+
+
+def _instante(valor: Any) -> datetime | None:
+    if isinstance(valor, datetime):
+        return valor
+    try:
+        return datetime.fromisoformat(str(valor))
+    except (TypeError, ValueError):
+        return None
+
+
+def casar_tela(entrada: dict, telas: list[dict]) -> dict:
+    """An "integracao" entry saved while someone wrote from the Pedidos screen becomes that
+    person's (``pela_tela``). ``telas``: rows ``fonte='tela'`` of the same order. A worker save
+    in the same minutes would be taken for the person: accepted (rare), and the entry says
+    "pela tela" so it can be checked."""
+    if entrada.get("origem") != "integracao" or not telas:
+        return entrada
+    quando = _instante(entrada.get("momento"))
+    if quando is None:
+        return entrada
+    melhor, distancia = None, None
+    for t in telas:
+        if t.get("resultado") == "falhou":
+            continue
+        t_quando = _instante(t.get("momento"))
+        if t_quando is None:
+            continue
+        # The version is stamped to the minute (seconds dropped): up to 60 s "early".
+        delta = (quando - t_quando).total_seconds()
+        if -(TELA_DEPOIS_S + 60) <= delta <= TELA_ANTES_S and (distancia is None or abs(delta) < distancia):
+            melhor, distancia = t, abs(delta)
+    if melhor is None:
+        return entrada
+    # The screen lets only PEDIDO_LIBERACAO_EDITORES release: a release from it is the process.
+    fora = sorted((set(entrada.get("categorias") or []) & QUEBRA) - {"liberacao"})
+    return entrada | {"origem": "pessoa", "pela_tela": True, "pessoa": melhor.get("pessoa"),
+                      "tela_id": melhor.get("id"), "tela_acao": melhor.get("acao"),
+                      "quebra": bool(fora), "quebra_em": fora}
+
+
+def de_arquivo(r: dict) -> dict:
+    """An archived row (fonte sap_adoc) in the shape of a live entry."""
+    e: dict[str, Any] = {
+        "versao": r.get("log_instanc_ate") or r.get("log_instanc"),
+        "momento": r.get("momento"), "usuario": r.get("usuario_nome") or r.get("usuario_codigo"),
+        "usuario_codigo": r.get("usuario_codigo"), "origem": r.get("origem"),
+        "categorias": r.get("categorias") or [], "quebra": bool(r.get("quebra")),
+        "quebra_em": r.get("quebra_em") or [], "resumo": r.get("resumo"),
+        "mudancas": r.get("mudancas") or [], "arquivado": True,
+    }
+    if (r.get("log_instanc_ate") or 0) > (r.get("log_instanc") or 0):
+        e |= {"versao_de": r["log_instanc"], "momento_de": r.get("momento_de"),
+              "repeticoes": r.get("repeticoes") or 1, "sem_mudanca": r.get("sem_mudanca") or 0}
+    for chave in ("detalhe", "pessoa", "tela_id"):
+        if r.get(chave):
+            e[chave] = r[chave]
+    if r.get("pessoa"):
+        e["pela_tela"] = True
+    if r.get("lacuna"):
+        e["lacuna"] = True
+    return e
+
+
+def _lacuna(primeira: int, perdidas: list[dict]) -> dict[str, Any] | None:
+    """What the SAP dropped before anyone read it: the start, and gaps the archiver logged."""
+    antes = max(0, primeira - 1)
+    meio = sum(int(r["log_instanc_ate"]) - int(r["log_instanc"]) + 1 for r in perdidas)
+    if not antes and not meio:
+        return None
+    partes = ([f"as {antes} primeiras"] if antes else []) + ([f"{meio} no meio"] if meio else [])
+    return {"versoes_apagadas": antes + meio,
+            "texto": (f"O SAP guarda só as 99 últimas versões: {' e '.join(partes)} deste pedido foram "
+                      f"apagadas antes de serem lidas e não podem ser recuperadas.")}
+
+
+def montar(doc_num: int, doc_entry: int, versoes: list[dict], linhas: list[dict],
+           limite: int = VERSOES_PADRAO, arquivo: list[dict] | None = None) -> dict[str, Any]:
+    """Pure part: the rows of ADOC/ADO1 (+ the archived rows, if any) → the answer.
+
+    ``arquivo``: rows of ``pedidos_sap_alteracoes`` for this order. The archived SAP rows are
+    the truth up to the highest version they hold; the live ADOC only adds what came after.
+    """
+    arquivo = arquivo or []
+    guardadas = sorted((r for r in arquivo if r.get("fonte") == "sap_adoc"),
+                       key=lambda r: int(r.get("log_instanc") or 0))
+    telas = [r for r in arquivo if r.get("fonte") == "tela"]
+    worker = [r for r in arquivo if r.get("fonte") == "worker"]
+    ate = max((int(r.get("log_instanc_ate") or 0) for r in guardadas), default=0)
+    vivas = [v for v in versoes if int(v["LogInstanc"]) >= ate]
+    novas = entradas(vivas, [ln for ln in linhas if int(ln["LogInstanc"]) >= ate])
+    if ate and novas and novas[0]["versao"] == ate and "versao_de" not in novas[0]:
+        novas = novas[1:]  # the base: already archived
+    novas = [casar_tela(e, telas) for e in novas]
+    todas = [de_arquivo(r) for r in guardadas] + novas
     limite = max(1, min(int(limite), VERSOES_MAX))
     resposta: dict[str, Any] = {
         "pedido": doc_num, "doc_entry": doc_entry,
-        "total_versoes": len(itens),
-        "total_entradas": len(entradas),
-        "versoes_omitidas": max(0, len(entradas) - limite),
-        "quebras": sum(1 for e in entradas if e.get("quebra")),
+        "total_versoes": max([int(v["LogInstanc"]) for v in versoes] + [ate], default=0),
+        "total_entradas": len(todas),
+        "versoes_omitidas": max(0, len(todas) - limite),
+        "quebras": sum(1 for e in todas if e.get("quebra")),
         "campos_acompanhados": {"cabecalho": "todos (menos os internos que mudam a cada gravação)",
                                 "linha": list(CAMPOS_LINHA.values())},
-        "versoes": entradas[-limite:][::-1],  # newest first
+        "versoes": todas[-limite:][::-1],  # newest first
     }
-    if versoes and int(versoes[0]["LogInstanc"]) > 1:
-        apagadas = int(versoes[0]["LogInstanc"]) - 1
-        resposta["lacuna"] = {
-            "versoes_apagadas": apagadas,
-            "texto": (f"O SAP guarda só as 99 últimas versões: as {apagadas} primeiras deste pedido "
-                      f"(antes da versão {apagadas + 1}) foram apagadas e não podem ser lidas."),
-        }
+    if guardadas:
+        resposta["arquivo"] = {"linhas": len(guardadas), "ate_versao": ate}
+    primeira = (int(guardadas[0]["log_instanc"]) if guardadas
+                else int(versoes[0]["LogInstanc"]) if versoes else 1)
+    lacuna = _lacuna(primeira, [r for r in guardadas if r.get("lacuna")])
+    if lacuna:
+        resposta["lacuna"] = lacuna
+    if worker:
+        resposta["eventos_worker"] = [
+            {"momento": r.get("momento"), "regra": r.get("acao"), "orcamento": r.get("orcamento"),
+             "texto": r.get("resumo")}
+            for r in sorted(worker, key=lambda r: str(r.get("momento")), reverse=True)]
     return resposta
 
 
-def historico(numero: int, *, por_docentry: bool = False, limite: int = VERSOES_PADRAO) -> dict[str, Any]:
-    """The change log of ONE sales order. Raises ``PedidoNaoEncontrado`` / ``SAPIndisponivel``."""
+def historico(numero: int, *, por_docentry: bool = False, limite: int = VERSOES_PADRAO,
+              ler_arquivo: Any = None) -> dict[str, Any]:
+    """The change log of ONE sales order. Raises ``PedidoNaoEncontrado`` / ``SAPIndisponivel``.
+
+    ``ler_arquivo(doc_entry) -> list[dict]`` reads the archived rows; a failure there only adds
+    ``aviso_arquivo`` (the live SAP answer still goes out)."""
     schema = hana._schema()
     conn = hana._conectar()
     try:
@@ -360,8 +481,17 @@ def historico(numero: int, *, por_docentry: bool = False, limite: int = VERSOES_
             conn.close()
         except Exception:  # connection already gone with the failure being reported
             pass
-    resposta = montar(doc_num, doc_entry, versoes, linhas, limite)
-    if not versoes:
+    arquivo: list[dict] = []
+    aviso_arquivo = None
+    if ler_arquivo is not None:
+        try:
+            arquivo = list(ler_arquivo(doc_entry) or [])
+        except Exception as exc:  # the archive is a bonus: never take the live answer down
+            aviso_arquivo = f"arquivo do histórico indisponível agora ({type(exc).__name__})"
+    resposta = montar(doc_num, doc_entry, versoes, linhas, limite, arquivo=arquivo)
+    if aviso_arquivo:
+        resposta["aviso_arquivo"] = aviso_arquivo
+    if not versoes and not arquivo:
         resposta["aviso"] = ("O SAP não tem histórico deste pedido (log de alterações desligado "
                              "ou pedido nunca salvo depois de criado).")
     return resposta

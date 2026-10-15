@@ -101,6 +101,14 @@ def vendas_bi_sync_lock(timeout: float = 0):
 
 
 @contextmanager
+def arquivo_pedidos_lock(timeout: float = 0):
+    """Cross-process lock of the order-history archive (``arquivo_pedidos``): the scheduler's
+    job and a manual ``python -m arquivo_pedidos`` must not advance the same cursor twice."""
+    with _file_lock('arquivo_pedidos.lock', 'arquivo de pedidos', timeout):
+        yield
+
+
+@contextmanager
 def orcamentos_espelho_sync_lock(timeout: float = 0):
     """Lock cross-process do espelho de orçamentos (``VW_EVOL_ORCAMENTO_ALT``).
 

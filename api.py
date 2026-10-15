@@ -86,6 +86,7 @@ from urllib.parse import quote, urlsplit
 from flask import Flask, Response, g, jsonify, redirect, request, send_from_directory
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+import arquivo_pedidos
 import casa
 import entrega_combinada as entrega
 import feriados_br
@@ -1929,12 +1930,21 @@ def aprovacao_recusar(chave: str):
 def pedido_historico(numero: str):
     """What changed in ONE sales order, version by version, and who saved each one (the
     SAP change log, ADOC/ADO1). ``<numero>`` is the DocNum (``?chave=docentry`` for the
-    DocEntry); ``?versoes=`` caps how many, newest first (default 20, max 60). Read-only."""
+    DocEntry); ``?versoes=`` caps how many, newest first (default 20, max 60). Read-only.
+
+    With the service_role key, the archive (``pedidos_sap_alteracoes``, see ``arquivo_pedidos``)
+    is merged in: what the SAP already dropped, worker events, and who saved from the Pedidos
+    screen. Without it (or with the base down) the live SAP answer goes out alone."""
     n = _inteiro_positivo(numero, 'numero do pedido')
+    ler = None
+    if get_settings().supabase_service_role_key:
+        def ler(doc_entry: int) -> list[dict]:
+            return arquivo_pedidos.ler_do_pedido(_supabase(), doc_entry)
     try:
         dados = historico_pedido.historico(
             n, por_docentry=_chave_docentry(),
-            limite=request.args.get('versoes', historico_pedido.VERSOES_PADRAO, type=int))
+            limite=request.args.get('versoes', historico_pedido.VERSOES_PADRAO, type=int),
+            ler_arquivo=ler)
     except historico_pedido.PedidoNaoEncontrado as exc:
         return jsonify(ok=False, motivo='pedido_nao_encontrado', error=str(exc)), 404
     except sit_ped_hana.SAPIndisponivel as exc:

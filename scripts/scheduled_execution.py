@@ -13,6 +13,7 @@ from logging.handlers import TimedRotatingFileHandler
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
+import arquivo_pedidos
 import scripts._bootstrap  # noqa: F401
 from config import get_settings, parse_janela_horas
 from extract_orcamentos_espelho import main as sync_orcamentos_espelho
@@ -180,6 +181,15 @@ def job_orcamentos_espelho() -> None:
         logger.error('Espelho de orçamentos erro: %s', exc)
 
 
+def job_arquivo_pedidos() -> None:
+    """Who changed each sales order, before the SAP drops it (99 versions). 24/7: a probe
+    costs 0.03 s and the job itself only runs on the .11 (``arquivo_pedidos.job``)."""
+    try:
+        arquivo_pedidos.job()
+    except Exception as exc:
+        logger.error('[ARQUIVO-PEDIDOS] ciclo falhou: %s', exc)
+
+
 def configurar_agenda() -> BackgroundScheduler:
     settings = get_settings()
     # JANELA_HORAS already validated in get_settings(); re-check for scheduler startup log
@@ -224,6 +234,12 @@ def configurar_agenda() -> BackgroundScheduler:
             f'Espelho de orçamentos a cada {ORCAMENTOS_ESPELHO_INTERVALO_MIN}min '
             f'({settings.janela_horas}h, Mon-Fri)'
         ),
+    )
+    scheduler.add_job(
+        job_arquivo_pedidos,
+        trigger=IntervalTrigger(minutes=arquivo_pedidos.INTERVALO_MIN),
+        id='arquivo_pedidos',
+        name=f'Arquivo de quem mexeu nos pedidos a cada {arquivo_pedidos.INTERVALO_MIN}min (24/7, só na .11)',
     )
     for job in scheduler.get_jobs():
         logger.info('Job: %s — %s', job.name, job.trigger)

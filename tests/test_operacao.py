@@ -488,7 +488,7 @@ def test_rota_do_historico(api, monkeypatch):
     apimod, c, h = api
     pedidas = []
 
-    def historico(n, por_docentry=False, limite=20):
+    def historico(n, por_docentry=False, limite=20, ler_arquivo=None):
         pedidas.append((n, por_docentry, limite))
         if n == 1:
             raise historico_pedido.PedidoNaoEncontrado("Nenhum pedido")
