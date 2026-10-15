@@ -87,6 +87,7 @@ from flask import Flask, Response, g, jsonify, redirect, request, send_from_dire
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 import casa
+import entrega_combinada as entrega
 import feriados_br
 import ordens_producao_sl as op_sl
 import situacao_pedidos as sit_ped
@@ -2347,6 +2348,303 @@ def _pedido_encerrado_ordr(n: int, info: dict, situacao: str) -> dict:
         # null ("unknown") instead of a false "no NF yet".
         pedido['primeira_nf_emitida'] = None
     return pedido
+
+
+# ---------------------------------------------------------------------------
+# Data de entrega combinada — Production's requests (PLANO_DATA_ENTREGA_COMBINADA, F4)
+# ---------------------------------------------------------------------------
+# Production asks for a new delivery date; Comercial decides on the OrçaView screen (.90).
+# Nothing here writes to SAP. Design and every refusal: docs/DESENHO_DATA_ENTREGA_COMBINADA.md;
+# contract for the PCP team: API_DATA_ENTREGA_COMBINADA.md.
+
+_RATE_ENTREGA_SOLICITAR_MAX = int(os.getenv('RATE_ENTREGA_SOLICITAR_MAX', '30'))
+_AVISO_ENTREGA = ('Nada mudou ainda: a data so muda quando o Comercial aprovar no OrcaView. '
+                  'O SAP nao e alterado.')
+
+
+def _recusa_entrega(n: int | None, exc: entrega.Recusa):
+    """A refusal in the house shape: ``motivo`` = stable key, ``error`` = text."""
+    corpo = {'ok': False, 'motivo': exc.motivo, 'error': exc.texto, **exc.extra}
+    if n is not None:
+        corpo['pedido'] = n
+    return jsonify(corpo), exc.status
+
+
+def _base_entrega():
+    """The service_role client, or ``None``. Never the anon fallback of ``_supabase``: with RLS
+    and no policy, anon reads ``[]`` WITHOUT an error and the agreed date would silently turn
+    back into the SAP one."""
+    s = get_settings()
+    if not (s.supabase_url and s.supabase_service_role_key):
+        return None
+    return _supabase()
+
+
+def _cliente_que_pede(cliente: Cliente) -> str:
+    """The credential that called, as proved: the 8078 door's stamp for a trusted backend
+    (``X-SIS-Pedido-Por``, the real MCP client), the key's own name otherwise."""
+    if cliente.declara_usuario:
+        declarado = (request.headers.get('X-SIS-Pedido-Por') or '').strip()
+        if declarado and declarado.replace('-', '').replace('_', '').replace('.', '').isalnum():
+            return declarado[:40]
+    return cliente.nome
+
+
+def _pedido_da_view(n: int) -> dict | None:
+    """The order's normalized row in the view (the same cut Comercial sees), or ``None``.
+
+    Raises ``SAPIndisponivel``/``ValidationError`` like the neighbor routes, and
+    ``entrega.Recusa(409)`` when the DocNum matches more than one row.
+    """
+    achados = [p for p in sit_ped.normalizar(sit_ped_hana.fetch_status_pedidos())
+               if p.get('doc_num') == n]
+    if len(achados) > 1:
+        raise entrega.Recusa(409, 'docnum_ambiguo',
+                             f'DocNum {n} casa com {len(achados)} pedidos - avise o suporte')
+    return achados[0] if achados else None
+
+
+def _fora_da_view(n: int) -> entrega.Recusa:
+    """Why an order outside the view cannot get a request (D9 as adjusted on 14/10)."""
+    try:
+        info = consultar_status_pedido(n)
+    except Exception as exc:  # the ORDR being down is never a silent 500
+        logger.error("[ENTREGA] falha ao consultar a ORDR do pedido %s: %s", n, exc)
+        info = None
+    if info is None:
+        return entrega.Recusa(503, 'indeterminado',
+                              f'pedido {n} fora da view e o SAP nao respondeu agora - nada foi gravado')
+    if not info.get('pedido_existe'):
+        return entrega.Recusa(404, 'pedido_nao_encontrado', f'pedido {n} nao existe no SAP')
+    if info.get('pedido_cancelado'):
+        return entrega.Recusa(409, 'pedido_cancelado', f'pedido {n} esta cancelado no SAP')
+    if info.get('pedido_status') == 'Fechado':
+        return entrega.Recusa(409, 'pedido_fechado', f'pedido {n} esta fechado no SAP')
+    return entrega.Recusa(404, 'fora_do_recorte',
+                          f'pedido {n} esta aberto mas fora da tela do Comercial - avise o suporte')
+
+
+def _bloco_entrega(n: int, linhas: list, pedido: dict | None, *, sap_disponivel: bool,
+                   status: str | None) -> dict:
+    """Dates + thread of one order (``situacao_pedidos.entrega_combinada``) + where they came from.
+
+    In the view: SAP date, status and late flag come from its row. Outside it: no SAP date;
+    open → late flag unknown (``null``), closed/cancelled → not late; SAP down → unknown.
+    """
+    if pedido is not None:
+        aberto = str(pedido.get('status_pedido') or '').casefold() != 'fechado'
+        bloco = sit_ped.entrega_combinada(
+            pedido.get('data_entrega'), linhas, hoje=sit_ped.now_br().date(),
+            aberto=aberto, atrasado_sap=pedido.get('atrasado'))
+    else:
+        aberto = None if status is None else status == 'Aberto'
+        atrasado_sap = None if aberto is None or aberto else False
+        bloco = sit_ped.entrega_combinada(None, linhas, hoje=sit_ped.now_br().date(),
+                                          aberto=aberto, atrasado_sap=atrasado_sap)
+    return {'ok': True, 'pedido': n, 'status_pedido': status, 'sap_disponivel': sap_disponivel,
+            'cache_idade_s': sit_ped_hana.idade_do_cache_s() if sap_disponivel else None, **bloco}
+
+
+@app.post('/pedidos/<numero>/data-entrega/solicitacoes')
+@requer_chave('entrega:solicitar')
+def entrega_solicitar(numero: str):
+    """Production asks for a new agreed delivery date of ONE order (by DocNum). Never writes SAP.
+
+    The order of the checks is contract: a retry is recognised in the base BEFORE the rate
+    limit and before SAP is read, so a repeated call is ``200 ja_existia``, never 409/429.
+    """
+    n = _inteiro_positivo(numero, 'numero do pedido')
+    if _chave_docentry():
+        return _recusa_entrega(n, entrega.Recusa(
+            400, 'chave_nao_suportada', 'use o DocNum (o numero da tela); chave=docentry nao vale aqui'))
+    base = _base_entrega()
+    if base is None:
+        return _recusa_entrega(n, entrega.Recusa(503, 'base_nao_configurada',
+                                                 'base de dados sem a chave de servico nesta maquina'))
+    cliente = _cliente()
+    try:
+        pedido_corpo = entrega.validar_corpo(request.get_json(silent=True),
+                                             solicitante_declarado=_usuario_declarado(cliente))
+    except entrega.Recusa as exc:
+        return _recusa_entrega(n, exc)
+
+    def _repeticao(linhas: list):
+        """The pending row decides a repeat: same content → 200; another → 409."""
+        pendente = next((r for r in linhas if r.get('situacao') == 'pendente'), None)
+        if pendente is None:
+            return None
+        if (pendente.get('data_nova') == pedido_corpo['data_nova'].isoformat()
+                and pendente.get('motivo') == pedido_corpo['motivo']):
+            return jsonify(ok=True, ja_existia=True, solicitacao=pendente, aviso=_AVISO_ENTREGA), 200
+        return _recusa_entrega(n, entrega.Recusa(
+            409, 'ja_ha_pendente',
+            'ja existe uma solicitacao pendente para este pedido - o Comercial decide antes',
+            pendente=pendente))
+
+    try:
+        linhas = entrega.linhas_do_pedido(base, n)
+    except Exception as exc:
+        logger.error("[ENTREGA] leitura da base falhou (pedido %s): %s", n, exc)
+        return _recusa_entrega(n, entrega.Recusa(503, 'base_indisponivel', 'base de dados indisponivel agora'))
+    repetida = _repeticao(linhas)
+    if repetida is not None:
+        return repetida
+
+    excedido = _checar_rate('entrega_solicitar', _RATE_ENTREGA_SOLICITAR_MAX)
+    if excedido:
+        return excedido
+
+    try:
+        pedido = _pedido_da_view(n)
+    except entrega.Recusa as exc:
+        return _recusa_entrega(n, exc)
+    except sit_ped_hana.SAPIndisponivel as exc:
+        logger.warning("[ENTREGA] view indisponivel (pedido %s): %s", n, exc)
+        return _recusa_entrega(n, entrega.Recusa(503, 'indeterminado',
+                                                 'SAP indisponivel agora - nada foi gravado'))
+    except sit_ped.ValidationError as exc:
+        return _resposta_situacao_erro(exc)
+    if pedido is None:
+        return _recusa_entrega(n, _fora_da_view(n))
+    if str(pedido.get('status_pedido') or '').casefold() == 'fechado':
+        return _recusa_entrega(n, entrega.Recusa(409, 'pedido_fechado', f'pedido {n} esta fechado no SAP'))
+    if not pedido.get('data_entrega'):
+        return _recusa_entrega(n, entrega.Recusa(
+            409, 'sem_data_sap', f'pedido {n} sem data de entrega no SAP - nao ha data a mudar'))
+
+    hoje = sit_ped.now_br().date()
+    atual = sit_ped.entrega_combinada(pedido.get('data_entrega'), linhas, hoje=hoje,
+                                      aberto=True, atrasado_sap=pedido.get('atrasado'))
+    try:
+        entrega.validar_datas(pedido_corpo['data_nova'], hoje=hoje, data_vigente=atual['data_vigente'])
+    except entrega.Recusa as exc:
+        return _recusa_entrega(n, exc)
+
+    nova = {
+        'doc_num': n,
+        'data_nova': pedido_corpo['data_nova'].isoformat(),
+        'data_anterior': atual['data_vigente'],
+        'data_sap': atual['data_sap'],
+        'motivo': pedido_corpo['motivo'],
+        'observacao': pedido_corpo['observacao'],
+        'origem': 'producao_api',
+        'situacao': 'pendente',
+        'solicitado_por': pedido_corpo['solicitado_por'],
+        'solicitado_cliente': _cliente_que_pede(cliente),
+    }
+    gravada = None
+    for tentativa in (1, 2):
+        try:
+            gravada = entrega.inserir(base, nova)
+            break
+        except Exception as exc:
+            if not entrega.violou_um_pendente(exc):
+                logger.error("[ENTREGA] gravacao falhou (pedido %s): %s", n, exc)
+                return _recusa_entrega(n, entrega.Recusa(
+                    503, 'base_indisponivel',
+                    ('base de dados nao confirmou a gravacao - confira com GET '
+                     '/pedidos/<n>/data-entrega antes de repetir')))
+            # Someone else's pending landed between our read and our insert (the index is the
+            # real guard). Re-read: same content → ja_existia; another → 409; gone (decided in
+            # between) → one more insert, never a loop.
+            try:
+                linhas = entrega.linhas_do_pedido(base, n)
+            except Exception as exc2:
+                logger.error("[ENTREGA] releitura falhou (pedido %s): %s", n, exc2)
+                return _recusa_entrega(n, entrega.Recusa(503, 'base_indisponivel',
+                                                         'base de dados indisponivel agora'))
+            repetida = _repeticao(linhas)
+            if repetida is not None:
+                return repetida
+            if tentativa == 2:
+                return _recusa_entrega(n, entrega.Recusa(
+                    409, 'ja_ha_pendente', 'outra solicitacao para este pedido esta sendo gravada agora'))
+    logger.info("[ENTREGA] pedido %s: solicitacao %s -> %s (%s) por %s / %s", n,
+                gravada.get('id'), nova['data_nova'], nova['motivo'], nova['solicitado_por'],
+                nova['solicitado_cliente'])
+    bloco = _bloco_entrega(n, linhas + [gravada], pedido, sap_disponivel=True,
+                           status=pedido.get('status_pedido'))
+    return jsonify(ok=True, ja_existia=False, solicitacao=gravada, entrega=bloco,
+                   aviso=_AVISO_ENTREGA), 201
+
+
+@app.get('/pedidos/<numero>/data-entrega')
+@requer_chave('entrega:ler')
+def entrega_do_pedido(numero: str):
+    """The agreed delivery date of ONE order + the whole thread (requests, decisions and
+    Comercial's direct changes). ``null`` means only "cannot tell"."""
+    n = _inteiro_positivo(numero, 'numero do pedido')
+    if _chave_docentry():
+        return _recusa_entrega(n, entrega.Recusa(
+            400, 'chave_nao_suportada', 'use o DocNum (o numero da tela); chave=docentry nao vale aqui'))
+    base = _base_entrega()
+    if base is None:
+        return _recusa_entrega(n, entrega.Recusa(503, 'base_nao_configurada',
+                                                 'base de dados sem a chave de servico nesta maquina'))
+    try:
+        linhas = entrega.linhas_do_pedido(base, n)
+    except Exception as exc:
+        logger.error("[ENTREGA] leitura da base falhou (pedido %s): %s", n, exc)
+        return _recusa_entrega(n, entrega.Recusa(503, 'base_indisponivel', 'base de dados indisponivel agora'))
+
+    sap_disponivel, pedido, status = True, None, None
+    try:
+        pedido = _pedido_da_view(n)
+    except entrega.Recusa as exc:
+        return _recusa_entrega(n, exc)
+    except (sit_ped_hana.SAPIndisponivel, sit_ped.ValidationError) as exc:
+        logger.warning("[ENTREGA] view indisponivel (pedido %s): %s", n, exc)
+        sap_disponivel = False
+    if pedido is not None:
+        status = pedido.get('status_pedido')
+    elif sap_disponivel:
+        recusa = _fora_da_view(n)
+        if recusa.motivo == 'indeterminado':
+            sap_disponivel = False
+        elif recusa.motivo == 'pedido_cancelado':
+            status = 'Cancelado'
+        elif recusa.motivo == 'pedido_fechado':
+            status = 'Fechado'
+        elif recusa.motivo == 'fora_do_recorte':
+            status = 'Aberto'
+        if not linhas and recusa.motivo in ('pedido_nao_encontrado', 'fora_do_recorte', 'indeterminado'):
+            return _recusa_entrega(n, recusa)
+    if not sap_disponivel and not linhas:
+        return _recusa_entrega(n, entrega.Recusa(
+            503, 'indeterminado', f'pedido {n} sem conversa e o SAP nao respondeu agora'))
+    return jsonify(_bloco_entrega(n, linhas, pedido, sap_disponivel=sap_disponivel, status=status))
+
+
+@app.get('/pedidos/data-entrega/solicitacoes')
+@requer_chave('entrega:ler')
+def entrega_solicitacoes():
+    """Requests across orders: ``?situacao=pendente`` (default) | ``decididas`` | ``todas``,
+    ``?dias=7`` (1-90, for decided/all), ``?limite=100`` (1-200). Newest first. What Production
+    asks every morning: "what changed since yesterday?" — Comercial's direct changes included."""
+    situacao = (request.args.get('situacao') or 'pendente').strip().lower()
+    if situacao not in ('pendente', 'decididas', 'todas'):
+        return _recusa_entrega(None, entrega.Recusa(
+            422, 'parametro_invalido', 'situacao deve ser pendente, decididas ou todas'))
+    try:
+        dias = int(request.args.get('dias') or 7)
+        limite = int(request.args.get('limite') or 100)
+    except ValueError:
+        return _recusa_entrega(None, entrega.Recusa(422, 'parametro_invalido', 'dias e limite sao numeros'))
+    if not 1 <= dias <= 90 or not 1 <= limite <= 200:
+        return _recusa_entrega(None, entrega.Recusa(
+            422, 'parametro_invalido', 'dias vai de 1 a 90 e limite de 1 a 200'))
+    base = _base_entrega()
+    if base is None:
+        return _recusa_entrega(None, entrega.Recusa(503, 'base_nao_configurada',
+                                                    'base de dados sem a chave de servico nesta maquina'))
+    from datetime import UTC, datetime, timedelta
+    desde = (datetime.now(UTC) - timedelta(days=dias)).isoformat(timespec='seconds')
+    try:
+        linhas = entrega.listar(base, situacao=situacao, desde=desde, limite=limite)
+    except Exception as exc:
+        logger.error("[ENTREGA] listagem falhou: %s", exc)
+        return _recusa_entrega(None, entrega.Recusa(503, 'base_indisponivel', 'base de dados indisponivel agora'))
+    return jsonify(ok=True, situacao=situacao, dias=dias, total=len(linhas), solicitacoes=linhas)
 
 
 # ---------------------------------------------------------------------------

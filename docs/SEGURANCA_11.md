@@ -37,6 +37,8 @@ PowerShell, dentro de `C:\Python\ServidorIntegracaoSAP`.
 | `aprovar` | aprovar/recusar o que o agente pediu — pessoa ou backend que fala por uma, **nunca** o agente |
 | `mcp` | conectar ao MCP (as ferramentas seguem os outros escopos) |
 | `backup:relatar` | o ALTHOST manda o relato dos backups do Veeam (`POST /operacao/backup/estado`; só grava o próprio relato — ver `docs/BACKUP_ALTHOST.md`) |
+| `entrega:solicitar` | pedir nova data de entrega combinada de um pedido (`POST /pedidos/<n>/data-entrega/solicitacoes`, ferramenta `solicitar_data_entrega`): grava uma solicitação **pendente** na base, o Comercial decide no OrçaView, **nunca** grava no SAP. **Nenhum agente recebe** (`PROIBIDOS_AO_AGENTE`) |
+| `entrega:ler` | ler a data combinada e a conversa das solicitações (`GET /pedidos/<n>/data-entrega`, `GET /pedidos/data-entrega/solicitacoes`). Separado de `leitura` de propósito: a conversa traz motivos internos da Produção. Concessão (14/10/2026): chave do app da Produção e `mcp-servico` com os dois; `orcaview-90` só `entrega:ler`; `mira-agente` nada |
 | `admin` | tudo (só a chave-mestra) |
 
 `python -m seguranca escopos` mostra a mesma lista.

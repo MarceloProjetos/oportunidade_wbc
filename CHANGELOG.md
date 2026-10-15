@@ -6,6 +6,32 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-15] — Data de entrega combinada: a Produção pede pela API e pelo MCP
+
+F4 do `PLANO_DATA_ENTREGA_COMBINADA` (plano no web; desenho em `docs/DESENHO_DATA_ENTREGA_COMBINADA.md`). A Produção
+pede uma nova data de entrega de um pedido; o Comercial decide na tela Situação dos Pedidos do OrçaView. **Nada grava
+no SAP.**
+- **Rotas (8077):** `POST /pedidos/<n>/data-entrega/solicitacoes` (escopo novo `entrega:solicitar`) cria uma
+  solicitação **pendente** na tabela `pedidos_entrega_alteracoes`; `GET /pedidos/<n>/data-entrega` (datas + conversa) e
+  `GET /pedidos/data-entrega/solicitacoes` ("o que mudou desde ontem") com o escopo novo `entrega:ler` — não `leitura`,
+  porque a conversa tem motivo interno.
+- **Ordem do POST é contrato:** a repetição (mesma data e motivo já pendentes) volta `200 ja_existia` ANTES do teto e
+  do SAP; outra pendente = `409 ja_ha_pendente` com quem/quando; a corrida no índice único (23505) é relida e o INSERT
+  tenta uma vez mais no máximo. Recusas com `motivo` estável: `pedido_fechado`, `pedido_cancelado`,
+  `pedido_nao_encontrado`, `fora_do_recorte`, `indeterminado`, `sem_data_sap`, `data_no_passado`,
+  `data_muito_distante`, `data_igual_a_vigente`, `docnum_ambiguo`, `base_indisponivel`, `base_nao_configurada` e os
+  de formato.
+- **Quem pediu:** `solicitado_cliente` é a credencial provada (a chave, ou o carimbo da porta 8078 para o
+  `mcp-servico`); `solicitado_por` é a pessoa declarada (`X-SIS-Usuario` do backend confiável vence o `solicitante` do
+  corpo).
+- **Base só com service_role:** sem a chave de serviço, 503 `base_nao_configurada` — a anon leria `[]` calada.
+- **MCP (+3 ferramentas, 37):** `data_entrega_pedido`, `solicitacoes_data_entrega` (leitura) e `solicitar_data_entrega`
+  (escrita só para pessoas, com prévia e `confirmar`; 180 s; o timeout manda conferir antes de repetir).
+- **Segurança:** `entrega:solicitar` entrou em `PROIBIDOS_AO_AGENTE` (agente só por `CATALOGO` + `/aprovacoes`, se um
+  dia).
+- Contrato `API_DATA_ENTREGA_COMBINADA.md`; 51 testes novos. **Pede deploy da .11 e a concessão dos escopos**
+  (`python -m seguranca acrescentar …`, ver o contrato §2).
+
 ## [2026-10-14] — Pedido fechado responde "Fechado" em vez de 404
 
 `GET /pedidos/<n>/situacao`: pedido fora da view e **fechado** na ORDR (`DocStatus = 'C'`, entregue/faturado)

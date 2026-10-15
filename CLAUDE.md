@@ -55,6 +55,7 @@ texto, no git. Guia do pacote:
 | `extract_orcamentos_espelho.py` | Espelho de `VW_EVOL_ORCAMENTO_ALT` no Supabase (agendado) |
 | `situacao_pedidos.py` | `/pedidos/situacao`: regra pura, **porte** do `situacao_pedidos_service.py` do web — diffável, com teste (`test_situacao_pedidos_diffavel.py`) |
 | `situacao_pedidos_hana.py` | Leitura HANA + cache + endereço de entrega das rotas `/pedidos/*` |
+| `entrega_combinada.py` | Data de entrega combinada (Produção pede, Comercial decide no .90): validação do corpo e as 3 chamadas à tabela `pedidos_entrega_alteracoes`; a conta das datas é `situacao_pedidos.entrega_combinada` (porte). Rotas `/pedidos/<n>/data-entrega*` no `api.py`; contrato `API_DATA_ENTREGA_COMBINADA.md`; testes `tests/test_api_data_entrega.py` + `tests/test_mcp_data_entrega.py` |
 | `sap_montagem_labels.py` | Rótulos de montagem, **porte** do web (mesmo teste de diff) |
 | `pedidos_bloqueados.py` | Lista **hardcode** de pedidos fora dos agregados (84337). **3 cópias**: aqui, `web_orcaview_V118/backend/services/pedidos_bloqueados.py` e `mobile_orcaview_V4/lib/pedidos/bloqueados.ts` — acrescentar exige os três |
 | `monitoring.py` | `collect_status()` — checks do `/status` (`SELECTABLE_CHECKS`: sap, sql_server, supabase, scheduler, scheduled_task, wbc_worker, windows_update, controle_producao; disco vem sempre). Check novo = `SELECTABLE_CHECKS` + despacho + alerta + saída + `_CHECK_ALIASES` do `api.py` + `_stub_all_ok` do teste |

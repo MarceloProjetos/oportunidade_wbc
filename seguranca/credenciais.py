@@ -46,13 +46,24 @@ ESCOPOS: dict[str, str] = {
     "mcp": "conectar ao MCP (8078); as ferramentas seguem os outros escopos",
     "backup:relatar": "o ALTHOST manda o estado dos backups do Veeam (só grava o próprio relato)",
     "hyperv:relatar": "um host Hyper-V manda o estado das VMs dele (só grava o próprio relato)",
+    "entrega:solicitar": ("pedir a mudança da data de entrega combinada de um pedido (grava uma "
+                          "solicitação na base; o Comercial decide no OrçaView; nunca grava no SAP)"),
+    "entrega:ler": ("ler a data de entrega combinada e a conversa das solicitações "
+                    "(traz motivos internos da Produção)"),
     "admin": "tudo — só a chave-mestra e quem administra",
 }
 
 LIMITE_NOME = 40
 #: Never held by an agent credential: ``admin`` opens everything, ``aprovar`` would let the
-#: model approve its own request (rule 1 of the plan).
-PROIBIDOS_AO_AGENTE = frozenset({"admin", "aprovar"})
+#: model approve its own request (rule 1 of the plan), ``entrega:solicitar`` is a direct write
+#: (PLANO_DATA_ENTREGA_COMBINADA, 14/10/2026) — an agent would only ever reach it through a
+#: new ``acoes_agente.CATALOGO`` action approved by a person. The set only grows.
+PROIBIDOS_AO_AGENTE = frozenset({"admin", "aprovar", "entrega:solicitar"})
+
+
+def _recusa_de_agente() -> str:
+    return (f"Um agente nunca recebe {', '.join(repr(e) for e in sorted(PROIBIDOS_AO_AGENTE))} "
+            "(escrita de agente é sempre pedido aprovado por uma pessoa).")
 
 
 class CredencialInvalida(ValueError):
@@ -163,7 +174,7 @@ def criar(nome: str, escopos: list[str], *, agente: bool = False, declara_usuari
             f"Escopo(s) inválido(s): {', '.join(desconhecidos) or '(nenhum)'}. Válidos: {', '.join(ESCOPOS)}."
         )
     if agente and PROIBIDOS_AO_AGENTE & set(escopos):
-        raise CredencialInvalida("Um agente nunca recebe 'admin' nem 'aprovar' (regras 1 e 12 do plano).")
+        raise CredencialInvalida(_recusa_de_agente())
     clientes = list(carregar(arquivo))
     # A revoked name may be reused (02/10/2026: a key pasted into a chat had to be replaced
     # right away); the revoked entry stays in the file, for the record.
@@ -195,7 +206,7 @@ def acrescentar_escopos(nome: str, escopos: list[str], *, declara_usuario: bool 
     if alvo is None:
         raise CredencialInvalida(f"Nenhum cliente ativo chamado '{nome}'.")
     if alvo.get("agente") and PROIBIDOS_AO_AGENTE & set(escopos):
-        raise CredencialInvalida("Um agente nunca recebe 'admin' nem 'aprovar' (regras 1 e 12 do plano).")
+        raise CredencialInvalida(_recusa_de_agente())
     alvo["escopos"] = sorted(set(alvo.get("escopos", [])) | set(escopos))
     if declara_usuario:
         alvo["declara_usuario"] = True
