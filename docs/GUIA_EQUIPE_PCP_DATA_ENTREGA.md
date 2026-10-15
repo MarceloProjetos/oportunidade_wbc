@@ -249,7 +249,7 @@ Exemplo de resposta:
    - se `situacao` = `pendente`: "Esperando o Comercial".
 4. **Horários:** `solicitado_em` e `decidido_em` vêm em **UTC** (`+00:00`). Converta para o horário de Brasília
    antes de mostrar.
-5. **`null`:** nas datas, em `atraso_nosso_dias` e em `atrasado`, `null` quer dizer **"não dá para saber agora"**.
+5. **Campos vazios (`null`):** nas datas, em `atraso_nosso_dias` e em `atrasado`, `null` quer dizer **"não dá para saber agora"**.
    Mostre "—", nunca "0" nem "não". Já `pendente: null` quer dizer **"não há pendente"**.
 
 ---
