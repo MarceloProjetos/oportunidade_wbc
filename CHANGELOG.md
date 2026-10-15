@@ -6,6 +6,12 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-15] — Condição de pagamento conta como quebra (D10)
+
+Decisão do Marcelo (15/10): pessoa mudando `GroupNum` no pedido = fora do processo. `historico_pedido.QUEBRA` ganha
+`condicao_pagamento`; vale para a rota, a tool MCP e o que o arquivo grava daqui para frente. As linhas já arquivadas
+foram corrigidas por um UPDATE no Supabase (`pedidos_sap_alteracoes_d10.sql`, no web).
+
 ## [2026-10-15] — Arquivo de pedidos: lote com lacuna parava o ciclo
 
 1º ciclo real (13:55, 264 linhas de 37 pedidos, 0 diferenças contra o SAP vivo) parou no pedido 84377 e não andou

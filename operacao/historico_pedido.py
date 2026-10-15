@@ -78,9 +78,10 @@ CATEGORIAS: dict[str, str] = {
     "DocStatus": "fechamento", "linha.LineStatus": "fechamento",
     "GroupNum": "condicao_pagamento",
 }
-#: Categories that are "out of the process" when a PERSON changes them. "condicao_pagamento"
-#: waits on decision D10; "endereco" and "fechamento" only inform.
-QUEBRA = frozenset({"cliente", "preco", "quantidade", "entrega", "liberacao", "cancelamento"})
+#: Categories that are "out of the process" when a PERSON changes them. Payment terms count
+#: since decision D10 (owner, 15/10/2026). "endereco" and "fechamento" only inform.
+QUEBRA = frozenset({"cliente", "preco", "quantidade", "entrega", "liberacao", "cancelamento",
+                    "condicao_pagamento"})
 #: SAP users allowed to release an order: the web's PEDIDO_LIBERACAO_EDITORES (owner's
 #: decision 14/10/2026, Adriano Fonseca and Roberto Zelli) in SAP user codes.
 LIBERACAO_PERMITIDA = frozenset({"vendas01", "projeto06"})

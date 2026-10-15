@@ -345,6 +345,12 @@ def test_liberacao_so_quebra_fora_da_lista_de_quem_libera(monkeypatch):
     assert outra["quebra"] is True and outra["quebra_em"] == ["liberacao"]
 
 
+def test_condicao_de_pagamento_mudada_por_pessoa_quebra(monkeypatch):
+    # D10 (owner, 15/10/2026): payment terms count.
+    e = _um_salto(monkeypatch, "vendas01", depois={"GroupNum": 487})
+    assert e["categorias"] == ["condicao_pagamento"] and e["quebra_em"] == ["condicao_pagamento"]
+
+
 def test_fechamento_de_linha_informa_e_cancelamento_quebra(monkeypatch):
     fechou = _um_salto(monkeypatch, "vendas01", ld=[_linha(2, 0, "MOD-A", "2", "10", LineStatus="C")])
     assert fechou["categorias"] == ["fechamento"] and fechou["quebra"] is False

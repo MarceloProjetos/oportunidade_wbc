@@ -569,7 +569,8 @@ def historico_pedido(pedido: int, versoes: int = 20, chave: str = "docnum") -> d
     mexendo no pedido, mesmo com usuário de pessoa), ``categorias`` (cliente, preco,
     quantidade, entrega, liberacao, cancelamento, endereco, fechamento,
     condicao_pagamento) e ``quebra`` = uma PESSOA mudou campo que deveria vir do WBC
-    (``quebra_em`` diz qual; liberação pelo Adriano ou Roberto é o processo). Gravações
+    (``quebra_em`` diz qual, condição de pagamento inclusive; liberação pelo Adriano ou
+    Roberto é o processo). Gravações
     seguidas sem mudança ou de OP do mesmo usuário vêm numa entrada só (``repeticoes``,
     ``versao_de``…``versao``). Campos que o SAP calcula sozinho (totais, pago, datas
     copiadas) ficam em ``detalhe``. ``lacuna`` = o SAP já apagou o começo do histórico
