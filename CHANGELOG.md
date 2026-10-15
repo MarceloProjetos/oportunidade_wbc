@@ -29,7 +29,14 @@ no SAP.**
   (escrita só para pessoas, com prévia e `confirmar`; 180 s; o timeout manda conferir antes de repetir).
 - **Segurança:** `entrega:solicitar` entrou em `PROIBIDOS_AO_AGENTE` (agente só por `CATALOGO` + `/aprovacoes`, se um
   dia).
-- Contrato `API_DATA_ENTREGA_COMBINADA.md`; 51 testes novos. **Pede deploy da .11 e a concessão dos escopos**
+- **Revisão Sonnet 5.5 (esforço alto): APROVADO COM AJUSTES, aplicados** — `motivo` não-texto era 500 (agora 400);
+  fora da view, pedido aberto com mudança aprovada não afirma mais "no prazo" (`atrasado: null`, sem data do SAP não há
+  referência); `
+` na observação vira quebra de linha e caractere de controle tem chave própria
+  (`observacao_invalida`); data só `AAAA-MM-DD` (o Python aceitava semana ISO); resposta sem a linha gravada = 503
+  "confira com o GET"; número acima de int4 = 404; qualquer falha da view = 503 `indeterminado`; leituras do MCP com
+  60 s; contrato com `pendente: null` = nenhuma e o passo `--declara-usuario` do `mcp-servico`.
+- Contrato `API_DATA_ENTREGA_COMBINADA.md`; 62 testes novos. **Pede deploy da .11 e a concessão dos escopos**
   (`python -m seguranca acrescentar …`, ver o contrato §2).
 
 ## [2026-10-14] — Pedido fechado responde "Fechado" em vez de 404

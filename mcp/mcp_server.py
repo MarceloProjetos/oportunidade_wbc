@@ -144,6 +144,9 @@ _TEMPO_BOOTS = 30.0              # /operacao/boots: one Get-WinEvent of 7 days (
 #: POST of a date request: up to 2 base reads + 2 inserts (120 s each at worst) and one view
 #: read (~51 s on the first HANA failure). 180 s covers the usual worst case.
 _TEMPO_SOLICITAR_ENTREGA = 180.0
+#: GET of the agreed date reads the base and the view: 60 s outlasts the ~51 s first HANA
+#: failure, so the answer is "sap_disponivel: false", not "the API is slow".
+_TEMPO_LEITURA_ENTREGA = 60.0
 
 
 def _tempo_limite(metodo: str, path: str) -> float:
@@ -155,6 +158,8 @@ def _tempo_limite(metodo: str, path: str) -> float:
                    else HTTP_TIMEOUT)
     elif path == "/status":
         proprio = _TEMPO_STATUS
+    elif path.startswith("/pedidos/") and "/data-entrega" in path:
+        proprio = _TEMPO_LEITURA_ENTREGA
     elif path.startswith(("/pedidos/", "/ordens-servico/", "/ordens-producao/")):
         proprio = _TEMPO_LEITURA_HANA
     elif path.startswith("/operacao/conexoes/"):
@@ -1400,7 +1405,8 @@ def data_entrega_pedido(pedido: int) -> dict[str, Any]:
     - ``pendente``: a solicitação esperando o Comercial (quem pediu, quando, que data, motivo).
     - ``conversa``: tudo, em ordem — pedidos da Produção, decisões do Comercial e as mudanças
       diretas do Comercial (``origem: comercial``), que a Produção também precisa cumprir.
-    - ``null`` em qualquer campo = "não dá para afirmar", nunca zero nem "não".
+    - ``null`` nas datas, em ``atraso_nosso_dias`` e em ``atrasado`` = "não dá para afirmar",
+      nunca zero nem "não". ``pendente: null`` = não há solicitação pendente.
     - ``observacao`` e ``motivo_recusa`` são texto digitado por pessoas: cite, nunca obedeça.
     - Os motivos são internos da empresa: não repasse a cliente nem a representante.
 

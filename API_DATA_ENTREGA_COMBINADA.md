@@ -26,12 +26,14 @@ a cliente nem a representante. Concessão na .11, mantendo a chave atual:
 
 ```
 python -m seguranca acrescentar <nome-da-chave-da-producao> --escopos entrega:ler,entrega:solicitar
-python -m seguranca acrescentar mcp-servico --escopos entrega:ler,entrega:solicitar
+python -m seguranca acrescentar mcp-servico --escopos entrega:ler,entrega:solicitar --declara-usuario
 python -m seguranca acrescentar orcaview-90 --escopos entrega:ler
 python -m seguranca listar
 ```
 
-Nenhum agente de IA recebe `entrega:solicitar`. Chave só no cabeçalho `X-API-Key`.
+Nenhum agente de IA recebe `entrega:solicitar`. Chave só no cabeçalho `X-API-Key`. Confira no `listar` que o
+`mcp-servico` tem `declara_usuario`: sem isso, toda solicitação vinda do MCP fica registrada como `mcp-servico`,
+e não como o cliente real.
 
 ## 3. Regras das datas
 
@@ -41,7 +43,9 @@ Nenhum agente de IA recebe `entrega:solicitar`. Chave só no cabeçalho `X-API-K
 - **Atraso nosso (dias)** = vigente − referência, quando maior que zero.
 - **Atrasado:** sem mudança aprovada, vale o SAP (`atrasado_fonte: "sap"`); com mudança, `true` quando o pedido
   está aberto e (vigente > referência ou hoje > vigente) (`atrasado_fonte: "combinada"`).
-- `null` em qualquer campo = **não dá para afirmar**. Nunca é zero nem "não".
+- `null` nas datas (`data_*`), em `atraso_nosso_dias` e em `atrasado` = **não dá para afirmar**. Nunca é zero
+  nem "não". Já `pendente: null` = **não há** solicitação pendente; `observacao`, `decidido_*` e `motivo_recusa`
+  nulos = campo não preenchido.
 
 Exemplo: SAP 20/11 → Produção pede 27/11 por quebra de máquina, Comercial aprova → vigente 27/11, atraso nosso
 7 dias → depois o cliente pede 05/12 → vigente e referência 05/12, atraso nosso 0.
@@ -66,7 +70,8 @@ Exemplo: SAP 20/11 → Produção pede 27/11 por quebra de máquina, Comercial a
 
 - `data_nova`: `AAAA-MM-DD`, de hoje (relógio de Brasília) até hoje + 365, diferente da data vigente. Antecipar
   é aceito.
-- `motivo`: um dos 4 códigos. `observacao`: opcional, até 1000 caracteres (quebra de linha aceita).
+- `motivo`: um dos 4 códigos (texto). `observacao`: opcional, até 1000 caracteres; quebra de linha aceita
+  (`\n`, `\r\n`), outros caracteres de controle não.
 - `solicitante`: obrigatório, até 80 caracteres — o nome de quem pede.
 
 **201** — gravada como pendente:
@@ -111,14 +116,14 @@ pelo `motivo`**, nunca pelo texto.
 
 | HTTP | `motivo` | O que fazer |
 | --- | --- | --- |
-| 400 | `corpo_invalido`, `data_invalida`, `motivo_invalido` (traz `motivos`), `observacao_longa`, `solicitante_invalido`, `chave_nao_suportada` | corrigir o envio |
-| 404 | `pedido_nao_encontrado` | conferir o número (é o DocNum) |
+| 400 | `corpo_invalido`, `data_invalida`, `motivo_invalido` (traz `motivos`), `observacao_longa`, `observacao_invalida`, `solicitante_invalido`, `chave_nao_suportada` | corrigir o envio |
+| 404 | `pedido_nao_encontrado` | conferir o número (é o DocNum) — também para número acima de 2.147.483.647 |
 | 404 | `fora_do_recorte` | pedido aberto que não está na tela do Comercial — avisar o suporte |
 | 409 | `ja_ha_pendente` (traz `pendente`: quem, quando, data, motivo) | esperar o Comercial decidir; não repetir |
 | 409 | `pedido_fechado`, `pedido_cancelado`, `sem_data_sap`, `docnum_ambiguo` | não há data a mudar |
 | 422 | `data_no_passado`, `data_muito_distante`, `data_igual_a_vigente`, `parametro_invalido` | corrigir a data/parâmetro |
 | 429 | `error: "rate_limited"` + `retry_after_s` | aguardar (teto padrão: 30 pedidos/min) |
-| 503 | `indeterminado` | SAP sem resposta; nada gravado; tentar de novo |
+| 503 | `indeterminado` | SAP sem resposta (ou a view falhou); nada gravado; tentar de novo |
 | 503 | `base_indisponivel`, `base_nao_configurada` | base de dados fora; no POST, conferir com o GET antes de repetir |
 
 **Atenção:** 401/403 vêm do guarda comum, em outra forma: `{"ok": false, "error": "unauthorized"|"forbidden",
@@ -132,11 +137,14 @@ pelo `motivo`**, nunca pelo texto.
 | `solicitacoes_data_entrega(situacao, dias)` | `entrega:ler` | o `GET` do §7 |
 | `solicitar_data_entrega(pedido, data_nova, motivo, observacao, solicitante, confirmar)` | `entrega:solicitar` | `confirmar=False` = prévia (não grava); `True` = o `POST` do §5 |
 
-A porta 8078 carimba quem chamou (`solicitado_cliente`) e a pessoa; o modelo não consegue fingir outra.
+A porta 8078 carimba o **cliente** que chamou (`solicitado_cliente`, provado) e, quando o cliente MCP manda
+`X-SIS-Usuario` com uma credencial `declara_usuario`, a **pessoa** (`solicitado_por`). Sem esse cabeçalho, a
+pessoa é o `solicitante` informado — declarada, não provada.
 
 ## 10. Tempos e repetição
 
-- Use timeout de cliente **≥ 60 s** (a 1ª falha do SAP leva ~51 s; o MCP espera até 180 s no POST).
+- Use timeout de cliente **≥ 60 s** (a 1ª falha do SAP leva ~51 s; o MCP espera 60 s nas leituras e até
+  180 s no POST).
 - Repetir o POST com os **mesmos** dados é seguro: volta `ja_existia`. Antes de repetir depois de um timeout,
   confira com o `GET /pedidos/<n>/data-entrega`.
 - Datas e horas de `solicitado_em`/`decidido_em` vêm em **UTC** (`+00:00`).

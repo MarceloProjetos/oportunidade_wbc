@@ -2362,6 +2362,18 @@ _AVISO_ENTREGA = ('Nada mudou ainda: a data so muda quando o Comercial aprovar n
                   'O SAP nao e alterado.')
 
 
+#: ``doc_num`` is a Postgres integer: a bigger number cannot be an order (and the base would
+#: answer 22003, reported as an outage).
+_DOCNUM_MAX = 2_147_483_647
+
+
+def _numero_do_pedido(numero: str) -> int:
+    n = _inteiro_positivo(numero, 'numero do pedido')
+    if n > _DOCNUM_MAX:
+        raise entrega.Recusa(404, 'pedido_nao_encontrado', f'pedido {n} nao existe no SAP')
+    return n
+
+
 def _recusa_entrega(n: int | None, exc: entrega.Recusa):
     """A refusal in the house shape: ``motivo`` = stable key, ``error`` = text."""
     corpo = {'ok': False, 'motivo': exc.motivo, 'error': exc.texto, **exc.extra}
@@ -2377,7 +2389,11 @@ def _base_entrega():
     s = get_settings()
     if not (s.supabase_url and s.supabase_service_role_key):
         return None
-    return _supabase()
+    try:
+        return _supabase()
+    except Exception as exc:  # a malformed URL/key must not become a bare 500
+        logger.error("[ENTREGA] cliente da base nao abriu: %s", exc)
+        return None
 
 
 def _cliente_que_pede(cliente: Cliente) -> str:
@@ -2441,6 +2457,11 @@ def _bloco_entrega(n: int, linhas: list, pedido: dict | None, *, sap_disponivel:
         atrasado_sap = None if aberto is None or aberto else False
         bloco = sit_ped.entrega_combinada(None, linhas, hoje=sit_ped.now_br().date(),
                                           aberto=aberto, atrasado_sap=atrasado_sap)
+        # No SAP date = no reference: "not late" cannot be asserted for an open order (only
+        # "today is past the agreed date" can). null is the one "cannot tell".
+        if (bloco['atrasado_fonte'] == 'combinada' and bloco['atrasado'] is False
+                and aberto and bloco['data_referencia'] is None):
+            bloco['atrasado'] = None
     return {'ok': True, 'pedido': n, 'status_pedido': status, 'sap_disponivel': sap_disponivel,
             'cache_idade_s': sit_ped_hana.idade_do_cache_s() if sap_disponivel else None, **bloco}
 
@@ -2453,7 +2474,10 @@ def entrega_solicitar(numero: str):
     The order of the checks is contract: a retry is recognised in the base BEFORE the rate
     limit and before SAP is read, so a repeated call is ``200 ja_existia``, never 409/429.
     """
-    n = _inteiro_positivo(numero, 'numero do pedido')
+    try:
+        n = _numero_do_pedido(numero)
+    except entrega.Recusa as exc:
+        return _recusa_entrega(None, exc)
     if _chave_docentry():
         return _recusa_entrega(n, entrega.Recusa(
             400, 'chave_nao_suportada', 'use o DocNum (o numero da tela); chave=docentry nao vale aqui'))
@@ -2498,12 +2522,10 @@ def entrega_solicitar(numero: str):
         pedido = _pedido_da_view(n)
     except entrega.Recusa as exc:
         return _recusa_entrega(n, exc)
-    except sit_ped_hana.SAPIndisponivel as exc:
+    except Exception as exc:  # SAPIndisponivel, the view's volume guard, anything: never a bare 500
         logger.warning("[ENTREGA] view indisponivel (pedido %s): %s", n, exc)
         return _recusa_entrega(n, entrega.Recusa(503, 'indeterminado',
                                                  'SAP indisponivel agora - nada foi gravado'))
-    except sit_ped.ValidationError as exc:
-        return _resposta_situacao_erro(exc)
     if pedido is None:
         return _recusa_entrega(n, _fora_da_view(n))
     if str(pedido.get('status_pedido') or '').casefold() == 'fechado':
@@ -2572,8 +2594,11 @@ def entrega_solicitar(numero: str):
 @requer_chave('entrega:ler')
 def entrega_do_pedido(numero: str):
     """The agreed delivery date of ONE order + the whole thread (requests, decisions and
-    Comercial's direct changes). ``null`` means only "cannot tell"."""
-    n = _inteiro_positivo(numero, 'numero do pedido')
+    Comercial's direct changes). ``null`` in a date/delay field means only "cannot tell"."""
+    try:
+        n = _numero_do_pedido(numero)
+    except entrega.Recusa as exc:
+        return _recusa_entrega(None, exc)
     if _chave_docentry():
         return _recusa_entrega(n, entrega.Recusa(
             400, 'chave_nao_suportada', 'use o DocNum (o numero da tela); chave=docentry nao vale aqui'))
@@ -2592,7 +2617,7 @@ def entrega_do_pedido(numero: str):
         pedido = _pedido_da_view(n)
     except entrega.Recusa as exc:
         return _recusa_entrega(n, exc)
-    except (sit_ped_hana.SAPIndisponivel, sit_ped.ValidationError) as exc:
+    except Exception as exc:  # same degradation for any view failure: dates still come from the base
         logger.warning("[ENTREGA] view indisponivel (pedido %s): %s", n, exc)
         sap_disponivel = False
     if pedido is not None:

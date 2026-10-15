@@ -181,7 +181,8 @@ def test_post_cliente_comum_nao_forja_pedido_por_nem_usuario(c, pcp, base):
 
 # ── POST: body ─────────────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("data", ["27/11/2026", "2026-02-30", "20261127", True, 20261127, None])
+@pytest.mark.parametrize("data", ["27/11/2026", "2026-02-30", "20261127", True, 20261127, None,
+                                  "2026-W47-5", "２０２６-11-27"])
 def test_post_data_invalida_400(c, pcp, data):
     r = _post(c, pcp, data_nova=data)
     assert r.status_code == 400 and r.get_json()["motivo"] == "data_invalida"
@@ -192,10 +193,17 @@ def test_post_motivo_fora_dos_4_lista_os_4(c, pcp):
     assert b["motivo"] == "motivo_invalido" and len(b["motivos"]) == 4
 
 
+@pytest.mark.parametrize("motivo", [["quebra_maquina"], {"a": 1}, 1, None])
+def test_post_motivo_nao_texto_e_400_nunca_500(c, pcp, motivo):
+    r = _post(c, pcp, motivo=motivo)
+    assert (r.status_code, r.get_json()["motivo"]) == (400, "motivo_invalido")
+
+
 def test_post_observacao_longa_ou_com_controle(c, pcp, base):
     assert _post(c, pcp, observacao="x" * 1001).get_json()["motivo"] == "observacao_longa"
-    assert _post(c, pcp, observacao="a\x07b").get_json()["motivo"] == "observacao_longa"
-    assert _post(c, pcp, observacao="linha 1\nlinha 2").status_code == 201
+    assert _post(c, pcp, observacao="a\x07b").get_json()["motivo"] == "observacao_invalida"
+    assert _post(c, pcp, observacao="linha 1\r\nlinha 2").status_code == 201
+    assert base.linhas[0]["observacao"] == "linha 1\nlinha 2"       # CRLF stored as LF
 
 
 @pytest.mark.parametrize("pessoa", ["", "x" * 81, "ana\tlima"])
@@ -299,6 +307,39 @@ def test_post_view_fora_503_indeterminado_e_nada_gravado(c, pcp, base, monkeypat
     assert (r.status_code, r.get_json()["motivo"]) == (503, "indeterminado") and base.inserts == 0
 
 
+def test_post_volume_da_view_vira_503_indeterminado(c, pcp, monkeypatch):
+    def _guarda(**_k):
+        raise apimod.sit_ped.ValidationError("a view devolveu demais")
+
+    monkeypatch.setattr(hana, "fetch_status_pedidos", _guarda)
+    r = _post(c, pcp)
+    assert (r.status_code, r.get_json()["motivo"]) == (503, "indeterminado")
+
+
+def test_post_resposta_sem_linha_gravada_e_503_confira(c, pcp, monkeypatch):
+    class _Vazio:
+        data: list = []
+
+    class _Q:
+        def insert(self, _l):
+            return self
+
+        def execute(self):
+            return _Vazio()
+
+    monkeypatch.setattr(entrega, "linhas_do_pedido", lambda cl, n: [])
+    monkeypatch.setattr(apimod, "_supabase", lambda: type("B", (), {"table": lambda _s, _n: _Q()})())
+    r = _post(c, pcp)
+    assert (r.status_code, r.get_json()["motivo"]) == (503, "base_indisponivel")
+    assert "GET" in r.get_json()["error"]
+
+
+def test_numero_acima_de_int4_e_404(c, pcp):
+    r = _post(c, pcp, n=99999999999)
+    assert (r.status_code, r.get_json()["motivo"]) == (404, "pedido_nao_encontrado")
+    assert c.get("/pedidos/99999999999/data-entrega", headers=pcp).status_code == 404
+
+
 def test_post_docnum_ambiguo_409(c, pcp, monkeypatch):
     monkeypatch.setattr(hana, "fetch_status_pedidos",
                         lambda **_k: [dict(VIEW[0]), dict(VIEW[0], DocEntry=99)])
@@ -332,13 +373,11 @@ def test_chave_docentry_400(c, pcp):
     assert r.get_json()["motivo"] == "chave_nao_suportada"
 
 
-def test_post_nunca_escreve_no_sap_nem_altera_linhas(c, pcp, base, monkeypatch):
-    import ordens_producao_sl
-
-    monkeypatch.setattr(ordens_producao_sl, "alterar_status", lambda *a, **k: pytest.fail("SAP"),
-                        raising=False)
-    _post(c, pcp)
-    assert set(base.ops) <= {"select", "insert"}
+def test_post_so_le_e_insere_na_base(c, pcp, base):
+    """The base side of "never writes SAP": the route only reads and inserts (no update or
+    delete); SAP is only read, through the stubbed view and ORDR."""
+    assert _post(c, pcp).status_code == 201
+    assert set(base.ops) == {"select", "insert"}
 
 
 # ── Reads ──────────────────────────────────────────────────────────────────────
@@ -368,6 +407,8 @@ def test_get_fora_da_view_aberto_atrasado_null(c, pcp, base, monkeypatch):
                         lambda n: {"pedido_existe": True, "pedido_cancelado": False, "pedido_status": "Aberto"})
     b = c.get("/pedidos/70000/data-entrega", headers=pcp).get_json()
     assert b["status_pedido"] == "Aberto" and b["data_sap"] is None and b["data_vigente"] == "2026-11-27"
+    # No SAP date = no reference: an open order is NOT asserted as on time.
+    assert b["atrasado"] is None
 
 
 def test_get_ordr_none_sap_disponivel_false(c, pcp, base, monkeypatch):
@@ -402,3 +443,32 @@ def test_agente_nunca_recebe_entrega_solicitar():
     credenciais.criar("mira-y", ["leitura"], agente=True)
     with pytest.raises(credenciais.CredencialInvalida):
         credenciais.acrescentar_escopos("mira-y", ["entrega:solicitar"])
+
+
+def test_listar_monta_os_filtros_de_cada_situacao():
+    """The fake base ignores gte/or_: this pins the filters the real PostgREST receives."""
+    chamadas: list = []
+
+    class _Q:
+        def __getattr__(self, nome):
+            def _f(*a, **k):
+                chamadas.append((nome, a, k))
+                return self
+            return _f
+
+        def execute(self):
+            return type("R", (), {"data": []})()
+
+    base = type("B", (), {"table": lambda _s, _n: _Q()})()
+    desde = "2026-11-03T12:00:00+00:00"
+    for situacao in ("pendente", "decididas", "todas"):
+        chamadas.clear()
+        entrega.listar(base, situacao=situacao, desde=desde, limite=50)
+        nomes = [(n, a) for n, a, _k in chamadas]
+        if situacao == "pendente":
+            assert ("eq", ("situacao", "pendente")) in nomes
+        elif situacao == "decididas":
+            assert ("neq", ("situacao", "pendente")) in nomes and ("gte", ("decidido_em", desde)) in nomes
+        else:
+            assert ("or_", (f"solicitado_em.gte.{desde},decidido_em.gte.{desde}",)) in nomes
+        assert ("limit", (50,)) in nomes

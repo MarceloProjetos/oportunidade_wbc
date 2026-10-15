@@ -108,3 +108,10 @@ def test_porta_recusa_sem_escopo_e_carimba_quem_pediu(acesso):
 def test_escrita_de_data_conta_como_escrita_para_as_regras_de_agente(acesso):
     assert "entrega:solicitar" in acesso.ESCRITAS
     assert "entrega:solicitar" in credenciais.PROIBIDOS_AO_AGENTE
+
+
+def test_tempos_proprios_da_data_de_entrega(fachada):
+    assert fachada._tempo_limite("POST", "/pedidos/1/data-entrega/solicitacoes") == 180.0
+    assert fachada._tempo_limite("GET", "/pedidos/1/data-entrega") == 60.0
+    assert fachada._tempo_limite("GET", "/pedidos/data-entrega/solicitacoes") == 60.0
+    assert fachada._tempo_limite("GET", "/pedidos/1/situacao") == fachada._TEMPO_LEITURA_HANA

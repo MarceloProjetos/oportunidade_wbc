@@ -14,6 +14,7 @@ the screen and this API never disagree.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, timedelta
 from typing import Any
 
@@ -47,6 +48,8 @@ PESSOA_MAX = 80
 HORIZONTE_DIAS = 365
 #: Rows of one order. An order has a handful; the cap only guards a runaway.
 _LINHAS_MAX = 500
+#: Strictly AAAA-MM-DD: ``date.fromisoformat`` alone also takes ISO week dates ("2026-W47-5").
+_DATA_RE = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)
 
 
 class Recusa(Exception):
@@ -63,19 +66,20 @@ class Recusa(Exception):
 # ── Body ─────────────────────────────────────────────────────────────────────
 
 def _texto_livre(valor: Any, *, limite: int, motivo: str, campo: str,
-                 quebra_ok: bool) -> str | None:
+                 quebra_ok: bool, motivo_controle: str | None = None) -> str | None:
     if valor is None:
         return None
     if not isinstance(valor, str):
-        raise Recusa(400, motivo, f"{campo} deve ser texto")
-    texto = valor.strip()
+        raise Recusa(400, motivo_controle or motivo, f"{campo} deve ser texto")
+    # A Windows textarea / PowerShell here-string sends CRLF: it is a line break, not junk.
+    texto = valor.replace("\r\n", "\n").replace("\r", "\n").strip()
     if not texto:
         return None
     if len(texto) > limite:
         raise Recusa(400, motivo, f"{campo} com mais de {limite} caracteres")
     permitido = (lambda ch: ch.isprintable() or ch == "\n") if quebra_ok else str.isprintable
     if not all(permitido(ch) for ch in texto):
-        raise Recusa(400, motivo, f"{campo} com caractere de controle")
+        raise Recusa(400, motivo_controle or motivo, f"{campo} com caractere de controle")
     return texto
 
 
@@ -89,7 +93,7 @@ def validar_corpo(corpo: Any, *, solicitante_declarado: str | None) -> dict[str,
         raise Recusa(400, "corpo_invalido", "corpo JSON ausente ou nao e um objeto")
 
     bruto = corpo.get("data_nova")
-    if not isinstance(bruto, str) or len(bruto) != 10:
+    if not isinstance(bruto, str) or not _DATA_RE.fullmatch(bruto):
         raise Recusa(400, "data_invalida", "data_nova deve ser AAAA-MM-DD")
     try:
         data_nova = date.fromisoformat(bruto)
@@ -97,12 +101,13 @@ def validar_corpo(corpo: Any, *, solicitante_declarado: str | None) -> dict[str,
         raise Recusa(400, "data_invalida", "data_nova deve ser uma data valida AAAA-MM-DD") from None
 
     motivo = corpo.get("motivo")
-    if motivo not in MOTIVOS_ENTREGA:
+    if not isinstance(motivo, str) or motivo not in MOTIVOS_ENTREGA:
         raise Recusa(400, "motivo_invalido", f"motivo deve ser um de: {', '.join(MOTIVOS_ENTREGA)}",
                      motivos=list(MOTIVOS_ENTREGA))
 
     observacao = _texto_livre(corpo.get("observacao"), limite=OBSERVACAO_MAX,
-                              motivo="observacao_longa", campo="observacao", quebra_ok=True)
+                              motivo="observacao_longa", campo="observacao", quebra_ok=True,
+                              motivo_controle="observacao_invalida")
 
     pessoa = solicitante_declarado or _texto_livre(
         corpo.get("solicitante"), limite=PESSOA_MAX, motivo="solicitante_invalido",
@@ -146,7 +151,10 @@ def inserir(cliente: Any, linha: dict[str, Any]) -> dict[str, Any]:
     """INSERT one pending request; returns the stored row. Raises the client's error as is."""
     res = cliente.table(TABELA).insert(linha).execute()
     dados = res.data or []
-    return dados[0] if dados else linha
+    if not dados or "id" not in dados[0]:
+        # Written or not, we cannot show it: the caller answers "check with the GET".
+        raise RuntimeError("insert sem a linha gravada na resposta")
+    return dados[0]
 
 
 def listar(cliente: Any, *, situacao: str, desde: str, limite: int) -> list[dict[str, Any]]:
