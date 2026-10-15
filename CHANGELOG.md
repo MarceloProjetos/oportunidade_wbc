@@ -6,6 +6,13 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-15] — Arquivo de pedidos: lote com lacuna parava o ciclo
+
+1º ciclo real (13:55, 264 linhas de 37 pedidos, 0 diferenças contra o SAP vivo) parou no pedido 84377 e não andou
+mais: a linha de `lacuna` tinha menos colunas que as linhas de versão, e o PostgREST recusa lote cujos objetos têm
+chaves diferentes (PGRST102). `arquivo_pedidos.completar` põe todas as colunas em toda linha (padrão onde falta) e
+recusa coluna desconhecida antes da rede; o teste falso agora barra lote heterogêneo.
+
 ## [2026-10-15] — Arquivo de quem mexeu nos pedidos (antes de o SAP apagar)
 
 F2 do `PLANO_PEDIDOS_QUEM_MEXEU` (plano no web). O SAP guarda só 99 versões por documento (`OADM.MaxHistory`); o

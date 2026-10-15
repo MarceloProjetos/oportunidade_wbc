@@ -167,6 +167,8 @@ class _Consulta:
 
     def upsert(self, linhas, on_conflict, ignore_duplicates):
         assert ignore_duplicates is True
+        # PostgREST refuses a batch with different keys per object (PGRST102).
+        assert len({frozenset(r) for r in linhas}) == 1, "lote com chaves diferentes"
         self._upsert = (linhas, on_conflict)
         return self
 
@@ -198,6 +200,23 @@ def test_ciclo_grava_uma_vez_e_o_seguinte_nao_repete(monkeypatch, tmp_path):
     assert ap.ler_estado(estado)["adoc"] == {20500: 2}
     r2 = ap.ciclo(object(), "SBO", cliente, estado_path=estado)
     assert r2["lidos"] == 0 and len(cliente.upserts) == 1
+
+
+def test_lote_com_lacuna_leva_as_mesmas_colunas(monkeypatch, tmp_path):
+    # 84377 on 15/10/2026: the gap row had fewer keys than the version rows and PostgREST
+    # refused the whole batch, stopping every cycle at that order.
+    versoes = [_versao(12, "vendas01"), _versao(13, "vendas01", CardCode="C9")]
+    _hana_falso(monkeypatch, versoes)
+    cliente = _Cliente()
+    r = ap.ciclo(object(), "SBO", cliente, estado_path=tmp_path / "e.json")
+    (lote, _), = cliente.upserts
+    assert r["versoes_perdidas"] == 11 and lote[0]["lacuna"] is True and len(lote) == 3
+    assert lote[0]["usuario_codigo"] is None and lote[1]["lacuna"] is False
+
+
+def test_coluna_desconhecida_e_recusada_antes_da_rede():
+    with pytest.raises(ValueError):
+        ap.completar({"fonte": "sap_adoc", "coluna_errada": 1})
 
 
 def test_simulacao_nao_grava_nem_avanca_cursor(monkeypatch, tmp_path):

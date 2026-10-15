@@ -212,11 +212,32 @@ def ler_eventos_worker(caminho: str | None, depois_de: int, limite: int = WORKER
 
 # ── Supabase ─────────────────────────────────────────────────────────────────
 
+#: Every row carries every column: PostgREST refuses a bulk insert whose objects have
+#: different keys (PGRST102 "All object keys must match"). A gap row among normal rows stopped
+#: the first real cycle on order 84377 (15/10/2026) -- and every cycle after it.
+_PADRAO: dict[str, Any] = {
+    "fonte": None, "doc_entry": None, "doc_num": None, "log_instanc": None, "log_instanc_ate": None,
+    "momento": None, "momento_de": None, "usuario_codigo": None, "usuario_nome": None, "pessoa": None,
+    "tela_id": None, "origem": None, "categorias": [], "quebra": False, "quebra_em": [], "lacuna": False,
+    "resumo": None, "mudancas": [], "detalhe": None, "repeticoes": 1, "sem_mudanca": 0, "acao": None,
+    "evento_id": None, "orcamento": None,
+}
+
+
+def completar(linha: dict[str, Any]) -> dict[str, Any]:
+    """The row with every column of ``_PADRAO`` (defaults where absent)."""
+    sobra = set(linha) - set(_PADRAO)
+    if sobra:
+        raise ValueError(f"coluna fora do arquivo: {sorted(sobra)}")
+    return _PADRAO | linha
+
+
 def gravar(cliente: Any, linhas: list[dict], conflito: str) -> None:
     """Upsert ignoring duplicates: a re-run after a lost cursor inserts nothing twice."""
-    for i in range(0, len(linhas), UPSERT_LOTE):
+    completas = [completar(r) for r in linhas]
+    for i in range(0, len(completas), UPSERT_LOTE):
         (cliente.table(TABELA)
-         .upsert(linhas[i:i + UPSERT_LOTE], on_conflict=conflito, ignore_duplicates=True)
+         .upsert(completas[i:i + UPSERT_LOTE], on_conflict=conflito, ignore_duplicates=True)
          .execute())
 
 
