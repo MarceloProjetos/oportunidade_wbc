@@ -564,8 +564,21 @@ def historico_pedido(pedido: int, versoes: int = 20, chave: str = "docnum") -> d
     depósito, OPs; linha incluída/removida). Mais nova primeiro. "Salvo sem mudança de
     conteúdo" = a pessoa abriu e salvou sem alterar nada que importe.
 
-    Ao responder, deixe claro quem fez cada mudança: quando ``pela_integracao`` é false, a
-    mudança foi feita por uma pessoa no SAP, não pelo software.
+    Cada entrada também traz ``origem``: ``pessoa``, ``integracao`` ou ``criacao_op``
+    (processamento de OP — Controle de Produção ou add-on no cliente SAP; NÃO é alguém
+    mexendo no pedido, mesmo com usuário de pessoa), ``categorias`` (cliente, preco,
+    quantidade, entrega, liberacao, cancelamento, endereco, fechamento,
+    condicao_pagamento) e ``quebra`` = uma PESSOA mudou campo que deveria vir do WBC
+    (``quebra_em`` diz qual; liberação pelo Adriano ou Roberto é o processo). Gravações
+    seguidas sem mudança ou de OP do mesmo usuário vêm numa entrada só (``repeticoes``,
+    ``versao_de``…``versao``). Campos que o SAP calcula sozinho (totais, pago, datas
+    copiadas) ficam em ``detalhe``. ``lacuna`` = o SAP já apagou o começo do histórico
+    (guarda só 99 versões): diga isso em vez de tratar a versão mais antiga como a criação.
+
+    Ao responder, deixe claro quem fez cada mudança e destaque as com ``quebra``.
+    ATENÇÃO: o usuário ``orcaview`` é a integração E também a tela de Pedidos do OrçaView
+    (uma pessoa) — por enquanto não dá para separar; diga "integração ou alguém pela tela
+    do OrçaView".
 
     Args:
         pedido: número que aparece na tela (DocNum, ex.: 84453).

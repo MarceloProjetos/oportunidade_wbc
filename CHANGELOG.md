@@ -6,6 +6,27 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-15] — Histórico do pedido diz quem quebrou o processo
+
+F1 do `PLANO_PEDIDOS_QUEM_MEXEU` (plano no web). `operacao/historico_pedido.py` (rota `/pedidos/<n>/historico` e tool
+MCP `historico_pedido`) passa a classificar cada versão do `ADOC`. Só leitura, nada novo no Supabase; os campos antigos
+ficam (`pela_integracao`, `mudancas`, `resumo`).
+- **`origem`:** `pessoa`, `integracao` ou `criacao_op` — versão que só mexe no vínculo de OP / Detalhe do Orçamento
+  (`U_INO_OP`, `U_INO_ProcessWBC`, `U_INO_ORCAMENTO`, `U_INO_VERSAOWBC`, peso), de qualquer usuário: o `projeto06` faz
+  pelo add-on o que o Controle de Produção faz (634 de 836 versões dele em 30 dias eram vazias).
+- **`categorias` + `quebra`/`quebra_em`:** pessoa mudando cliente, preço, quantidade/itens, entrega, liberação ou
+  cancelamento. Liberação por `vendas01`/`projeto06` é o processo (`PEDIDO_LIBERACAO_EDITORES` do web, 14/10).
+  `DocStatus`/`LineStatus` só informam (`fechamento`): entrega/nota fecham o pedido **sem** versão no `ADOC` (196 de
+  228 pedidos fechados em 120 dias), e a próxima gravação manual carrega o fechamento junto.
+- **Derivados em `detalhe`:** pago, totais, impostos, `ReqDate`/`CancelDate`, peso do cabeçalho.
+- **Ruído dobrado:** gravações seguidas sem mudança, de OP ou só de peso, do mesmo usuário, viram uma entrada
+  (`repeticoes`, `sem_mudanca`, `versao_de`); `total_entradas` e `quebras` na raiz; o limite `versoes` conta entradas.
+  Conferido em PROD: 84080 = 99 versões → 3 entradas; 84179 = 32 → 10.
+- **`lacuna`:** quando o SAP já apagou o começo (`MIN(LogInstanc) > 1`), a resposta diz quantas versões sumiram e a
+  mais antiga não se passa por criação.
+- ⚠ `orcaview` é a integração **e** a tela de Pedidos do OrçaView: ainda sai como `integracao` (a F2 do plano casa com
+  quem gravou pela tela). O docstring da tool avisa o modelo.
+
 ## [2026-10-15] — Data de entrega combinada: a Produção pede pela API e pelo MCP
 
 F4 do `PLANO_DATA_ENTREGA_COMBINADA` (plano no web; desenho em `docs/DESENHO_DATA_ENTREGA_COMBINADA.md`). A Produção

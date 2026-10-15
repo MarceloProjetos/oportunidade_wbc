@@ -50,6 +50,50 @@ VERSOES_PADRAO = 20
 VERSOES_MAX = 60
 MUDANCAS_POR_VERSAO = 30
 
+# --- Classification (web docs/PLANO_PEDIDOS_QUEM_MEXEU.md, F1) -------------------------
+# Change keys: header columns by name, line columns as "linha.<Column>", plus
+# "linha.incluida" / "linha.removida".
+
+#: Header columns the SAP derives from others (payment, totals, copied dates, weight sum):
+#: kept in ``detalhe`` so ``mudancas`` shows what someone set. A delivery or invoice closing
+#: the order writes no version (196 of 228 closed orders, 15/10/2026), so the next manual save
+#: carries these along with whatever the person did.
+CABECALHO_DERIVADO = frozenset({
+    "PaidToDate", "PaidSys", "PaidFC", "VatPaid", "VatPaidSys", "VatPaidFC",
+    "VatSum", "VatSumSy", "VatSumFC", "DocTotal", "DocTotalSy", "DocTotalFC",
+    "DiscSum", "DiscSumSy", "DiscSumFC", "ReqDate", "CancelDate", "Weight", "Printed",
+    "FinncPriod", "JrnlMemo",
+})
+#: Change key -> category of plan §5.
+CATEGORIAS: dict[str, str] = {
+    "CardCode": "cliente", "CardName": "cliente",
+    "ShipToCode": "endereco", "Address2": "endereco",
+    "linha.Price": "preco", "linha.DiscPrcnt": "preco", "DiscPrcnt": "preco", "U_INO_VL_MT": "preco",
+    "linha.Quantity": "quantidade", "linha.ItemCode": "quantidade",
+    "linha.incluida": "quantidade", "linha.removida": "quantidade",
+    "DocDueDate": "entrega", "linha.ShipDate": "entrega",
+    "U_INO_PedLib": "liberacao", "U_INO_DT_PED_LIB": "liberacao", "Confirmed": "liberacao",
+    "CANCELED": "cancelamento",
+    # Status closes by itself on delivery/invoice (see CABECALHO_DERIVADO): informational only.
+    "DocStatus": "fechamento", "linha.LineStatus": "fechamento",
+    "GroupNum": "condicao_pagamento",
+}
+#: Categories that are "out of the process" when a PERSON changes them. "condicao_pagamento"
+#: waits on decision D10; "endereco" and "fechamento" only inform.
+QUEBRA = frozenset({"cliente", "preco", "quantidade", "entrega", "liberacao", "cancelamento"})
+#: SAP users allowed to release an order: the web's PEDIDO_LIBERACAO_EDITORES (owner's
+#: decision 14/10/2026, Adriano Fonseca and Roberto Zelli) in SAP user codes.
+LIBERACAO_PERMITIDA = frozenset({"vendas01", "projeto06"})
+#: OP processing (Controle de Produção, or the legacy add-on run from a person's SAP client)
+#: writes only these: a version limited to them is "criacao_op", whoever saved it. It must touch
+#: one of MARCA_OP -- the worker alone also bumps U_INO_VERSAOWBC.
+CAMPOS_OP = frozenset({"linha.U_INO_OP", "U_INO_ProcessWBC", "U_INO_ORCAMENTO", "U_INO_VERSAOWBC",
+                       "Weight", "linha.Weight1"})
+MARCA_OP = frozenset({"linha.U_INO_OP", "U_INO_ProcessWBC", "U_INO_ORCAMENTO"})
+#: Weight-only saves: filling the tree weights around OP processing (84179: 6 in a row). Not
+#: relabelled (a person may type a weight), only folded with the noise around them.
+CAMPOS_PESO = frozenset({"Weight", "linha.Weight1"})
+
 
 class PedidoNaoEncontrado(LookupError):
     """No sales order with that number."""
@@ -99,7 +143,11 @@ def _sql_linhas(schema: str) -> str:
 
 
 def _mudancas(antes: dict, depois: dict, linhas_antes: dict, linhas_depois: dict) -> list[dict]:
-    """Header and line differences between two consecutive versions."""
+    """Header and line differences between two consecutive versions.
+
+    Each change carries its key in ``_chave`` (see CATEGORIAS) for the classification; it is
+    removed before the answer goes out.
+    """
     mudancas: list[dict] = []
     for campo in depois:
         if campo in CABECALHO_IGNORADO or campo.startswith("_"):
@@ -107,23 +155,148 @@ def _mudancas(antes: dict, depois: dict, linhas_antes: dict, linhas_depois: dict
         a, d = _valor(antes.get(campo)), _valor(depois.get(campo))
         if a != d:
             mudancas.append({"onde": "cabeçalho", "campo": ROTULOS_CABECALHO.get(campo, campo),
-                             "antes": _curto(a), "depois": _curto(d)})
+                             "antes": _curto(a), "depois": _curto(d), "_chave": campo})
     for num in sorted(set(linhas_antes) | set(linhas_depois)):
         la, ld = linhas_antes.get(num), linhas_depois.get(num)
         if la is None:
             mudancas.append({"onde": f"linha {num}", "campo": "linha incluída",
-                             "antes": None, "depois": _valor(ld.get("ItemCode"))})
+                             "antes": None, "depois": _valor(ld.get("ItemCode")),
+                             "_chave": "linha.incluida"})
             continue
         if ld is None:
             mudancas.append({"onde": f"linha {num}", "campo": "linha removida",
-                             "antes": _valor(la.get("ItemCode")), "depois": None})
+                             "antes": _valor(la.get("ItemCode")), "depois": None,
+                             "_chave": "linha.removida"})
             continue
         for campo, rotulo in CAMPOS_LINHA.items():
             a, d = _valor(la.get(campo)), _valor(ld.get(campo))
             if a != d:
                 mudancas.append({"onde": f"linha {num} ({_valor(ld.get('ItemCode'))})",
-                                 "campo": rotulo, "antes": _curto(a), "depois": _curto(d)})
+                                 "campo": rotulo, "antes": _curto(a), "depois": _curto(d),
+                                 "_chave": f"linha.{campo}"})
     return mudancas
+
+
+def _sem_chave(mudancas: list[dict]) -> list[dict]:
+    return [{k: v for k, v in m.items() if k != "_chave"} for m in mudancas]
+
+
+def classificar(mudancas: list[dict], codigo: str, pela_integracao: bool | None) -> dict[str, Any]:
+    """Who kind of save this was and what it touched (plan §5).
+
+    ``origem``: "criacao_op" (only OP-processing fields, whoever saved), "integracao",
+    "pessoa", or None when the integration users are unknown here. ``quebra`` = a person
+    changed a field of QUEBRA (a release by LIBERACAO_PERMITIDA is the process).
+    """
+    chaves = {m["_chave"] for m in mudancas}
+    if chaves and chaves <= CAMPOS_OP and chaves & MARCA_OP:
+        origem: str | None = "criacao_op"
+    elif pela_integracao is None:
+        origem = None
+    else:
+        origem = "integracao" if pela_integracao else "pessoa"
+    categorias = sorted({CATEGORIAS[c] for c in chaves if c in CATEGORIAS})
+    fora = set(categorias) & QUEBRA
+    if (codigo or "").lower() in LIBERACAO_PERMITIDA:
+        fora.discard("liberacao")
+    return {"origem": origem, "categorias": categorias,
+            "quebra": origem == "pessoa" and bool(fora),
+            "quebra_em": sorted(fora) if origem == "pessoa" else []}
+
+
+def _entrada(v: dict, linhas_v: dict, anterior: tuple[dict, dict] | None,
+             integracao: set[str]) -> dict[str, Any]:
+    """One version → one answer entry (before folding)."""
+    codigo = (v.get("_USER_CODE") or "").strip()
+    quando = hana.momento(v.get("UpdateDate"), v.get("UpdateTS"))
+    # None = cannot tell (no Service Layer user in this machine's .env, or no user).
+    pela_integracao = codigo.lower() in integracao if codigo and integracao else None
+    item: dict[str, Any] = {
+        "versao": v["LogInstanc"],
+        "momento": quando.isoformat(timespec="minutes") if quando else _valor(v.get("UpdateDate")),
+        "usuario": (v.get("_U_NAME") or "").strip() or codigo or None,
+        "usuario_codigo": codigo or None,
+        "pela_integracao": pela_integracao,
+    }
+    if anterior is None:
+        item |= classificar([], codigo, pela_integracao)
+        item["mudancas"] = []
+        item["resumo"] = f"criado com {len(linhas_v)} linha(s)"
+        item["_primeira"] = True  # no base to diff against: never folded as an empty save
+        return item
+    todas = _mudancas(anterior[0], v, anterior[1], linhas_v)
+    item |= classificar(todas, codigo, pela_integracao)
+    chaves = {m["_chave"] for m in todas}
+    item["_so_peso"] = bool(chaves) and chaves <= CAMPOS_PESO
+    principais = [m for m in todas if m["_chave"] not in CABECALHO_DERIVADO]
+    derivadas = [m for m in todas if m["_chave"] in CABECALHO_DERIVADO]
+    if not todas:
+        item["resumo"] = "salvo sem mudança de conteúdo (abriu e salvou, ou só campo interno)"
+    elif item["origem"] == "criacao_op":
+        item["resumo"] = "processamento de OP (vínculo da OP / Detalhe do Orçamento)"
+    else:
+        item["resumo"] = f"{len(principais)} mudança(s)" + (
+            f" + {len(derivadas)} calculada(s) pelo SAP" if derivadas else "")
+    item["mudancas"] = _sem_chave(principais[:MUDANCAS_POR_VERSAO])
+    if len(principais) > MUDANCAS_POR_VERSAO:
+        item["mudancas_omitidas"] = len(principais) - MUDANCAS_POR_VERSAO
+    if derivadas:
+        item["detalhe"] = _sem_chave(derivadas[:MUDANCAS_POR_VERSAO])
+    return item
+
+
+def _dobravel(item: dict) -> bool:
+    """Empty saves, OP processing and weight-only saves: the noise that fills the SAP's
+    99-version window."""
+    return not item.get("_primeira") and (
+        item["origem"] == "criacao_op" or item.get("_so_peso")
+        or (not item["mudancas"] and not item.get("detalhe")))
+
+
+def _dobrar(itens: list[dict]) -> list[dict]:
+    """Fold consecutive noise saves by the same user into one entry (oldest → newest in,
+    same order out). 84080 on 27/08: 60 versions in 5 min became one line."""
+    saida: list[dict] = []
+    for item in itens:
+        ult = saida[-1] if saida else None
+        if (ult is not None and _dobravel(item) and _dobravel(ult)
+                and ult["usuario_codigo"] == item["usuario_codigo"]):
+            grupo = ult.setdefault("_grupo", [ult.copy()])
+            grupo.append(item)
+            continue
+        saida.append(item)
+    for i, item in enumerate(saida):
+        grupo = item.pop("_grupo", None)
+        if not grupo:
+            continue
+        ops = [g for g in grupo if g["origem"] == "criacao_op"]
+        pesos = [g for g in grupo if g["origem"] != "criacao_op" and g.get("_so_peso")]
+        vazias = len(grupo) - len(ops) - len(pesos)
+        mudancas = [m for g in grupo for m in g["mudancas"]]
+        partes = ([f"{len(ops)} com OP"] if ops else []) + (
+            [f"{len(pesos)} só de peso"] if pesos else []) + (
+            [f"{vazias} sem mudança"] if vazias else [])
+        if ops:
+            resumo = "processamento de OP: " + ", ".join(partes)
+        elif pesos:
+            resumo = f"{len(grupo)} gravações seguidas: " + ", ".join(partes)
+        else:
+            resumo = f"abriu e salvou {vazias}× sem mudança de conteúdo"
+        detalhe = [m for g in grupo for m in g.get("detalhe", [])]
+        novo = grupo[-1] | {
+            "versao_de": grupo[0]["versao"], "momento_de": grupo[0]["momento"],
+            "repeticoes": len(grupo), "sem_mudanca": vazias,
+            "origem": "criacao_op" if ops else grupo[-1]["origem"],
+            "mudancas": mudancas[:MUDANCAS_POR_VERSAO], "resumo": resumo,
+        }
+        novo.pop("detalhe", None)
+        if detalhe:
+            novo["detalhe"] = detalhe[:MUDANCAS_POR_VERSAO]
+        novo.pop("mudancas_omitidas", None)
+        if len(mudancas) > MUDANCAS_POR_VERSAO:
+            novo["mudancas_omitidas"] = len(mudancas) - MUDANCAS_POR_VERSAO
+        saida[i] = novo
+    return saida
 
 
 def montar(doc_num: int, doc_entry: int, versoes: list[dict], linhas: list[dict],
@@ -133,41 +306,39 @@ def montar(doc_num: int, doc_entry: int, versoes: list[dict], linhas: list[dict]
     for linha in linhas:
         por_versao.setdefault(linha["LogInstanc"], {})[int(linha["LineNum"])] = linha
     integracao = _usuarios_da_integracao()
-    saida: list[dict] = []
-    anterior: dict | None = None
+    itens: list[dict] = []
+    anterior: tuple[dict, dict] | None = None
     for v in versoes:
         atual_linhas = por_versao.get(v["LogInstanc"], {})
-        codigo = (v.get("_USER_CODE") or "").strip()
-        quando = hana.momento(v.get("UpdateDate"), v.get("UpdateTS"))
-        item: dict[str, Any] = {
-            "versao": v["LogInstanc"],
-            "momento": quando.isoformat(timespec="minutes") if quando else _valor(v.get("UpdateDate")),
-            "usuario": (v.get("_U_NAME") or "").strip() or codigo or None,
-            "usuario_codigo": codigo or None,
-            # None = cannot tell (no Service Layer user in this machine's .env, or no user).
-            "pela_integracao": codigo.lower() in integracao if codigo and integracao else None,
-        }
-        if anterior is None:
-            item["mudancas"] = []
-            item["resumo"] = f"criado com {len(atual_linhas)} linha(s)"
-        else:
-            mudancas = _mudancas(anterior[0], v, anterior[1], atual_linhas)
-            item["resumo"] = (f"{len(mudancas)} mudança(s)" if mudancas
-                              else "salvo sem mudança de conteúdo (abriu e salvou, ou só campo interno)")
-            item["mudancas"] = mudancas[:MUDANCAS_POR_VERSAO]
-            if len(mudancas) > MUDANCAS_POR_VERSAO:
-                item["mudancas_omitidas"] = len(mudancas) - MUDANCAS_POR_VERSAO
-        saida.append(item)
+        itens.append(_entrada(v, atual_linhas, anterior, integracao))
         anterior = (v, atual_linhas)
+    if versoes and int(versoes[0]["LogInstanc"]) > 1:
+        # The oldest kept version is not the creation: its "criado com" would lie.
+        primeira = itens[0]
+        primeira["resumo"] = "versão mais antiga que o SAP ainda guarda (as anteriores foram apagadas)"
+    entradas = _dobrar(itens)
+    for e in entradas:
+        e.pop("_primeira", None)
+        e.pop("_so_peso", None)
     limite = max(1, min(int(limite), VERSOES_MAX))
-    return {
+    resposta: dict[str, Any] = {
         "pedido": doc_num, "doc_entry": doc_entry,
-        "total_versoes": len(saida),
-        "versoes_omitidas": max(0, len(saida) - limite),
+        "total_versoes": len(itens),
+        "total_entradas": len(entradas),
+        "versoes_omitidas": max(0, len(entradas) - limite),
+        "quebras": sum(1 for e in entradas if e.get("quebra")),
         "campos_acompanhados": {"cabecalho": "todos (menos os internos que mudam a cada gravação)",
                                 "linha": list(CAMPOS_LINHA.values())},
-        "versoes": saida[-limite:][::-1],  # newest first
+        "versoes": entradas[-limite:][::-1],  # newest first
     }
+    if versoes and int(versoes[0]["LogInstanc"]) > 1:
+        apagadas = int(versoes[0]["LogInstanc"]) - 1
+        resposta["lacuna"] = {
+            "versoes_apagadas": apagadas,
+            "texto": (f"O SAP guarda só as 99 últimas versões: as {apagadas} primeiras deste pedido "
+                      f"(antes da versão {apagadas + 1}) foram apagadas e não podem ser lidas."),
+        }
+    return resposta
 
 
 def historico(numero: int, *, por_docentry: bool = False, limite: int = VERSOES_PADRAO) -> dict[str, Any]:

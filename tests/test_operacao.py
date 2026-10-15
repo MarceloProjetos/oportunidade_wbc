@@ -252,9 +252,9 @@ def _versao(n, usuario, codigo, **cab):
     return base | cab
 
 
-def _linha(n, num, item, qtd, peso):
+def _linha(n, num, item, qtd, peso, **campos):
     return {"LogInstanc": n, "LineNum": num, "ItemCode": item, "Quantity": Decimal(qtd),
-            "Weight1": Decimal(peso), "Price": Decimal("10"), "LineStatus": "O"}
+            "Weight1": Decimal(peso), "Price": Decimal("10"), "LineStatus": "O"} | campos
 
 
 def test_historico_diz_o_que_mudou_e_quem_mudou(monkeypatch):
@@ -304,7 +304,101 @@ def test_historico_limita_versoes_e_mudancas(monkeypatch):
     r = historico_pedido.montar(1, 1, versoes, linhas, limite=5)
     assert len(r["versoes"]) == 5 and r["versoes_omitidas"] == 25 and r["versoes"][0]["versao"] == 30
     assert len(r["versoes"][0]["mudancas"]) == historico_pedido.MUDANCAS_POR_VERSAO
-    assert r["versoes"][0]["mudancas_omitidas"] == 41 - historico_pedido.MUDANCAS_POR_VERSAO
+    # 40 line changes; DocTotal is derived by the SAP and goes to "detalhe".
+    assert r["versoes"][0]["mudancas_omitidas"] == 40 - historico_pedido.MUDANCAS_POR_VERSAO
+    assert [m["campo"] for m in r["versoes"][0]["detalhe"]] == ["valor total"]
+
+
+# --- Classification (web docs/PLANO_PEDIDOS_QUEM_MEXEU.md, F1) ----------------------
+def _um_salto(monkeypatch, codigo, antes=None, depois=None, la=None, ld=None):
+    """Two versions (creation + one save by ``codigo``); returns the save's entry."""
+    monkeypatch.setenv("SL_USERNAME", "orcaview")
+    la = la or [_linha(1, 0, "MOD-A", "2", "10")]
+    ld = ld or [_linha(2, 0, "MOD-A", "2", "10")]
+    r = historico_pedido.montar(1, 1, [_versao(1, "Integração", "orcaview", **(antes or {})),
+                                       _versao(2, codigo.upper(), codigo, **(depois or {}))], la + ld)
+    return r["versoes"][0]
+
+
+def test_pessoa_mudando_entrega_quebra_o_processo_e_a_integracao_nao(monkeypatch):
+    pessoa = _um_salto(monkeypatch, "vendas01", depois={"DocDueDate": date(2026, 11, 3)})
+    assert pessoa["origem"] == "pessoa" and pessoa["quebra"] is True
+    assert pessoa["categorias"] == ["entrega"] and pessoa["quebra_em"] == ["entrega"]
+    worker = _um_salto(monkeypatch, "orcaview", depois={"DocDueDate": date(2026, 11, 3)})
+    assert worker["origem"] == "integracao" and worker["quebra"] is False and worker["quebra_em"] == []
+
+
+def test_derivado_do_sap_vai_para_o_detalhe(monkeypatch):
+    e = _um_salto(monkeypatch, "vendas01", antes={"PaidToDate": Decimal("0")},
+                  depois={"PaidToDate": Decimal("500"), "DocDueDate": date(2026, 11, 3)})
+    assert [m["campo"] for m in e["mudancas"]] == ["data de entrega"]
+    assert [m["campo"] for m in e["detalhe"]] == ["PaidToDate"]
+    assert e["resumo"] == "1 mudança(s) + 1 calculada(s) pelo SAP"
+    assert all("_chave" not in m for m in e["mudancas"] + e["detalhe"])
+
+
+def test_liberacao_so_quebra_fora_da_lista_de_quem_libera(monkeypatch):
+    lib = {"U_INO_PedLib": "S"}
+    assert _um_salto(monkeypatch, "vendas01", depois=lib)["quebra"] is False   # Adriano
+    assert _um_salto(monkeypatch, "projeto06", depois=lib)["quebra"] is False  # Roberto
+    outra = _um_salto(monkeypatch, "vendas04", depois=lib)
+    assert outra["quebra"] is True and outra["quebra_em"] == ["liberacao"]
+
+
+def test_fechamento_de_linha_informa_e_cancelamento_quebra(monkeypatch):
+    fechou = _um_salto(monkeypatch, "vendas01", ld=[_linha(2, 0, "MOD-A", "2", "10", LineStatus="C")])
+    assert fechou["categorias"] == ["fechamento"] and fechou["quebra"] is False
+    cancelou = _um_salto(monkeypatch, "financeiro01", depois={"CANCELED": "Y"})
+    assert cancelou["quebra_em"] == ["cancelamento"]
+
+
+def test_processamento_de_op_nao_e_pessoa_quebrando(monkeypatch):
+    e = _um_salto(monkeypatch, "projeto06", depois={"U_INO_ProcessWBC": "Y", "U_INO_ORCAMENTO": 546877},
+                  ld=[_linha(2, 0, "MOD-A", "2", "10", U_INO_OP=155716)])
+    assert e["origem"] == "criacao_op" and e["quebra"] is False
+    assert e["resumo"].startswith("processamento de OP")
+
+
+def test_gravacoes_vazias_e_de_op_seguidas_viram_uma_entrada(monkeypatch):
+    monkeypatch.setenv("SL_USERNAME", "orcaview")
+    zelli = lambda n, **c: _versao(n, "Roberto Zelli", "projeto06", **c)  # noqa: E731
+    versoes = [_versao(1, "Integração", "orcaview"), zelli(2), zelli(3),
+               zelli(4, U_INO_ProcessWBC="Y"), zelli(5, U_INO_ProcessWBC="Y"), zelli(6, U_INO_ProcessWBC="Y"),
+               _versao(7, "Adriano", "vendas01", U_INO_ProcessWBC="Y", DocDueDate=date(2026, 11, 3))]
+    linhas = [_linha(n, 0, "MOD-A", "2", "10") for n in range(1, 8)]
+    r = historico_pedido.montar(1, 1, versoes, linhas)
+    assert r["total_versoes"] == 7 and r["total_entradas"] == 3 and r["quebras"] == 1
+    adriano, zelli_dobrado, criacao = r["versoes"]
+    assert (zelli_dobrado["versao_de"], zelli_dobrado["versao"]) == (2, 6)
+    assert zelli_dobrado["repeticoes"] == 5 and zelli_dobrado["sem_mudanca"] == 4
+    assert zelli_dobrado["origem"] == "criacao_op"
+    assert zelli_dobrado["resumo"] == "processamento de OP: 1 com OP, 4 sem mudança"
+    assert adriano["quebra_em"] == ["entrega"] and criacao["resumo"] == "criado com 1 linha(s)"
+
+
+def test_gravacoes_so_de_peso_seguidas_viram_uma_entrada(monkeypatch):
+    # 84179 on 14/07: six saves in a row, each filling one line's tree weight.
+    monkeypatch.setenv("SL_USERNAME", "orcaview")
+    versoes = [_versao(n, "Roberto Zelli", "projeto06") for n in range(1, 5)]
+    linhas = [_linha(1, 0, "A", "1", "1"), _linha(1, 1, "B", "1", "1"),
+              _linha(2, 0, "A", "1", "372"), _linha(2, 1, "B", "1", "1"),
+              _linha(3, 0, "A", "1", "372"), _linha(3, 1, "B", "1", "2255"),
+              _linha(4, 0, "A", "1", "372"), _linha(4, 1, "B", "1", "2255")]
+    r = historico_pedido.montar(1, 1, versoes, linhas)
+    dobrada = r["versoes"][0]
+    assert r["total_entradas"] == 2 and dobrada["repeticoes"] == 3 and dobrada["origem"] == "pessoa"
+    assert dobrada["resumo"] == "3 gravações seguidas: 2 só de peso, 1 sem mudança"
+    assert [m["campo"] for m in dobrada["mudancas"]] == ["peso", "peso"]
+    assert all(not k.startswith("_") for e in r["versoes"] for k in e)
+
+
+def test_historico_cortado_pelo_sap_avisa_a_lacuna(monkeypatch):
+    r = historico_pedido.montar(84080, 18023, [_versao(1948, "A", "a"), _versao(1949, "A", "a")], [])
+    assert r["lacuna"]["versoes_apagadas"] == 1947
+    assert "1947 primeiras" in r["lacuna"]["texto"]
+    # The oldest kept version is not the creation, and is not folded with the empty save after it.
+    assert r["total_entradas"] == 2
+    assert r["versoes"][1]["resumo"].startswith("versão mais antiga que o SAP ainda guarda")
 
 
 def test_historico_consulta_com_parametro_e_pedido_inexistente(monkeypatch):
