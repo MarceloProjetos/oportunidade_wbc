@@ -1,7 +1,8 @@
 # Plano — Entrega futura não é pedido fechado
 
-> **Status (16/10/2026):** F0, F1 e F2 concluídas (revisão do Sonnet 5.5 aplicada); D1–D5 fechadas. Tudo no
-> GitHub, **não no ar**. Próximo passo: F3 — o faturamento confere os 3 antigos (D5), depois o deploy da .11.
+> **Status (16/10/2026):** **no ar** na .11 (`750277d`) e conferido pela API de produção: os 7 da lista do PCP e
+> os 3 antigos respondem "Aberto" com `faturamento: entrega_futura`. Falta: o aviso à equipe do PCP e a conferência
+> do faturamento nos 3 antigos (D5).
 > Página: https://claude.ai/artifact/NQeW5baaQ5NLYSTDt59JFn (mesma url a cada atualização)
 
 ## O problema
@@ -110,10 +111,16 @@ Resultado nos 55 pedidos com NF futura emitida em 2026 (16/10):
 - MCP, `API_SITUACAO_PEDIDOS.md`, `API_OS_INTEGRACAO.md`, `API_DATA_ENTREGA_COMBINADA.md` e o guia do PCP
   (página republicada). +16 testes; suíte da .11: 3.152.
 
-### F3 — No ar (do Marcelo) + aviso à equipe do PCP
+### F3 — No ar + aviso à equipe do PCP <span>✅ no ar 16/10 (750277d)</span>
 **Meta:** os pedidos de entrega futura voltam a aparecer como em aberto no app do PCP.
-- Marcelo: deploy da .11.
-- Eu: confiro os pedidos pela API e escrevo o texto para a equipe do PCP.
+- Deploy da .11 feito pelo Marcelo; versão no ar `750277d`, sem reinício pendente.
+- Conferido pela API de produção (`/pedidos/<n>/situacao`, `/pedidos/<n>/data-entrega`, lista):
+  - 84260, 84367, 84407, 84423, 84430, 84464, 84471 → `fonte: view`, "Aberto", aviso `entrega_futura`, etapas
+    reais; os 7 entram na lista de abertos.
+  - 83627, 84022, 84271 → `fonte: ordr`, "Aberto", etapas "Entrega futura".
+  - 83411, 84326, 84238 (venda normal) → "Fechado" com `faturamento: venda`; 83919 e 84039 (remessa completa)
+    → "Fechado".
+- Falta: o texto para a equipe do PCP; a conferência do faturamento nos 3 antigos (D5).
 
 ## Decisões
 
