@@ -122,6 +122,19 @@ Resultado nos 55 pedidos com NF futura emitida em 2026 (16/10):
     → "Fechado".
 - Falta: o texto para a equipe do PCP; a conferência do faturamento nos 3 antigos (D5).
 
+### Desdobramento — Aviso de Montagem do .90 (16/10)
+**Meta:** a montadora só é chamada quando a mercadoria sai de fato.
+- O aviso (OrçaView, `services/montagem_aviso_nf.py`) disparava na 1ª NF do pedido — também na nota espelho:
+  84464, 84467, 84468 e 84471 foram avisados assim antes da correção.
+- Agora a nota espelho vira **"aguardando remessa"** no card "Avisos de Montagem" e não manda e-mail. O aviso sai
+  na **1ª nota de remessa** (achada pela `INV21`, como na .11), com a NF da remessa e o texto "material enviado".
+  Pedido já avisado pela espelho recebe o aviso da remessa dizendo que substitui o anterior (a data vem do
+  estado da rotina ou do histórico).
+- Pedido com várias cargas: um aviso só, na primeira.
+- Simulação contra a produção, sem e-mail: nenhuma espelho dispara; o 84407 recebe o aviso pela remessa 5918.
+- Pede: o SQL `montagem_avisos_nf_aguardando_remessa.sql` no SQL Editor (sem ele a linha de espera não grava;
+  o aviso funciona) e restart do .90.
+
 ## Decisões
 
 1. ✅ **D1 — Os 21 pedidos com NF de venda normal.** A .11 continua dizendo "Fechado", passa a mandar
