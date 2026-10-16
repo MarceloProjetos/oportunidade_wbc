@@ -178,6 +178,14 @@ Agora os dois endpoints leem `ORDR.CANCELED` ao vivo:
 | `GET /ordens-servico/disponiveis` | em cada item: `status_pedido` (`"Aberto"` \| `"Cancelado"` \| `"Fechado"` \| `null`) e `pedido_cancelado` (`true` \| `false` \| `null`) |
 | `GET /ordens-servico/{nped}` | no nível de topo: os mesmos dois, e **quando cancelado** também `aviso: {"tipo": "pedido_cancelado", "motivo": "..."}` |
 
+**Desde 16/10/2026**, os dois endpoints também trazem `faturamento`, `remessa` e `faturado_em`
+(mesmo sentido de `API_SITUACAO_PEDIDOS.md` §2.2), preenchidos só para pedido fechado no SAP.
+O pedido **faturado para entrega futura** (NF de simples faturamento, CFOP 5922/6922) cuja
+remessa ainda não saiu toda vem `status_pedido: "Aberto"`, `faturamento: "entrega_futura"` e
+`remessa` `"nenhuma"` ou `"parcial"` — antes vinha `"Fechado"` com a mercadoria ainda na
+fábrica. No detalhe (`/ordens-servico/{nped}`) vem também
+`aviso: {"tipo": "entrega_futura", "motivo": "..."}`.
+
 ```json
 {
   "ok": true,

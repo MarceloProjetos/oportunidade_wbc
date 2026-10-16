@@ -792,3 +792,46 @@ def test_pedido_fora_da_view_de_orcamentos_fica_com_as_chaves_nulas(monkeypatch)
     _ligar(monkeypatch, _conexao_com_liberacao(evol=[], adoc=[], odpi=[], rct=[]))
     r = hana.fetch_status_pedidos()[0]
     assert all(r[k] is None for k in hana.LIBERACAO_CHAVES)
+
+
+# ── Entrega futura (PLANO_ENTREGA_FUTURA, 16/10/2026) ───────────────────────────
+# The view keeps 84464 & co. with StatusPedido 'Fechado' after the 5922 NF. The injection rewrites
+# the RAW status before the ported core normalizes it, so every consumer agrees.
+
+def _ler_fake(resultado):
+    import faturamento_pedido
+
+    def _ler(_sap, _schema, pedidos):
+        _ler.pedidos = sorted(pedidos)
+        return resultado
+    _ler.pedidos = None
+    return faturamento_pedido, _ler
+
+
+def test_injetar_faturamento_reabre_entrega_futura_pendente(monkeypatch):
+    from faturamento_pedido import Faturamento
+    mod_fat, ler = _ler_fake({
+        10: Faturamento("entrega_futura", "nenhuma", "2026-10-07"),
+        11: Faturamento("venda", None, "2026-01-06"),
+        12: Faturamento("entrega_futura", "completa", "2026-06-08")})
+    monkeypatch.setattr(mod_fat, "ler_faturamento", ler)
+    linhas = [{"DocEntry": 10, "StatusPedido": "Fechado"},
+              {"DocEntry": 11, "StatusPedido": "Fechado"},
+              {"DocEntry": 12, "StatusPedido": "Fechado"},
+              {"DocEntry": 13, "StatusPedido": "Aberto"}]
+    hana._injetar_faturamento(object(), "SBO", linhas)
+    assert ler.pedidos == [10, 11, 12]                 # open rows are never read
+    assert [r["StatusPedido"] for r in linhas] == ["Aberto", "Fechado", "Fechado", "Aberto"]
+    assert linhas[0]["_StatusPedidoSap"] == "Fechado"
+    assert hana.faturamento(linhas[0]) == {"faturamento": "entrega_futura", "remessa": "nenhuma",
+                                           "faturado_em": "2026-10-07"}
+    assert hana.faturamento(linhas[1])["faturamento"] == "venda"
+    assert hana.faturamento(linhas[3]) == {"faturamento": None, "remessa": None, "faturado_em": None}
+
+
+def test_injetar_faturamento_falha_mantem_a_view(monkeypatch):
+    mod_fat, ler = _ler_fake(None)
+    monkeypatch.setattr(mod_fat, "ler_faturamento", ler)
+    linhas = [{"DocEntry": 10, "StatusPedido": "Fechado"}]
+    hana._injetar_faturamento(object(), "SBO", linhas)
+    assert linhas[0]["StatusPedido"] == "Fechado" and linhas[0]["_Faturamento"] is None

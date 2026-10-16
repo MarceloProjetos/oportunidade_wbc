@@ -202,3 +202,25 @@ def test_listar_pedidos_com_os_usa_a_mesma_regra(monkeypatch):
     por = {p['nped']: p for p in mod.listar_pedidos_com_os(30)}
     assert por[84464]['status_pedido'] == 'Aberto' and por[84464]['remessa'] == 'nenhuma'
     assert por[83411]['status_pedido'] == 'Fechado' and por[83411]['faturamento'] == 'venda'
+
+
+def test_ler_faturamento_falha_na_devolucao_ou_remessa_devolve_none():
+    class _Parcial(_SapFaturamento):
+        def __init__(self, cair):
+            super().__init__(notas=[(10, datetime(2026, 9, 18), 100.0)])
+            self.cair = cair
+
+        def execute_query(self, query, params=None):
+            if self.cair in query:
+                return None
+            return super().execute_query(query, params)
+    assert fat.ler_faturamento(_Parcial('"Devolvido"'), "SBO", [10]) is None
+    assert fat.ler_faturamento(_Parcial('"Remessa"'), "SBO", [10]) is None
+
+
+def test_situacao_remessa_no_limite_exato_da_tolerancia():
+    assert situacao_remessa(100000.0, 0.0, 99500.0) == "completa"     # falta = 0,5% exato
+    assert situacao_remessa(100000.0, 0.0, 99499.0) == "parcial"
+    # Credit note bigger than the NF, some remessa: nothing is left to ship → not pending.
+    assert situacao_remessa(100.0, 150.0, 30.0) == "completa"
+    assert situacao_remessa(100.0, 150.0, 0.0) == "anulada"

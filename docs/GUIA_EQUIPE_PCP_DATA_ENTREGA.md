@@ -293,6 +293,12 @@ def api_pedir(docnum: int, dados: PedidoNovaData, usuario=Depends(usuario_da_pro
 `status_pedido` só pode ser `"Aberto"`, `"Fechado"`, `"Cancelado"` ou `null` (não se sabe).
 Pedido **fechado** ou **cancelado** também traz `data_sap` (a data de entrega que ficou no SAP): mostre-a como
 informação, junto com "Pedido fechado no SAP". Não é erro de lançamento.
+**Entrega futura (desde 16/10/2026):** o SAP fecha o pedido já na NF de simples faturamento para entrega futura,
+antes de a mercadoria sair. Esse pedido vem `status_pedido: "Aberto"` com `faturamento: "entrega_futura"` e
+`remessa` `"nenhuma"` ou `"parcial"`: ele **continua em produção** — não o tire da fila. O botão segue a tabela acima
+como em qualquer pedido aberto. Se o POST desse pedido voltar `409 entrega_futura` (ele já saiu da tela do Comercial),
+mostre a mensagem da parte 6. Quando a remessa sai toda, ele passa a vir `"Fechado"`.
+`faturamento`, `remessa` e `faturado_em` vêm `null` em pedido aberto comum.
 `pendente`, quando existe, tem **os mesmos campos** de um item da conversa (parte 7).
 
 **4.2 O formulário** (abre ao clicar no botão):
@@ -552,6 +558,7 @@ const MENSAGENS = {
   data_muito_distante: ['corrigir', 'A nova data passa de 365 dias a partir de hoje. Confira o ano.'],
   data_igual_a_vigente: ['corrigir', 'Essa já é a data combinada do pedido.'],
   pedido_fechado: ['desistir', 'Este pedido está fechado no SAP.'],
+  entrega_futura: ['desistir', 'Pedido faturado para entrega futura: combine a data direto com o Comercial.'],
   pedido_cancelado: ['desistir', 'Este pedido foi cancelado no SAP.'],
   sem_data_sap: ['desistir', 'Este pedido não tem data de entrega no SAP.'],
   pedido_nao_encontrado: ['desistir', 'Pedido não encontrado. Confira o número.'],
@@ -681,6 +688,7 @@ deve acontecer se o DocNum vier do app.
 | `fora_do_recorte` | 404 | `.11` | desistir |
 | `ja_ha_pendente` | 409 | `.11` | desistir |
 | `pedido_fechado` | 409 | `.11` | desistir |
+| `entrega_futura` | 409 | `.11` | desistir |
 | `pedido_cancelado` | 409 | `.11` | desistir |
 | `sem_data_sap` | 409 | `.11` | desistir |
 | `docnum_ambiguo` | 409 | `.11` (raro: problema de cadastro no SAP) | desistir |

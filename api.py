@@ -1148,13 +1148,16 @@ def _status_pedido_ordr(nped: int) -> dict:
         logger.error("Erro ao consultar o status do pedido %s na ORDR: %s", nped, exc)
         info = None
     if info is None:
-        return {'status_pedido': None, 'pedido_cancelado': None}
+        return {'status_pedido': None, 'pedido_cancelado': None, **_faturamento_de(None)}
     out = {'status_pedido': info.get('pedido_status'),
-           'pedido_cancelado': info.get('pedido_cancelado')}
+           'pedido_cancelado': info.get('pedido_cancelado'),
+           **_faturamento_de(info)}
     if info.get('pedido_cancelado'):
         out['aviso'] = {'tipo': 'pedido_cancelado',
                         'motivo': 'Pedido cancelado no SAP - a OS sincronizada e historico, '
                                   'nao libere nem produza por ela.'}
+    elif _entrega_futura_pendente(info):
+        out['aviso'] = {'tipo': 'entrega_futura', 'motivo': SIT_PED_AVISO_ENTREGA_FUTURA}
     return out
 
 
@@ -2074,6 +2077,17 @@ def _aplicar_liberacao_e_nf(pedidos: list, linhas: list) -> None:
         p.update(sit_ped_hana.liberacao_e_nf(crua))
 
 
+def _aplicar_faturamento(pedidos: list, linhas: list) -> None:
+    """``faturamento``/``remessa``/``faturado_em`` on each normalized pedido, **in place**.
+
+    Same design as :func:`_aplicar_liberacao_e_nf`. The status itself was already fixed on the
+    raw row (``situacao_pedidos_hana._injetar_faturamento``); these keys say why.
+    """
+    por_docentry = {r.get('DocEntry'): r for r in linhas}
+    for p in pedidos:
+        p.update(sit_ped_hana.faturamento(por_docentry.get(p.get('doc_entry')) or {}))
+
+
 def _resumir(pedidos: list) -> list:
     """``resumir()`` do nucleo + os 3 campos de entrega, ja resolvidos.
 
@@ -2091,6 +2105,9 @@ def _resumir(pedidos: list) -> list:
         r['entrega_linha'] = e.get('linha')
         r['entrega_cidade_uf'] = sit_ped_hana.cidade_uf(e)
         r['entrega_difere'] = bool(e.get('difere_do_ponto_de_entrega'))
+        # Why a pedido closed in SAP still reads "Aberto" (PLANO_ENTREGA_FUTURA).
+        for k in _CAMPOS_FATURAMENTO:
+            r[k] = p.get(k)
     return resumidos
 
 
@@ -2105,6 +2122,7 @@ def _situacao_recorte() -> tuple[dict, list]:
     dashboard = sit_ped.montar_dashboard(linhas)
     _aplicar_endereco(dashboard['pedidos'], linhas)
     _aplicar_liberacao_e_nf(dashboard['pedidos'], linhas)
+    _aplicar_faturamento(dashboard['pedidos'], linhas)
     return dashboard, sit_ped.com_alerta(dashboard['pedidos'])
 
 
@@ -2191,7 +2209,13 @@ def situacao_pedido_unico(numero: str):
     e ``aviso``. Quem consome nao precisa de outra chamada nem de outro `if`.
     Closed pedido (``ORDR.DocStatus = 'C'``, 2026-10-14) takes the same path: 200 with
     the three stages ``"Fechado"``, ``pedido_cancelado: false`` and
-    ``aviso.tipo = "pedido_fechado"``.
+    ``aviso.tipo = "pedido_fechado"``. A pedido closed by the future-delivery NF whose
+    remessa has not fully left (2026-10-16) answers 200 with ``status_pedido: "Aberto"`` and
+    ``aviso.tipo = "entrega_futura"``: from the view (reopened by
+    ``situacao_pedidos_hana._injetar_faturamento``) with its real stages, or off it with the
+    three stages ``"Entrega futura"`` and ``pedido.atrasado: null``. The 200 and 404 answers
+    carry ``faturamento``/``remessa``/``faturado_em`` at the top (``null`` = open pedido or
+    not read).
 
     **404 quer dizer "nao da' para afirmar a situacao", nao "sem bloqueio"** -- e nunca
     vem mudo: ``motivo`` diz qual dos tres casos e' (``fora_do_recorte``, o pedido de
@@ -2232,12 +2256,17 @@ def situacao_pedido_unico(numero: str):
         ), 409
 
     pedido = _resumir(achados)[0] if _campos_resumo(False) else achados[0]
+    faturamento = {k: achados[0].get(k) for k in _CAMPOS_FATURAMENTO}
+    extra = ({'aviso': {'tipo': 'entrega_futura', 'motivo': SIT_PED_AVISO_ENTREGA_FUTURA}}
+             if _entrega_futura_pendente(faturamento) else {})
     return jsonify(ok=True,
                    gerado_em=sit_ped.now_br().isoformat(timespec='seconds'),
                    cache_idade_s=sit_ped_hana.idade_do_cache_s(),
                    fonte='view',
                    status_pedido=achados[0].get('status_pedido'),
                    pedido_cancelado=False,  # a view exclui cancelado: se esta aqui, nao e'
+                   **faturamento,  # filled for pedidos closed in SAP (read with the view)
+                   **extra,
                    pedido=pedido)
 
 
@@ -2256,6 +2285,23 @@ SIT_PED_AVISO_CANCELADO = ('Pedido cancelado no SAP - nao ha etapa a liberar; '
                            'nao produza nem entregue por ele.')
 SIT_PED_AVISO_FECHADO = ('Pedido fechado no SAP - ja foi encerrado (entregue/faturado); '
                          'nao ha etapa a liberar.')
+#: The future-delivery NF closes the pedido in SAP before the goods leave (PLANO_ENTREGA_FUTURA).
+SIT_PED_AVISO_ENTREGA_FUTURA = ('Pedido faturado para entrega futura (NF de simples faturamento) - '
+                                'a remessa ainda nao saiu toda; ele segue em producao/expedicao, '
+                                'nao e pedido encerrado.')
+#: The three invoicing keys of ``consultar_status_pedido`` that travel to the consumer as they are.
+_CAMPOS_FATURAMENTO = ('faturamento', 'remessa', 'faturado_em')
+
+
+def _faturamento_de(info: dict | None) -> dict:
+    """``faturamento``/``remessa``/``faturado_em`` from an ORDR read; all ``None`` without one."""
+    return {k: (info or {}).get(k) for k in _CAMPOS_FATURAMENTO}
+
+
+def _entrega_futura_pendente(info: dict | None) -> bool:
+    """Closed in SAP by the future-delivery NF, remessa not (fully) issued yet."""
+    return bool(info) and info.get('faturamento') == 'entrega_futura' and \
+        info.get('remessa') in ('nenhuma', 'parcial')
 
 
 def _situacao_fora_da_view(n: int, campo: str):
@@ -2294,21 +2340,28 @@ def _situacao_fora_da_view(n: int, campo: str):
         situacao = 'Cancelado'
     elif info and info.get('pedido_existe') and info.get('pedido_status') == 'Fechado':
         situacao = 'Fechado'
+    elif info and info.get('pedido_existe') and _entrega_futura_pendente(info):
+        # SAP closed it on the future-delivery NF, so the view dropped it; it is still open
+        # for the factory (PLANO_ENTREGA_FUTURA, 2026-10-16). Same 200 + same shape.
+        situacao = 'Entrega futura'
     if situacao:
         logger.info("[SIT_PED] pedido %s %s no SAP (fora da view).", n, situacao.lower())
         pedido = _pedido_encerrado_ordr(n, info, situacao)
         if _campos_resumo(False):
             pedido = _resumir([pedido])[0]
         cancelado = situacao == 'Cancelado'
+        aviso = {'Cancelado': {'tipo': 'pedido_cancelado', 'motivo': SIT_PED_AVISO_CANCELADO},
+                 'Fechado': {'tipo': 'pedido_fechado', 'motivo': SIT_PED_AVISO_FECHADO},
+                 'Entrega futura': {'tipo': 'entrega_futura',
+                                    'motivo': SIT_PED_AVISO_ENTREGA_FUTURA}}[situacao]
         return jsonify(ok=True,
                        gerado_em=sit_ped.now_br().isoformat(timespec='seconds'),
                        cache_idade_s=sit_ped_hana.idade_do_cache_s(),
                        fonte='ordr',
-                       status_pedido=situacao,
+                       status_pedido=info.get('pedido_status') if situacao == 'Entrega futura' else situacao,
                        pedido_cancelado=cancelado,
-                       aviso=({'tipo': 'pedido_cancelado', 'motivo': SIT_PED_AVISO_CANCELADO}
-                              if cancelado else
-                              {'tipo': 'pedido_fechado', 'motivo': SIT_PED_AVISO_FECHADO}),
+                       **_faturamento_de(info),
+                       aviso=aviso,
                        pedido=pedido)
 
     if info is None:
@@ -2323,22 +2376,28 @@ def _situacao_fora_da_view(n: int, campo: str):
     return jsonify(
         ok=False, motivo=motivo, error=SIT_PED_MOTIVOS[motivo].format(n=n),
         pedido=n, chave=campo, status_pedido=status, pedido_cancelado=cancelado,
+        **_faturamento_de(info),
     ), 404
 
 
 def _pedido_encerrado_ordr(n: int, info: dict, situacao: str) -> dict:
     """ORDR row -> the SAME dict the view yields, with the three stages = ``situacao``.
 
-    ``situacao`` is ``"Cancelado"`` or ``"Fechado"``. Builds a raw PascalCase row and
-    hands it to the ported core's ``normalizar`` instead of writing the dict by hand, so
-    the shape cannot drift from the view path. ``alerta_liberacao`` is always ``None``
-    here: neither case alarms the 10-day finance limit.
+    ``situacao`` is ``"Cancelado"``, ``"Fechado"`` or ``"Entrega futura"`` (closed in SAP
+    by the future-delivery NF, still open for the factory: its ``status_pedido`` is the
+    ORDR one, ``"Aberto"``). Builds a raw PascalCase row and hands it to the ported
+    core's ``normalizar`` instead of writing the dict by hand, so the shape cannot drift
+    from the view path. ``alerta_liberacao`` is always ``None`` here: no case alarms the
+    10-day finance limit. ``data_entrega`` is the ORDR ``DocDueDate`` (the same date the
+    view calls Data_Entrega).
     """
+    entrega_futura = situacao == 'Entrega futura'
     crua = {'DocNum': n, 'CardCode': info.get('card_code'),
             'CardName': info.get('card_name'), 'Data_Pedido': info.get('data_pedido'),
+            'Data_Entrega': info.get('data_entrega'),
             'DocTotal': info.get('valor_total'), 'DocCur': info.get('moeda'),
             'Financeiro': situacao, 'Producao': situacao, 'Entrega': situacao,
-            'StatusPedido': situacao}
+            'StatusPedido': info.get('pedido_status') if entrega_futura else situacao}
     # D5: o endereco vem da RDR12 daquele DocNum, nao de nulos. Pedido cancelado
     # tambem tem endereco, e a chave nao pode faltar so aqui — ha teste comparando as
     # chaves dos dois caminhos. Best-effort: SAP fora nao derruba a resposta de "este
@@ -2357,6 +2416,12 @@ def _pedido_encerrado_ordr(n: int, info: dict, situacao: str) -> dict:
         # A closed pedido was usually invoiced, but the NF was not looked up here:
         # null ("unknown") instead of a false "no NF yet".
         pedido['primeira_nf_emitida'] = None
+    elif entrega_futura:
+        # The future-delivery NF exists by definition. Late is not asserted: the view's
+        # SAP flag is not available off the view (null = "cannot tell", as everywhere here).
+        pedido['primeira_nf_emitida'] = True
+        pedido['atrasado'] = pedido['atrasado_sap'] = None
+    pedido.update(_faturamento_de(info))
     return pedido
 
 
@@ -2422,11 +2487,12 @@ def _pedido_da_view(n: int) -> dict | None:
     Raises ``SAPIndisponivel``/``ValidationError`` like the neighbor routes, and
     ``entrega.Recusa(409)`` when the DocNum matches more than one row.
     """
-    achados = [p for p in sit_ped.normalizar(sit_ped_hana.fetch_status_pedidos())
-               if p.get('doc_num') == n]
+    linhas = sit_ped_hana.fetch_status_pedidos()
+    achados = [p for p in sit_ped.normalizar(linhas) if p.get('doc_num') == n]
     if len(achados) > 1:
         raise entrega.Recusa(409, 'docnum_ambiguo',
                              f'DocNum {n} casa com {len(achados)} pedidos - avise o suporte')
+    _aplicar_faturamento(achados, linhas)
     return achados[0] if achados else None
 
 
@@ -2450,6 +2516,13 @@ def _fora_da_view(n: int, info: dict | None) -> entrega.Recusa:
         return entrega.Recusa(409, 'pedido_cancelado', f'pedido {n} esta cancelado no SAP')
     if info.get('pedido_status') == 'Fechado':
         return entrega.Recusa(409, 'pedido_fechado', f'pedido {n} esta fechado no SAP')
+    if _entrega_futura_pendente(info):
+        # Open for the factory, but SAP closed it on the future-delivery NF, so it is not on
+        # the Comercial screen and nobody there could decide a request (D4 of the plan).
+        return entrega.Recusa(409, 'entrega_futura',
+                              f'pedido {n} foi faturado para entrega futura e a remessa ainda nao '
+                              'saiu toda; ele nao aparece na tela do Comercial - combine a data '
+                              'direto com o Comercial')
     return entrega.Recusa(404, 'fora_do_recorte',
                           f'pedido {n} esta aberto mas fora da tela do Comercial - avise o suporte')
 
@@ -2629,6 +2702,7 @@ def entrega_do_pedido(numero: str):
         return _recusa_entrega(n, entrega.Recusa(503, 'base_indisponivel', 'base de dados indisponivel agora'))
 
     sap_disponivel, pedido, status, data_sap_ordr = True, None, None, None
+    faturamento = _faturamento_de(None)  # stays null when SAP did not answer
     try:
         pedido = _pedido_da_view(n)
     except entrega.Recusa as exc:
@@ -2638,6 +2712,7 @@ def entrega_do_pedido(numero: str):
         sap_disponivel = False
     if pedido is not None:
         status = pedido.get('status_pedido')
+        faturamento = {k: pedido.get(k) for k in _CAMPOS_FATURAMENTO}
     elif sap_disponivel:
         info = _ordr_do_pedido(n)
         data_sap_ordr = (info or {}).get('data_entrega')
@@ -2648,15 +2723,16 @@ def entrega_do_pedido(numero: str):
             status = 'Cancelado'
         elif recusa.motivo == 'pedido_fechado':
             status = 'Fechado'
-        elif recusa.motivo == 'fora_do_recorte':
+        elif recusa.motivo in ('fora_do_recorte', 'entrega_futura'):
             status = 'Aberto'
         if not linhas and recusa.motivo in ('pedido_nao_encontrado', 'fora_do_recorte', 'indeterminado'):
             return _recusa_entrega(n, recusa)
+        faturamento = _faturamento_de(info)
     if not sap_disponivel and not linhas:
         return _recusa_entrega(n, entrega.Recusa(
             503, 'indeterminado', f'pedido {n} sem conversa e o SAP nao respondeu agora'))
-    return jsonify(_bloco_entrega(n, linhas, pedido, sap_disponivel=sap_disponivel, status=status,
-                                  data_sap_ordr=data_sap_ordr))
+    return jsonify({**_bloco_entrega(n, linhas, pedido, sap_disponivel=sap_disponivel, status=status,
+                                     data_sap_ordr=data_sap_ordr), **faturamento})
 
 
 @app.get('/pedidos/data-entrega/solicitacoes')

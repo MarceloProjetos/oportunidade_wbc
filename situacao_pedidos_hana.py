@@ -693,6 +693,63 @@ def fetch_endereco_do_pedido(doc_num: int) -> dict[str, Any]:
             logger.debug("Falha ao fechar conexão HANA (ignorada): %s", e)
 
 
+#: Raw keys injected by :func:`_injetar_faturamento` (``_`` = derived here, not a SAP column).
+FATURAMENTO_CHAVES = {"faturamento": "_Faturamento", "remessa": "_Remessa",
+                      "faturado_em": "_FaturadoEm"}
+
+
+class _ExecutorDaConexao:
+    """``execute_query`` (DataFrame) over this module's open connection, for ``faturamento_pedido``."""
+
+    def __init__(self, conn) -> None:
+        self._conn = conn
+
+    def execute_query(self, query: str, params=None):
+        from db_utils import read_dbapi_query
+        return read_dbapi_query(query, self._conn, params)
+
+
+def _injetar_faturamento(conn, schema: str, linhas: list[dict[str, Any]]) -> None:
+    """Invoicing of every CLOSED row, in place; a pending future-delivery sale becomes ``Aberto``.
+
+    SAP closes the pedido on the future-delivery NF (CFOP 5922/6922) before the goods leave, and
+    the view keeps it with ``StatusPedido = 'Fechado'`` (84260, 84367, 84407, 84423, 84430, 84464
+    and 84471 on 16/10/2026). Rewriting ``StatusPedido`` on the RAW row, before the ported core
+    normalizes it, makes every consumer agree — status filter, KPIs, late flag, finance alert —
+    without touching the ported file. The SAP value stays in ``_StatusPedidoSap``.
+
+    Best-effort, like the other injections: a failed read keeps the view's answer.
+    """
+    from faturamento_pedido import ler_faturamento
+
+    for r in linhas:
+        for k in FATURAMENTO_CHAVES.values():
+            r[k] = None
+        r["_StatusPedidoSap"] = r.get("StatusPedido")
+    fechadas = {e: r for r in linhas
+                if str(r.get("StatusPedido") or "").strip().casefold() == "fechado"
+                and (e := _int(r.get("DocEntry"))) is not None}
+    if not fechadas:
+        return
+    resultado = ler_faturamento(_ExecutorDaConexao(conn), schema, list(fechadas))
+    if resultado is None:
+        logger.error("[SIT_PED] faturamento dos pedidos fechados indisponivel - "
+                     "entrega futura segue como Fechado neste recorte.")
+        return
+    for e, f in resultado.items():
+        r = fechadas.get(e)
+        if r is None:
+            continue
+        r["_Faturamento"], r["_Remessa"], r["_FaturadoEm"] = f.tipo, f.remessa, f.faturado_em
+        if f.pendente:
+            r["StatusPedido"] = "Aberto"
+
+
+def faturamento(r: dict[str, Any]) -> dict[str, Any]:
+    """``faturamento``/``remessa``/``faturado_em`` of one raw row (``None`` when not read)."""
+    return {campo: r.get(chave) for campo, chave in FATURAMENTO_CHAVES.items()}
+
+
 def _buscar_no_hana() -> list[dict[str, Any]]:
     """Uma ida ao HANA: conta, confere o volume, seleciona e converte os tipos."""
     schema = _schema()
@@ -718,6 +775,8 @@ def _buscar_no_hana() -> list[dict[str, Any]]:
         _injetar_municipios(conn, schema, linhas)
         # Idem para a liberacao real e a primeira NF (PLANO_DATAS_LIBERACAO_NF).
         _injetar_liberacao_e_nf(conn, schema, linhas)
+        # And how each closed pedido was invoiced (PLANO_ENTREGA_FUTURA).
+        _injetar_faturamento(conn, schema, linhas)
     finally:
         try:
             conn.close()

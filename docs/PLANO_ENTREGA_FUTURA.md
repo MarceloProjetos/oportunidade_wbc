@@ -1,7 +1,7 @@
 # Plano — Entrega futura não é pedido fechado
 
-> **Status (16/10/2026):** F0 e F1 concluídas; D1–D5 fechadas. A regra está no código da .11 (no GitHub,
-> **não no ar**) e foi conferida contra a produção, só leitura. Próximo passo: F2 (rotas, MCP, contratos).
+> **Status (16/10/2026):** F0, F1 e F2 concluídas (revisão do Sonnet 5.5 aplicada); D1–D5 fechadas. Tudo no
+> GitHub, **não no ar**. Próximo passo: F3 — o faturamento confere os 3 antigos (D5), depois o deploy da .11.
 > Página: https://claude.ai/artifact/NQeW5baaQ5NLYSTDt59JFn (mesma url a cada atualização)
 
 ## O problema
@@ -51,8 +51,9 @@ Por **pedido**, em valor (`LineTotal`, sem imposto):
 
 - **Futura líquida** = soma das NFs vivas com CFOP 5922/6922 copiadas do pedido − soma das devoluções
   vivas copiadas dessas NFs.
-- **Remetido** = soma das NFs vivas com CFOP 5116/6116/5117/6117 que referenciam (`INV21`) uma dessas
-  NFs ou o próprio pedido (cada remessa conta uma vez).
+- **Remetido** = soma das NFs vivas com ao menos uma linha CFOP 5116/6116/5117/6117 (a NF conta inteira:
+  item com ST sai na mesma NF com 6401) que referenciam (`INV21`) uma dessas NFs ou o próprio pedido
+  (cada remessa conta uma vez).
 - **Remessa completa** quando falta menos de R$ 1,00 ou 0,5% da futura líquida (o maior dos dois).
   Diferença medida nos casos encerrados: R$ 0,02 (84021) e 2% a mais (83898).
 
@@ -91,12 +92,23 @@ Resultado nos 55 pedidos com NF futura emitida em 2026 (16/10):
   → `Aberto`; os 21 de venda normal → `Fechado` com `faturado_em`; 83919/83898/84021 → `Fechado`
   (`remessa: completa`).
 
-### F2 — Rotas, MCP e contrato (minha) + revisão
+### F2 — Rotas, MCP e contrato + revisão <span>✅ concluída 16/10 (no GitHub, não no ar)</span>
 **Meta:** o app do PCP recebe a situação certa em todas as rotas que usa.
-- `/pedidos/<n>/situacao`, `/pedidos/<n>/data-entrega`, lista e detalhe de OS: entrega futura não
-  remetida responde como pedido em aberto, com os campos novos.
-- Descrição das ferramentas MCP, `API_SITUACAO_PEDIDOS.md`, `API_DATA_ENTREGA_COMBINADA.md`, guia do PCP.
-- Revisão do Sonnet 5.5 em esforço alto; achado real é corrigido antes de seguir.
+- **A revisão do Sonnet 5.5 (esforço alto) achou o furo principal:** os 7 pedidos da lista do PCP **estão na
+  view** com `StatusPedido = 'Fechado'` — o "Fechado" chegava pelo caminho da view, que a F1 não tocava.
+  Correção: `situacao_pedidos_hana._injetar_faturamento` lê o faturamento dos 230 fechados da view no mesmo
+  lote do cache de 120 s e reescreve a linha crua para `Aberto` quando a remessa está pendente. Filtro,
+  contadores, atraso e alerta concordam sem tocar no núcleo portado. Medido na produção: reabre exatamente os 7.
+- **A conferência achou outro:** a remessa 5348 (84039) tem uma linha 6116 e outra 6401 (item com ST); o
+  código somava só as linhas de remessa e o 84039 virava "parcial". A NF de remessa conta inteira, como na F0.
+  Rodando a regra do código nos 55 pedidos da F0, os pendentes fechados são exatamente os 10.
+- Rotas: situação (view com aviso; fora da view com etapas "Entrega futura"), lista e resumo, detalhe de OS e
+  data de entrega com `faturamento`/`remessa`/`faturado_em`. Entrega futura **fora** da tela do Comercial:
+  POST de data recusado com `409 entrega_futura`; na tela, segue como qualquer pedido aberto.
+- Dúvidas da revisão conferidas no SAP e descartadas: nenhuma NF futura de dois pedidos ou com linha de outro
+  CFOP, nenhuma remessa devolvida, nenhum DocNum duplicado.
+- MCP, `API_SITUACAO_PEDIDOS.md`, `API_OS_INTEGRACAO.md`, `API_DATA_ENTREGA_COMBINADA.md` e o guia do PCP
+  (página republicada). +16 testes; suíte da .11: 3.152.
 
 ### F3 — No ar (do Marcelo) + aviso à equipe do PCP
 **Meta:** os pedidos de entrega futura voltam a aparecer como em aberto no app do PCP.

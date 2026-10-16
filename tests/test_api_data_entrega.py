@@ -291,6 +291,11 @@ def test_post_sem_data_sap_409(c, pcp):
     ({"pedido_existe": True, "pedido_cancelado": True, "pedido_status": "Cancelado"}, 409, "pedido_cancelado"),
     ({"pedido_existe": True, "pedido_cancelado": False, "pedido_status": "Fechado"}, 409, "pedido_fechado"),
     ({"pedido_existe": True, "pedido_cancelado": False, "pedido_status": "Aberto"}, 404, "fora_do_recorte"),
+    # PLANO_ENTREGA_FUTURA: open for the factory, but off the Comercial screen.
+    ({"pedido_existe": True, "pedido_cancelado": False, "pedido_status": "Aberto",
+      "faturamento": "entrega_futura", "remessa": "nenhuma"}, 409, "entrega_futura"),
+    ({"pedido_existe": True, "pedido_cancelado": False, "pedido_status": "Aberto",
+      "faturamento": "entrega_futura", "remessa": "parcial"}, 409, "entrega_futura"),
 ])
 def test_post_fora_da_view_pela_ordr(c, pcp, monkeypatch, info, status, motivo):
     monkeypatch.setattr(apimod, "consultar_status_pedido", lambda n: info)
@@ -496,3 +501,36 @@ def test_get_aberto_fora_da_view_com_data_do_sap_ja_tem_referencia(c, pcp, base,
     b = c.get("/pedidos/70000/data-entrega", headers=pcp).get_json()
     assert (b["data_sap"], b["data_referencia"], b["atraso_nosso_dias"]) == ("2026-11-20", "2026-11-20", 7)
     assert b["atrasado"] is True
+
+
+def test_get_entrega_futura_fora_da_view_e_aberto_com_o_faturamento(c, pcp, monkeypatch):
+    """84464 (PLANO_ENTREGA_FUTURA): SAP closed it on the 5922 NF; for the factory it is open.
+    GET answers 200 (never the fora_do_recorte 404) with the invoicing fields."""
+    monkeypatch.setattr(apimod, "consultar_status_pedido", lambda n: {
+        "pedido_existe": True, "pedido_cancelado": False, "pedido_status": "Aberto",
+        "data_entrega": "2026-11-17", "faturamento": "entrega_futura", "remessa": "nenhuma",
+        "faturado_em": "2026-10-07"})
+    r = c.get("/pedidos/84464/data-entrega", headers=pcp)
+    b = r.get_json()
+    assert r.status_code == 200 and b["status_pedido"] == "Aberto"
+    assert (b["faturamento"], b["remessa"], b["faturado_em"]) == ("entrega_futura", "nenhuma", "2026-10-07")
+    assert b["data_sap"] == "2026-11-17"
+
+
+def test_get_pedido_da_view_traz_os_campos_de_faturamento_nulos(c, pcp):
+    b = c.get("/pedidos/84146/data-entrega", headers=pcp).get_json()
+    assert (b["faturamento"], b["remessa"], b["faturado_em"]) == (None, None, None)
+
+
+def test_entrega_futura_na_view_aceita_solicitacao_e_mostra_faturamento(c, pcp, base, monkeypatch):
+    """In the view (Comercial sees it), reopened by the injection: a normal open pedido for the date
+    flow, plus the invoicing keys."""
+    linha = _row(DocEntry=9, DocNum=84471, Data_Entrega="2026-11-18", StatusPedido="Aberto",
+                 _StatusPedidoSap="Fechado", _Faturamento="entrega_futura", _Remessa="nenhuma",
+                 _FaturadoEm="2026-10-09")
+    monkeypatch.setattr(hana, "fetch_status_pedidos",
+                        lambda recarregar=False: [dict(r) for r in VIEW] + [dict(linha)])
+    b = c.get("/pedidos/84471/data-entrega", headers=pcp).get_json()
+    assert b["status_pedido"] == "Aberto" and b["faturamento"] == "entrega_futura"
+    r = _post(c, pcp, n=84471)
+    assert r.status_code == 201

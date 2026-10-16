@@ -12,7 +12,8 @@ Rule measured against every 2026 case in production (F0 of ``docs/PLANO_ENTREGA_
 because items sold as sets ship in fractions:
 
 * net future = live 5922/6922 NFs copied from the pedido − live credit notes copied from them;
-* shipped = live remessa NFs referencing one of those NFs or the pedido (each counted once);
+* shipped = live remessa NFs (at least one 5116/6116/5117/6117 line; the whole NF counts)
+  referencing one of those NFs or the pedido, each counted once;
 * complete when what is missing is within ``max(R$ 1,00, 0,5% of net future)``.
 
 Read-only. All queries take the pedido ``DocEntry`` list read from SAP itself.
@@ -125,23 +126,26 @@ def ler_faturamento(sap, schema: str, pedidos: list[int]) -> dict[int, Faturamen
                 t'FROM {rin1:ident} rl JOIN {orin:ident} r ON r."DocEntry" = rl."DocEntry" '
                 t'JOIN (' + futuras + t') f ON rl."BaseType" = 13 AND rl."BaseEntry" = f."Nf" '
                 t'WHERE r."CANCELED" = \'N\' GROUP BY f."Pedido"'))
+            # A remessa NF is one with at least one remessa-CFOP line, and it counts WHOLE: an ST
+            # item ships on the same NF with CFOP 6401 (84039, remessa 5348). The EXISTS also
+            # drops the future NF itself, which references the pedido (17) too.
             rem = sap.execute_query(*sql(
                 t'SELECT DISTINCT x."Pedido", m."DocEntry" AS "Remessa", '
-                t'(SELECT SUM(l."LineTotal") FROM {inv1:ident} l WHERE l."DocEntry" = m."DocEntry" '
-                t'AND l."CFOPCode" IN (\'5116\',\'6116\',\'5117\',\'6117\')) AS "Valor" '
+                t'(SELECT SUM(l."LineTotal") FROM {inv1:ident} l WHERE l."DocEntry" = m."DocEntry") AS "Valor" '
                 t'FROM (SELECT r."DocEntry", f."Pedido" FROM {inv21:ident} r JOIN (' + futuras
                 + t') f ON r."RefObjType" = \'13\' AND r."RefDocEntr" = f."Nf" '
                 t'UNION SELECT r."DocEntry", r."RefDocEntr" AS "Pedido" FROM {inv21:ident} r '
                 t'WHERE r."RefObjType" = \'17\' AND r."RefDocEntr" IN ({com_futura:ints})) x '
-                t'JOIN {oinv:ident} m ON m."DocEntry" = x."DocEntry" WHERE m."CANCELED" = \'N\''))
+                t'JOIN {oinv:ident} m ON m."DocEntry" = x."DocEntry" WHERE m."CANCELED" = \'N\' '
+                t'AND EXISTS (SELECT 1 FROM {inv1:ident} l2 WHERE l2."DocEntry" = m."DocEntry" '
+                t'AND l2."CFOPCode" IN (\'5116\',\'6116\',\'5117\',\'6117\'))'))
             if dev is None or rem is None:
                 return None
             for _, r in dev.iterrows():
                 devolvido[int(r["Pedido"])] = _num(r["Devolvido"])
             for _, r in rem.iterrows():
                 valor = _num(r["Valor"])
-                if valor > 0:  # a reference from a non-remessa NF carries no remessa line
-                    remetido.setdefault(int(r["Pedido"]), {})[int(r["Remessa"])] = valor
+                remetido.setdefault(int(r["Pedido"]), {})[int(r["Remessa"])] = valor
         resultado: dict[int, Faturamento] = {}
         for _, r in notas.iterrows():
             pedido = int(r["Pedido"])

@@ -6,6 +6,23 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-16] — Entrega futura: rotas, view, MCP e contratos (F2 do PLANO_ENTREGA_FUTURA)
+
+A revisão do Sonnet 5.5 (esforço alto) achou o furo principal: os 7 pedidos da lista do PCP **estão na
+`VW_STATUS_PEDIDO_DDP`** com `StatusPedido = 'Fechado'` (medido 16/10), e o "Fechado" chegava pelo caminho da view,
+que a F1 não tocava. Agora `situacao_pedidos_hana._injetar_faturamento` lê o faturamento dos fechados da view no
+mesmo lote do cache de 120 s e reescreve a linha **crua** para `Aberto` quando a remessa está pendente (o valor do
+SAP fica em `_StatusPedidoSap`) — filtro, contadores, atraso e alerta concordam sem tocar no núcleo portado.
+Medido na produção: reabre exatamente 84260, 84367, 84407, 84423, 84430, 84464, 84471.
+- **Outro achado da conferência:** a remessa 5348 (84039) tem uma linha 6116 e outra 6401 (item com ST); somar só as
+  linhas de CFOP de remessa deixava o 84039 "parcial". A NF de remessa volta a contar inteira, como na F0.
+- Rotas: `/pedidos/<n>/situacao` (view: `aviso.tipo = entrega_futura`; fora da view: 200 com etapas
+  `"Entrega futura"`, `atrasado`/`atrasado_sap` `null`), lista e resumo com `faturamento`/`remessa`/`faturado_em`,
+  `/ordens-servico/<nped>` com os três campos e o aviso, `/pedidos/<n>/data-entrega` com os três campos; pedido de
+  entrega futura **fora** da tela do Comercial: POST recusado com `409 entrega_futura`.
+- Descrições das 3 ferramentas MCP, `API_SITUACAO_PEDIDOS.md`, `API_OS_INTEGRACAO.md`,
+  `API_DATA_ENTREGA_COMBINADA.md` e o guia do PCP atualizados. +16 testes (suíte: 3.152). **Pede deploy da .11.**
+
 ## [2026-10-16] — Entrega futura não remetida não é "Fechado" (F1 do PLANO_ENTREGA_FUTURA)
 
 O SAP fecha o pedido já na NF de simples faturamento para entrega futura (CFOP 5922/6922), antes de a mercadoria

@@ -94,6 +94,36 @@ faturado) que saiu da view responde `200` pelo mesmo caminho, com as três etapa
 consultada nesse caminho — não quer dizer "sem NF"). Foi o caso do 83411, fechado em
 28/11/2025, que a tela mostrava como "sem situação".
 
+**Pedido faturado para entrega futura não é fechado** (desde 16/10/2026). O SAP fecha o
+pedido já na NF de **simples faturamento para entrega futura** (CFOP 5922/6922), antes de a
+mercadoria sair; a mercadoria sai depois, com a NF de **remessa** (CFOP 5116/6116). Enquanto
+a remessa não saiu toda, o pedido é tratado como **aberto** em todas as rotas `/pedidos/*`:
+
+- **Ainda na view** (o caso comum — a view guarda o pedido recém-fechado): `fonte: "view"`,
+  `status_pedido: "Aberto"`, as etapas **reais** da view, `aviso.tipo: "entrega_futura"`, e o
+  `atrasado` volta a valer como em qualquer pedido aberto. Na lista (`GET /pedidos/situacao`)
+  ele entra em `status=aberto` e nos contadores de aberto.
+- **Já fora da view**: `200` pelo caminho da ORDR (`fonte: "ordr"`), com `status_pedido:
+  "Aberto"`, as três etapas em `"Entrega futura"`, `aviso.tipo: "entrega_futura"`,
+  `pedido.atrasado: null` e `pedido.atrasado_sap: null` (fora da view o atraso não é
+  afirmado), `pedido.primeira_nf_emitida: true` e `pedido.data_entrega` = a data do SAP.
+
+Mostre "faturado — aguardando remessa" e **continue** acompanhando a produção e a expedição.
+Quando a remessa sai toda, o pedido passa a responder `"Fechado"` sozinho.
+
+Nas respostas `200` e `404` da rota (e em cada pedido da lista) vêm três campos de faturamento,
+preenchidos para pedido fechado no SAP; em pedido aberto comum vêm `null`:
+
+| Campo | Valores | O que diz |
+| --- | --- | --- |
+| `faturamento` | `"entrega_futura"` \| `"venda"` \| `null` | Tipo da NF que fechou o pedido. `"venda"` = NF de venda normal (a mercadoria sai com ela). `null` = não foi lido, ou o pedido foi fechado sem NF |
+| `remessa` | `"nenhuma"` \| `"parcial"` \| `"completa"` \| `"anulada"` \| `null` | Só para entrega futura. `"anulada"` = a NF futura foi anulada por devolução |
+| `faturado_em` | `"AAAA-MM-DD"` \| `null` | Data da última NF viva copiada do pedido |
+
+Como a remessa é medida: por pedido e **em valor** (as remessas apontam para a NF futura ou
+para o pedido; a NF de remessa conta inteira, mesmo com item de outro CFOP); falta até
+R$ 1,00 ou 0,5% conta como completa.
+
 ### 2.3 `404` quer dizer "não sei", **nunca** "está liberado"
 
 Sobrou `404` para o que realmente não dá para afirmar — e ele **nunca vem mudo**: o campo
@@ -101,7 +131,7 @@ Sobrou `404` para o que realmente não dá para afirmar — e ele **nunca vem mu
 
 | `motivo` | O que é | O que mostrar |
 | --- | --- | --- |
-| `fora_do_recorte` | O pedido **existe** no SAP, mas a view carrega só os correntes (um pedido de 2024 não está lá) e está **aberto** — fechado e cancelado respondem 200 (2.2). Vem com `status_pedido: "Aberto"` | "fora do período" — e, se quiser, o `status_pedido` |
+| `fora_do_recorte` | O pedido **existe** no SAP, mas a view carrega só os correntes (um pedido de 2024 não está lá) e está **aberto** — fechado, cancelado e entrega futura respondem 200 (2.2). Vem com `status_pedido: "Aberto"` | "fora do período" — e, se quiser, o `status_pedido` |
 | `pedido_nao_encontrado` | Não existe DocNum assim na ORDR. Quase sempre é DocEntry mandado sem `chave=docentry` (2.1) | "pedido não encontrado" |
 | `indeterminado` | O SAP não respondeu agora. `pedido_cancelado` vem `null` = **não se sabe** | "indisponível, tente de novo" |
 
@@ -369,7 +399,8 @@ são **o mesmo par** de `GET /ordens-servico/<nped>`, com o mesmo sentido:
 | --- | --- | --- |
 | `status_pedido` | `"Aberto"` \| `"Fechado"` \| `"Cancelado"` \| `null` | O estado do pedido no SAP. `null` = não se sabe |
 | `pedido_cancelado` | `true` \| `false` \| `null` | **Cheque antes de oferecer "Liberar"**. `null` **não** é "não cancelado" |
-| `fonte` | `"view"` \| `"ordr"` | De onde veio a situação. `"ordr"` = pedido cancelado, lido ao vivo (2.2) |
+| `fonte` | `"view"` \| `"ordr"` | De onde veio a situação. `"ordr"` = pedido cancelado, fechado ou de entrega futura, lido ao vivo (2.2) |
+| `faturamento`, `remessa`, `faturado_em` | ver 2.2 | Como o pedido fechado no SAP foi faturado. `null` em pedido aberto comum |
 
 Quando `pedido_cancelado` é `true`, vem também `aviso` (`{"tipo": "pedido_cancelado",
 "motivo": "..."}`) — o mesmo `tipo` que os endpoints de OS já usam.
@@ -984,6 +1015,7 @@ if e["cidade"] != e["ponto_entrega"]["cidade"]:
 | "Meu número não bate com a tela" | O `status` (armadilha 2.4). Tente `status=todos` |
 | "Esse pedido existe, mas dá 404" | Veja o `motivo` (2.3): ele não está no recorte da view (só os correntes), **ou** você mandou DocEntry sem `chave=docentry` |
 | "A tela mostra 'sem situação'" | Pedido **cancelado** no SAP responde `200` com `status_pedido: "Cancelado"` desde 03/09/2026, e **fechado** com `"Fechado"` desde 14/10/2026 (2.2). Se ainda vier vazio, é o `404` — leia o `motivo` |
+| "O pedido veio fechado, mas ainda está na fábrica" | Até 16/10/2026, o pedido faturado para entrega futura vinha `"Fechado"`. Agora vem `"Aberto"` com `faturamento: "entrega_futura"` até a remessa sair (2.2). Se vier `"Fechado"` com `faturamento: "venda"`, a NF de venda normal já foi emitida |
 | "O dado está velho" | Cache de 120 s. Veja `cache_idade_s` |
 | "Deu 401" | Cabeçalho `X-API-Key` ausente, com espaço, ou chave errada — ou a chave foi na URL (`?key=`), que não vale para chave de equipe |
 | "Deu 403" | A chave não tem o escopo `leitura`. Mande-nos o `motivo` da resposta |

@@ -314,6 +314,13 @@ def listar_pedidos_com_os(limit: int = 30) -> dict[str, Any]:
     (cancelar as OPs, parar de oferecer "Liberar"). Filtre por ``pedido_cancelado`` se a
     pergunta for "o que dá para produzir". ``null`` nos dois = OS sem pedido na ORDR.
 
+    **Entrega futura:** o SAP fecha o pedido já na NF de simples faturamento (CFOP
+    5922/6922), antes de a mercadoria sair. Enquanto a remessa não sai toda, o item vem
+    ``status_pedido: "Aberto"`` com ``faturamento: "entrega_futura"`` e ``remessa``
+    ``"nenhuma"`` ou ``"parcial"``: diga que o pedido foi **faturado para entrega futura** e
+    ainda não saiu, nunca que está fechado. ``faturamento: "venda"`` + ``faturado_em`` = NF
+    de venda normal (pedido fechado de fato). Os três campos vêm ``null`` em pedido aberto.
+
     Args:
         limit: quantos pedidos trazer (1–50). Default 30.
     """
@@ -752,6 +759,12 @@ def situacao_pedido(pedido: int, chave: str = "docnum") -> dict[str, Any]:
     **Pedido fechado** (já entregue/faturado, fora da view) responde igual, com
     ``status_pedido: "Fechado"``, ``pedido_cancelado: false`` e as etapas em ``"Fechado"``:
     diga que o pedido está **fechado** no SAP. Ali ``primeira_nf_emitida`` vem ``null``.
+    **Pedido faturado para entrega futura** (NF de simples faturamento 5922/6922, remessa
+    ainda não saiu toda) responde 200 com ``status_pedido: "Aberto"``, ``aviso.tipo:
+    "entrega_futura"`` e ``remessa`` ``"nenhuma"`` ou ``"parcial"`` — com as etapas reais
+    (se ainda está na view) ou em ``"Entrega futura"`` (fora dela, aí ``pedido.atrasado:
+    null``). Diga que ele foi faturado antecipado e a mercadoria **ainda não saiu** — nunca
+    que está fechado ou entregue.
 
     Devolve ``{"ok": false, ...}`` com **404** quando não dá para afirmar a situação. O
     campo ``motivo`` diz qual caso é: ``fora_do_recorte`` (o pedido existe no SAP, mas
@@ -1476,6 +1489,8 @@ def solicitar_data_entrega(pedido: int, data_nova: str, motivo: str, observacao:
     - ``pedido_fechado``/``pedido_cancelado``/``pedido_nao_encontrado``/``fora_do_recorte``/
       ``indeterminado``/``data_no_passado``/``data_muito_distante``/``data_igual_a_vigente``:
       explique com o texto de ``error``; nada foi gravado.
+    - ``entrega_futura`` (409) → o pedido foi faturado para entrega futura e não aparece na
+      tela do Comercial (já saiu dela): a data se combina direto com o Comercial. Nada foi gravado.
     - Se demorar demais, NÃO repita às cegas: confira com ``data_entrega_pedido``.
 
     Args:

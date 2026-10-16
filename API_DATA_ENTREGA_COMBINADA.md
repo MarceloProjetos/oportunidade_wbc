@@ -106,6 +106,13 @@ Pedido fora da tela do Comercial (ex.: **fechado** ou **cancelado**): status e `
 (`data_sap` = a data de entrega do pedido no SAP, `DocDueDate` — informativa, desde 15/10/2026); fechado ou
 cancelado → `atrasado: false`. Só vem `data_sap: null` se o SAP não responder ou o pedido não tiver data.
 
+A resposta `200` traz também `faturamento`, `remessa` e `faturado_em` (sentido em `API_SITUACAO_PEDIDOS.md`
+§2.2), preenchidos para pedido fechado no SAP. **Pedido faturado para entrega futura** (NF de simples faturamento,
+CFOP 5922/6922) cuja remessa ainda não saiu toda vem `status_pedido: "Aberto"`, `faturamento: "entrega_futura"`
+e `remessa` `"nenhuma"` ou `"parcial"` (desde 16/10/2026) — ele segue em produção. Enquanto ele ainda está na tela
+do Comercial (o caso comum), a solicitação de nova data funciona como em qualquer pedido aberto. Se já saiu da
+tela, o POST é recusado com `409 entrega_futura`.
+
 ## 7. `GET /pedidos/data-entrega/solicitacoes`
 
 - `?situacao=pendente` (padrão: todas as pendentes) | `decididas` (aprovadas/recusadas nos últimos `dias`,
@@ -126,6 +133,7 @@ pelo `motivo`**, nunca pelo texto.
 | 404 | `fora_do_recorte` | pedido aberto que não está na tela do Comercial — avisar o suporte |
 | 409 | `ja_ha_pendente` (traz `pendente`: quem, quando, data, motivo) | esperar o Comercial decidir; não repetir |
 | 409 | `pedido_fechado`, `pedido_cancelado`, `sem_data_sap`, `docnum_ambiguo` | não há data a mudar |
+| 409 | `entrega_futura` | pedido faturado para entrega futura que já saiu da tela do Comercial; combinar a data direto com o Comercial |
 | 422 | `data_no_passado`, `data_muito_distante`, `data_igual_a_vigente`, `parametro_invalido` | corrigir a data/parâmetro |
 | 429 | `error: "rate_limited"` + `retry_after_s` | aguardar (teto padrão: 30 pedidos/min) |
 | 503 | `indeterminado` | SAP sem resposta (ou a view falhou); nada gravado; tentar de novo |

@@ -1727,3 +1727,25 @@ def test_orcamento_wbc_sem_banco_e_503(client, monkeypatch, tmp_path):
     reset_settings()
     r = client.get('/wbc/orcamentos/00123304', headers={'X-API-Key': 'segredo'})
     assert r.status_code == 503
+
+
+def test_os_detalhe_entrega_futura_vem_aberto_com_aviso(client, monkeypatch):
+    """PLANO_ENTREGA_FUTURA: closed in SAP by the 5922 NF, still open for the factory."""
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, 'consultar_status_pedido', lambda n: {
+        'pedido_existe': True, 'pedido_cancelado': False, 'pedido_status': 'Aberto',
+        'faturamento': 'entrega_futura', 'remessa': 'parcial', 'faturado_em': '2026-09-18'})
+    body = client.get('/ordens-servico/84407').get_json()
+    assert body['status_pedido'] == 'Aberto' and body['aviso']['tipo'] == 'entrega_futura'
+    assert (body['faturamento'], body['remessa'], body['faturado_em']) == (
+        'entrega_futura', 'parcial', '2026-09-18')
+
+
+def test_os_detalhe_venda_normal_fechado_sem_aviso(client, monkeypatch):
+    monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
+    monkeypatch.setattr(apimod, 'consultar_status_pedido', lambda n: {
+        'pedido_existe': True, 'pedido_cancelado': False, 'pedido_status': 'Fechado',
+        'faturamento': 'venda', 'remessa': None, 'faturado_em': '2026-01-06'})
+    body = client.get('/ordens-servico/83411').get_json()
+    assert body['status_pedido'] == 'Fechado' and 'aviso' not in body
+    assert body['faturado_em'] == '2026-01-06'

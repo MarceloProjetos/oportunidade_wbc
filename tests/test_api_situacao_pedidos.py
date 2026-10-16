@@ -29,7 +29,9 @@ from config import reset_settings  # noqa: E402
 #: o endereco e entrega pronto, entao quem esta no default NAO recebe o ShipTo e nao
 #: tem como escolher errado. Nao entram em `CAMPOS_RESUMO` porque aquilo e' do nucleo
 #: portado; sao acrescentados em `api._resumir`.
-CAMPOS_ENTREGA_RESUMO = {"entrega_linha", "entrega_cidade_uf", "entrega_difere"}
+CAMPOS_ENTREGA_RESUMO = {"entrega_linha", "entrega_cidade_uf", "entrega_difere",
+                         # PLANO_ENTREGA_FUTURA: why a pedido closed in SAP reads "Aberto"
+                         "faturamento", "remessa", "faturado_em"}
 
 
 def _row(**over: Any) -> dict[str, Any]:
@@ -575,3 +577,70 @@ def test_linha_sem_as_chaves_injetadas_responde_nulo_e_nao_quebra(client):
     p = client.get('/pedidos/83554/situacao').get_json()['pedido']
     assert CAMPOS_LIBERACAO_NF <= set(p)
     assert p['lib_producao_em'] is None and p['primeira_nf_emitida'] is False
+
+
+# --- entrega futura (PLANO_ENTREGA_FUTURA, 2026-10-16) ------------------------------
+# SAP closes the pedido on the 5922/6922 NF before the goods leave: it leaves the view, but
+# for the factory it is open. 200 by the ORDR path, never "Fechado", never a 404.
+
+def _entrega_futura(**over):
+    campos = {'pedido_status': 'Aberto', 'data_entrega': '2026-11-17', 'faturamento': 'entrega_futura',
+              'remessa': 'nenhuma', 'faturado_em': '2026-10-07'}
+    return _ordr(**{**campos, **over})
+
+
+def test_entrega_futura_responde_200_aberto_com_aviso(client, monkeypatch):
+    monkeypatch.setattr(apimod, 'consultar_status_pedido', lambda n: _entrega_futura())
+    r = client.get('/pedidos/84464/situacao')
+    assert r.status_code == 200
+    b = r.get_json()
+    assert b['fonte'] == 'ordr' and b['status_pedido'] == 'Aberto' and b['pedido_cancelado'] is False
+    assert b['aviso']['tipo'] == 'entrega_futura'
+    assert (b['faturamento'], b['remessa'], b['faturado_em']) == ('entrega_futura', 'nenhuma', '2026-10-07')
+    p = b['pedido']
+    assert p['status_pedido'] == 'Aberto'
+    assert (p['financeiro'], p['producao'], p['entrega']) == ('Entrega futura',) * 3
+    assert p['atrasado'] is None and p['primeira_nf_emitida'] is True
+    assert p['data_entrega'] == '2026-11-17'
+
+
+def test_entrega_futura_tem_o_mesmo_formato_do_caminho_da_view(client, monkeypatch):
+    da_view = client.get('/pedidos/84260/situacao').get_json()['pedido']
+    monkeypatch.setattr(apimod, 'consultar_status_pedido', lambda n: _entrega_futura(remessa='parcial'))
+    assert set(client.get('/pedidos/84407/situacao').get_json()['pedido']) == set(da_view)
+
+
+def test_remessa_completa_responde_fechado_como_antes(client, monkeypatch):
+    monkeypatch.setattr(apimod, 'consultar_status_pedido', lambda n: _ordr(
+        pedido_status='Fechado', faturamento='entrega_futura', remessa='completa',
+        faturado_em='2026-06-08'))
+    b = client.get('/pedidos/83919/situacao').get_json()
+    assert b['status_pedido'] == 'Fechado' and b['aviso']['tipo'] == 'pedido_fechado'
+    assert b['remessa'] == 'completa'
+
+
+def test_campos_de_faturamento_em_toda_resposta(client, monkeypatch):
+    """View path: null (open pedido, invoices not read). 404 path: what the ORDR said."""
+    b = client.get('/pedidos/84260/situacao').get_json()
+    assert (b['faturamento'], b['remessa'], b['faturado_em']) == (None, None, None)
+    b = client.get('/pedidos/70000/situacao').get_json()
+    assert b['motivo'] == 'fora_do_recorte' and 'faturamento' in b and b['faturamento'] is None
+
+
+def test_entrega_futura_na_view_responde_aberto_com_aviso(client, monkeypatch):
+    """84464 is IN the view with StatusPedido 'Fechado'; the injection reopened the raw row."""
+    linha = _row(DocEntry=20055, DocNum=84464, StatusPedido="Aberto", Atrasado="S",
+                 _StatusPedidoSap="Fechado", _Faturamento="entrega_futura", _Remessa="nenhuma",
+                 _FaturadoEm="2026-10-07")
+    monkeypatch.setattr(apimod.sit_ped_hana, 'fetch_status_pedidos',
+                        lambda *, recarregar=False: [dict(r) for r in LOTE] + [dict(linha)])
+    b = client.get('/pedidos/84464/situacao').get_json()
+    assert b['fonte'] == 'view' and b['status_pedido'] == 'Aberto'
+    assert b['aviso']['tipo'] == 'entrega_futura'
+    assert (b['faturamento'], b['remessa'], b['faturado_em']) == ('entrega_futura', 'nenhuma', '2026-10-07')
+    p = b['pedido']
+    assert p['status_pedido'] == 'Aberto' and p['atrasado'] is True    # open again: the SAP flag counts
+    assert p['financeiro'] == 'Liberado'                                # real stages from the view
+    lista = client.get('/pedidos/situacao?status=aberto').get_json()
+    assert 84464 in [x['doc_num'] for x in lista['pedidos']]
+    assert [x for x in lista['pedidos'] if x['doc_num'] == 84464][0]['remessa'] == 'nenhuma'
