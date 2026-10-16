@@ -9,6 +9,8 @@ um ``int()`` esquecido de virar injeção. Com ``sql(t"...")`` a regra mora no t
   colado — nome de objeto não pode ser parâmetro no SQL;
 - ``{n:int}``           → literal inteiro colado, para onde o HANA não aceita ``?``
   (``LIMIT``). Só ``int`` de verdade; ``bool`` e string são recusados.
+- ``{lista:ints}``      → lista NÃO vazia de ``int`` colada como ``1,2,3`` (para ``IN (...)``),
+  com a mesma regra do ``:int`` em cada elemento.
 
 Qualquer outro formato (ou conversão ``!r``/``!s``) é erro: não existe "cole como veio".
 
@@ -65,4 +67,13 @@ def _trecho(item: Interpolation, parametros: list[Any]) -> str:
         if isinstance(valor, bool) or not isinstance(valor, int):
             raise ValueError(f"{item.expression} tem de ser int para :int, veio {type(valor).__name__}")
         return str(valor)
-    raise ValueError(f"formato {formato!r} desconhecido em sql() — use '', ':ident' ou ':int'.")
+    if formato == "ints":
+        # IN-list of keys read from SAP itself (DocEntry): pasted as literals because one `?`
+        # per element would make the statement text vary with the list size anyway.
+        if isinstance(valor, (str, bytes)):
+            raise ValueError(f"{item.expression} tem de ser lista de int para :ints, veio texto")
+        itens = list(valor)
+        if not itens or any(isinstance(v, bool) or not isinstance(v, int) for v in itens):
+            raise ValueError(f"{item.expression} tem de ser lista NÃO vazia de int para :ints")
+        return ",".join(str(v) for v in itens)
+    raise ValueError(f"formato {formato!r} desconhecido em sql() — use '', ':ident', ':int' ou ':ints'.")

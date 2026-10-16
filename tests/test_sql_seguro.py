@@ -38,6 +38,14 @@ def test_int_e_colado_so_se_for_int():
             sql(t"LIMIT {ruim:int}")
 
 
+def test_ints_cola_lista_de_int_e_recusa_o_resto():
+    chaves = [20055, 18000]
+    assert sql(t"IN ({chaves:ints})") == ("IN (20055,18000)", [])
+    for ruim in ([], ["1"], [True], [1.5], "123"):
+        with pytest.raises(ValueError):
+            sql(t"IN ({ruim:ints})")
+
+
 def test_formato_e_conversao_desconhecidos_sao_erro():
     x = 1
     with pytest.raises(ValueError, match="formato"):

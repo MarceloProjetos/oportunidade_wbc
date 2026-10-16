@@ -1,7 +1,7 @@
 # Plano — Entrega futura não é pedido fechado
 
-> **Status (16/10/2026):** F0 concluída (só leitura no SAP de produção). D1–D4 aprovadas pelo Marcelo;
-> D3 virou "por valor" com a medição. **Aberta: D5** (3 pedidos antigos). Próximo passo: F1.
+> **Status (16/10/2026):** F0 e F1 concluídas; D1–D5 fechadas. A regra está no código da .11 (no GitHub,
+> **não no ar**) e foi conferida contra a produção, só leitura. Próximo passo: F2 (rotas, MCP, contratos).
 > Página: https://claude.ai/artifact/NQeW5baaQ5NLYSTDt59JFn (mesma url a cada atualização)
 
 ## O problema
@@ -77,14 +77,19 @@ Resultado nos 55 pedidos com NF futura emitida em 2026 (16/10):
 - 84412 conferido (venda normal, série manual).
 - Com a regra, 10 pedidos fechados no SAP passam a "aguardando remessa": os 7 da lista + 3 antigos (D5).
 
-### F1 — A regra na .11 (minha)
+### F1 — A regra na .11 <span>✅ concluída 16/10 (no GitHub, não no ar)</span>
 **Meta:** a .11 deixa de chamar de "Fechado" o pedido de entrega futura ainda não remetido.
-- Função nova, uma consulta para vários pedidos, com a regra acima.
-- `classificar_pedido` passa a usar esse resultado; as três leituras dão a mesma resposta.
-- Campos novos: `faturamento: "entrega_futura"` e `remessa: "nenhuma" | "parcial" | "completa"`; para
-  NF de venda normal, `faturado_em` (data da última NF viva).
-- Testes com os casos reais: sem remessa (84464), parcial (84407), completa só com referência ao pedido
-  (83919), anulada (83422), anulação parcial (83898), NF de venda normal (83411).
+- Módulo novo `faturamento_pedido.py`: 3 consultas para a lista inteira de pedidos, com a regra acima.
+  `sql_seguro` ganhou `{lista:ints}` para o `IN (...)`.
+- `classificar_pedido` usa o resultado; `consultar_status_pedido`, `listar_pedidos_com_os` e
+  `diagnosticar_nped` dão a mesma resposta e devolvem `faturamento` (`entrega_futura` | `venda`),
+  `remessa` (`nenhuma` | `parcial` | `completa` | `anulada`) e `faturado_em` (última NF viva do pedido).
+- Só pedido fechado e não cancelado é lido. Se a leitura das NFs falhar, fica a resposta antiga
+  ("Fechado") e um erro no log.
+- 22 testes novos com os números reais (84464, 84407, 84021, 83422, 83898, 83919, 83411).
+- Conferido contra a produção, só leitura, com o código da F1: os 7 da lista do PCP e 83627/84022/84271
+  → `Aberto`; os 21 de venda normal → `Fechado` com `faturado_em`; 83919/83898/84021 → `Fechado`
+  (`remessa: completa`).
 
 ### F2 — Rotas, MCP e contrato (minha) + revisão
 **Meta:** o app do PCP recebe a situação certa em todas as rotas que usa.
@@ -108,12 +113,14 @@ Resultado nos 55 pedidos com NF futura emitida em 2026 (16/10):
    as unidades não batessem. A F0 mostrou que não batem (itens em conjunto saem fracionados), então
    vale o **valor por pedido, descontada a anulação** (regra acima).
 4. ✅ **D4 — A Situação dos Pedidos do OrçaView:** fora deste plano; plano próprio depois da F3.
-5. **D5 — Três pedidos antigos voltariam a "em aberto":** 83627 (MG VIDROS, falta R$ 109.764 de
+5. ✅ **D5 — Três pedidos antigos voltariam a "em aberto"** (aprovada a recomendação em 16/10: a regra vale
+   para todos; o faturamento confere os três antes do deploy): 83627 (MG VIDROS, falta R$ 109.764 de
    R$ 441.416, última remessa 16/04), 84022 (CORELLO, R$ 195.642 sem remessa; o pedido-irmão 83949 de
    mesmo valor foi anulado), 84271 (PRONAP, R$ 26.833 sem remessa desde 21/09). Pode ser remessa
    esquecida no SAP ou entrega de fato pendente. *Recomendação:* a regra vale para todos; antes do
    deploy, o faturamento confere os três. Se já foram entregues, a correção é no SAP (anular o saldo da
-   NF futura ou referenciar a remessa), e a .11 passa a dizer "Fechado" sozinha.
+   NF futura ou referenciar a remessa), e a .11 passa a dizer "Fechado" sozinha. **Pendente: a conferência
+   do faturamento (do Marcelo), antes da F3.**
 
 ---
 Diagnóstico: consultas só de leitura no HANA (`ORDR`, `RDR1`, `OINV`, `INV1`, `INV21`, `ORIN`, `RIN1`,

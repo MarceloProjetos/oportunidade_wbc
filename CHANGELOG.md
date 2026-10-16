@@ -6,6 +6,19 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-16] — Entrega futura não remetida não é "Fechado" (F1 do PLANO_ENTREGA_FUTURA)
+
+O SAP fecha o pedido já na NF de simples faturamento para entrega futura (CFOP 5922/6922), antes de a mercadoria
+sair, e a equipe do PCP recebia "Fechado" para pedidos ainda na fábrica (84464, 84471, 84407…). Módulo novo
+`faturamento_pedido.py` (só leitura, 3 consultas por lista de pedidos): por pedido e em valor, NF futura − devolução
+contra as remessas 5116/6116/5117/6117 ligadas pela `INV21` à NF (13) ou ao pedido (17); falta ≤ max(R$ 1, 0,5%) =
+remessa completa. `classificar_pedido` ganha o resultado: fechado com remessa `nenhuma`/`parcial` → **`Aberto`**.
+As três leituras (`consultar_status_pedido`, `listar_pedidos_com_os`, `diagnosticar_nped`) usam a mesma regra e
+devolvem `faturamento` (`entrega_futura`/`venda`), `remessa` e `faturado_em` (D1/D2). Falha na leitura das NFs =
+resposta antiga (`Fechado`) + log de erro. `sql_seguro` ganha `{lista:ints}` para `IN (...)`. Conferido contra a
+produção (só leitura): os 7 da lista do PCP + 83627/84022/84271 viram `Aberto`; os 21 de venda normal seguem
+`Fechado`. +22 testes. **Rotas/contratos na F2; deploy só depois dela.**
+
 ## [2026-10-15] — Data de entrega: pedido fora da view traz a data do SAP
 
 `GET /pedidos/<n>/data-entrega` de pedido **fora** da Situação dos Pedidos (fechado, cancelado) devolvia

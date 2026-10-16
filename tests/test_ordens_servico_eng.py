@@ -391,7 +391,8 @@ def test_consultar_status_pedido_cancelado(monkeypatch):
         'pedido_existe': True, 'pedido_cancelado': True, 'pedido_status': 'Cancelado',
         'card_code': 'C011388', 'card_name': 'DIVENA AUTOMOVEIS LTDA',
         'data_pedido': '2026-08-18', 'data_entrega': '2026-09-30',
-        'valor_total': 12345.67, 'moeda': 'R$'}
+        'valor_total': 12345.67, 'moeda': 'R$',
+        'faturamento': None, 'remessa': None, 'faturado_em': None}
 
 
 def test_consultar_status_pedido_inexistente(monkeypatch):
@@ -400,7 +401,8 @@ def test_consultar_status_pedido_inexistente(monkeypatch):
     assert mod.consultar_status_pedido(99999) == {
         'pedido_existe': False, 'pedido_cancelado': False, 'pedido_status': None,
         'card_code': '', 'card_name': '', 'data_pedido': None, 'data_entrega': None,
-        'valor_total': 0.0, 'moeda': ''}
+        'valor_total': 0.0, 'moeda': '',
+        'faturamento': None, 'remessa': None, 'faturado_em': None}
 
 
 def test_data_iso_normaliza_o_que_a_ordr_devolve():
@@ -458,7 +460,8 @@ def test_listar_pedidos_com_os_marca_cancelado_sem_esconder(monkeypatch):
     assert por_nped[84314]['pedido_cancelado'] is True
     assert por_nped[84314]['status_pedido'] == 'Cancelado'
     assert por_nped[84313] == {'nped': 84313, 'cliente': 'NSA', 'os': 154200, 'data': None,
-                               'status_pedido': 'Aberto', 'pedido_cancelado': False}
+                               'status_pedido': 'Aberto', 'pedido_cancelado': False,
+                               'faturamento': None, 'remessa': None, 'faturado_em': None}
     # OS órfã (pedido fora da ORDR): não inventa status.
     assert por_nped[70000]['status_pedido'] is None
     assert por_nped[70000]['pedido_cancelado'] is None

@@ -36,6 +36,7 @@ from config import (
     OS_SYNC_LOG_MAX_REGISTROS,
     get_settings,
 )
+from faturamento_pedido import Faturamento, ler_faturamento
 from pipeline_core import (
     FileLockTimeout,
     SupabaseLoader,
@@ -157,8 +158,14 @@ def diagnosticar_nped(nped: object) -> dict:
     # invalidate the OS diagnosis.
     ordr = build_view_query('ORDR', settings.sap_schema)  # "SCHEMA"."ORDR"
     df_ped = sap.execute_query(*sql(
-        t'SELECT "CANCELED", "DocStatus" FROM {ordr:ident} WHERE "DocNum" = {nped_int}'
+        t'SELECT "DocEntry", "CANCELED", "DocStatus" FROM {ordr:ident} WHERE "DocNum" = {nped_int}'
     ))
+    faturamento = None
+    if df_ped is not None and len(df_ped):
+        row = df_ped.iloc[0]
+        entry = _doc_entry(row.get('DocEntry'))
+        if entry is not None and _fechado_sem_cancelar(row.get('CANCELED'), row.get('DocStatus')):
+            faturamento = (ler_faturamento(sap, settings.sap_schema, [entry]) or {}).get(entry)
     sap.close()
 
     statuses = [str(s).strip() for s in df['Status'].tolist()] if len(df) else []
@@ -172,14 +179,15 @@ def diagnosticar_nped(nped: object) -> dict:
         if pedido_existe:
             row = df_ped.iloc[0]
             pedido_cancelado, pedido_status = classificar_pedido(
-                row.get('CANCELED'), row.get('DocStatus'))
+                row.get('CANCELED'), row.get('DocStatus'), faturamento)
 
     return {'tem_os': tem_os, 'cancelada': cancelada, 'status': statuses,
             'pedido_existe': pedido_existe, 'pedido_cancelado': pedido_cancelado,
             'pedido_status': pedido_status}
 
 
-def classificar_pedido(canceled: object, doc_status: object) -> tuple[bool, str]:
+def classificar_pedido(canceled: object, doc_status: object,
+                       faturamento: Faturamento | None = None) -> tuple[bool, str]:
     """``ORDR.CANCELED`` + ``ORDR.DocStatus`` → ``(pedido_cancelado, pedido_status)``.
 
     SAP B1: ``CANCELED`` = ``'Y'`` cancelled, ``'C'`` reversal document (cancellation);
@@ -191,13 +199,41 @@ def classificar_pedido(canceled: object, doc_status: object) -> tuple[bool, str]
     live OPs, so they showed up in the OS list/detail with no hint of cancellation, while
     ``VW_STATUS_PEDIDO_DDP`` (which drops cancelled pedidos) answered 404 for them — the
     consumer read "sem situação". This flag is what lets the consumer tell the two apart.
+
+    ``faturamento`` (2026-10-16, ``docs/PLANO_ENTREGA_FUTURA.md``): SAP also closes the pedido
+    on the future-delivery NF (CFOP 5922/6922), before the goods leave. A closed pedido whose
+    future-delivery sale is not fully shipped yet is ``'Aberto'`` here. Without it (read
+    failed or not done) the answer is the plain ``DocStatus`` one, as before.
     """
     cancelado = str(canceled or '').strip() in ('Y', 'C')
     if cancelado:
         return True, 'Cancelado'
     if str(doc_status or '').strip() == 'C':
+        if faturamento is not None and faturamento.pendente:
+            return False, 'Aberto'
         return False, 'Fechado'
     return False, 'Aberto'
+
+
+def _campos_faturamento(faturamento: Faturamento | None) -> dict:
+    """The three response fields that explain how a closed pedido was invoiced."""
+    if faturamento is None:
+        return {'faturamento': None, 'remessa': None, 'faturado_em': None}
+    return {'faturamento': faturamento.tipo, 'remessa': faturamento.remessa,
+            'faturado_em': faturamento.faturado_em}
+
+
+def _fechado_sem_cancelar(canceled: object, doc_status: object) -> bool:
+    """Only these pedidos need the invoice read: open ones are open, cancelled ones cancelled."""
+    return (str(canceled or '').strip() not in ('Y', 'C')
+            and str(doc_status or '').strip() == 'C')
+
+
+def _doc_entry(valor: object) -> int | None:
+    try:
+        return int(valor) if valor is not None and valor == valor else None
+    except (TypeError, ValueError):
+        return None
 
 
 def consultar_status_pedido(nped: object) -> dict | None:
@@ -216,7 +252,11 @@ def consultar_status_pedido(nped: object) -> dict | None:
         ``{'pedido_existe': bool, 'pedido_cancelado': bool, 'pedido_status': str|None,
         'card_code': str, 'card_name': str, 'data_pedido': str|None (ISO),
         'data_entrega': str|None (ISO, ORDR.DocDueDate — the same date the status view calls
-        Data_Entrega, measured 317/317 on 15/10/2026), 'valor_total': float, 'moeda': str}``
+        Data_Entrega, measured 317/317 on 15/10/2026), 'valor_total': float, 'moeda': str,
+        'faturamento': 'entrega_futura'|'venda'|None, 'remessa': 'nenhuma'|'parcial'|
+        'completa'|'anulada'|None, 'faturado_em': str|None (ISO, last live NF copied from
+        the pedido)}`` — the three invoicing keys are filled only for a closed, not cancelled
+        pedido (see :func:`classificar_pedido`)
         (``pedido_status`` is ``None`` when the
         pedido is not in ORDR, and the identity keys come empty), or ``None`` when SAP is
         not configured/reachable or the query fails.
@@ -239,9 +279,15 @@ def consultar_status_pedido(nped: object) -> dict | None:
 
     ordr = build_view_query('ORDR', settings.sap_schema)  # "SCHEMA"."ORDR"
     df_ped = sap.execute_query(*sql(
-        t'SELECT "CANCELED", "DocStatus", "CardCode", "CardName", "DocDate", "DocDueDate", '
-        t'"DocTotal", "DocCur" FROM {ordr:ident} WHERE "DocNum" = {nped_int}'
+        t'SELECT "DocEntry", "CANCELED", "DocStatus", "CardCode", "CardName", "DocDate", '
+        t'"DocDueDate", "DocTotal", "DocCur" FROM {ordr:ident} WHERE "DocNum" = {nped_int}'
     ))
+    faturamento = None
+    if df_ped is not None and len(df_ped):
+        row = df_ped.iloc[0]
+        entry = _doc_entry(row.get('DocEntry'))
+        if entry is not None and _fechado_sem_cancelar(row.get('CANCELED'), row.get('DocStatus')):
+            faturamento = (ler_faturamento(sap, settings.sap_schema, [entry]) or {}).get(entry)
     sap.close()
     if df_ped is None:
         logger.error("Falha ao consultar o status do pedido %s na ORDR", nped_int)
@@ -251,16 +297,17 @@ def consultar_status_pedido(nped: object) -> dict | None:
              'valor_total': 0.0, 'moeda': ''}
     if len(df_ped) == 0:
         return {'pedido_existe': False, 'pedido_cancelado': False, 'pedido_status': None,
-                **vazio}
+                **vazio, **_campos_faturamento(None)}
     row = df_ped.iloc[0]
-    cancelado, status = classificar_pedido(row.get('CANCELED'), row.get('DocStatus'))
+    cancelado, status = classificar_pedido(row.get('CANCELED'), row.get('DocStatus'), faturamento)
     return {'pedido_existe': True, 'pedido_cancelado': cancelado, 'pedido_status': status,
             'card_code': str(row.get('CardCode') or '').strip(),
             'card_name': str(row.get('CardName') or '').strip(),
             'data_pedido': _data_iso(row.get('DocDate')),
             'data_entrega': _data_iso(row.get('DocDueDate')),
             'valor_total': float(row.get('DocTotal') or 0.0),
-            'moeda': str(row.get('DocCur') or '').strip()}
+            'moeda': str(row.get('DocCur') or '').strip(),
+            **_campos_faturamento(faturamento)}
 
 
 def _data_iso(valor: object) -> str | None:
@@ -323,13 +370,20 @@ def listar_pedidos_com_os(limit: int = 30) -> list[dict] | None:
         t'SELECT T0."OriginNum" AS "NPED", MAX(T1."CardName") AS "Cliente", '
         t'MAX(T0."DocNum") AS "OS", MAX(T0."PostDate") AS "Data", '
         t'MAX(T1."CANCELED") AS "Canceled", MAX(T1."DocStatus") AS "DocStatus", '
-        t'COUNT(T1."DocEntry") AS "PedidoExiste" '
+        t'COUNT(T1."DocEntry") AS "PedidoExiste", MAX(T1."DocEntry") AS "PedEntry" '
         t'FROM {owor:ident} T0 LEFT JOIN {ordr:ident} T1 ON T1."DocNum" = T0."OriginNum" '
         t"WHERE T0.\"OriginNum\" > 0 AND T0.\"Status\" <> 'C' "
         t'GROUP BY T0."OriginNum" '
         t'ORDER BY MAX(T0."DocEntry") DESC '
         t'LIMIT {limit_int:int}'
     ))
+    faturamentos: dict[int, Faturamento] = {}
+    if df is not None:
+        fechados = [e for _, r in df.iterrows()
+                    if (e := _doc_entry(r.get('PedEntry'))) is not None
+                    and _fechado_sem_cancelar(r.get('Canceled'), r.get('DocStatus'))]
+        if fechados:
+            faturamentos = ler_faturamento(sap, settings.sap_schema, fechados) or {}
     sap.close()
 
     if df is None:
@@ -345,8 +399,12 @@ def listar_pedidos_com_os(limit: int = 30) -> list[dict] | None:
         os_num = row.get('OS')
         # COUNT of the LEFT JOIN side: 0 = OS without a pedido in ORDR → status unknown.
         existe = row.get('PedidoExiste')
+        faturamento = None
         if pd.notna(existe) and int(existe) > 0:
-            cancelado, status_ped = classificar_pedido(row.get('Canceled'), row.get('DocStatus'))
+            entry = _doc_entry(row.get('PedEntry'))
+            faturamento = faturamentos.get(entry) if entry is not None else None
+            cancelado, status_ped = classificar_pedido(
+                row.get('Canceled'), row.get('DocStatus'), faturamento)
         else:
             cancelado, status_ped = None, None
         pedidos.append({
@@ -357,6 +415,7 @@ def listar_pedidos_com_os(limit: int = 30) -> list[dict] | None:
                 str(data) if pd.notna(data) else None),
             'status_pedido': status_ped,
             'pedido_cancelado': cancelado,
+            **_campos_faturamento(faturamento),
         })
     logger.info("Pedidos com OS listados do SAP: %s", len(pedidos))
     return pedidos
