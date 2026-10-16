@@ -132,8 +132,9 @@ Resultado nos 55 pedidos com NF futura emitida em 2026 (16/10):
   estado da rotina ou do histórico).
 - Pedido com várias cargas: um aviso só, na primeira.
 - Simulação contra a produção, sem e-mail: nenhuma espelho dispara; o 84407 recebe o aviso pela remessa 5918.
-- Pede: o SQL `montagem_avisos_nf_aguardando_remessa.sql` no SQL Editor (sem ele a linha de espera não grava;
-  o aviso funciona) e restart do .90.
+- ✅ **No ar 16/10:** SQL aplicado pelo Marcelo, .90 reiniciado 13:34. Rodada manual às 13:40 (a pedido dele),
+  depois da simulação no próprio .90 bater: 1 aviso só — 84407, NF de remessa 5918, para a MONTARIM; nenhuma
+  nota espelho disparou; linha gravada no histórico. Daqui em diante, os horários de sempre. **Assunto encerrado.**
 
 ## Decisões
 
