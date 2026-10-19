@@ -383,7 +383,8 @@ def hana_clientes_do_vendedor(
 
     ``VW_PEDIDO_ALTA."CodVend"`` já guarda o NOME do vendedor (é o
     ``OSLP.SlpName``); casar por código entregaria a carteira de um vendedor para
-    outro — ``app_profiles.slp_code`` diverge do ``OSLP.SlpCode`` em produção.
+    outro — ``app_profiles.slp_code`` já carregou o código do representante
+    (``U_RepCod``) no lugar do ``OSLP.SlpCode``.
     O nome entra parametrizado (``?``), nunca concatenado.
     """
     ini, fim = _de_ate(de, ate)

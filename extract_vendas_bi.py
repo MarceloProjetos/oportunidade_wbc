@@ -29,9 +29,11 @@ servidor — ver o cabeçalho de ``sql/bi_vendas.sql``.
 
 ⚠️ **Vendedor casa por NOME.** ``VW_PEDIDO_ALTA."CodVend"`` já é o nome;
 ``VW_FATO_FATURAMENTO."CodVend"`` é o ``SlpCode`` e precisa do join com ``OSLP``.
-Do lado do app, ``app_profiles.slp_name`` também é nome — e o ``slp_code`` de lá
-**diverge** do ``OSLP.SlpCode`` (Edson 6≠7, Luiz Augusto 12≠9, Robson 47≠11).
-Casar por código entrega o número de um vendedor para outro.
+Do lado do app, ``app_profiles.slp_name`` também é nome. O ``slp_code`` de lá
+guardou até 21/09/2026 o código do representante (``OSLP.U_RepCod``/``Memo``:
+Edson 6, Luiz Augusto 12, Robson 47) em vez do ``OSLP.SlpCode`` (7, 9, 11); já foi
+corrigido, mas casar por código ainda entregaria o número de um vendedor para outro
+num perfil errado. Nome é a chave segura.
 """
 
 from __future__ import annotations

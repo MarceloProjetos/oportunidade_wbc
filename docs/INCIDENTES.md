@@ -23,7 +23,8 @@ a que o dashboard mostra. Agosto/2026 fechou em **R$ 1.314.876,11** pelo bruto (
 e **R$ 1.309.079,46** pelo índice. Trocar faz a tela do app divergir do Power BI sem erro
 nenhum aparecer. Idem faturamento: `SUM("Valor")` de `VW_FATO_FATURAMENTO`, sem
 `ValorAdiant`. O vendedor casa por **nome** (`OSLP.SlpName` = `app_profiles.slp_name`)
-porque o `slp_code` dos dois lados diverge.
+porque o `slp_code` dos dois lados divergia (o do app era o código do representante, `U_RepCod`,
+e não o `SlpCode`; corrigido em 21/09/2026).
 
 ## Troca de parceiro: o SAP recusa o cancelamento ao `orcaview`
 

@@ -192,7 +192,9 @@ Dependências: `config` ← todos · `pipeline_core` ← extract_* e api · `api
   rollback, não o normal.
 - **Vendas BI: "Pedidos" é `SUM("VlrPedido")`, sem índice**; faturamento é `SUM("Valor")` de
   `VW_FATO_FATURAMENTO`, sem `ValorAdiant`. Trocar diverge do Power BI **sem erro**. Vendedor
-  casa por **nome** (`OSLP.SlpName` = `app_profiles.slp_name`), nunca por `slp_code`.
+  casa por **nome** (`OSLP.SlpName` = `app_profiles.slp_name`), nunca por `slp_code` — o SAP tem
+  dois números por vendedor (`SlpCode` 11 e `U_RepCod` 047 do Robson) e o `app_profiles.slp_code`
+  já carregou o errado; ver `web_orcaview_V118/docs/REPRESENTANTE_DOIS_NUMEROS.md`.
 - **DocEntry ≠ DocNum na OP** (a OP 125060 é o DocEntry 126599). O default das rotas é DocNum;
   `?chave=docentry` troca. DocNum que casa com mais de uma ordem é **recusado** (409).
 - **Troca de parceiro do pedido** (`U_INO_PN_Correc` + `U_INO_Update = 'Y'`): com pedido
