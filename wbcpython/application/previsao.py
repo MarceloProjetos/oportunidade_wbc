@@ -29,6 +29,7 @@ ACOES_QUE_ESCREVEM = frozenset(
         "criar_pedido",
         "atualizar_pedido",
         "cancelar_e_recriar_pedido",
+        "cancelar_ops_do_pedido",
         "marcar_oportunidade_perdida",
         "cancelar_cotacao_no_encerramento",
         "espelhar_status",
@@ -50,6 +51,8 @@ ACOES_DE_DOCUMENTO = frozenset(
         "criar_pedido",
         "atualizar_pedido",
         "cancelar_e_recriar_pedido",
+        # Cancelling a production order is not undone with a click either.
+        "cancelar_ops_do_pedido",
     }
 )
 

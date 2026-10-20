@@ -18,7 +18,14 @@ from wbcpython.domain.sitcode import (
 
 def estado(**campos: object) -> EstadoIntegracao:
     """Constrói um estado com padrões neutros, sobrescrevendo o que interessa."""
-    base: dict[str, object] = {"orcamento": "00123456", "sitcode_wbc": 30}
+    # Zero OPs is the neutral order; `None` (unknown) blocks the partner swap and is
+    # exercised on purpose in `TestTrocaComOps`.
+    base: dict[str, object] = {
+        "orcamento": "00123456",
+        "sitcode_wbc": 30,
+        "ops_planejadas_pedido": 0,
+        "ops_em_producao_pedido": 0,
+    }
     base.update(campos)
     return EstadoIntegracao(**base)  # type: ignore[arg-type]
 

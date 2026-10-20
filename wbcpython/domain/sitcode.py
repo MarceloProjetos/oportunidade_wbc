@@ -75,6 +75,10 @@ class Acao(Enum):
     CRIAR_PEDIDO = "criar_pedido"
     ATUALIZAR_PEDIDO = "atualizar_pedido"
     CANCELAR_E_RECRIAR_PEDIDO = "cancelar_e_recriar_pedido"
+    #: Cancels the PLANNED production orders of the current order, before the partner
+    #: swap cancels the order itself. Never touches a released or closed OP; when any
+    #: OP survives, the swap waits for the next cycle (`docs/PLANO_TROCA_PN_COM_OP.md`).
+    CANCELAR_OPS_DO_PEDIDO = "cancelar_ops_do_pedido"
     #: Grava `Status = 'sos_Missed'` e o SitCode na oportunidade. **Não
     #: cancela** a oportunidade: no SAP não há cancelamento de oportunidade,
     #: só a mudança de status.
@@ -96,7 +100,14 @@ class Acao(Enum):
 #: 14/09/2026 e o dominio que decide quando elas nao valem — ver
 #: `EstadoIntegracao.fora_da_janela_padrao`.
 ACOES_DE_PEDIDO = frozenset(
-    {Acao.CRIAR_PEDIDO, Acao.ATUALIZAR_PEDIDO, Acao.CANCELAR_E_RECRIAR_PEDIDO}
+    {
+        Acao.CRIAR_PEDIDO,
+        Acao.ATUALIZAR_PEDIDO,
+        Acao.CANCELAR_E_RECRIAR_PEDIDO,
+        # Goes wherever the swap goes: a filter that drops the order actions must not
+        # leave the OP cancellation behind on its own.
+        Acao.CANCELAR_OPS_DO_PEDIDO,
+    }
 )
 
 #: As ações que produzem ou refazem a cotação — o que `VINCULAR_DOCUMENTO_A_OPORTUNIDADE`
@@ -748,6 +759,61 @@ def _decidir_encerramento(
     regras.append("marca_perdida")
 
 
+def _decidir_troca_de_parceiro(
+    estado: EstadoIntegracao,
+    acumulador: _Acumulador,
+    regras: list[str],
+) -> None:
+    """Partner swap on an open order: cancel and recreate, never leaving OPs behind.
+
+    The swap used to cancel the order without looking at production. On 20/10/2026 that
+    left 110 planned OPs on the cancelled 84505 and 84506 while their replacements got
+    their own — the same items planned twice (`docs/PLANO_TROCA_PN_COM_OP.md`). Decision
+    of the owner (option B): planned OPs are cancelled first, by the worker; a released or
+    closed OP stops the swap until a person deals with it; unknown counts stop it too.
+    """
+    de_para = f"{estado.parceiro_pedido_sap or '-'} → {estado.parceiro_novo}"
+    planejadas, em_producao = estado.ops_planejadas_pedido, estado.ops_em_producao_pedido
+
+    if planejadas is None or em_producao is None:
+        acumulador.registrar(
+            f"Troca de parceiro pedida na oportunidade do SAP ({de_para}), mas as OPs do "
+            f"pedido não foram lidas: nada feito, para não cancelar pedido em produção."
+        )
+        regras.append("troca_de_pn_ops_desconhecidas")
+        return
+
+    if em_producao:
+        acumulador.registrar(
+            f"Troca de parceiro pedida na oportunidade do SAP ({de_para}), mas o pedido tem "
+            f"{em_producao} OP(s) liberada(s) ou encerrada(s): não dá para cancelar sem uma "
+            f"pessoa. Trate as OPs na Manutenção de OP; a troca segue sozinha quando não "
+            f"houver mais OP em produção."
+        )
+        regras.append("troca_de_pn_bloqueada_op_em_producao")
+        return
+
+    if planejadas:
+        acumulador.registrar(
+            f"Parceiro corrigido na oportunidade do SAP ({de_para}) e o pedido tem "
+            f"{planejadas} OP(s) planejada(s): cancela as OPs, depois cancela o pedido e "
+            f"recria com o novo PN.",
+            Acao.CANCELAR_OPS_DO_PEDIDO,
+            Acao.CANCELAR_E_RECRIAR_PEDIDO,
+            Acao.VINCULAR_DOCUMENTO_A_OPORTUNIDADE,
+        )
+        regras.append("troca_de_pn_cancela_ops")
+        return
+
+    acumulador.registrar(
+        f"Parceiro corrigido na oportunidade do SAP ({de_para}): cancela o pedido e recria "
+        f"com o novo PN.",
+        Acao.CANCELAR_E_RECRIAR_PEDIDO,
+        Acao.VINCULAR_DOCUMENTO_A_OPORTUNIDADE,
+    )
+    regras.append("troca_de_pn")
+
+
 def _decidir_pedido(
     estado: EstadoIntegracao,
     acumulador: _Acumulador,
@@ -816,13 +882,7 @@ def _decidir_pedido(
     # pedido já traz a revisão corrente junto, e atualizar um pedido que será
     # cancelado em seguida é trabalho jogado fora.
     if estado.troca_de_parceiro_pendente:
-        acumulador.registrar(
-            f"Parceiro corrigido no WBC ({estado.parceiro_pedido_sap or '-'} → "
-            f"{estado.parceiro_novo}): cancela o pedido e recria com o novo PN.",
-            Acao.CANCELAR_E_RECRIAR_PEDIDO,
-            Acao.VINCULAR_DOCUMENTO_A_OPORTUNIDADE,
-        )
-        regras.append("troca_de_pn")
+        _decidir_troca_de_parceiro(estado, acumulador, regras)
         return
 
     # Quem congela o pedido é a **revisão carimbada nele**, `U_INO_VERSAOWBC`

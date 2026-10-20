@@ -47,6 +47,9 @@ REGRAS_WORKER: dict[str, list[str]] = {
     "pedido_corrigido_a_mao": ["cliente"],
     "troca_de_pn": ["cliente"],
     "troca_de_pn_impossivel_pedido_fechado": ["cliente"],
+    "troca_de_pn_cancela_ops": ["cliente"],
+    "troca_de_pn_bloqueada_op_em_producao": ["cliente"],
+    "troca_de_pn_ops_desconhecidas": ["cliente"],
     "cria_pedido_no_pn_corrigido": ["cliente"],
     "peso_reescalado": ["quantidade"],
 }

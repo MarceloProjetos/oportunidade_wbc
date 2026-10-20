@@ -44,7 +44,11 @@ class DocumentosFalso:
         fechados=None,
         congelados=None,
         total_apos_atualizar=None,
+        ops=(0, 0),
     ) -> None:
+        #: `(planned, released or closed)` of the order, as the HANA read carries them.
+        #: Zero by default; `None` plays the source that cannot tell (the swap waits).
+        self._ops = ops
         self._tem = {TipoDocumento.COTACAO: tem_cotacao, TipoDocumento.PEDIDO: tem_pedido}
         self._revisoes = revisoes or {}
         self._parceiros = parceiros or {}
@@ -77,6 +81,9 @@ class DocumentosFalso:
 
     def esta_congelado(self, tipo, orcamento):
         return tipo in self._congelados
+
+    def ops_do_pedido(self, orcamento):
+        return self._ops
 
     def total_das_linhas(self, tipo, doc_entry):
         from decimal import Decimal
@@ -188,8 +195,22 @@ class GruposFalso:
         return {"2": GrupoDeProduto("2", "Porta-Paletes", "I000003")}
 
 
+class SemOps:
+    """An order with no production order: what every swap re-reads before cancelling."""
+
+    def vivas(self, pedido_doc_entry):
+        return []
+
+    def cancelar(self, op_doc_entry):
+        raise AssertionError("nenhuma OP deveria ser cancelada")
+
+
 def _processador(tracking, wbc, docs, oport, orcdet, **kw):
     kw.setdefault("grupo_produtos", GruposFalso())
+    # The partner swap re-reads the OPs and asks the Controle de Produção before cancelling
+    # the order (PLANO_TROCA_PN_COM_OP); by default: no OPs, nothing running.
+    kw.setdefault("ordens_producao", SemOps())
+    kw.setdefault("controle_producao_ocupado", lambda: False)
     return ProcessadorDeOrcamento(
         wbc=wbc,
         orcdetalhe=orcdet,

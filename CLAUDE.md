@@ -135,6 +135,10 @@ Regra com teste = 1 linha + o teste que a protege; sem teste = o porquê junto.
 - DocEntry ≠ DocNum na OP: default DocNum, `?chave=docentry` troca, DocNum ambíguo → 409. — `tests/test_api.py`
 - Troca de PN (`U_INO_PN_Correc` + `U_INO_Update='Y'`): cancelar-e-recriar ou nascer no PN corrigido;
   `'N'` = corrigido à mão. O `-1116` do SAP ao `orcaview` não é defeito. — `tests/wbc/domain/test_sitcode.py`
+- Troca de PN em pedido com OP (`docs/PLANO_TROCA_PN_COM_OP.md`): só Planejadas → o worker as cancela antes
+  do pedido; Liberada/Encerrada ou contagem `None` → para e pede gente (log ERROR); toda troca relê as OPs e
+  consulta `127.0.0.1:CP_PORTA/health/ocupado` antes de cancelar o pedido. O `/health/ocupado` não vê o
+  `processar-novos` rodado à mão pela CLI. — `tests/wbc/domain/test_troca_com_ops.py`, `tests/wbc/test_processar_troca_com_ops.py`
 - **Parada limpa do worker é por arquivo** (`state\wbc_worker.stop`, depois `nssm stop`). — `tests/wbc/host/test_parada_por_arquivo.py`
 - ⚠️⚠️ **O worker chama o `python.exe` por caminho absoluto** (NSSM `Application`); os outros 5 pegam o
   do PATH. Trocar o Python da máquina **não alcança o worker**, calado. Depois de trocar:
@@ -153,7 +157,8 @@ Regra com teste = 1 linha + o teste que a protege; sem teste = o porquê junto.
 - `hana_schema` = `SL_COMPANY_DB`; `HANA_SCHEMA` não é lido. — `tests/controleproducao/test_config.py`
 - SQL só por `core/sql_ligado` (nunca `.format` com valor); leitores só SELECT/WITH. — `tests/controleproducao/test_sql_ligado.py`
 - `_update_pedido` (recria linhas) FECHADO com erro até o Anderson validar. Worker, pacote e addon C#
-  escrevem no mesmo `ORDR`/`OWOR`; o worker recria pedido sem olhar `OWOR`.
+  escrevem no mesmo `ORDR`/`OWOR`; desde a F2 do `PLANO_TROCA_PN_COM_OP` o worker olha `OWOR` antes de
+  cancelar pedido na troca de PN (e cancela as OPs planejadas dele).
 - `deploy_update.bat` aborta com `/health/ocupado` = 1 — nunca `nssm stop` com tarefa em andamento. — `tests/controleproducao/test_acesso.py`
 - `CP_HOST` é `0.0.0.0` na .11, **nunca o IP da máquina** (deploy e `/status` sondam
   `127.0.0.1:CP_PORTA`). `.env` é lido na subida: linha nova = `nssm restart OrcaView-ControleProducao`.

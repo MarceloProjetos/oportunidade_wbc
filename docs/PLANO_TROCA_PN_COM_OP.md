@@ -1,12 +1,13 @@
 # Plano — Troca de PN não pode deixar OP órfã
 
 > **Status (20/10/2026):** decisões 1–4 fechadas (1 = **B, o worker cancela as OPs planejadas sozinho**,
-> escolha do Marcelo). Nada codado. **F0a feita (20/10):** as 110 OPs Planejadas dos cancelados 84505 e
+> escolha do Marcelo). **F0a feita (20/10):** as 110 OPs Planejadas dos cancelados 84505 e
 > 84506 foram canceladas; conferido por amostra (7 OPs, incluindo a primeira e a última de cada faixa) e as
 > dos pedidos novos 84507 e 84510 continuam Planejadas. **F0b e F0c decididas (cancelar tudo), mas ainda
 > não aplicadas:** leitura completa do SAP às ~17h10 de 20/10 ainda mostra 83832 com 40 Planejadas e os 6
 > pedidos com as 250 Liberadas. **F1 no ar** na .11 (`8617f4c`, deploy 17:02), sem custo de tempo medido.
-> **F2 em andamento** (código, não vai ao ar sem revisão).
+> **F2 no código** (20/10, revisada por um revisor independente, 6 achados corrigidos), **pede deploy**;
+> nunca exercitada contra o SAP real (só roda numa troca de verdade). Próximo: F3.
 > Página: https://claude.ai/artifact/LQMScG4RVLRNwB6MXqq8Ui (mesma url a cada atualização)
 
 ## O problema
@@ -141,10 +142,25 @@ meses, 325 dos 331 pedidos vigentes têm OP viva.
 - `EstadoIntegracao`: campos novos com essa contagem (Planejadas; Liberadas + Encerradas).
 - Medir o tempo da consulta da janela antes e depois (ela roda a cada ciclo).
 
-### F2 — A regra B
+### F2 — A regra B — ✅ no código (20/10), pede deploy
 
 Capacidade: troca de PN em pedido com OP Planejada acontece sem deixar OP órfã; com OP em produção, para
 e avisa.
+
+Feito em 20/10 (+31 testes; suíte inteira verde). Revisão independente antes do commit; os achados corrigidos:
+- as OPs eram canceladas **antes** das conferências do pedido novo (parceiro existe, tem valor): se o
+  pedido desistisse, ficava vivo sem OP → as conferências agora vêm primeiro;
+- se o SAP recusar o cancelamento do pedido depois das OPs (sem conferência prévia possível), um evento de erro
+  lista as OPs canceladas ("avise o PCP");
+- os números das OPs já canceladas se perdiam numa falha parcial → vão para o evento e para a mensagem;
+- a troca **sem** OP na decisão não relia as OPs nem consultava a 8080 → toda troca agora relê e consulta;
+- o adiamento grave não aparecia no painel → fica com status ERRO; o adiado deixava um evento vazio a cada ciclo
+  → não deixa mais;
+- `HTTPException` escapava da consulta à 8080 → vira "desconhecido" (adia).
+
+Limites conhecidos (não corrigidos, registrados): o `/health/ocupado` não enxerga o `processar-novos` rodado à
+mão pela CLI; uma OP liberada **durante** o laço de cancelamento ainda leva o PATCH (a mesma janela do
+`cancelar-ops`); o filtro do Service Layer e o cancelamento pelo worker nunca rodaram contra o SAP real.
 
 Decisão (`domain/sitcode.py::_decidir_pedido`, antes de `troca_de_pn`):
 - troca pendente + alguma OP **Liberada ou Encerrada** → nenhuma ação; regra
@@ -202,6 +218,8 @@ Capacidade: ninguém processa o pedido novo enquanto um cancelado do mesmo orça
   em `processar.py::_respeitar_congelamento`.
 - **Mudança no WBC depois das OPs não chega às linhas do pedido congelado** (cor, por exemplo).
   Reprocessar refaz só as OPs.
+- **Troca de PN com parceiro inexistente aparece como "Pedido criado" no painel** (achado da revisão da F2,
+  comportamento anterior a ela): `_executar_pedido` desiste e devolve vazio, e a ação entra em `executadas`.
 - **`preenche_tabela` falhou no Processar das 15:06 do 84506** ("Erro em preenche_tabela"); a causa está
   no log do Controle de Produção na .11 e não foi lida.
 

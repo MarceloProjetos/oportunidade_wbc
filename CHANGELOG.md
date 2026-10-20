@@ -6,6 +6,25 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-20] — Troca de PN cancela as OPs planejadas antes do pedido (F2 do PLANO_TROCA_PN_COM_OP)
+
+Decisão do dono (opção B): na troca de PN, o worker cancela sozinho as OPs **planejadas** do pedido e só depois
+cancela e recria o pedido; OP liberada ou encerrada (ou contagem desconhecida) para a troca e pede gente.
+- Domínio: ação nova `CANCELAR_OPS_DO_PEDIDO` (entra em `ACOES_DE_PEDIDO`, sai junto nos filtros de janela e de
+  orçamento sem item); regras `troca_de_pn_cancela_ops`, `troca_de_pn_bloqueada_op_em_producao` e
+  `troca_de_pn_ops_desconhecidas`. A mensagem deixou de dizer "corrigido no WBC": a marca mora na oportunidade do SAP.
+- Execução (`processar.py`), nesta ordem: as conferências do pedido novo (parceiro existe, tem valor) vêm **antes**
+  de qualquer OP; pergunta à 8080 se está processando (`/health/ocupado`; ocupado ou desconhecido adia); relê as OPs
+  pelo Service Layer; cancela as planejadas (o mesmo PATCH do Controle de Produção); relê. Toda troca, com ou sem OP
+  na decisão, relê as OPs e consulta a 8080 antes de cancelar o pedido. Qualquer falha adia (`TrocaAdiada`) sem
+  tocar no pedido; o grave fica em ERRO no painel e em vermelho no log, com os números das OPs já canceladas.
+- Se o SAP recusar o cancelamento do pedido depois das OPs, um evento de erro lista as OPs canceladas ("avise o PCP").
+- Revisão independente antes do commit achou a ordem errada das conferências (OPs canceladas e pedido desistido
+  por parceiro inexistente ou valor zero), os números perdidos na falha parcial, a troca sem OP sem releitura e o
+  evento vazio a cada ciclo adiado — todos corrigidos e com teste.
+- **Nunca exercitado contra o SAP real:** o filtro do Service Layer (`ProductionOrderOriginEntry` + status) e o
+  cancelamento pelo worker. +31 testes. **Pede deploy da .11** (`deploy_update.bat`); o caminho só roda numa troca real.
+
 ## [2026-10-20] — Worker WBC passa a ver as OPs do pedido (F1 do PLANO_TROCA_PN_COM_OP)
 
 A troca de PN cancelava e recriava o pedido sem olhar `OWOR`: em 20/10 os cancelados 84505 e 84506 ficaram com

@@ -34,6 +34,7 @@ from wbcpython.config import Settings
 from wbcpython.domain import janela as jn
 from wbcpython.domain.janela import EstadoDaJanela
 from wbcpython.host.parada import PedidoDeParada
+from wbcpython.infrastructure.controle_producao import controle_producao_ocupado
 from wbcpython.infrastructure.hana.oportunidades import RepositorioOportunidadesHana
 from wbcpython.infrastructure.hana.pesos_reescalados import RepositorioPesosReescaladosHana
 from wbcpython.infrastructure.service_layer.client import ServiceLayerClient
@@ -48,6 +49,9 @@ from wbcpython.infrastructure.service_layer.oportunidades import (
 )
 from wbcpython.infrastructure.service_layer.orcdetalhe import (
     RepositorioOrcDetalheServiceLayer,
+)
+from wbcpython.infrastructure.service_layer.ordens_producao import (
+    RepositorioOrdensProducaoServiceLayer,
 )
 from wbcpython.infrastructure.service_layer.parceiros import (
     RepositorioParceirosServiceLayer,
@@ -414,6 +418,13 @@ class WorkerIntegracao:
                     # pedido de negócio antigo". Num ciclo normal nada é
                     # anterior a este corte, e a regra não morde.
                     corte_de_pedido=janela_padrao(meses=self._meses),
+                    # Partner swap on an order with planned OPs (PLANO_TROCA_PN_COM_OP):
+                    # read and cancel them over this session, and never while the
+                    # Controle de Produção (same machine) is mid-run.
+                    ordens_producao=RepositorioOrdensProducaoServiceLayer(cliente),
+                    controle_producao_ocupado=lambda: controle_producao_ocupado(
+                        self._settings.cp_porta
+                    ),
                 )
 
                 # A leitura vem do HANA, numa consulta só, com cotação e

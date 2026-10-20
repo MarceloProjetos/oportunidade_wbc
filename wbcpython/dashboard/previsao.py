@@ -36,6 +36,7 @@ ROTULO_DA_ACAO = {
     "criar_pedido": "Criar pedido",
     "atualizar_pedido": "Atualizar pedido",
     "cancelar_e_recriar_pedido": "Cancelar e recriar pedido",
+    "cancelar_ops_do_pedido": "Cancelar as OPs planejadas do pedido",
     "vincular_documento_a_oportunidade": "Vincular documento à oportunidade",
     "atualizar_status_oportunidade": "Espelhar status da oportunidade",
     "marcar_oportunidade_perdida": "Marcar oportunidade como perdida",

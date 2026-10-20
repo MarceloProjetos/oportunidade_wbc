@@ -41,6 +41,9 @@ from wbcpython.infrastructure.service_layer.oportunidades import (
 from wbcpython.infrastructure.service_layer.orcdetalhe import (
     RepositorioOrcDetalheServiceLayer,
 )
+from wbcpython.infrastructure.service_layer.ordens_producao import (
+    RepositorioOrdensProducaoServiceLayer,
+)
 from wbcpython.infrastructure.service_layer.parceiros import (
     RepositorioParceirosServiceLayer,
 )
@@ -89,8 +92,29 @@ ACOES_DE_ESCRITA = ACOES_DE_DOCUMENTO | frozenset(
         Acao.CANCELAR_COTACAO_NO_ENCERRAMENTO,
         Acao.ATUALIZAR_STATUS_OPORTUNIDADE,
         Acao.VINCULAR_DOCUMENTO_A_OPORTUNIDADE,
+        Acao.CANCELAR_OPS_DO_PEDIDO,
     }
 )
+
+#: Decision rules that need a person and change nothing by themselves: logged as ERROR on
+#: every cycle (red in the log) besides the panel, so they cannot sit unnoticed.
+REGRAS_QUE_PEDEM_GENTE = frozenset(
+    {"troca_de_pn_bloqueada_op_em_producao", "troca_de_pn_ops_desconhecidas"}
+)
+
+
+class TrocaAdiada(Exception):
+    """The OPs of the order could not all be cancelled in this cycle: stop the swap here.
+
+    Not an integration error. The order stays as it is, nothing after the OP step runs,
+    and the next cycle tries again with whatever OPs are still alive. ``grave`` = a person
+    must look (an OP in production showed up, a cancellation failed): logged as ERROR;
+    otherwise (Controle de Produção busy) as WARNING.
+    """
+
+    def __init__(self, mensagem: str, *, grave: bool = False) -> None:
+        super().__init__(mensagem)
+        self.grave = grave
 
 #: Ação executada → status a exibir no dashboard.
 STATUS_POR_ACAO = {
@@ -196,8 +220,14 @@ class ProcessadorDeOrcamento:
         gravar_snapshot: bool = True,
         somente_leitura: bool = False,
         corte_de_pedido: date | None = None,
+        ordens_producao: RepositorioOrdensProducaoServiceLayer | None = None,
+        controle_producao_ocupado: Callable[[], bool | None] | None = None,
     ) -> None:
         self._wbc = wbc
+        #: Both feed `Acao.CANCELAR_OPS_DO_PEDIDO`. Missing either one, the swap of an order
+        #: with planned OPs waits (`TrocaAdiada`) instead of cancelling blind.
+        self._ordens_producao = ordens_producao
+        self._controle_producao_ocupado = controle_producao_ocupado
         self._orcdetalhe = orcdetalhe
         self._documentos = documentos
         self._oportunidades = oportunidades
@@ -285,6 +315,7 @@ class ProcessadorDeOrcamento:
         estado, decisao = decidir_pelo_orcamento(
             orcamento, oportunidade, self._documentos, corte_de_pedido=self._corte_de_pedido
         )
+        _alertar_se_pede_gente(orcnum, decisao)
 
         self._tracking.registrar_verificacao(
             orcnum,
@@ -361,6 +392,7 @@ class ProcessadorDeOrcamento:
         )
         if precisa_do_orcamento(decisao):
             return None
+        _alertar_se_pede_gente(orcnum, decisao)
 
         self._tracking.registrar_verificacao(
             orcnum,
@@ -404,6 +436,8 @@ class ProcessadorDeOrcamento:
         snapshot = _SnapshotSobDemanda(
             lambda: self._gravar_snapshot_orcdetalhe(orcamento) if self._gravar_snapshot else None
         )
+        ops_canceladas: list[int] = []
+        adiada = False
 
         for acao in decisao.acoes:
             if acao is Acao.VINCULAR_DOCUMENTO_A_OPORTUNIDADE:
@@ -436,6 +470,27 @@ class ProcessadorDeOrcamento:
                     executadas.append(acao)
                 continue
 
+            if acao in (Acao.CANCELAR_OPS_DO_PEDIDO, Acao.CANCELAR_E_RECRIAR_PEDIDO):
+                try:
+                    if acao is Acao.CANCELAR_OPS_DO_PEDIDO:
+                        # The order's own guards run first: cancelling the OPs and then
+                        # giving up on the order would leave it alive with no production.
+                        self._conferir_pedido_novo(estado, orcamento, oportunidade)
+                        ops_canceladas = self._cancelar_ops_do_pedido(orcnum)
+                    else:
+                        # Every swap, with or without OPs in the decision: the count came
+                        # from the read at the start of the cycle.
+                        self._garantir_pedido_sem_op_viva(orcnum)
+                except TrocaAdiada as motivo:
+                    self._registrar_adiamento(orcnum, motivo)
+                    adiada = True
+                    # The order must not be cancelled with OPs alive: nothing after this
+                    # step runs in this cycle.
+                    break
+                if acao is Acao.CANCELAR_OPS_DO_PEDIDO:
+                    executadas.append(acao)
+                    continue
+
             try:
                 documento, tipo = self._executar_documento(
                     acao, estado, orcamento, oportunidade, snapshot
@@ -445,10 +500,19 @@ class ProcessadorDeOrcamento:
                 # contá-la faria o espelhamento de status e o teto de escrita
                 # tratarem um documento que não existe como se existisse.
                 continue
+            except Exception as exc:
+                if ops_canceladas:
+                    self._avisar_ops_canceladas_sem_troca(orcnum, ops_canceladas, exc)
+                raise
             if documento is not None and tipo is not None:
                 ultimo_documento, tipo_ultimo = documento, tipo
                 self._registrar_documento(orcnum, tipo, documento)
             executadas.append(acao)
+
+        if adiada and not executadas:
+            # Nothing was written: an empty "Ações executadas" event every 3 minutes
+            # while the swap waits would bury the history (ACAO events are not deduped).
+            return ()
 
         self._espelhar_status_apos_documento(oppr_id, estado, orcamento, executadas)
 
@@ -475,6 +539,155 @@ class ProcessadorDeOrcamento:
             mensagem="Ações executadas: " + ", ".join(a.value for a in executadas),
         )
         return tuple(executadas)
+
+    def _cancelar_ops_do_pedido(self, orcnum: str) -> list[int]:
+        """Cancel every planned OP of the current order, or raise `TrocaAdiada`.
+
+        Re-reads the OPs here, at execution time: the count that made the decision may be
+        minutes old. Stops before cancelling anything when the Controle de Produção is (or
+        may be) running, or when a released or closed OP shows up; stops without touching
+        the order when a cancellation fails or an OP survives. Returns the DocNums cancelled.
+        """
+        doc_entry, vivas = self._ler_ops_do_pedido(orcnum)
+        em_producao = [op for op in vivas if not op.planejada]
+        if em_producao:
+            raise TrocaAdiada(
+                f"{len(em_producao)} OP(s) liberada(s) ou encerrada(s) no pedido "
+                f"({_lista_de_ops(em_producao)}); nenhuma OP cancelada, precisa de uma pessoa.",
+                grave=True,
+            )
+
+        ordens = self._ordens_producao
+        if ordens is None:  # `_ler_ops_do_pedido` already refused; kept for the type checker
+            raise TrocaAdiada("sem acesso às OPs nesta execução; nada feito.", grave=True)
+        canceladas: list[int] = []
+        for op in vivas:
+            try:
+                ordens.cancelar(op.doc_entry)
+            except Exception as exc:  # noqa: BLE001 - one failure stops the swap, never the cycle
+                self._registrar_ops_canceladas(orcnum, canceladas)
+                raise TrocaAdiada(
+                    f"falha ao cancelar a OP {op.doc_num} ({type(exc).__name__}: {exc}); "
+                    f"canceladas antes dela: {_numeros(canceladas)}. O pedido não foi "
+                    f"cancelado; o próximo ciclo segue com as que sobraram.",
+                    grave=True,
+                ) from exc
+            canceladas.append(op.doc_num)
+
+        self._registrar_ops_canceladas(orcnum, canceladas)
+        restantes = ordens.vivas(doc_entry)
+        if restantes:
+            raise TrocaAdiada(
+                f"{len(restantes)} OP(s) ainda viva(s) depois do cancelamento "
+                f"({_lista_de_ops(restantes)}); canceladas: {_numeros(canceladas)}. "
+                f"O pedido não foi cancelado.",
+                grave=True,
+            )
+        return canceladas
+
+    def _ler_ops_do_pedido(self, orcnum: str) -> tuple[int, list[Any]]:
+        """`(order DocEntry, live OPs)` read now — refusing while the Controle de Produção
+        is, or may be, mid-run (it creates OPs after marking the order processed)."""
+        if self._ordens_producao is None:
+            raise TrocaAdiada("sem acesso às OPs nesta execução; nada feito.", grave=True)
+        ocupado = (
+            self._controle_producao_ocupado() if self._controle_producao_ocupado else None
+        )
+        if ocupado is None:
+            # Same machine: a probe that keeps failing means a stuck service or a wrong
+            # port, and the swap would wait forever without anything red.
+            raise TrocaAdiada(
+                "não foi possível saber se o Controle de Produção está processando; "
+                "nada feito.",
+                grave=True,
+            )
+        if ocupado:
+            raise TrocaAdiada(
+                "o Controle de Produção está processando; nada feito, tenta no próximo ciclo."
+            )
+        doc_entry = self._documentos.doc_entry(TipoDocumento.PEDIDO, orcnum)
+        if doc_entry is None:
+            raise TrocaAdiada("pedido vigente não encontrado no SAP; nada feito.", grave=True)
+        return doc_entry, self._ordens_producao.vivas(doc_entry)
+
+    def _garantir_pedido_sem_op_viva(self, orcnum: str) -> None:
+        """Last check before the swap cancels the order: no OP alive on it, read now."""
+        _, vivas = self._ler_ops_do_pedido(orcnum)
+        if vivas:
+            raise TrocaAdiada(
+                f"{len(vivas)} OP(s) viva(s) no pedido ({_lista_de_ops(vivas)}) na hora de "
+                f"cancelá-lo; o pedido não foi cancelado.",
+                grave=True,
+            )
+
+    def _conferir_pedido_novo(
+        self, estado: EstadoIntegracao, orcamento: OrcamentoWbc, oportunidade: dict[str, Any]
+    ) -> None:
+        """The guards `_executar_pedido` applies to the swap, run before any OP is cancelled.
+
+        Partner missing or an order with no value make the swap give up on the order;
+        found only after the OPs, they left it alive with its OPs cancelled (review of the
+        F2, 20/10/2026). The SAP refusing the order's own Cancel has no cheap pre-check:
+        `_avisar_ops_canceladas_sem_troca` covers that one.
+        """
+        dados = self._payload_pedido(orcamento, estado, oportunidade, None)
+        try:
+            self._exigir_valor(TipoDocumento.PEDIDO, orcamento.orcnum, dados)
+        except DocumentoSemValor as exc:
+            raise TrocaAdiada(
+                f"o pedido novo não teria valor ({exc}); nenhuma OP cancelada.", grave=True
+            ) from exc
+        if not self._parceiro_existe(estado, orcamento.orcnum):
+            raise TrocaAdiada(
+                f"o parceiro corrigido {estado.parceiro_novo} não existe no SAP; "
+                f"nenhuma OP cancelada.",
+                grave=True,
+            )
+
+    def _registrar_ops_canceladas(self, orcnum: str, canceladas: list[int]) -> None:
+        """The DocNums people search for — on success and on every partial failure."""
+        if not canceladas:
+            return
+        texto = _numeros(canceladas)
+        logger.warning(
+            "Orçamento %s: %d OP(s) planejada(s) canceladas para a troca de PN: %s",
+            orcnum, len(canceladas), texto,
+        )
+        self._tracking.registrar_evento(
+            orcnum,
+            tipo=TipoEvento.ACAO,
+            regra="troca_de_pn_cancelou_ops",
+            mensagem=f"OPs planejadas canceladas para a troca de PN: {texto}.",
+            detalhes={"ops": canceladas},
+        )
+
+    def _registrar_adiamento(self, orcnum: str, motivo: TrocaAdiada) -> None:
+        texto = f"Troca de PN adiada: {motivo}"
+        if motivo.grave:
+            logger.error("Orçamento %s: %s", orcnum, texto)
+            # ERROR status: the panel shows it in red until a later cycle completes.
+            self._tracking.registrar_erro(orcnum, texto)
+        else:
+            logger.warning("Orçamento %s: %s", orcnum, texto)
+            self._tracking.registrar_evento(orcnum, regra="troca_de_pn_adiada", mensagem=texto)
+
+    def _avisar_ops_canceladas_sem_troca(
+        self, orcnum: str, canceladas: list[int], exc: Exception
+    ) -> None:
+        """OPs are gone and the order is still alive: the PCP has to know which ones."""
+        texto = (
+            f"OPs planejadas {_numeros(canceladas)} foram canceladas, mas o pedido não foi "
+            f"cancelado nem recriado ({type(exc).__name__}: {exc}). O pedido segue vivo sem "
+            f"essas OPs: avise o PCP."
+        )
+        logger.error("Orçamento %s: %s", orcnum, texto)
+        self._tracking.registrar_evento(
+            orcnum,
+            tipo=TipoEvento.ERRO,
+            regra="troca_de_pn_pedido_nao_cancelado",
+            mensagem=texto,
+            detalhes={"ops": canceladas},
+        )
 
     def _vincular(
         self,
@@ -1040,6 +1253,25 @@ class ProcessadorDeOrcamento:
             if acao in executadas:
                 return STATUS_POR_ACAO[acao]
         return None
+
+
+def _lista_de_ops(ops: Any) -> str:
+    """`158845, 158846 … (+40)` — the DocNums people search for, capped for the log."""
+    numeros = [str(op.doc_num) for op in ops]
+    if len(numeros) <= 12:
+        return ", ".join(numeros)
+    return ", ".join(numeros[:12]) + f" … (+{len(numeros) - 12})"
+
+
+def _numeros(doc_nums: list[int]) -> str:
+    """Every DocNum, uncapped: these are the OPs already cancelled, the list the PCP needs."""
+    return ", ".join(str(n) for n in doc_nums) or "nenhuma"
+
+
+def _alertar_se_pede_gente(orcnum: str, decisao: Decisao) -> None:
+    """ERROR in the log for a decision that only a person can unblock (see the set)."""
+    if REGRAS_QUE_PEDEM_GENTE.intersection(decisao.regra.split("+")):
+        logger.error("Orçamento %s: %s", orcnum, " ".join(decisao.motivos))
 
 
 def _data(valor: Any) -> date | None:
