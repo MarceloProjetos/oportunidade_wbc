@@ -3,8 +3,10 @@
 > **Status (20/10/2026):** decisões 1–4 fechadas (1 = **B, o worker cancela as OPs planejadas sozinho**,
 > escolha do Marcelo). Nada codado. **F0a feita (20/10):** as 110 OPs Planejadas dos cancelados 84505 e
 > 84506 foram canceladas; conferido por amostra (7 OPs, incluindo a primeira e a última de cada faixa) e as
-> dos pedidos novos 84507 e 84510 continuam Planejadas. **F0b e F0c decididas: cancelar tudo** (Marcelo,
-> 20/10), a rodar na .11. **F1 no código** (só leitura, pede deploy). Próximo: F2.
+> dos pedidos novos 84507 e 84510 continuam Planejadas. **F0b e F0c decididas (cancelar tudo), mas ainda
+> não aplicadas:** leitura completa do SAP às ~17h10 de 20/10 ainda mostra 83832 com 40 Planejadas e os 6
+> pedidos com as 250 Liberadas. **F1 no ar** na .11 (`8617f4c`, deploy 17:02), sem custo de tempo medido.
+> **F2 em andamento** (código, não vai ao ar sem revisão).
 > Página: https://claude.ai/artifact/LQMScG4RVLRNwB6MXqq8Ui (mesma url a cada atualização)
 
 ## O problema
@@ -67,8 +69,9 @@ Buscar também por `OWOR.OriginNum` (número do pedido) não acha nenhuma OP viv
 - **O Controle de Produção marca `U_INO_ProcessWBC = 'Y'` antes de criar a 1ª OP** e uma execução leva
   de segundos a minutos (84506: 25 s). O worker não pode cancelar no meio disso: a 8080 diz se está
   ocupada em `GET /health/ocupado` ("1" ou "0", rota aberta, a mesma que o `deploy_update.bat` usa).
-- **Teto de escrita do ciclo: 200** (`LIMITE_DE_ESCRITA_POR_CICLO`). Cada OP cancelada conta. 58 cabem,
-  mas o desenho não pode depender disso.
+- **Teto de escrita do ciclo: 200 orçamentos** (`LIMITE_DE_ESCRITA_POR_CICLO`). Conferido no
+  `host/worker.py`: o teto conta **orçamentos** com escrita, não gravações; as OPs canceladas de um pedido
+  entram como uma escrita só. Erro no meio dos cancelamentos continua sendo o caso a tratar.
 - **O texto da decisão engana.** A mensagem diz "Parceiro corrigido no WBC", mas a marca mora na
   oportunidade do SAP, preenchida por uma pessoa.
 
@@ -122,13 +125,16 @@ cancelados de 15/06 a 15/09). O `cancelar-ops` recusa OP Liberada, de propósito
 
 **Conferência:** depois de cada passo eu releio o SAP (só leitura) e atualizo esta fase.
 
-### F1 — O worker passa a saber se o pedido tem OP (só leitura) — ✅ no código, pede deploy
+### F1 — O worker passa a saber se o pedido tem OP (só leitura) — ✅ no ar (`8617f4c`, 20/10 17:02)
 
 Capacidade: a decisão do pedido enxerga as OPs vivas.
 
 Feito em 20/10: `ops_planejadas_pedido` e `ops_em_producao_pedido` no `EstadoIntegracao`; "não sei" = `None`
-(caminho do Service Layer), nunca zero; +8 testes. Nenhuma decisão muda até a F2. **Falta medir o tempo da
-consulta da janela com o `JOIN` novo** (uma leitura no HANA).
+(caminho do Service Layer), nunca zero; +8 testes. Nenhuma decisão muda até a F2.
+
+Tempo da consulta da janela no HANA de produção (mediana de 7 rodadas): 6 meses (1.526 linhas) 49,5 ms sem o
+`JOIN` e 46,6 ms com ele; 24 meses (6.467 linhas) 130 ms e 114 ms — **sem custo mensurável**. Na janela de 6
+meses, 325 dos 331 pedidos vigentes têm OP viva.
 
 - `oportunidades.py`: contagem de OPs do pedido vigente por status (`OWOR.OriginAbs`, `Status` P/R/L),
   num `LEFT JOIN` agregado.
@@ -152,9 +158,8 @@ Execução (`application/processar.py`), nesta ordem:
 1. pergunta à 8080 `GET /health/ocupado`: "1", timeout ou resposta estranha → adia para o próximo ciclo;
    conexão recusada (Controle de Produção parado) → segue;
 2. relê as OPs do pedido no SAP na hora; apareceu Liberada ou Encerrada → para, como acima;
-3. cancela as Planejadas uma a uma (`ProductionOrders(n)/Cancel`), cada uma contando no teto de escrita;
-   erro numa OP ou teto atingido → para **sem cancelar o pedido** e continua no ciclo seguinte (só as que
-   sobraram);
+3. cancela as Planejadas uma a uma (`ProductionOrders(n)/Cancel`); erro numa OP → para **sem cancelar o
+   pedido** e continua no ciclo seguinte (só as que sobraram);
 4. relê: zero OP viva → cancela e recria o pedido, como hoje; senão adia;
 5. evento no painel com os números das OPs canceladas.
 
