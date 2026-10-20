@@ -1,9 +1,10 @@
 # Plano — Troca de PN não pode deixar OP órfã
 
 > **Status (20/10/2026):** decisões 1–4 fechadas (1 = **B, o worker cancela as OPs planejadas sozinho**,
-> escolha do Marcelo). Nada codado. **F0 aberta e ampliada:** há 150 OPs Planejadas e 250 Liberadas presas
-> a pedidos cancelados; as 110 Planejadas de hoje (84505 e 84506) são produção em dobro, porque os pedidos
-> substitutos (84507 e 84510) já têm as suas. Próximo: F0 (Marcelo + PCP), depois F1–F3 (código).
+> escolha do Marcelo). Nada codado. **F0a feita (20/10):** as 110 OPs Planejadas dos cancelados 84505 e
+> 84506 foram canceladas; conferido por amostra (7 OPs, incluindo a primeira e a última de cada faixa) e as
+> dos pedidos novos 84507 e 84510 continuam Planejadas. **Falta F0b** (83832, 40 Planejadas) e **F0c**
+> (250 Liberadas em 6 pedidos), as duas com o PCP. Próximo no código: F1.
 > Página: https://claude.ai/artifact/LQMScG4RVLRNwB6MXqq8Ui (mesma url a cada atualização)
 
 ## O problema
@@ -93,7 +94,10 @@ e para a API JSON. Pega o pedido cancelado à mão no SAP e o caso em que o work
 
 Capacidade: nenhum orçamento com produção em dobro planejada; o que sobrar é decisão consciente do PCP.
 
-**F0a — hoje, urgente (110 Planejadas).**
+**F0a — hoje, urgente (110 Planejadas). ✅ Feita em 20/10 (Marcelo, na .11).** Conferência por amostra
+pela tool `situacao_op`: 158845, 158846, 158870, 158896 (84505) e 159019, 159045, 159076 (84506) Canceladas;
+158909, 158960 (84507) e 159077, 159134 (84510) Planejadas. A 1ª conferência pegou o 84505 no meio do
+comando (158896 ainda Planejada) e o 84506 sem rodar; ele rodou de novo e a 2ª conferência fechou.
 1. Confirmar com o PCP que valem as OPs dos pedidos **novos** (84507 e 84510).
 2. Na .11, um pedido por vez. O comando mostra a tabela e pede confirmação; conferir que só há
    Planejadas (P) e Canceladas (C) antes de dizer sim:
