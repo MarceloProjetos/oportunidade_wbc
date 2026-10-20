@@ -1,9 +1,9 @@
 # Plano — Troca de PN não pode deixar OP órfã
 
-> **Status (20/10/2026):** só plano, nada codado. Hoje há **110 OPs planejadas presas a dois pedidos
-> cancelados** (84505 e 84506), e os pedidos que os substituíram (84507 e 84510) já têm as suas OPs:
-> **produção em dobro planejada**. A limpeza dos dois casos (F0) já pode ser feita com o comando que existe.
-> F1–F4 esperam a decisão 1.
+> **Status (20/10/2026):** decisões 1–4 fechadas (1 = **B, o worker cancela as OPs planejadas sozinho**,
+> escolha do Marcelo). Nada codado. **F0 aberta e ampliada:** há 150 OPs Planejadas e 250 Liberadas presas
+> a pedidos cancelados; as 110 Planejadas de hoje (84505 e 84506) são produção em dobro, porque os pedidos
+> substitutos (84507 e 84510) já têm as suas. Próximo: F0 (Marcelo + PCP), depois F1–F3 (código).
 > Página: https://claude.ai/artifact/LQMScG4RVLRNwB6MXqq8Ui (mesma url a cada atualização)
 
 ## O problema
@@ -32,15 +32,8 @@ flowchart LR
 
 ## O que o SAP mostrou (20/10/2026, leitura no HANA de produção)
 
-Pedidos de orçamento WBC cancelados desde 28/09/2026 (dia em que o Controle de Produção da .11
-entrou no ar):
-
-| Medida | Número |
-| --- | --- |
-| Pedidos cancelados | **22** |
-| Cancelados pela troca de PN (usuário da integração) | **17** |
-| Com OP vinculada | **3** — 84476, 84505, 84506 |
-| OPs ainda Planejadas em pedido cancelado | **110** — 52 no 84505 e 58 no 84506 |
+**Trocas desde 28/09/2026** (dia em que o Controle de Produção da .11 entrou no ar): 22 pedidos de
+orçamento WBC cancelados, **17** pela troca de PN, **3** com OP.
 
 | Orçamento | Pedido cancelado → novo | OPs do cancelado | OPs do novo |
 | --- | --- | --- | --- |
@@ -51,71 +44,120 @@ entrou no ar):
 O 00125690 trocou de PN **duas vezes** no mesmo dia (84503 → 84505 → 84507). No 00124837 a letra da
 revisão ficou em J o tempo todo: a troca não depende de revisão nova.
 
+**Todas as OPs vivas em pedido cancelado, sem limite de data:**
+
+| Status da OP | OPs | Pedidos cancelados | O que fazer |
+| --- | --- | --- | --- |
+| Planejada | **150** | 3 — 84505 (52), 84506 (58), 83832 (40) | F0: cancelar |
+| Liberada | **250** | 6 — 84023 (98), 84116 (73), 83958 (40), 84179 (31), 84162 (7), 84103 (1) | F0: o PCP analisa uma a uma |
+| Encerrada | 2.769 | 82, de 09/2023 a 07/2026 | nada: produção já fechada, é histórico |
+
+Buscar também por `OWOR.OriginNum` (número do pedido) não acha nenhuma OP viva a mais: `OriginAbs` basta.
+
 ## Fatos que travam o desenho
 
-- **A troca tem que continuar acontecendo.** 15 das 17 trocas foram em pedido sem OP, e trocar PN é
-  rotina (18,8% dos pedidos nascem em outro PN que o da cotação, medido em 21/09/2026). Bloquear a
-  regra inteira não é opção.
+- **A troca tem que continuar acontecendo.** 15 das 17 foram em pedido sem OP, e trocar PN é rotina
+  (18,8% dos pedidos nascem em outro PN que o da cotação, medido em 21/09/2026).
 - **O worker não lê nada de OP hoje.** O estado do pedido vem de
-  `infrastructure/hana/oportunidades.py` (CardCode, revisão, `U_INO_Congelado`, `DocStatus`). A
-  proteção precisa de uma leitura nova: OPs vivas por `OWOR.OriginAbs`.
-- **Cancelar OP é escrita de produção.** Hoje só o Controle de Produção cancela OP (Reprocessar e
-  `pedidos-wbc cancelar-ops`), sempre com uma pessoa confirmando, e só se todas as OPs estiverem
-  Planejadas ou Canceladas. OP Liberada ou Encerrada já pode ter apontamento e estoque.
-- **O risco já estava anotado:** o `CLAUDE.md` deste repo diz que "o worker recria pedido sem olhar
-  `OWOR`". Este plano fecha esse buraco.
-- **Já existe o padrão "para e pede gente":** `troca_de_pn_impossivel_pedido_fechado` registra a
-  decisão, não executa nada e espera tratamento manual.
+  `infrastructure/hana/oportunidades.py` (CardCode, revisão, `U_INO_Congelado`, `DocStatus`). O
+  `CLAUDE.md` deste repo já dizia que "o worker recria pedido sem olhar `OWOR`".
+- **OP Liberada ou Encerrada não se cancela no automático.** Pode já ter apontamento e estoque; o
+  `cancelar-ops` do Controle de Produção também recusa.
+- **O Controle de Produção marca `U_INO_ProcessWBC = 'Y'` antes de criar a 1ª OP** e uma execução leva
+  de segundos a minutos (84506: 25 s). O worker não pode cancelar no meio disso: a 8080 diz se está
+  ocupada em `GET /health/ocupado` ("1" ou "0", rota aberta, a mesma que o `deploy_update.bat` usa).
+- **Teto de escrita do ciclo: 200** (`LIMITE_DE_ESCRITA_POR_CICLO`). Cada OP cancelada conta. 58 cabem,
+  mas o desenho não pode depender disso.
 - **O texto da decisão engana.** A mensagem diz "Parceiro corrigido no WBC", mas a marca mora na
-  oportunidade do SAP (UDFs `U_INO_PN_Correc` e `U_INO_Update`), preenchida por uma pessoa.
+  oportunidade do SAP, preenchida por uma pessoa.
 
-## Opções para o worker (decisão 1)
+## Opção escolhida para o worker (decisão 1)
 
-| | O que faz | A favor | Contra |
-| --- | --- | --- | --- |
-| **A. Para e avisa** | Pedido com OP viva (Planejada, Liberada ou Encerrada): não cancela; registra `troca_de_pn_bloqueada_pedido_com_op` com a lista de OPs, log em vermelho. Uma pessoa roda `cancelar-ops <pedido>`; no ciclo seguinte, sem OP viva, a troca segue sozinha | Nenhuma escrita nova no worker; mesmo padrão da troca em pedido fechado; idempotente | A troca espera alguém agir |
-| **B. Cancela as OPs sozinho** | Todas Planejadas: o worker cancela as OPs, depois o pedido, e cria o novo. Alguma Liberada ou Encerrada: para como em A | Nada fica órfão sem depender de gente | Worker passa a cancelar OP em produção sem confirmação; o pedido novo ainda precisa de alguém para processar; o PCP pode já estar planejando com as OPs velhas |
+| | O que faz | Situação |
+| --- | --- | --- |
+| A. Para e avisa | Pedido com OP viva: não cancela; uma pessoa roda `cancelar-ops` e a troca segue no ciclo seguinte | não escolhida |
+| **B. Cancela as OPs sozinho** | Só Planejadas: o worker cancela as OPs, depois o pedido, e cria o novo. Alguma Liberada ou Encerrada: para e avisa | **escolhida (20/10, Marcelo)** |
 
-**Barreira no Processar (decisão 2, soma com A ou B):** o Controle de Produção recusa processar um pedido
-quando outro pedido **cancelado** do mesmo orçamento ainda tem OP Planejada ou Liberada, e a recusa diz
-quais OPs e o comando para cancelá-las. Fica em `controleproducao/modules/pedidos_wbc/acoes.py`, então
-vale para a tela e para a API JSON. Pega também o pedido cancelado à mão no SAP, que o worker não vê.
+Travas da B (todas em F2): só OP Planejada; para em Liberada/Encerrada; adia se o Controle de Produção
+estiver ocupado; relê as OPs na hora, não confia no início do ciclo; nunca cancela o pedido com OP viva;
+registra no painel os números das OPs canceladas, para o PCP saber.
+
+**Barreira no Processar (decisão 2):** o Controle de Produção recusa processar um pedido quando outro
+pedido **cancelado** do mesmo orçamento ainda tem OP Planejada ou Liberada, e a recusa diz quais OPs e o
+comando para cancelá-las. Fica em `controleproducao/modules/pedidos_wbc/acoes.py`, então vale para a tela
+e para a API JSON. Pega o pedido cancelado à mão no SAP e o caso em que o worker parou por OP Liberada.
 
 ## Fases
 
-### F0 — Limpar os dois casos de hoje (pessoa; já dá para fazer)
+### F0 — Limpar as OPs vivas de pedidos cancelados (Marcelo + PCP; já dá para fazer)
 
-Capacidade: os orçamentos 00125690 e 00124837 ficam com um jogo de OP só.
+Capacidade: nenhum orçamento com produção em dobro planejada; o que sobrar é decisão consciente do PCP.
 
-- Confirmar com a equipe do PCP que valem as OPs dos pedidos **novos** (84507 e 84510).
-- Na .11, um pedido por vez, conferindo a tabela antes de confirmar:
-  `python -m controleproducao pedidos-wbc cancelar-ops 84505 --manter-vinculos` e o mesmo para 84506.
-- `--manter-vinculos` porque o pedido já está cancelado: a limpeza de vínculos grava no pedido, e o SAP
-  recusa gravar em pedido cancelado.
+**F0a — hoje, urgente (110 Planejadas).**
+1. Confirmar com o PCP que valem as OPs dos pedidos **novos** (84507 e 84510).
+2. Na .11, um pedido por vez. O comando mostra a tabela e pede confirmação; conferir que só há
+   Planejadas (P) e Canceladas (C) antes de dizer sim:
+   - `python -m controleproducao pedidos-wbc cancelar-ops 84505 --manter-vinculos` → 52 a cancelar;
+   - `python -m controleproducao pedidos-wbc cancelar-ops 84506 --manter-vinculos` → 58 a cancelar
+     (as 58 Canceladas aparecem e são ignoradas).
+3. `--manter-vinculos` porque o pedido já está cancelado: a limpeza de vínculos grava no pedido, e o SAP
+   recusa gravar em pedido cancelado.
+
+**F0b — 83832 (orçamento 00124160, cancelado em 22/09, 40 Planejadas criadas em 20/04).** Perguntar ao
+PCP se o orçamento virou outro pedido ou se as OPs servem para algo. Se não servem, o mesmo comando:
+`cancelar-ops 83832 --manter-vinculos`.
+
+**F0c — 6 pedidos cancelados com 250 OPs Liberadas** (84023, 84116, 83958, 84179, 84162, 84103,
+cancelados de 15/06 a 15/09). O `cancelar-ops` recusa OP Liberada, de propósito. O PCP diz, pedido a pedido:
+- produzida e aproveitada → **Encerrar** com estoque na Manutenção de OP;
+- parada, sem apontamento → **Replanejar** (volta a Planejada) e depois `cancelar-ops <pedido> --manter-vinculos`.
+
+**Conferência:** depois de cada passo eu releio o SAP (só leitura) e atualizo esta fase.
 
 ### F1 — O worker passa a saber se o pedido tem OP (só leitura)
 
 Capacidade: a decisão do pedido enxerga as OPs vivas.
 
 - `oportunidades.py`: contagem de OPs do pedido vigente por status (`OWOR.OriginAbs`, `Status` P/R/L),
-  num `LEFT JOIN` agregado, sem consulta por orçamento.
-- `EstadoIntegracao`: campo novo com essa contagem.
+  num `LEFT JOIN` agregado.
+- `EstadoIntegracao`: campos novos com essa contagem (Planejadas; Liberadas + Encerradas).
 - Medir o tempo da consulta da janela antes e depois (ela roda a cada ciclo).
 
-### F2 — A regra (opção escolhida na decisão 1)
+### F2 — A regra B
 
-Capacidade: troca de PN em pedido com OP não gera mais OP órfã.
+Capacidade: troca de PN em pedido com OP Planejada acontece sem deixar OP órfã; com OP em produção, para
+e avisa.
 
-- `_decidir_pedido`: antes de `troca_de_pn`, o caso "troca pendente + OP viva".
-- Mensagem corrigida: "parceiro corrigido **na oportunidade do SAP**".
-- Log em vermelho e a decisão visível na Previsão do painel WBC.
-- Testes de regra: troca sem OP (segue como hoje), com OP Planejada, com OP Liberada, com todas Canceladas
-  (segue).
+Decisão (`domain/sitcode.py::_decidir_pedido`, antes de `troca_de_pn`):
+- troca pendente + alguma OP **Liberada ou Encerrada** → nenhuma ação; regra
+  `troca_de_pn_bloqueada_op_em_producao`; **painel WBC + log em vermelho** com os números das OPs
+  (decisão 4). Quando não houver mais OP em produção, a troca segue sozinha no ciclo seguinte;
+- troca pendente + só OP **Planejada** → ação nova `CANCELAR_OPS_DO_PEDIDO` antes de
+  `CANCELAR_E_RECRIAR_PEDIDO`; regra `troca_de_pn_cancela_ops`;
+- sem OP viva → como hoje.
+
+Execução (`application/processar.py`), nesta ordem:
+1. pergunta à 8080 `GET /health/ocupado`: "1", timeout ou resposta estranha → adia para o próximo ciclo;
+   conexão recusada (Controle de Produção parado) → segue;
+2. relê as OPs do pedido no SAP na hora; apareceu Liberada ou Encerrada → para, como acima;
+3. cancela as Planejadas uma a uma (`ProductionOrders(n)/Cancel`), cada uma contando no teto de escrita;
+   erro numa OP ou teto atingido → para **sem cancelar o pedido** e continua no ciclo seguinte (só as que
+   sobraram);
+4. relê: zero OP viva → cancela e recria o pedido, como hoje; senão adia;
+5. evento no painel com os números das OPs canceladas.
+
+Também: mensagem corrigida ("parceiro corrigido **na oportunidade do SAP**"); a Previsão do painel e o
+`pendentes` mostram "cancelaria N OPs" sem gravar; a escrita nova liga pelo IP da .11 como as outras
+(`wbcpython/safety.py`).
+
+Testes: troca sem OP (segue), só Planejadas (cancela e recria), Planejadas + Canceladas (cancela só as
+Planejadas), com Liberada (para), com Encerrada (para), Controle de Produção ocupado (adia), erro ao
+cancelar uma OP (não cancela o pedido), teto no meio (retoma), OP nova entre a leitura e o cancelamento
+(adia).
 
 ### F3 — Barreira no Processar do Controle de Produção
 
-Capacidade: ninguém processa o pedido novo enquanto o velho tem OP viva, nem quando o cancelamento foi
-feito à mão.
+Capacidade: ninguém processa o pedido novo enquanto um cancelado do mesmo orçamento tem OP viva.
 
 - Recusa em `acoes.py` (tela e API), com os números das OPs e o comando de F0.
 - Teste de paridade tela × API, como os que já existem.
@@ -123,20 +165,18 @@ feito à mão.
 ### F4 — No ar e conferido (deploy é do Marcelo)
 
 - Deploy na .11; conferir com `python -m wbcpython pendentes` (o que o ciclo faria, só leitura) e pela
-  recusa do Processar num pedido com OP. Nenhuma escrita para provar.
+  recusa do Processar num pedido com OP. O caminho que cancela OP só se prova na próxima troca real:
+  nenhuma troca provocada para testar.
 
 ## Decisões
 
-1. **Worker: A (para e avisa) ou B (cancela as OPs sozinho)?** Recomendado: **A**. Cancelar OP sem
-   ninguém confirmar é escrita nova e perigosa, e o pedido novo precisa de uma pessoa para processar de
-   qualquer forma; essa mesma pessoa cancela as OPs velhas com o comando que já existe.
-2. **Barreira no Processar (F3) junto?** Recomendado: **sim**. É barata e fica no ponto onde a
-   duplicação acontece de fato; cobre cancelamento à mão.
-3. **O que conta como "tem OP"?** Recomendado: **OP com status Planejada, Liberada ou Encerrada em
-   `OWOR.OriginAbs`**, ignorando as Canceladas. `U_INO_ProcessWBC = 'Y'` sozinho erra: continua `Y` depois
-   que as OPs são canceladas com `--manter-vinculos`.
-4. **Quem é avisado quando a troca para?** Recomendado: **painel WBC + log em vermelho** por enquanto;
-   aviso ativo (e-mail, Mira) só se o caso se repetir.
+1. **Worker: A (para e avisa) ou B (cancela as OPs sozinho)?** ✅ **B** (Marcelo, 20/10). Minha
+   recomendação era A; as travas de F2 existem para cobrir o risco de cancelar OP sem uma pessoa confirmar.
+2. **Barreira no Processar (F3) junto?** ✅ **Sim.**
+3. **O que conta como "tem OP"?** ✅ **OP Planejada, Liberada ou Encerrada em `OWOR.OriginAbs`**, ignorando
+   as Canceladas. Confirmado no SAP: `OriginNum` não acrescenta nenhuma.
+4. **Quem é avisado quando a troca para?** ✅ **Painel WBC + log em vermelho.** As OPs canceladas pela B
+   também vão para o painel, como evento.
 
 ## Fora deste plano (achados do mesmo dia)
 
