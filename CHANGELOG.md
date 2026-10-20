@@ -6,6 +6,18 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-20] — Ronda do .90 em ritmo adaptativo: 15 min no ar, 5 min quando cai (F4 do PLANO_TEO_PERIODOS_E_IMPRESSORAS do web)
+
+Pedido do dono: a .11 testava o .90 a cada 5 min o dia todo. Agora `operacao/ronda_90.py` testa a cada
+**15 min** enquanto o .90 responde e volta a **5 min** a partir da primeira leitura ruim, até ele responder
+de novo. Assim a suspeita se confirma e a volta do .90 continua datada em 5 min; só o **começo** de uma queda
+passa a ser visto até 15 min depois; o período guarda a última leitura boa (`inicio_apos`) e o relatório do Téo diz "começou entre 17:58 e 18:13".
+- O estado guarda o passo vigente (`intervalo_s`) e `GET /operacao/ronda-90` devolve esse valor, não mais a
+  constante: o Téo do web espera duas rondas da .11 pelo número que vem ali.
+- A lacuna ("a .11 perdeu leituras") conta o passo da leitura **anterior**; um estado gravado antes desta versão,
+  sem passo, vale 5 min.
+- +3 testes. **Pede deploy da .11** (`deploy_update.bat`); até lá o web segue lendo `intervalo_s = 300`.
+
 ## [2026-10-16] — Entrega futura: rotas, view, MCP e contratos (F2 do PLANO_ENTREGA_FUTURA)
 
 A revisão do Sonnet 5.5 (esforço alto) achou o furo principal: os 7 pedidos da lista do PCP **estão na

@@ -610,7 +610,9 @@ def test_ronda_fecha_o_periodo_com_hora_real_e_esquece_o_antigo():
     assert dados["como"] == "desligado" and dados["periodos"] == []
     dados = ronda_90.aplicar(dados, "ok", None, t + timedelta(minutes=15))
     [p] = dados["periodos"]
-    assert p == {"inicio": _iso(t + timedelta(minutes=5)), "fim": _iso(t + timedelta(minutes=15)), "como": "desligado"}
+    # After an "ok" the .11 is at the slow pace (F4): the start is "after" that reading.
+    assert p == {"inicio": _iso(t + timedelta(minutes=5)), "fim": _iso(t + timedelta(minutes=15)), "como": "desligado",
+                 "inicio_apos": _iso(t)}
     depois = ronda_90.aplicar(dados, "ok", None, t + timedelta(days=ronda_90.DIAS_GUARDADOS + 1))
     assert depois["periodos"] == [], "período antigo sai"
 
@@ -739,3 +741,43 @@ def test_rota_de_logins_sap_codigos_e_teto(api, monkeypatch):
         c.get("/operacao/logins-sap", headers=h)
     r = c.get("/operacao/logins-sap", headers=h)          # the 7th in a minute
     assert r.status_code == 429 and "muitas leituras" in r.get_json()["motivo"]
+
+
+def test_ronda_ritmo_15_min_com_o_90_no_ar_e_5_quando_cai():
+    """PLANO_TEO_PERIODOS_E_IMPRESSORAS F4 (web repo): 900 s while ok, 300 s from the first bad reading."""
+    t = datetime(2026, 10, 20, 10, 0).astimezone()
+    dados = ronda_90.aplicar(ronda_90._vazio(), "ok", None, t)
+    assert dados["intervalo_s"] == ronda_90.INTERVALO_OK_S == 900
+    dados = ronda_90.aplicar(dados, "fora", "desligado", t + timedelta(minutes=15))
+    assert dados["suspeita"] and dados["intervalo_s"] == ronda_90.INTERVALO_FORA_S == 300
+    dados = ronda_90.aplicar(dados, "fora", "desligado", t + timedelta(minutes=20))
+    assert dados["estado"] == "fora" and dados["intervalo_s"] == 300
+    dados = ronda_90.aplicar(dados, "ok", None, t + timedelta(minutes=25))
+    assert dados["intervalo_s"] == 900 and dados["periodos"][0]["fim"] == _iso(t + timedelta(minutes=25))
+    # Seen at the slow pace: the start is "after the last good reading"; the end, at 5 min, is exact.
+    assert dados["periodos"][0]["inicio_apos"] == _iso(t) and "fim_apos" not in dados["periodos"][0]
+
+
+def test_ronda_lacuna_conta_o_passo_da_leitura_anterior():
+    t = datetime(2026, 10, 20, 10, 0).astimezone()
+    dados = ronda_90.aplicar(ronda_90._vazio(), "ok", None, t)
+    # After an "ok" at the slow pace the start is only "after" that reading.
+    dados = ronda_90.aplicar(dados, "fora", "desligado", t + timedelta(minutes=20))
+    assert dados["suspeita"]["antes"] == _iso(t)
+    # 11 min after a suspicion (pace 5 min) is a gap: the .11 missed a reading.
+    dados = ronda_90.aplicar(dados, "fora", "desligado", t + timedelta(minutes=31))
+    dados = ronda_90.aplicar(dados, "ok", None, t + timedelta(minutes=42))
+    assert dados["periodos"][0]["fim_apos"] == _iso(t + timedelta(minutes=31))
+
+
+def test_ronda_estado_antigo_sem_passo_vale_5_min_e_publico_diz_o_vigente(tmp_path):
+    t = datetime(2026, 10, 20, 10, 0).astimezone()
+    antigo = {**ronda_90._vazio(), "estado": "fora", "desde": _iso(t), "ultima_leitura": _iso(t)}
+    antigo.pop("intervalo_s")
+    dados = ronda_90.aplicar(antigo, "ok", None, t + timedelta(minutes=11))
+    assert dados["periodos"][0]["fim_apos"] == _iso(t), "11 min > 2 x 5 min do estado antigo"
+    arquivo = tmp_path / "ronda_90.json"
+    ronda_90._gravar(dados, arquivo)
+    assert ronda_90.publico(arquivo)["intervalo_s"] == 900
+    ronda_90._gravar({**dados, "suspeita": {"em": _iso(t), "como": None, "antes": None}}, arquivo)
+    assert ronda_90.publico(arquivo)["intervalo_s"] == 300

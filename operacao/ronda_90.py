@@ -2,7 +2,9 @@
 
 Every watcher of the OrçaView lives on the .90 itself (the Zelador, the vigia, the watchdog):
 when the .90 goes down, nobody writes down when. This one does, from the .11: every
-:data:`INTERVALO_S` it tests the closed-list destination ``orcaview-90`` (DNS, ping, TCP 443
+:data:`INTERVALO_OK_S` while the .90 answers and every :data:`INTERVALO_FORA_S` from the first bad
+reading until it answers again (:func:`intervalo`), it tests the closed-list destination
+``orcaview-90`` (DNS, ping, TCP 443
 and 8000, through :func:`operacao.conexoes.testar`) and keeps, in ``state/ronda_90.json``, the
 current state and the periods it saw the .90 down, with the real times. The Zelador reads them
 when it wakes up (``GET /operacao/ronda-90``) and writes in its diary what it missed asleep.
@@ -28,7 +30,11 @@ logger = logging.getLogger(__name__)
 RAIZ = Path(__file__).resolve().parents[1]
 ARQUIVO_PADRAO = RAIZ / "state" / "ronda_90.json"
 DESTINO = "orcaview-90"
-INTERVALO_S = 300
+#: PLANO_TEO_PERIODOS_E_IMPRESSORAS F4 (web repo, owner 20/10): 15 min while the .90 answers, 5 min
+#: from the first bad reading on (a suspicion is confirmed and the return is dated within 5 min).
+#: The start of an outage is therefore seen up to 15 min late; its end, within 5 min.
+INTERVALO_OK_S = 900
+INTERVALO_FORA_S = 300
 #: Periods older than this are dropped (the Zelador reads the last days only).
 DIAS_GUARDADOS = 14
 
@@ -42,7 +48,12 @@ def _agora() -> datetime:
 
 def _vazio() -> dict[str, Any]:
     return {"estado": None, "desde": None, "como": None, "ultima_leitura": None, "periodos": [],
-            "suspeita": None, "desde_apos": None}
+            "suspeita": None, "desde_apos": None, "intervalo_s": None}
+
+
+def intervalo(dados: dict[str, Any]) -> int:
+    """Seconds until the next test: the slow pace only when the .90 is up and nothing is suspected."""
+    return INTERVALO_OK_S if dados.get("estado") == "ok" and not dados.get("suspeita") else INTERVALO_FORA_S
 
 
 def ler(arquivo: Path = ARQUIVO_PADRAO) -> dict[str, Any]:
@@ -91,13 +102,14 @@ def _pior(a: str | None, b: str | None) -> str | None:
     return a if _GRAVIDADE.get(a, 0) >= _GRAVIDADE.get(b, 0) else b
 
 
-def _lacuna(antes: str | None, quando: datetime) -> bool:
+def _lacuna(antes: str | None, quando: datetime, passo_s: int) -> bool:
     """True when the .11 itself missed readings (its own restart, a deploy): the time it writes
-    for a change is then only "somewhere after" the previous reading."""
+    for a change is then only "somewhere after" the previous reading. ``passo_s`` is the pace the
+    previous reading set (a state written before F4 has none: it was 5 min then)."""
     if not antes:
         return False
     try:
-        return (quando - datetime.fromisoformat(antes)).total_seconds() > 2 * INTERVALO_S
+        return (quando - datetime.fromisoformat(antes)).total_seconds() > 2 * passo_s
     except (TypeError, ValueError):
         return False
 
@@ -106,11 +118,13 @@ def aplicar(dados: dict[str, Any], estado: str, como: str | None, quando: dateti
     """One reading folded into the state (pure but for its arguments).
 
     A period opens only on the SECOND "fora" in a row (one network hiccup is no period), dated
-    by the first one; a change back to "ok" closes it with its start and end. When the .11 missed
-    readings around a change, the period also says after which reading it started/ended
-    (``inicio_apos``/``fim_apos``). Old periods are dropped."""
+    by the first one; a change back to "ok" closes it with its start and end. ``inicio_apos`` = the
+    last good reading before the start, kept when the .11 missed readings OR read at the slow pace (F4:
+    the start window); ``fim_apos`` = the reading before the end, only when the .11 missed readings.
+    Old periods are dropped."""
     agora_iso = quando.isoformat(timespec="seconds")
     antes = dados.get("ultima_leitura")
+    passo = int(dados.get("intervalo_s") or INTERVALO_FORA_S)
     novo = {**_vazio(), **dados, "ultima_leitura": agora_iso, "periodos": list(dados.get("periodos") or [])}
     suspeita = dados.get("suspeita")
     if estado == "fora":
@@ -120,20 +134,24 @@ def aplicar(dados: dict[str, Any], estado: str, como: str | None, quando: dateti
             novo.update(estado="fora", desde=suspeita.get("em"), como=_pior(suspeita.get("como"), como),
                         desde_apos=suspeita.get("antes"), suspeita=None)
         else:
-            novo["suspeita"] = {"em": agora_iso, "como": como, "antes": antes if _lacuna(antes, quando) else None}
+            # At the slow pace the fall happened somewhere after the last good reading: keep it, so the
+            # period says its start window (review of F4: "18:13" alone hid a 17:58 shutdown).
+            aproximado = _lacuna(antes, quando, passo) or passo > INTERVALO_FORA_S
+            novo["suspeita"] = {"em": agora_iso, "como": como, "antes": antes if aproximado else None}
     else:
         novo["suspeita"] = None
         if dados.get("estado") == "fora" and dados.get("desde"):
             periodo = {"inicio": dados["desde"], "fim": agora_iso, "como": dados.get("como")}
             if dados.get("desde_apos"):
                 periodo["inicio_apos"] = dados["desde_apos"]
-            if _lacuna(antes, quando):
+            if _lacuna(antes, quando, passo):
                 periodo["fim_apos"] = antes
             novo["periodos"].append(periodo)
         if dados.get("estado") != "ok":
             novo.update(estado="ok", desde=agora_iso, como=None, desde_apos=None)
     corte = (quando - timedelta(days=DIAS_GUARDADOS)).isoformat(timespec="seconds")
     novo["periodos"] = [p for p in novo["periodos"] if str(p.get("fim") or "") >= corte]
+    novo["intervalo_s"] = intervalo(novo)
     return novo
 
 
@@ -155,11 +173,12 @@ def rodar_uma_vez(arquivo: Path = ARQUIVO_PADRAO) -> dict[str, Any]:
 
 def _laco(arquivo: Path) -> None:
     while True:
+        passo = INTERVALO_FORA_S
         try:
-            rodar_uma_vez(arquivo)
+            passo = intervalo(rodar_uma_vez(arquivo))
         except Exception:  # the thread must never die in silence (the .90 would read a frozen state)
             logger.exception("[RONDA-90] passada falhou")
-        time.sleep(INTERVALO_S)
+        time.sleep(passo)
 
 
 def iniciar(arquivo: Path = ARQUIVO_PADRAO) -> threading.Thread | None:
@@ -175,10 +194,13 @@ def iniciar(arquivo: Path = ARQUIVO_PADRAO) -> threading.Thread | None:
         return _thread
     _thread = threading.Thread(target=_laco, args=(arquivo,), name="ronda-90", daemon=True)
     _thread.start()
-    logger.info("[RONDA-90] ronda do .90 a cada %ss (só leitura).", INTERVALO_S)
+    logger.info("[RONDA-90] ronda do .90 a cada %ss com ele no ar, %ss quando cai (só leitura).",
+                INTERVALO_OK_S, INTERVALO_FORA_S)
     return _thread
 
 
 def publico(arquivo: Path = ARQUIVO_PADRAO) -> dict[str, Any]:
-    """What ``GET /operacao/ronda-90`` answers: the stored state plus the round's own settings."""
-    return {**ler(arquivo), "intervalo_s": INTERVALO_S, "destino": DESTINO}
+    """What ``GET /operacao/ronda-90`` answers: the stored state plus the round's own settings.
+    ``intervalo_s`` is the pace in force NOW (the web's Téo waits two of them for this round)."""
+    dados = ler(arquivo)
+    return {**dados, "intervalo_s": intervalo(dados), "destino": DESTINO}
