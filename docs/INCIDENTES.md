@@ -101,3 +101,27 @@ A trava do `tests/conftest.py` (F0 do `PLANO_DX_AGENTE`) pegou 12 testes que abr
 REAL — 11 com o HANA de produção e 1 relendo o Supabase de produção. E o `hdbcli` 2.29.25 no
 Python 3.14 derruba o processo com access violation quando a conexão falha: o pytest morria
 sem dizer qual teste vazou. Por isso a trava é nos **drivers**, não só no `.env`.
+
+## Encerrar OP saiu do default da rota de status (28/09/2026, D9)
+
+`POST /ordens-producao/<n>/status` fazia um PATCH puro para `boposClosed`, que fecha a OP **sem**
+OIGE/OIGN. Encerrar com estoque passou a ser só do `controleproducao` (Manutenção de OP):
+`OP_STATUS_PERMITIDOS_DEFAULT = 'boposReleased'`. `OP_STATUS_PERMITIDOS=boposReleased,boposClosed` no
+`.env` é o rollback, não o normal. Cancelar e voltar para Planejada estão fora de escopo desde 07/08/2026.
+
+## HANA fora: ~51 s por chamada numa thread da API (01/10/2026)
+
+Com o HANA fora, cada chamada esperava ~51 s numa thread da API (waitress, `API_THREADS` = 8).
+Daí o disjuntor de 30 s em `sap_connection.connect_sap_hana`
+(`HanaIndisponivel`). No mesmo dia: o acompanhamento SQLite do WBC foi para WAL (ciclo de 1.880
+cotações: 8,4 s → 3,1 s; `synchronous` fica FULL de propósito) e os defaults compartilhados foram para
+`wbcpython/padroes.py`.
+
+## Segurança da .11: aprovação por pessoa (02/10/2026)
+
+Decisão do Marcelo: segurança **acrescenta, nunca tira** função — cliente que migrou para chave
+própria recebeu todos os escopos que já usava (o agente inclusive: RH, sincronizar OS, forçar carga);
+firewall só depois de a auditoria mostrar quem usa. Escrita de agente virou pedido
+(`POST /aprovacoes`) que uma pessoa aprova. Na F5 (web V118.439) o .90 decide com a credencial
+`orcaview-90` (+`aprovar`) só pelo `aprovar 4821` do dono no grupo da Mira, e a Mira PEDE com
+`mira-agente` (`--agente`).

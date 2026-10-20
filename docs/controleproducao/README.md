@@ -161,3 +161,46 @@ instalação isolada (`CHECKLIST_IMPLANTACAO`, `OPERACAO`, `SOLUCAO_DE_PROBLEMAS
 `SEGURANCA`) — o SIS já tem deploy, serviço, log, monitoração e login. A pasta com o pacote
 original (`IntegracaoPedido_CriacaoOP/`) foi apagada em 30/09/2026 (D2): o original está no
 zip com o Anderson.
+
+## O que morde (detalhe das regras do `CLAUDE.md`)
+
+Movido do `CLAUDE.md` da raiz em 20/10/2026; o `CLAUDE.md` guarda só a regra curta e o teste.
+Os `D<n>` são as decisões de `decisoes.md`; os `F<n>`, as fases do plano (apagado em 06/10/2026, texto no git).
+
+1. **`processar-novos` não tem rollback.** Grava `U_INO_ProcessWBC='Y'` **antes** da 1ª OP: queda
+   no meio = pedido "processado" sem OP. Retomada: `manutencao-op buscar` → `cancelar-ops` →
+   `processar-novos` **sem `--force`** (`--force` duplica OP, na CLI e na web; a API não tem "forçar").
+2. **`reprocessar-integrados` cancela toda OP planejada do pedido** (de qualquer origem) e **não
+   recria**: o pedido volta para "Pedidos novos" (`ProcessWBC='N'`, `U_INO_OP` zerado) e precisa ser
+   processado de novo. Está na tela desde 30/09 (D8 revertida pelo Marcelo), com esse aviso na lista e
+   na conferência.
+3. **`Liberar` e `Replanejar` gravam no 1º POST.** O `Replanejar` voltou à tela em 29/09 (D4, desfaz a
+   D9) e está também na CLI e na API JSON (`/api/manutencao-op/replanejar`). Os três **recusam OP com
+   saída de insumo lançada ou produto apontado** (`service.saida_lancada`, `IssuedQty` > 0;
+   `service.entrada_lancada`, `CmpltQty` > 0 — D6; valor desconhecido também recusa). O "Interromper"
+   do Encerrar para **entre OPs** (`parada_combinada` na `Tarefa`, D5), nunca entre a saída e a
+   entrada de uma OP. `encerrar` faz OIGE+OIGN (irreversível) e é o **único** caminho de encerrar OP
+   (a API 8077 só libera por default, D9).
+4. **`HANA_SCHEMA` não é lido pelo pacote**: `hana_schema` = `SL_COMPANY_DB` (bug de 21/09: lia num
+   schema e gravava noutro).
+5. **Três escritores no mesmo `ORDR`/`OWOR`**: o worker, o pacote e o addon C# legado no cliente SAP.
+   O worker cancela-e-recria pedido **sem olhar `OWOR`**.
+6. **`deploy_update.bat` aborta se `/health/ocupado` = 1** — nunca `nssm stop` com tarefa em andamento.
+7. **SQL com parâmetro ligado** desde 29/09 (F7): módulo 3 com `?` direto; módulo 2 pelos MESMOS
+   modelos `{nome}` do C#, ligados por `core/sql_ligado.ligar` (`'{x}'` → texto, `{x}` → inteiro
+   validado, lista → `?, ?`, `{schema}` só identificador, `{filtro}` só vazio) — nunca `.format` com
+   valor. Paridade antiga × nova: 15/15 + 49/49 contra PROD. O SQL Server do WBC é lido por `pymssql`
+   (não ODBC; `WBC_SQL_DRIVER` sem efeito); o `%` do texto passa como está e `%s`/`%d` no texto são
+   recusados (o pymssql os trocaria por parâmetro). Os dois leitores (HANA e WBC) passam por
+   `sql_ligado.exige_leitura` — só SELECT/WITH, sem `;`, sem INSERT/UPDATE/DELETE/INTO/EXEC… — e o
+   cliente do WBC não tem método de escrita nem commit (30/09). `_update_pedido` (recria as linhas do
+   pedido) está FECHADO com erro claro até o Anderson validar em homologação.
+8. **O pacote não tem expediente**: fora do ar = alerta no `/status`.
+9. **`CP_HOST` decide quem alcança a tela.** `0.0.0.0` é o valor da .11 desde 28/09 (~14:45, F6) = a
+   mesma exposição do painel. A regra de firewall `OrcaView-ControleProducao-8080` (só
+   `192.168.0.0/16`) **não tem efeito: o firewall do Windows da .11 está desligado** (Marcelo,
+   02/10/2026). **Nunca o IP da máquina**: o `deploy_update.bat` e o `/status` sondam
+   `127.0.0.1:CP_PORTA`. Com `127.0.0.1` só a própria máquina alcança, e o painel tem de ser aberto
+   por `http://localhost:8079` (os botões montam o link com o host da página e o cookie é por host);
+   de fora a 8080 **recusa conexão** — não é queda (o `/status` continua verde). O `.env` é lido na
+   subida: linha nova = `nssm restart OrcaView-ControleProducao` (mordeu em 28/09 com `WBC_SQL_DRIVER`).
