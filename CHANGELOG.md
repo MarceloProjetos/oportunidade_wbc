@@ -6,6 +6,20 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-20] — Worker WBC passa a ver as OPs do pedido (F1 do PLANO_TROCA_PN_COM_OP)
+
+A troca de PN cancelava e recriava o pedido sem olhar `OWOR`: em 20/10 os cancelados 84505 e 84506 ficaram com
+110 OPs planejadas enquanto os substitutos 84507 e 84510 ganhavam as suas (produção em dobro; limpas à mão na F0a).
+Agora a consulta da janela (`infrastructure/hana/oportunidades.py`) traz, por pedido vigente, as OPs vivas por
+`OriginAbs` (P; R+L), num `LEFT JOIN` agregado; `EstadoIntegracao` ganha `ops_planejadas_pedido` e
+`ops_em_producao_pedido`.
+- **Só leitura, nenhuma decisão muda nesta versão.** A regra (cancelar as OPs planejadas antes da troca, parar em
+  liberada/encerrada) é a F2.
+- "Não sei" chega como `None`, nunca como zero: o caminho do Service Layer e os dublês de teste não trazem a
+  contagem, e uma guarda que lesse zero ali cancelaria pedido em produção.
+- +8 testes. Tempo da consulta da janela com o `JOIN` novo **ainda não medido**. **Pede deploy da .11**
+  (`deploy_update.bat`).
+
 ## [2026-10-20] — Ronda do .90 em ritmo adaptativo: 15 min no ar, 5 min quando cai (F4 do PLANO_TEO_PERIODOS_E_IMPRESSORAS do web)
 
 Pedido do dono: a .11 testava o .90 a cada 5 min o dia todo. Agora `operacao/ronda_90.py` testa a cada

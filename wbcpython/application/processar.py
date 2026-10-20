@@ -1112,6 +1112,18 @@ def fonte_de_documentos(oportunidade: dict[str, Any], repositorio: Any) -> Any:
     return repositorio
 
 
+def _ops_do_pedido(documentos: Any, orcnum: str) -> tuple[int | None, int | None]:
+    """OP counts when the source knows them; ``(None, None)`` otherwise.
+
+    Only the HANA read carries them (`DocumentosJaLidos.ops_do_pedido`). The Service
+    Layer repository and the test doubles do not, and "unknown" must reach the state
+    as ``None`` rather than as zero.
+    """
+    ler = getattr(documentos, "ops_do_pedido", None)
+    contagem = ler(orcnum) if callable(ler) else None
+    return contagem if contagem is not None else (None, None)
+
+
 def montar_estado(
     orcamento: OrcamentoWbc,
     oportunidade: dict[str, Any],
@@ -1128,6 +1140,7 @@ def montar_estado(
     as duas versões divergirem com o tempo.
     """
     orcnum = orcamento.orcnum
+    ops_planejadas, ops_em_producao = _ops_do_pedido(documentos, orcnum)
     return EstadoIntegracao(
         orcamento=orcnum,
         sitcode_wbc=orcamento.sitcode,
@@ -1140,6 +1153,8 @@ def montar_estado(
         revisao_cotacao_sap=documentos.revisao_aplicada(TipoDocumento.COTACAO, orcnum),
         revisao_pedido_sap=documentos.revisao_aplicada(TipoDocumento.PEDIDO, orcnum),
         parceiro_pedido_sap=documentos.parceiro_aplicado(TipoDocumento.PEDIDO, orcnum),
+        ops_planejadas_pedido=ops_planejadas,
+        ops_em_producao_pedido=ops_em_producao,
         alterado=str(oportunidade.get("U_INO_Update") or "N").upper() == "Y",
         parceiro_atual=str(oportunidade.get("CardCode") or ""),
         parceiro_novo=str(oportunidade.get("U_INO_PN_Correc") or ""),

@@ -77,6 +77,74 @@ class TestEscolhaDaFonte:
         assert fonte is espiao
 
 
+class _Orcamento:
+    orcnum = "00124837"
+    sitcode = 60
+    revisao = "J"
+
+
+class _RepositorioSemOps:
+    """Service Layer shape: answers about documents, knows nothing about OPs."""
+
+    def existe(self, tipo, orcamento) -> bool:
+        return tipo is PEDIDO
+
+    def esta_fechado(self, tipo, orcamento) -> bool:
+        return False
+
+    def revisao_aplicada(self, tipo, orcamento) -> str:
+        return "J"
+
+    def parceiro_aplicado(self, tipo, orcamento) -> str:
+        return "C011414"
+
+
+class TestOpsDoPedido:
+    """The read that lets the partner swap see production (84505/84506, 20/10/2026)."""
+
+    def test_sem_pedido_nada_fica_orfao(self) -> None:
+        assert DocumentosJaLidos({"cotacao": None, "pedido": None}).ops_do_pedido("x") == (0, 0)
+
+    def test_pedido_com_ops(self) -> None:
+        d = DocumentosJaLidos(
+            {"pedido": {"DocEntry": 20666, "OPs": {"planejadas": 58, "em_producao": 3}}}
+        )
+        assert d.ops_do_pedido("00124837") == (58, 3)
+
+    def test_pedido_sem_a_contagem_e_desconhecido_e_nao_zero(self) -> None:
+        """A guard reading zero from missing data would cancel an order production holds."""
+        d = DocumentosJaLidos({"pedido": {"DocEntry": 20666}})
+        assert d.ops_do_pedido("00124837") is None
+
+    def test_estado_recebe_a_contagem_da_leitura(self) -> None:
+        from wbcpython.application.processar import montar_estado
+
+        oportunidade = {
+            "documentos": {
+                "cotacao": None,
+                "pedido": {
+                    "DocEntry": 20666,
+                    "CardCode": "C011414",
+                    "DocStatus": "O",
+                    "OPs": {"planejadas": 58, "em_producao": 0},
+                },
+            }
+        }
+        estado = montar_estado(
+            _Orcamento(), oportunidade, fonte_de_documentos(oportunidade, RepositorioEspiao())
+        )
+
+        assert (estado.ops_planejadas_pedido, estado.ops_em_producao_pedido) == (58, 0)
+
+    def test_fonte_sem_contagem_deixa_o_estado_desconhecido(self) -> None:
+        from wbcpython.application.processar import montar_estado
+
+        estado = montar_estado(_Orcamento(), {}, _RepositorioSemOps())
+
+        assert estado.tem_pedido is True
+        assert (estado.ops_planejadas_pedido, estado.ops_em_producao_pedido) == (None, None)
+
+
 class TestPreFiltroPelaSituacao:
     """Decidir sem carregar as linhas é o que torna a janela inteira viável.
 

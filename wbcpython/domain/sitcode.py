@@ -138,6 +138,12 @@ class EstadoIntegracao:
     #: `CardCode` do pedido vigente no SAP. É o equivalente do `ChecaPNPedido`
     #: legado: comparado com `parceiro_novo`, diz se a troca já foi aplicada.
     parceiro_pedido_sap: str = ""
+    #: Live production orders of the current order (`OWOR.OriginAbs`): planned, and
+    #: released or closed. `None` = unknown (the Service Layer read does not carry
+    #: them), which a guard must treat as "may have OPs", never as zero.
+    #: `docs/PLANO_TROCA_PN_COM_OP.md`.
+    ops_planejadas_pedido: int | None = None
+    ops_em_producao_pedido: int | None = None
 
     #: A oportunidade e mais antiga que a janela PADRAO do ciclo.
     #:

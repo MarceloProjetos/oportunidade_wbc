@@ -99,3 +99,19 @@ class DocumentosJaLidos:
     def doc_entry(self, tipo: TipoDocumento, orcamento: str) -> int | None:
         documento = self.buscar(tipo, orcamento)
         return int(documento["DocEntry"]) if documento else None
+
+    def ops_do_pedido(self, orcamento: str) -> tuple[int, int] | None:
+        """Live OPs of the current order: ``(planned, released or closed)``.
+
+        ``(0, 0)`` when there is no order — nothing can be orphaned. ``None`` when the
+        order came without the count (a read that predates it): unknown, never zero,
+        because a guard that reads "no OPs" from missing data would cancel an order
+        that production holds.
+        """
+        documento = self.buscar(TipoDocumento.PEDIDO, orcamento)
+        if not documento:
+            return (0, 0)
+        ops = documento.get("OPs")
+        if not isinstance(ops, dict):
+            return None
+        return (int(ops.get("planejadas") or 0), int(ops.get("em_producao") or 0))

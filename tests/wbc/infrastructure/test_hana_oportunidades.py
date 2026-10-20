@@ -67,6 +67,8 @@ _CAMPOS_ESPERADOS = (
     "PED_CARDCODE",
     "PED_STATUS",
     "PED_CONGELADO",
+    "PED_OPS_PLANEJADAS",
+    "PED_OPS_EM_PRODUCAO",
 )
 
 
@@ -100,6 +102,8 @@ def _linha(**campos: Any) -> tuple[Any, ...]:
         "PED_CARDCODE": None,
         "PED_STATUS": None,
         "PED_CONGELADO": None,
+        "PED_OPS_PLANEJADAS": 0,
+        "PED_OPS_EM_PRODUCAO": 0,
     }
     base.update(campos)
     return tuple(base.values())
@@ -160,6 +164,21 @@ class TestConsulta:
         conexao = ConexaoFalsa([])
         _repo(conexao).pendentes_de_integracao(desde=date(2026, 3, 1))
         assert 'O."Status"' in conexao.ultimo_sql
+
+    def test_le_as_ops_vivas_do_pedido_na_company_da_escrita(self) -> None:
+        """The partner swap must see the order's OPs (84505/84506, 20/10/2026).
+
+        Same schema as the rest of the read, linked by `OriginAbs` (`OriginNum` added
+        no live OP in production), and cancelled OPs left out.
+        """
+        conexao = ConexaoFalsa([])
+        _repo(conexao, company_db=HOMOLOG).pendentes_de_integracao(desde=date(2026, 3, 1))
+        sql = conexao.ultimo_sql
+
+        assert f'"{HOMOLOG}"."OWOR"' in sql
+        assert 'W."OriginAbs" = R."DocEntry"' in sql
+        assert "\"Status\" IN ('P', 'R', 'L')" in sql
+        assert "'C'" not in sql
 
     def test_todas_as_colunas_projetadas_sao_traduzidas(self) -> None:
         """A guarda contra o defeito do deslocamento.
@@ -254,7 +273,27 @@ class TestFormato:
             # `'C'` = fechado. Sem esta coluna a integração tentava alterar
             # pedido fechado, e o SAP recusava — ver o orçamento `00124268`.
             "DocStatus": "C",
+            "OPs": {"planejadas": 0, "em_producao": 0},
         }
+
+    def test_ops_do_pedido_viajam_no_pedido(self) -> None:
+        conexao = ConexaoFalsa(
+            [_linha(PED_DOCENTRY=20666, PED_OPS_PLANEJADAS=58, PED_OPS_EM_PRODUCAO=3)]
+        )
+        registros = _repo(conexao).pendentes_de_integracao(desde=date(2026, 3, 1))
+
+        assert registros[0]["documentos"]["pedido"]["OPs"] == {"planejadas": 58, "em_producao": 3}
+        # The quote has no OPs: the key would suggest a field it does not have.
+        assert registros[0]["documentos"]["cotacao"] is None
+
+    def test_pedido_sem_op_vem_com_zero(self) -> None:
+        """The `LEFT JOIN` finds nothing for an order never processed: zero, not null."""
+        conexao = ConexaoFalsa(
+            [_linha(PED_DOCENTRY=20677, PED_OPS_PLANEJADAS=None, PED_OPS_EM_PRODUCAO=None)]
+        )
+        registros = _repo(conexao).pendentes_de_integracao(desde=date(2026, 3, 1))
+
+        assert registros[0]["documentos"]["pedido"]["OPs"] == {"planejadas": 0, "em_producao": 0}
 
     def test_texto_nulo_vira_string_vazia(self) -> None:
         """A máquina de estados compara strings; `None` mudaria a decisão."""

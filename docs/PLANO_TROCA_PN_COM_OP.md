@@ -3,8 +3,8 @@
 > **Status (20/10/2026):** decisões 1–4 fechadas (1 = **B, o worker cancela as OPs planejadas sozinho**,
 > escolha do Marcelo). Nada codado. **F0a feita (20/10):** as 110 OPs Planejadas dos cancelados 84505 e
 > 84506 foram canceladas; conferido por amostra (7 OPs, incluindo a primeira e a última de cada faixa) e as
-> dos pedidos novos 84507 e 84510 continuam Planejadas. **Falta F0b** (83832, 40 Planejadas) e **F0c**
-> (250 Liberadas em 6 pedidos), as duas com o PCP. Próximo no código: F1.
+> dos pedidos novos 84507 e 84510 continuam Planejadas. **F0b e F0c decididas: cancelar tudo** (Marcelo,
+> 20/10), a rodar na .11. **F1 no código** (só leitura, pede deploy). Próximo: F2.
 > Página: https://claude.ai/artifact/LQMScG4RVLRNwB6MXqq8Ui (mesma url a cada atualização)
 
 ## O problema
@@ -107,9 +107,13 @@ comando (158896 ainda Planejada) e o 84506 sem rodar; ele rodou de novo e a 2ª 
 3. `--manter-vinculos` porque o pedido já está cancelado: a limpeza de vínculos grava no pedido, e o SAP
    recusa gravar em pedido cancelado.
 
-**F0b — 83832 (orçamento 00124160, cancelado em 22/09, 40 Planejadas criadas em 20/04).** Perguntar ao
-PCP se o orçamento virou outro pedido ou se as OPs servem para algo. Se não servem, o mesmo comando:
-`cancelar-ops 83832 --manter-vinculos`.
+**F0b — 83832 (orçamento 00124160, cancelado em 22/09, 40 Planejadas criadas em 20/04).** Decisão do
+Marcelo (20/10): cancelar. `cancelar-ops 83832 --manter-vinculos`.
+
+**F0c — decisão do Marcelo (20/10): cancelar tudo o que está em pedido cancelado.** Por pedido:
+`manutencao-op replanejar --pedido N --sim` (Liberada → Planejada; recusa OP com saída de insumo ou produto
+apontado) e depois `pedidos-wbc cancelar-ops N --manter-vinculos --sim` (não cancela nada se sobrou OP
+Liberada). OP com apontamento fica e volta como lista para decidir.
 
 **F0c — 6 pedidos cancelados com 250 OPs Liberadas** (84023, 84116, 83958, 84179, 84162, 84103,
 cancelados de 15/06 a 15/09). O `cancelar-ops` recusa OP Liberada, de propósito. O PCP diz, pedido a pedido:
@@ -118,9 +122,13 @@ cancelados de 15/06 a 15/09). O `cancelar-ops` recusa OP Liberada, de propósito
 
 **Conferência:** depois de cada passo eu releio o SAP (só leitura) e atualizo esta fase.
 
-### F1 — O worker passa a saber se o pedido tem OP (só leitura)
+### F1 — O worker passa a saber se o pedido tem OP (só leitura) — ✅ no código, pede deploy
 
 Capacidade: a decisão do pedido enxerga as OPs vivas.
+
+Feito em 20/10: `ops_planejadas_pedido` e `ops_em_producao_pedido` no `EstadoIntegracao`; "não sei" = `None`
+(caminho do Service Layer), nunca zero; +8 testes. Nenhuma decisão muda até a F2. **Falta medir o tempo da
+consulta da janela com o `JOIN` novo** (uma leitura no HANA).
 
 - `oportunidades.py`: contagem de OPs do pedido vigente por status (`OWOR.OriginAbs`, `Status` P/R/L),
   num `LEFT JOIN` agregado.

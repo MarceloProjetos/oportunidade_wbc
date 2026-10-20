@@ -19,6 +19,12 @@ Conferido contra o Service Layer em 40 orçamentos de homologação — incluind
 casos sem documento, com cotação, com pedido e com revisão aplicada: **zero
 divergências**.
 
+The read also carries what the Service Layer path never had: the live production
+orders of the current sales order (`OWOR` by `OriginAbs`, status P/R/L), so the
+partner swap stops cancelling an order that production already holds
+(`docs/PLANO_TROCA_PN_COM_OP.md`). On 20/10/2026 the swap had left 110 planned
+OPs on two cancelled orders while their replacements got their own.
+
 **O schema é o da company que recebe a escrita, não o `HANA_SCHEMA`.** Esta é a
 parte perigosa do módulo. `HANA_SCHEMA` aponta para as views de relatório
 (`SBOALTAMIRAPROD`, mesmo em homologação); a company que a integração escreve é
@@ -73,7 +79,9 @@ SELECT O."OpprId", O."U_ORCNUM_WBC", O."CardCode", C."CardName", O."SlpCode", O.
        R."DocEntry" AS "PED_DOCENTRY", R."DocNum" AS "PED_DOCNUM",
        R."U_INO_VERSAOWBC" AS "PED_REVISAO",
        R."CardCode" AS "PED_CARDCODE", R."DocStatus" AS "PED_STATUS",
-       R."U_INO_Congelado" AS "PED_CONGELADO"
+       R."U_INO_Congelado" AS "PED_CONGELADO",
+       IFNULL(W."PLANEJADAS", 0) AS "PED_OPS_PLANEJADAS",
+       IFNULL(W."EM_PRODUCAO", 0) AS "PED_OPS_EM_PRODUCAO"
 FROM {schema_citado}."OOPR" O
 LEFT JOIN {schema_citado}."OCRD" C ON C."CardCode" = O."CardCode"
 LEFT JOIN (
@@ -93,6 +101,14 @@ LEFT JOIN (
     FROM {schema_citado}."ORDR"
     WHERE "CANCELED" = 'N' AND LENGTH("U_INO_COTWBC") > 0
 ) R ON R."U_INO_COTWBC" = O."U_ORCNUM_WBC" AND R."RN" = 1
+LEFT JOIN (
+    SELECT "OriginAbs",
+           SUM(CASE WHEN "Status" = 'P' THEN 1 ELSE 0 END) AS "PLANEJADAS",
+           SUM(CASE WHEN "Status" IN ('R', 'L') THEN 1 ELSE 0 END) AS "EM_PRODUCAO"
+    FROM {schema_citado}."OWOR"
+    WHERE "Status" IN ('P', 'R', 'L')
+    GROUP BY "OriginAbs"
+) W ON W."OriginAbs" = R."DocEntry"
 WHERE O."U_INO_IntegrouWBC" = 'Y'
   AND LENGTH(O."U_ORCNUM_WBC") > 0
   AND O."OpenDate" >= ?
@@ -224,7 +240,16 @@ class RepositorioOportunidadesHana:
                     # a cotação não o tem. Fica no chamador, e não em
                     # `_documento`, para a cotação não ganhar uma chave vazia
                     # que sugere um campo que não existe nela.
-                    extras={"U_INO_Congelado": str(campos["PED_CONGELADO"] or "")},
+                    extras={
+                        "U_INO_Congelado": str(campos["PED_CONGELADO"] or ""),
+                        # Cancelled OPs are left out by the query: they hold nothing.
+                        # Released and closed travel together because neither can be
+                        # cancelled without a person (issued material, posted receipts).
+                        "OPs": {
+                            "planejadas": int(campos["PED_OPS_PLANEJADAS"] or 0),
+                            "em_producao": int(campos["PED_OPS_EM_PRODUCAO"] or 0),
+                        },
+                    },
                 ),
             },
         }
