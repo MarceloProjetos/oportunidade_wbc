@@ -6,6 +6,19 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-21] — Controle de montagem na situação do pedido (F6b do PLANO_CONTROLE_MONTAGEM da web)
+
+O Comercial passou a digitar, na tela do pedido do OrçaView, Início, Fim e Observações do Processo da montagem
+(tabela `pedidos_montagem` do Supabase, 1 linha por pedido). Agora o PCP lê os mesmos valores aqui:
+- `GET /pedidos/<numero>/situacao` traz `controle_montagem` no topo (também nos pedidos fechados, cancelados e de
+  entrega futura, `fonte: "ordr"`: a montagem de terceiros termina depois da NF). `null` = não foi possível ler.
+  A lista `GET /pedidos/situacao` não traz o bloco.
+- Tipo 2 com contrato de montagem na Previsão Financeira (`@ALTA_PREV`, `CTR:n:OV:<DocEntry>`): o Fim é a
+  "Montagem concluída em" de lá, `fim_fonte: "previsao"` (mesma regra da web; hoje há 0 contratos no SAP).
+- Só leitura (Supabase com a chave de escrita já usada, HANA com `sql_seguro`). `controle_montagem.py` novo.
+- Contrato `API_SITUACAO_PEDIDOS.md` + guia didático `docs/API_SITUACAO_PEDIDOS_CONTROLE_MONTAGEM.md`. +10 testes.
+- **Pede deploy da .11.**
+
 ## [2026-10-21] — Processar recusa pedido com OP viva em pedido cancelado do mesmo orçamento (F3 do PLANO_TROCA_PN_COM_OP)
 
 Em 20/10 o Processar dos substitutos 84507 e 84510 planejou de novo os itens que ainda tinham OP nos cancelados

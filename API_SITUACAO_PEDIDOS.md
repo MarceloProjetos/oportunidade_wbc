@@ -14,6 +14,10 @@ vai** (§2.7):
 
 As duas leem exatamente a mesma coisa; a MCP é uma camada fina sobre a REST.
 
+> **Novidade de 21/10/2026:** bloco `controle_montagem` em `GET /pedidos/<numero>/situacao` —
+> Início, Fim e Observações do Processo da montagem, digitados pelo Comercial no OrçaView.
+> Guia: [`docs/API_SITUACAO_PEDIDOS_CONTROLE_MONTAGEM.md`](docs/API_SITUACAO_PEDIDOS_CONTROLE_MONTAGEM.md).
+
 > **Novidade de 13/10/2026:** campo `obs_montagem` — a observação de montagem digitada no pedido.
 > Guia: [`docs/API_SITUACAO_PEDIDOS_OBS_MONTAGEM.md`](docs/API_SITUACAO_PEDIDOS_OBS_MONTAGEM.md).
 
@@ -401,6 +405,7 @@ são **o mesmo par** de `GET /ordens-servico/<nped>`, com o mesmo sentido:
 | `pedido_cancelado` | `true` \| `false` \| `null` | **Cheque antes de oferecer "Liberar"**. `null` **não** é "não cancelado" |
 | `fonte` | `"view"` \| `"ordr"` | De onde veio a situação. `"ordr"` = pedido cancelado, fechado ou de entrega futura, lido ao vivo (2.2) |
 | `faturamento`, `remessa`, `faturado_em` | ver 2.2 | Como o pedido fechado no SAP foi faturado. `null` em pedido aberto comum |
+| `controle_montagem` | objeto \| `null` | Início, Fim e Observações do Processo da montagem (só `GET /pedidos/<numero>/situacao`). `null` = **não foi possível ler**, não "sem montagem". Guia: `docs/API_SITUACAO_PEDIDOS_CONTROLE_MONTAGEM.md` |
 
 Quando `pedido_cancelado` é `true`, vem também `aviso` (`{"tipo": "pedido_cancelado",
 "motivo": "..."}`) — o mesmo `tipo` que os endpoints de OS já usam.

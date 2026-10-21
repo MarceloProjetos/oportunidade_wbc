@@ -107,6 +107,12 @@ def client(monkeypatch):
     sap_montagem_labels.registrar_fonte(None)   # rótulo pelo fallback, sem rede
     hana.limpar_cache()
 
+    # The single-order route reads the assembly control from Supabase: "base down" by default
+    # (block = null); the controle-de-montagem tests swap in a fake base.
+    def _sem_base():
+        raise RuntimeError("base dublada fora")
+    monkeypatch.setattr(apimod, '_supabase', _sem_base)
+
     idas: list[bool] = []
 
     def _fake(*, recarregar: bool = False):
@@ -644,3 +650,74 @@ def test_entrega_futura_na_view_responde_aberto_com_aviso(client, monkeypatch):
     lista = client.get('/pedidos/situacao?status=aberto').get_json()
     assert 84464 in [x['doc_num'] for x in lista['pedidos']]
     assert [x for x in lista['pedidos'] if x['doc_num'] == 84464][0]['remessa'] == 'nenhuma'
+
+
+# --- controle de montagem (web PLANO_CONTROLE_MONTAGEM F6b) --------------------
+
+class _Base:
+    def __init__(self, dados: list | Exception) -> None:
+        self.dados = dados
+
+    def table(self, _n: str) -> _Base:
+        return self
+
+    def select(self, _c: str) -> _Base:
+        return self
+
+    def eq(self, _c: str, _v: Any) -> _Base:
+        return self
+
+    def limit(self, _n: int) -> _Base:
+        return self
+
+    def execute(self) -> Any:
+        if isinstance(self.dados, Exception):
+            raise self.dados
+        return type("R", (), {"data": self.dados})()
+
+
+_CM = {"doc_entry": 2, "doc_num": 84260, "inicio_montagem": "2026-11-03", "fim_montagem": "2026-11-05",
+       "obs_processo": "Equipe de 3", "atualizado_em": "2026-10-21T14:45:20+00:00"}
+
+
+def test_situacao_traz_o_controle_de_montagem(client, monkeypatch):
+    monkeypatch.setattr(apimod, '_supabase', lambda: _Base([_CM]))
+    b = client.get('/pedidos/84260/situacao').get_json()
+    assert b['controle_montagem'] == {"inicio_montagem": "2026-11-03", "fim_montagem": "2026-11-05",
+                                      "fim_fonte": "orcaview", "obs_processo": "Equipe de 3",
+                                      "atualizado_em": "2026-10-21T14:45:20+00:00"}
+    # also with ?campos=resumo: the block lives at the top, not inside `pedido`
+    resumo = client.get('/pedidos/84260/situacao?campos=resumo').get_json()
+    assert resumo['controle_montagem']['obs_processo'] == "Equipe de 3"
+
+
+def test_base_fora_controle_null_e_a_situacao_responde(client, monkeypatch):
+    monkeypatch.setattr(apimod, '_supabase', lambda: _Base(RuntimeError("down")))
+    r = client.get('/pedidos/84260/situacao')
+    assert r.status_code == 200 and r.get_json()['controle_montagem'] is None
+
+
+def test_tipo_2_com_previsao_o_fim_vem_dela(client, monkeypatch):
+    monkeypatch.setattr(hana, 'fetch_status_pedidos',
+                        lambda *a, **k: [_row(DocEntry=2, DocNum=84260, MontagemCod="2")])
+    hana.limpar_cache()
+    monkeypatch.setattr(apimod, '_supabase', lambda: _Base([_CM]))
+    monkeypatch.setattr(hana, 'fetch_previsao_montagem', lambda de: {"tem_previsao": True, "conclusao": "2026-11-20"})
+    b = client.get('/pedidos/84260/situacao').get_json()['controle_montagem']
+    assert b['fim_montagem'] == "2026-11-20" and b['fim_fonte'] == "previsao"
+    # SAP down on a type-2 order: the end date cannot be affirmed
+    def _cai(de):
+        raise hana.SAPIndisponivel("down")
+    monkeypatch.setattr(hana, 'fetch_previsao_montagem', _cai)
+    hana.limpar_cache()
+    assert client.get('/pedidos/84260/situacao').get_json()['controle_montagem'] is None
+
+
+def test_pedido_fechado_tambem_traz_o_controle(client, monkeypatch):
+    # third-party assembly ends after the invoice, when the order is already closed
+    monkeypatch.setattr(apimod, 'consultar_status_pedido',
+                        lambda n: _ordr(pedido_status='Fechado', doc_entry=2))
+    monkeypatch.setattr(apimod, '_supabase', lambda: _Base([_CM]))
+    b = client.get('/pedidos/84282/situacao').get_json()
+    assert b['fonte'] == 'ordr'
+    assert 'controle_montagem' in b

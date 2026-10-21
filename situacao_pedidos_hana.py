@@ -37,7 +37,7 @@ import sap_montagem_labels
 from config import get_settings
 from sap_connection import connect_sap_hana
 from situacao_pedidos import _MAX_LINHAS, ValidationError, now_br
-from sql_seguro import nome_simples
+from sql_seguro import nome_simples, sql
 
 logger = logging.getLogger(__name__)
 
@@ -913,3 +913,24 @@ def ligar_rotulos_do_sap() -> None:
     """
     sap_montagem_labels.registrar_fonte(fetch_udf_valid_values)
     logger.info("[MONTAGEM] rótulos passam a vir do SAP (fallback continua de rede).")
+
+
+def fetch_previsao_montagem(doc_entry: int) -> dict[str, Any]:
+    """Assembly forecast of one order in Previsão Financeira (``@ALTA_PREV``), for the
+    Controle de montagem's D3 rule. Own connection; raises ``SAPIndisponivel`` when HANA is down.
+    """
+    import controle_montagem
+
+    schema = _schema()
+    padrao = f"CTR:%:OV:{int(doc_entry)}"
+    consulta, params = sql(
+        t"""SELECT "U_OrigRef", SUBSTRING("Remark", 1, 254) AS "Remark" FROM "{schema:ident}"."@ALTA_PREV" """
+        t"""WHERE "U_OrigRef" LIKE {padrao} AND "Canceled" = 'N' ORDER BY "DocEntry" DESC""")
+    conn = _conectar()
+    try:
+        return controle_montagem.previsao_das_linhas(_linhas(conn, consulta, tuple(params)), doc_entry)
+    finally:
+        try:
+            conn.close()
+        except Exception as e:  # noqa: BLE001 -- closing a dead connection must not hide the answer
+            logger.debug("[SIT_PED] fechar conexao (previsao): %s", e)

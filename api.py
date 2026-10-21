@@ -88,6 +88,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 import arquivo_pedidos
 import casa
+import controle_montagem
 import entrega_combinada as entrega
 import feriados_br
 import ordens_producao_sl as op_sl
@@ -2256,6 +2257,7 @@ def situacao_pedido_unico(numero: str):
         ), 409
 
     pedido = _resumir(achados)[0] if _campos_resumo(False) else achados[0]
+    controle = _controle_montagem_do_pedido(achados[0])
     faturamento = {k: achados[0].get(k) for k in _CAMPOS_FATURAMENTO}
     extra = ({'aviso': {'tipo': 'entrega_futura', 'motivo': SIT_PED_AVISO_ENTREGA_FUTURA}}
              if _entrega_futura_pendente(faturamento) else {})
@@ -2267,7 +2269,32 @@ def situacao_pedido_unico(numero: str):
                    pedido_cancelado=False,  # a view exclui cancelado: se esta aqui, nao e'
                    **faturamento,  # filled for pedidos closed in SAP (read with the view)
                    **extra,
+                   controle_montagem=controle,
                    pedido=pedido)
+
+
+def _controle_montagem_do_pedido(pedido: dict) -> dict | None:
+    """The order's "Controle de montagem" typed on the OrçaView screen (web PLANO_CONTROLE_MONTAGEM F6b).
+
+    ``None`` = could not be read (Supabase down, or SAP down on a type-2 order whose end date may come
+    from Previsão Financeira) -- never "no assembly". ``{}``-like values come from the row as stored.
+    """
+    de = pedido.get('doc_entry')
+    if not de:
+        return None
+    try:
+        linha = controle_montagem.ler(_supabase(), int(de))
+    except Exception as exc:  # base down: the order status still answers, this block says "unknown"
+        logger.warning("[SIT_PED] controle de montagem do pedido %s indisponivel: %s", pedido.get('doc_num'), exc)
+        return None
+    prev = None
+    if str((pedido.get('montagem') or {}).get('tipo_cod') or '').strip() == controle_montagem.TIPO_PREVISAO:
+        try:
+            prev = sit_ped_hana.fetch_previsao_montagem(int(de))
+        except Exception as exc:  # cannot tell whether the Previsão owns the end date: say "unknown"
+            logger.warning("[SIT_PED] previsao de montagem do pedido %s indisponivel: %s", pedido.get('doc_num'), exc)
+            return None
+    return controle_montagem.bloco(linha, prev)
 
 
 #: Motivo publicado quando a situacao nao pode ser afirmada. Chave estavel (o texto do
@@ -2347,6 +2374,8 @@ def _situacao_fora_da_view(n: int, campo: str):
     if situacao:
         logger.info("[SIT_PED] pedido %s %s no SAP (fora da view).", n, situacao.lower())
         pedido = _pedido_encerrado_ordr(n, info, situacao)
+        # Third-party assembly ends AFTER the invoice: closed orders are exactly where it matters.
+        controle = _controle_montagem_do_pedido(pedido)
         if _campos_resumo(False):
             pedido = _resumir([pedido])[0]
         cancelado = situacao == 'Cancelado'
@@ -2362,6 +2391,7 @@ def _situacao_fora_da_view(n: int, campo: str):
                        pedido_cancelado=cancelado,
                        **_faturamento_de(info),
                        aviso=aviso,
+                       controle_montagem=controle,
                        pedido=pedido)
 
     if info is None:
