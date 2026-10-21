@@ -204,3 +204,6 @@ class PedidoParaIntegrar(BaseModel):
     orc_num_masc: str
     #: `ORDR.U_U_INO_NotaEspelho = 'Y'` — a mirror order; the screen flags it.
     nota_espelho: bool = False
+    #: Live OPs left on a CANCELLED order of the same quote, ``{"pedido", "op", "status"}``.
+    #: Not empty = Processar is refused (`acoes.monta_plano`). Filled for "Pedidos novos" only.
+    ops_orfas: list[dict] = []

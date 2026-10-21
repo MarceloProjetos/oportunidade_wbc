@@ -6,6 +6,21 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-21] — Processar recusa pedido com OP viva em pedido cancelado do mesmo orçamento (F3 do PLANO_TROCA_PN_COM_OP)
+
+Em 20/10 o Processar dos substitutos 84507 e 84510 planejou de novo os itens que ainda tinham OP nos cancelados
+84505 e 84506. Agora o Controle de Produção recusa processar um pedido quando um pedido **cancelado** do mesmo
+orçamento (`ORDR.U_INO_COTWBC`) ainda tem OP planejada ou liberada (`OWOR.OriginAbs`, P/R).
+- Na conferência (tela e API, um texto só, `409 ops_orfas` com as OPs em `ops_orfas`; a tela mostra a tabela de
+  todas as OPs) e de novo na execução, por pedido, mesmo com "forçar" e pela CLI (`com_erro` com `ops_orfas`).
+  Pega também o pedido cancelado à mão no SAP. O Reprocessar não é afetado.
+- O texto diz o comando (`cancelar-ops <cancelado> --manter-vinculos`) e, quando há liberada, Replanejar/Encerrar.
+- Contrato `API_PEDIDOS_WBC.md` atualizado (recusa nova, lote inteiro recusado, `ops_orfas` em `com_erro`); a
+  página publicada do guia ficou para trás.
+- Revisão independente: "nada grave"; 4 achados baixos corrigidos (tabela na tela, texto, guia, testes). +12 testes.
+- ⚠️ **Ao subir**, ficam barrados os pedidos novos de orçamentos com cancelado ainda com OP viva — hoje o 83832
+  (40 planejadas) e os 6 cancelados com 250 liberadas, enquanto a F0b/F0c não for aplicada. **Pede deploy da .11.**
+
 ## [2026-10-20] — Troca de PN cancela as OPs planejadas antes do pedido (F2 do PLANO_TROCA_PN_COM_OP)
 
 Decisão do dono (opção B): na troca de PN, o worker cancela sozinho as OPs **planejadas** do pedido e só depois

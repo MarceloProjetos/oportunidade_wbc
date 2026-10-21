@@ -7,7 +7,9 @@
 > não aplicadas:** leitura completa do SAP às ~17h10 de 20/10 ainda mostra 83832 com 40 Planejadas e os 6
 > pedidos com as 250 Liberadas. **F1 no ar** na .11 (`8617f4c`, deploy 17:02), sem custo de tempo medido.
 > **F2 no código** (20/10, revisada por um revisor independente, 6 achados corrigidos), **pede deploy**;
-> nunca exercitada contra o SAP real (só roda numa troca de verdade). Próximo: F3.
+> nunca exercitada contra o SAP real (só roda numa troca de verdade). **F3 no código** (21/10, revisão
+> independente "nada grave"), **pede deploy** — ao subir, barra os pedidos novos dos orçamentos que ainda têm
+> cancelado com OP viva (F0b/F0c). Falta só a F4 (deploy e conferência, do Marcelo).
 > Página: https://claude.ai/artifact/LQMScG4RVLRNwB6MXqq8Ui (mesma url a cada atualização)
 
 ## O problema
@@ -188,12 +190,20 @@ Planejadas), com Liberada (para), com Encerrada (para), Controle de Produção o
 cancelar uma OP (não cancela o pedido), teto no meio (retoma), OP nova entre a leitura e o cancelamento
 (adia).
 
-### F3 — Barreira no Processar do Controle de Produção
+### F3 — Barreira no Processar do Controle de Produção — ✅ no código (21/10), pede deploy
 
 Capacidade: ninguém processa o pedido novo enquanto um cancelado do mesmo orçamento tem OP viva.
 
-- Recusa em `acoes.py` (tela e API), com os números das OPs e o comando de F0.
-- Teste de paridade tela × API, como os que já existem.
+- Leitura: `queries.OPS_VIVAS_DE_PEDIDOS_CANCELADOS` (`ORDR.CANCELED = 'Y'` + `OWOR.OriginAbs`, P/R), lida junto
+  com a lista "Pedidos novos" (campo `ops_orfas`) e de novo na execução, por pedido.
+- Recusa `409 ops_orfas` em `acoes.monta_plano` (tela e API, um texto só, com o comando de F0); a tela mostra a
+  tabela de todas as OPs. "Forçar" não pula. Reprocessar não é afetado. Na execução vai para `com_erro`, também
+  pela CLI. Lote com um pedido barrado é recusado inteiro, como o `fora_da_lista`.
+- Contrato `API_PEDIDOS_WBC.md` atualizado; a página publicada do guia (outra url) ficou desatualizada.
+- +12 testes; revisão independente "nada grave", 4 achados baixos corrigidos.
+- Não coberto: pedido antigo **fechado** (não cancelado) com OP viva — fora do caso da troca, que sempre cancela.
+- **Ao subir**, os pedidos novos dos orçamentos com cancelado ainda com OP viva ficam
+  barrados até a F0b/F0c ser aplicada (hoje 83832 e os 6 com liberadas). Avisar o PCP.
 
 ### F4 — No ar e conferido (deploy é do Marcelo)
 

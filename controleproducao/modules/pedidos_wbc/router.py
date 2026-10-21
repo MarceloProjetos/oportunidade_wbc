@@ -147,7 +147,12 @@ async def _confere_pedidos(request: Request, opp_ids: list[str], integrados: boo
     try:
         plano = acoes.monta_plano(elegiveis, opp_ids, integrados, force=force)
     except Recusa as recusa:
-        return _erro(request, recusa.mensagem)
+        # Title and table when the refusal has them (`ops_orfas` lists every OP; the
+        # message caps the list at 8 per cancelled order).
+        extra: dict = {"titulo": recusa.titulo} if recusa.titulo else {}
+        if recusa.detalhes:
+            extra.update(detalhes=recusa.detalhes, colunas=recusa.colunas)
+        return _erro(request, recusa.mensagem, **extra)
     operacao = acoes.operacao_do_modo(integrados)
     return templates.TemplateResponse(
         request, "confirmar.html",

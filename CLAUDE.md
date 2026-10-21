@@ -152,6 +152,8 @@ Regra com teste = 1 linha + o teste que a protege; sem teste = o porquê junto.
 - `processar-novos` não tem rollback (marca `ProcessWBC='Y'` antes da 1ª OP). Retomada:
   `manutencao-op buscar` → `cancelar-ops` → `processar-novos` **sem `--force`** (duplica OP).
 - `reprocessar-integrados` cancela toda OP planejada e não recria. — `tests/controleproducao/test_cancelar_ops.py`
+- Processar recusa (`409 ops_orfas`, também na execução e com "forçar") pedido cujo orçamento tem pedido
+  **cancelado** com OP P/R viva. — `tests/controleproducao/test_ops_orfas.py`
 - Liberar/Replanejar/Encerrar recusam OP com saída ou entrada lançada; Interromper para entre OPs;
   `encerrar` (OIGE+OIGN) é o único caminho de encerrar. — `tests/controleproducao/test_manutencao_op.py`, `test_tarefas.py`
 - `hana_schema` = `SL_COMPANY_DB`; `HANA_SCHEMA` não é lido. — `tests/controleproducao/test_config.py`

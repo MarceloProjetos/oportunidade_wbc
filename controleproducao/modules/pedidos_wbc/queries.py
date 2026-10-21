@@ -342,6 +342,20 @@ WHERE T0."U_ORCNUM_WBC" = '{orc_num}' AND T1."ObjType" = 17
 ORDER BY T2."DocEntry" DESC
 """.strip()
 
+# Live OPs (planned or released) still on a CANCELLED order of the same WBC quote. Processing
+# the replacement order would plan the same items twice: 84505/84507 and 84506/84510 on
+# 20/10/2026 (docs/PLANO_TROCA_PN_COM_OP.md, F3). Closed OPs are history and stay out.
+OPS_VIVAS_DE_PEDIDOS_CANCELADOS = """
+SELECT R."U_INO_COTWBC" AS "Orcamento", R."DocNum" AS "PedidoCancelado",
+       W."DocNum" AS "OP", W."Status" AS "Status"
+FROM ORDR R
+INNER JOIN OWOR W ON W."OriginAbs" = R."DocEntry"
+WHERE R."CANCELED" = 'Y'
+  AND R."U_INO_COTWBC" IN ({orc_nums})
+  AND W."Status" IN ('P', 'R')
+ORDER BY R."U_INO_COTWBC", R."DocNum", W."DocNum"
+""".strip()
+
 # `SELECT *` proposital: esta é uma query de auditoria, e usar `*` evita depender dos nomes
 # exatos de coluna de OWOR/WOR1 (que variam entre versões do B1) — os campos são lidos
 # defensivamente no Python. Não replicar esse padrão na lógica de negócio.

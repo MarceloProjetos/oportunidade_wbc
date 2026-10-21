@@ -160,6 +160,9 @@ def monta_plano(elegiveis: list, opp_ids: list[str], integrados: bool, force: bo
             dados={"fora": fora},
         )
 
+    if not integrados:
+        _recusa_ops_orfas(selecionados)
+
     operacao = operacao_do_modo(integrados)
     force = bool(force) and not integrados
     plano = PLANOS.criar(
@@ -181,6 +184,30 @@ def monta_plano(elegiveis: list, opp_ids: list[str], integrados: bool, force: bo
     # the mode that was checked.
     plano.resumo["_force"] = force
     return plano
+
+
+def _recusa_ops_orfas(selecionados: list) -> None:
+    """Processar refused while a cancelled order of the same quote has live OPs.
+
+    Not bypassed by "forçar": that one skips the reprocessing checks, and this is not one —
+    it is the same items planned twice (84505/84507, 84506/84510, 20/10/2026).
+    """
+    com_orfas = [p for p in selecionados if p.ops_orfas]
+    if not com_orfas:
+        return
+    raise Recusa(
+        "ops_orfas",
+        " ".join(service.mensagem_ops_orfas(p.doc_num, p.orc_num_masc, p.ops_orfas)
+                 for p in com_orfas),
+        titulo="OP viva em pedido cancelado do mesmo orçamento",
+        detalhes=[
+            {"Pedido": p.doc_num, "WBC": p.orc_num_masc, "Pedido cancelado": o["pedido"],
+             "OP": o["op"], "Status": "Planejada" if o["status"] == "P" else "Liberada"}
+            for p in com_orfas for o in p.ops_orfas
+        ],
+        colunas=["Pedido", "WBC", "Pedido cancelado", "OP", "Status"],
+        dados={"ops_orfas": {str(p.doc_num): p.ops_orfas for p in com_orfas}},
+    )
 
 
 def plano_visivel(plano: Plano) -> dict:

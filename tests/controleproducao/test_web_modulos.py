@@ -908,8 +908,13 @@ def test_busca_monta_o_modelo_a_partir_da_linha_do_hana():
         "Data Lancamento": "2026-09-15 00:00:00",
         "Nº Oportunidade": "00125551",    # OOPR.U_ORCNUM_MASC — o nº do orçamento WBC
     }
+    orfas: list[dict] = []
     leitor = MagicMock()
-    leitor.fetch_all = MagicMock(return_value=[linha])
+    # Two reads since PLANO_TROCA_PN_COM_OP F3: the pedidos, then the live OPs left on
+    # cancelled orders of the same quotes.
+    leitor.fetch_all = MagicMock(
+        side_effect=lambda sql, *a: list(orfas) if "OWOR" in sql else [linha]
+    )
 
     pedidos = asyncio.run(svc.buscar_pedidos_para_integrar(leitor))
 
@@ -924,6 +929,14 @@ def test_busca_monta_o_modelo_a_partir_da_linha_do_hana():
 
     linha["Nota Espelho"] = "Y"
     assert asyncio.run(svc.buscar_pedidos_para_integrar(leitor))[0].nota_espelho is True
+
+    assert pedido.ops_orfas == []
+    orfas.append({"Orcamento": "00125551", "PedidoCancelado": 84396, "OP": 159019, "Status": "P"})
+    assert asyncio.run(svc.buscar_pedidos_para_integrar(leitor))[0].ops_orfas == [
+        {"pedido": 84396, "op": 159019, "status": "P"}
+    ]
+    # "Pedidos integrados" does not read them: Processar is what would plan twice.
+    assert asyncio.run(svc.buscar_pedidos_para_integrar(leitor, integrados=True))[0].ops_orfas == []
 
 
 

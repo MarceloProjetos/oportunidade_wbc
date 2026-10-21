@@ -156,6 +156,13 @@ async def buscar_pedidos_para_integrar(
     os pedidos elegíveis (`filtro=""`)."""
     sql = q.BUSCA_PEDIDOS_INTEGRADOS if integrados else q.BUSCA_PEDIDOS_PARA_INTEGRAR
     rows = hana_reader.fetch_all(*ligar(sql, filtro=""))
+    # "Pedidos novos" only: that is where Processar would plan the items a second time.
+    orfas = (
+        {} if integrados
+        else await ops_vivas_de_pedidos_cancelados(
+            hana_reader, [str(row["Nº Oportunidade"]) for row in rows]
+        )
+    )
     pedidos = [
         PedidoParaIntegrar(
             selecionar=row.get("Selecionar", "N"),
@@ -171,6 +178,7 @@ async def buscar_pedidos_para_integrar(
             data_lancamento=str(row["Data Lancamento"]),
             orc_num_masc=str(row["Nº Oportunidade"]),
             nota_espelho=str(row.get("Nota Espelho") or "").strip().upper() == "Y",
+            ops_orfas=orfas.get(str(row["Nº Oportunidade"]), []),
         )
         for row in rows
     ]
@@ -180,6 +188,61 @@ async def buscar_pedidos_para_integrar(
     # Mesma convenção já usada na busca do módulo 3 (`DocNum` decrescente).
     pedidos.sort(key=lambda p: p.doc_num, reverse=True)
     return pedidos
+
+
+async def ops_vivas_de_pedidos_cancelados(
+    hana_reader: HanaDirectReader, orc_nums: list[str]
+) -> dict[str, list[dict]]:
+    """Live OPs (planned or released) on CANCELLED orders of these WBC quotes, by quote.
+
+    The partner swap used to cancel an order and leave its OPs planned; the replacement
+    then showed up in "Pedidos novos" and Processar planned the same items again (84505 →
+    84507 and 84506 → 84510, 20/10/2026). Also catches an order cancelled by hand in the SAP.
+    """
+    if not orc_nums:
+        return {}
+    rows = hana_reader.fetch_all(
+        *ligar(q.OPS_VIVAS_DE_PEDIDOS_CANCELADOS,
+               orc_nums=list(dict.fromkeys(str(n) for n in orc_nums)))
+    )
+    por_orcamento: dict[str, list[dict]] = {}
+    for row in rows:
+        por_orcamento.setdefault(str(row["Orcamento"]), []).append(
+            {"pedido": int(row["PedidoCancelado"]), "op": int(row["OP"]),
+             "status": str(row["Status"])}
+        )
+    return por_orcamento
+
+
+def mensagem_ops_orfas(doc_num: object, orc_num: str, ops: list[dict]) -> str:
+    """The refusal of Processar — one text for the plan (screen and API) and the run."""
+    partes = []
+    for pedido in sorted({o["pedido"] for o in ops}):
+        do_pedido = [o for o in ops if o["pedido"] == pedido]
+        planejadas = sum(1 for o in do_pedido if o["status"] == "P")
+        liberadas = len(do_pedido) - planejadas
+        contagem = " e ".join(
+            t for t in (f"{planejadas} planejada(s)" if planejadas else "",
+                        f"{liberadas} liberada(s)" if liberadas else "") if t
+        )
+        numeros = [str(o["op"]) for o in do_pedido]
+        lista = ", ".join(numeros[:8]) + (f" … (+{len(numeros) - 8})" if len(numeros) > 8 else "")
+        partes.append(f"o pedido cancelado {pedido} ainda tem {contagem} ({lista})")
+    comandos = "; ".join(
+        f"python -m controleproducao pedidos-wbc cancelar-ops {p} --manter-vinculos"
+        for p in sorted({o["pedido"] for o in ops})
+    )
+    liberadas = (
+        " As liberadas: Replanejar na Manutenção de OP e depois cancelar; a que já teve "
+        "apontamento, Encerrar."
+        if any(o["status"] != "P" for o in ops) else ""
+    )
+    return (
+        f"O pedido {doc_num} (WBC {orc_num}) não pode ser processado: "
+        + "; ".join(partes)
+        + ". Processar agora planejaria os mesmos itens de novo. Cancele antes as OPs do "
+        f"pedido cancelado (na .11: {comandos})." + liberadas
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1800,6 +1863,16 @@ async def processar_pedidos_novos(
                 continue
 
             doc_entry, card_code, doc_num = str(id_orc["DocEntry"]), str(id_orc["CardCode"]), str(id_orc["DocNum"])
+
+            # Checked again here, at run time and even with `force`: the plan may be minutes
+            # old, and the CLI never builds one (PLANO_TROCA_PN_COM_OP, F3).
+            orfas = (await ops_vivas_de_pedidos_cancelados(hana_reader, [orc_num])).get(orc_num, [])
+            if orfas:
+                com_erro.append(
+                    {"orc_num": orc_num, "motivo": mensagem_ops_orfas(doc_num, orc_num, orfas),
+                     "ops_orfas": orfas}
+                )
+                continue
 
             if not force:
                 ja_processado = await _verifica_process_wbc(hana_reader, doc_entry)

@@ -27,6 +27,8 @@ HTTP_DA_RECUSA = {
     "ocupado": 409,
     # Pedidos WBC: a selected pedido is no longer in the eligible list (processed meanwhile).
     "fora_da_lista": 409,
+    # Pedidos WBC: a cancelled order of the same quote still has live OPs (PLANO_TROCA_PN_COM_OP).
+    "ops_orfas": 409,
 }
 
 

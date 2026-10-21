@@ -586,6 +586,7 @@ Se der errado neste passo (respostas reais):
 | --- | --- | --- | --- | --- |
 | Nada marcado | 400 | `invalido` | "Nenhum pedido selecionado." | não deveria acontecer: o botão fica desabilitado |
 | O pedido saiu da lista (alguém processou antes, pela tela ou por outro sistema) | 409 | `fora_da_lista` | "Estes pedidos não estão mais na lista elegível e foram recusados: 15397. Refaça a busca — o estado no SAP mudou desde que a tela foi carregada." (com `"fora": ["15397"]`) | recarrega a lista e mostra o `motivo` numa faixa vermelha |
+| **Só Processar** (desde 21/10/2026): um pedido **cancelado** do mesmo orçamento ainda tem OP planejada ou liberada — processar planejaria os mesmos itens de novo | 409 | `ops_orfas` | "O pedido 84510 (WBC 00124837) não pode ser processado: o pedido cancelado 84506 ainda tem 58 planejada(s) (159019, 159020, 159021, 159022, 159023, 159024, 159025, 159026 … (+50)). Processar agora planejaria os mesmos itens de novo. Cancele antes as OPs do pedido cancelado (na .11: python -m controleproducao pedidos-wbc cancelar-ops 84506 --manter-vinculos)." (com OP liberada, o texto acrescenta: "As liberadas: Replanejar na Manutenção de OP e depois cancelar; a que já teve apontamento, Encerrar.") (com `"ops_orfas": {"84510": [{"pedido": 84506, "op": 159019, "status": "P"}, …]}`) | mostra o `motivo` numa faixa vermelha; **não** tenta de novo sozinha — alguém precisa cancelar as OPs antes |
 | Número que não é de oportunidade | 400 | `invalido` | "'oportunidades' deve conter só números de Oportunidade: recebido 'abc'." | erro de programação |
 | `force` no corpo | 400 | `invalido` | "'forçar' não existe nesta API (decisão de 01/10/2026): ele duplica OP. Use a tela do Controle de Produção se for mesmo preciso." | tire o `force` |
 
@@ -819,6 +820,9 @@ O que a página mostra e por quê:
 - **As linhas com ⚠ em vermelho.**
 - **O `passo` e o `motivo` têm quebras de linha** (`\n`) — o SAP devolveu um JSON de erro. Mostre com
   `white-space: pre-wrap`, como texto.
+- **Desde 21/10/2026, um item de `com_erro` pode trazer `ops_orfas`** (a mesma lista do `409 ops_orfas`
+  da conferência): a barreira é conferida de novo na hora de processar, porque a conferência pode ter
+  ficado velha. O `motivo` é o mesmo texto; nada foi gravado para esse pedido.
 - **O que fazer depois:** volte à lista e veja onde o pedido está. Neste caso o 84454 continuou em
   "Pedidos novos" e foi processado de novo às 09:02, com sucesso. Se um pedido aparecer em
   "Pedidos integrados" com OP faltando, fale com o PCP antes de qualquer coisa ([6](#6-conceitos-que-você-precisa-conhecer), "O que Processar grava").
@@ -887,6 +891,7 @@ Os textos que a pessoa pode ver nesta tela. "API" = vem pronto na resposta (use-
 | Conferência | "O que será feito, exatamente — confira antes de confirmar:" | sempre | fixo |
 | Conferência | "Esta conferência vale até … Depois disso é preciso refazê-la — o que seria feito é recalculado sobre o estado atual do SAP." | sempre | fixo + API `valido_ate` |
 | Conferência | "Estes pedidos não estão mais na lista elegível e foram recusados: … Refaça a busca — o estado no SAP mudou desde que a tela foi carregada." | `409 fora_da_lista` | API `motivo` |
+| Conferência | "O pedido … (WBC …) não pode ser processado: o pedido cancelado … ainda tem … Cancele antes as OPs do pedido cancelado (…)" | `409 ops_orfas` (só Processar) | API `motivo` |
 | Conferência | "Nenhum pedido selecionado." | `400 invalido` | API `motivo` |
 | Executar | "Informe 'solicitante': quem pediu a operação (nome ou login), até 80 caracteres. …" | `400 invalido` | API `motivo` |
 | Executar | "O módulo 'pedidos_wbc' já tem uma execução em andamento (…). Duas execuções simultâneas no mesmo módulo disputariam os mesmos pedidos e OPs." | `409 ocupado` | API `motivo` |
@@ -1226,6 +1231,9 @@ No Reprocessar, `aviso.destaque` vem vazio e `aviso.texto` é o aviso completo:
 Recusas: lista vazia → `400`; número que não é de oportunidade → `400`; pedido que **não está
 mais na lista** (processado por outra pessoa enquanto a página estava aberta) → `409
 fora_da_lista`, com os números em `fora`. Nesse caso a página deve **recarregar a lista**.
+Só no Processar (desde 21/10/2026): um pedido **cancelado** do mesmo orçamento ainda tem OP planejada ou
+liberada → `409 ops_orfas`, com as OPs em `ops_orfas`. Como no `fora_da_lista`, **o lote inteiro** é
+recusado; a página mostra o `motivo` e não tenta de novo — alguém precisa cancelar aquelas OPs antes.
 
 ### 7.3 `POST /processar/executar` e `/reprocessar/executar`
 
@@ -1769,6 +1777,7 @@ Todo erro tem o mesmo formato:
 | 404 | `nao_encontrada` | Execução que não existe (ou saiu do histórico das 30 mais recentes); rota errada | Parar de consultar |
 | 405 | `metodo_invalido` | GET onde é POST (ou o contrário) | Corrigir a chamada |
 | 409 | `fora_da_lista` | Pedido conferido não está mais na lista (alguém processou) | Recarregar a lista |
+| 409 | `ops_orfas` | Processar: um pedido cancelado do mesmo orçamento ainda tem OP viva (desde 21/10/2026) | Mostrar o `motivo`; alguém cancela as OPs antes |
 | 409 | `confirmacao_invalida` | Token vencido (10 min), já usado ou de outra operação | Conferir de novo |
 | 409 | `ocupado` | Já há uma execução no módulo (pela tela ou pela API) | Acompanhar a de `execucao_em_andamento`; não tentar em laço |
 | 502 | `sap_indisponivel` | O SAP não respondeu à leitura | Tentar de novo em instantes |
@@ -1965,6 +1974,7 @@ Passe por cada item antes de liberar a página para as pessoas usarem.
 
 - [ ] `401` → pede a chave de novo.
 - [ ] `409 fora_da_lista` → recarrega a lista e mostra o motivo.
+- [ ] `409 ops_orfas` (só Processar) → mostra o motivo; o lote inteiro foi recusado; não tenta de novo.
 - [ ] `409 ocupado` → mostra o link para a execução em andamento (não tenta em laço).
 - [ ] `409 confirmacao_invalida` → volta para a lista para conferir de novo.
 - [ ] `502`/`503` → mostra o `motivo` e deixa tentar de novo.
@@ -2018,7 +2028,8 @@ tela). Eles rodam **um de cada vez**, em ordem; o acompanhamento diz em qual est
 
 **Mandei 5 pedidos e um não está mais na lista. Os outros 4 foram?**
 Não. A conferência recusa **o lote inteiro** (`409 fora_da_lista`) dizendo quais saíram.
-Recarregue a lista e confira de novo.
+Recarregue a lista e confira de novo. O mesmo vale para o `409 ops_orfas`: um pedido barrado recusa
+o lote; confira de novo sem ele (ou depois que as OPs do pedido cancelado forem canceladas).
 
 **Um pedido deu erro no meio da execução. Os outros pararam?**
 Não. Cada pedido é independente: o que falhou vai para `resultado.com_erro` e a execução segue
