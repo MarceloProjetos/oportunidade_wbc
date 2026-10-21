@@ -1,16 +1,11 @@
 # Plano — Troca de PN não pode deixar OP órfã
 
-> **Status (20/10/2026):** decisões 1–4 fechadas (1 = **B, o worker cancela as OPs planejadas sozinho**,
-> escolha do Marcelo). **F0a feita (20/10):** as 110 OPs Planejadas dos cancelados 84505 e
-> 84506 foram canceladas; conferido por amostra (7 OPs, incluindo a primeira e a última de cada faixa) e as
-> dos pedidos novos 84507 e 84510 continuam Planejadas. **F0b e F0c decididas (cancelar tudo), mas ainda
-> não aplicadas:** leitura completa do SAP às ~17h10 de 20/10 ainda mostra 83832 com 40 Planejadas e os 6
-> pedidos com as 250 Liberadas. **F1 no ar** na .11 (`8617f4c`, deploy 17:02), sem custo de tempo medido.
-> **F2 no código** (20/10, revisada por um revisor independente, 6 achados corrigidos), **pede deploy**;
-> nunca exercitada contra o SAP real (só roda numa troca de verdade). **F3 no código** (21/10, revisão
-> independente "nada grave"), **pede deploy** — ao subir, barra os pedidos novos dos orçamentos que ainda têm
-> cancelado com OP viva (F0b/F0c). **F4: deploy `dfdb664` conferido em 21/10** (F1–F3 no ar; recusa da F3
-> e caminho da F2 ainda sem caso real). **Pendente: F0b/F0c.**
+> **Status (21/10/2026): CONCLUÍDO.** Decisões 1–4 fechadas (1 = **B, o worker cancela as OPs planejadas
+> sozinho**, escolha do Marcelo). **F0 completa:** F0a (110 OPs de 84505/84506, 20/10) e F0b/F0c (40
+> Planejadas do 83832 e 250 Liberadas de 6 pedidos, 21/10, nenhuma com apontamento) canceladas; leitura
+> completa do SAP em 21/10: **zero OP Planejada ou Liberada em pedido cancelado** (sobram só 2.769 Encerradas,
+> histórico). **F1–F3 no ar** (`dfdb664`, deploy conferido 21/10 08:25). Ainda **sem caso real**: a recusa da F3
+> e o cancelamento de OP da F2 — conferir no primeiro que aparecer.
 > Página: https://claude.ai/artifact/LQMScG4RVLRNwB6MXqq8Ui (mesma url a cada atualização)
 
 ## O problema
@@ -97,7 +92,7 @@ e para a API JSON. Pega o pedido cancelado à mão no SAP e o caso em que o work
 
 ## Fases
 
-### F0 — Limpar as OPs vivas de pedidos cancelados (Marcelo + PCP; já dá para fazer)
+### F0 — Limpar as OPs vivas de pedidos cancelados (Marcelo + PCP) — ✅ concluída 21/10
 
 Capacidade: nenhum orçamento com produção em dobro planejada; o que sobrar é decisão consciente do PCP.
 
@@ -128,6 +123,11 @@ cancelados de 15/06 a 15/09). O `cancelar-ops` recusa OP Liberada, de propósito
 - parada, sem apontamento → **Replanejar** (volta a Planejada) e depois `cancelar-ops <pedido> --manter-vinculos`.
 
 **Conferência:** depois de cada passo eu releio o SAP (só leitura) e atualizo esta fase.
+
+**F0b e F0c feitas em 21/10 (Marcelo, na .11).** Antes, leitura do SAP: nenhuma das 250 Liberadas tinha
+apontamento nem saída de insumo. Depois, leitura completa: **zero OP Planejada ou Liberada em pedido
+cancelado**, de qualquer data (sobram 2.769 Encerradas em 82 pedidos, histórico). Os 7 pedidos têm todas as OPs
+Canceladas: 83832 (81), 84023 (196), 84116 (73), 83958 (79), 84179 (31), 84162 (7), 84103 (40).
 
 ### F1 — O worker passa a saber se o pedido tem OP (só leitura) — ✅ no ar (`8617f4c`, 20/10 17:02)
 
@@ -224,7 +224,7 @@ Conferência de 21/10 (só leitura, pela API da .11, pelo painel e pelo HANA):
 - **Não exercitado ao vivo:** a **recusa** da F3 (nenhum pedido novo hoje tem cancelado com OP viva) e o
   caminho da **F2** (a única troca marcada hoje, 00116594 → pedido 80359, está em pedido **fechado** → regra
   antiga "pede gente"). Ficam provados só pelos testes até o primeiro caso real.
-- **F0b/F0c continuam abertas:** 40 Planejadas no 83832 e 250 Liberadas em 6 pedidos cancelados.
+- **F0b/F0c** estavam abertas nesta hora; feitas depois, no mesmo dia (ver F0).
 
 ## Decisões
 
