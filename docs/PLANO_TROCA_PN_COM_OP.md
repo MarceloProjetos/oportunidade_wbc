@@ -9,7 +9,8 @@
 > **F2 no código** (20/10, revisada por um revisor independente, 6 achados corrigidos), **pede deploy**;
 > nunca exercitada contra o SAP real (só roda numa troca de verdade). **F3 no código** (21/10, revisão
 > independente "nada grave"), **pede deploy** — ao subir, barra os pedidos novos dos orçamentos que ainda têm
-> cancelado com OP viva (F0b/F0c). Falta só a F4 (deploy e conferência, do Marcelo).
+> cancelado com OP viva (F0b/F0c). **F4: deploy `dfdb664` conferido em 21/10** (F1–F3 no ar; recusa da F3
+> e caminho da F2 ainda sem caso real). **Pendente: F0b/F0c.**
 > Página: https://claude.ai/artifact/LQMScG4RVLRNwB6MXqq8Ui (mesma url a cada atualização)
 
 ## O problema
@@ -205,11 +206,25 @@ Capacidade: ninguém processa o pedido novo enquanto um cancelado do mesmo orça
 - **Ao subir**, os pedidos novos dos orçamentos com cancelado ainda com OP viva ficam
   barrados até a F0b/F0c ser aplicada (hoje 83832 e os 6 com liberadas). Avisar o PCP.
 
-### F4 — No ar e conferido (deploy é do Marcelo)
+### F4 — No ar e conferido (deploy é do Marcelo) — ✅ deploy conferido 21/10 08:25
 
 - Deploy na .11; conferir com `python -m wbcpython pendentes` (o que o ciclo faria, só leitura) e pela
   recusa do Processar num pedido com OP. O caminho que cancela OP só se prova na próxima troca real:
   nenhuma troca provocada para testar.
+
+Conferência de 21/10 (só leitura, pela API da .11, pelo painel e pelo HANA):
+- **Versão:** `8617f4c → dfdb664` às 08:20:53, "fim: OK"; os 6 serviços reiniciaram depois do `git pull`
+  (08:21:10–08:21:19), todos com causa "deploy dfdb664"; `reinicio_pendente: false`.
+- **Worker:** ciclos 7940 (08:21) e 7941 (08:24) concluídos, 2.020 orçamentos em 8,7 s (antes: 2.019 em
+  7,7–9,7 s), 0 com ação, 0 falha de ciclo no dia. O único erro é o **00126005**, "não encontrado no WBC" —
+  oportunidade criada no SAP antes do orçamento existir no WBC, **sem relação** com o deploy.
+- **F3, leitura em produção:** a lista "Pedidos novos" do CP (que roda a consulta nova) responde 200 em 72 ms;
+  e a 1ª execução real depois do deploy (84513, WBC 00125909, Roberto Zeli pela API, 08:23:49) **concluiu
+  sem erro** em 33,8 s — a conferência da F3 na execução rodou antes de qualquer gravação e deixou passar.
+- **Não exercitado ao vivo:** a **recusa** da F3 (nenhum pedido novo hoje tem cancelado com OP viva) e o
+  caminho da **F2** (a única troca marcada hoje, 00116594 → pedido 80359, está em pedido **fechado** → regra
+  antiga "pede gente"). Ficam provados só pelos testes até o primeiro caso real.
+- **F0b/F0c continuam abertas:** 40 Planejadas no 83832 e 250 Liberadas em 6 pedidos cancelados.
 
 ## Decisões
 
