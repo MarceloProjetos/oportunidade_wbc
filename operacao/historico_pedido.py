@@ -37,6 +37,7 @@ ROTULOS_CABECALHO: dict[str, str] = {
     "U_INO_PedLib": "liberação financeira", "U_INO_DT_PED_LIB": "data da liberação financeira",
     "U_INO_ProcessWBC": "processado no Controle de Produção", "U_INO_MONTADOR": "montador",
     "U_INO_VL_MT": "valor da montagem", "U_INO_TPO_MONTAGEM": "tipo de montagem",
+    "U_INO_PedEntrega": "entrega do pedido",
 }
 #: Lines: a fixed set (ADO1 has ~370 columns x lines x versions — too much to bring whole);
 #: the ones a person or the integration sets, not the derived open/stock quantities.

@@ -6,6 +6,13 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-21] — Histórico do pedido nomeia "entrega do pedido"
+
+A tela de Pedidos do OrçaView passou a gravar `ORDR.U_INO_PedEntrega` (Liberada / Bloqueada / BloqProd). O
+histórico (`/pedidos/<n>/historico`) já trazia a troca, porque compara o cabeçalho inteiro; agora ela aparece
+como "entrega do pedido" em vez do nome da coluna (`ROTULOS_CABECALHO`). **Pede deploy da .11** (sem deploy,
+só o rótulo continua cru).
+
 ## [2026-10-21] — Controle de montagem na situação do pedido (F6b do PLANO_CONTROLE_MONTAGEM da web)
 
 O Comercial passou a digitar, na tela do pedido do OrçaView, Início, Fim e Observações do Processo da montagem
