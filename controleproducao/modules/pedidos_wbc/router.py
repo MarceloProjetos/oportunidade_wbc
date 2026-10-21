@@ -21,6 +21,7 @@ PLANO_API_PEDIDOS_WBC.md (removed 2026-10-06)); this file only reads the form an
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Form, Request
@@ -144,8 +145,13 @@ async def _confere_pedidos(request: Request, opp_ids: list[str], integrados: boo
     # The list is read again instead of trusting the form (see `acoes.monta_plano`).
     with HanaDirectReader(get_settings()) as hana_reader:
         elegiveis = await acoes.le_pedidos(hana_reader, integrados)
+    # In a thread: a slow WBC (15 s login timeout) must not freeze the process, whose
+    # /health/ocupado the deploy probes. Never fails (a read error is just no warning).
+    propostas = await asyncio.to_thread(
+        asyncio.run, acoes.le_propostas_desatualizadas(elegiveis, opp_ids, integrados)
+    )
     try:
-        plano = acoes.monta_plano(elegiveis, opp_ids, integrados, force=force)
+        plano = acoes.monta_plano(elegiveis, opp_ids, integrados, force=force, propostas=propostas)
     except Recusa as recusa:
         # Title and table when the refusal has them (`ops_orfas` lists every OP; the
         # message caps the list at 8 per cancelled order).
@@ -159,7 +165,7 @@ async def _confere_pedidos(request: Request, opp_ids: list[str], integrados: boo
         {"plano": acoes.plano_visivel(plano), "colunas": COLUNAS_PEDIDO,
          "acao": f"/pedidos-wbc/{operacao.tipo}/executar",
          "aviso_destaque": operacao.destaque, "aviso_operacao": operacao.aviso,
-         "voltar": "/pedidos-wbc"},
+         "avisos": acoes.avisos_do_plano(plano), "voltar": "/pedidos-wbc"},
     )
 
 

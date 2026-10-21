@@ -42,6 +42,7 @@ from controleproducao.modules.pedidos_wbc.schemas import (
     PedidoParaIntegrar,
     TabelaValdixsonLinha,
 )
+from wbcpython.domain.revisao import revisao_wbc_e_mais_nova
 
 logger = logging.getLogger(__name__)
 
@@ -242,6 +243,57 @@ def mensagem_ops_orfas(doc_num: object, orc_num: str, ops: list[dict]) -> str:
         + "; ".join(partes)
         + ". Processar agora planejaria os mesmos itens de novo. Cancele antes as OPs do "
         f"pedido cancelado (na .11: {comandos})." + liberadas
+    )
+
+
+async def propostas_desatualizadas(
+    wbc: WbcSqlServerClient, orc_nums: list[str]
+) -> dict[str, dict]:
+    """Quotes whose printed proposal is an older revision than the quote, by quote.
+
+    A warning, never a refusal: Processar still runs. The proposal feeds the order-detail
+    header (finish/colour, assembly, freight, payment texts), so processing then carries the
+    old revision's texts while the tree (and the OPs) already follow the new one (a real case
+    on 21/10/2026: tree white, finish "Cinza"). A quote with no proposal row is left
+    out (nothing to compare), and so is a proposal with no revision.
+    """
+    if not orc_nums:
+        return {}
+    rows = wbc.fetch_all(
+        *ligar(q.REVISOES_DA_PROPOSTA, orc_nums=list(dict.fromkeys(str(n) for n in orc_nums)))
+    )
+    desatualizadas: dict[str, dict] = {}
+    for row in rows:
+        orc_num = str(row["ORCNUM"]).strip()
+        revisao = str(row["REVISAO"] or "").strip()
+        proposta = str(row["REVISAO_PROPOSTA"] or "").strip()
+        if not proposta or not revisao_wbc_e_mais_nova(revisao, proposta):
+            continue
+        anterior = desatualizadas.get(orc_num)
+        # Several proposal rows: report the oldest one.
+        if anterior is None or revisao_wbc_e_mais_nova(anterior["revisao_proposta"], proposta):
+            desatualizadas[orc_num] = {"revisao": revisao, "revisao_proposta": proposta}
+    return desatualizadas
+
+
+def mensagem_proposta_desatualizada(
+    doc_num: object, orc_num: str, info: dict, *, na_execucao: bool = False
+) -> str:
+    """The warning of Processar: the plan (screen and API) says what to do before confirming;
+    the run (``na_execucao``) says what to do now that the pedido went through."""
+    novo, antigo = info["revisao"], info["revisao_proposta"]
+    fazer = (
+        f"Confira o acabamento no SAP; para corrigir, peça ao vendedor a proposta da revisão "
+        f"{novo} no WBC e reprocesse o pedido."
+        if na_execucao else
+        f"Para tudo sair igual, peça ao vendedor para gerar a proposta da revisão {novo} no WBC "
+        "antes de processar."
+    )
+    return (
+        f"Pedido {doc_num} (WBC {orc_num}): o orçamento está na revisão {novo}, mas a proposta "
+        f"impressa no WBC ainda é da revisão {antigo}. Os textos da proposta (acabamento/cor, "
+        f"montagem, transporte, pagamento) vão para o SAP como estavam na revisão {antigo}; a "
+        f"estrutura e as OPs já seguem a {novo}. " + fazer
     )
 
 
@@ -1852,6 +1904,8 @@ async def processar_pedidos_novos(
     sem_rateio: list[dict] = []
     # Order lines whose SAP weight is off the WBC tree, with who changed them (01/10/2026).
     pesos_diferentes: list[dict] = []
+    # Proposal printed in an older revision than the quote (warning, 21/10/2026).
+    proposta_desatualizada: list[dict] = []
 
     for orc_num in orc_nums_selecionados:
         try:
@@ -1888,6 +1942,22 @@ async def processar_pedidos_novos(
                         }
                     )
                     continue
+
+            # Warning only, read again at run time like the orphan OPs (the plan may be old,
+            # the CLI has none), and only for a pedido that is really going to be processed.
+            # A failed read must not stop a pedido the plan let through.
+            try:
+                desatualizada = (await propostas_desatualizadas(wbc, [orc_num])).get(orc_num)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Pedido %s: não foi possível conferir a revisão da proposta no WBC.",
+                    orc_num, exc_info=True,
+                )
+                desatualizada = None
+            if desatualizada:
+                motivo = mensagem_proposta_desatualizada(doc_num, orc_num, desatualizada, na_execucao=True)
+                logger.warning("  ATENÇÃO — %s", motivo)
+                proposta_desatualizada.append({"orc_num": orc_num, **desatualizada, "motivo": motivo})
 
             # Progresso em `logger.info` (e não `print`): a CLI liga o log no console com
             # `--perfil`/`--verbose`, e a web pode consumir o mesmo log sem alteração.
@@ -1954,7 +2024,7 @@ async def processar_pedidos_novos(
             com_erro.append({"orc_num": orc_num, "motivo": str(exc)})
 
     return {"processados": processados, "com_erro": com_erro, "sem_op": sem_op, "sem_rateio": sem_rateio,
-            "pesos_diferentes": pesos_diferentes}
+            "pesos_diferentes": pesos_diferentes, "proposta_desatualizada": proposta_desatualizada}
 
 
 def _agrupa_por_grp_orc_itm(estrutura: list[EstruturaPrd]):

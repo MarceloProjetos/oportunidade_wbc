@@ -6,6 +6,20 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-21] — Processar avisa quando a proposta do WBC está numa revisão anterior à do orçamento
+
+Caso real de 21/10/2026: o vendedor trocou a cor para branco (orçamento na revisão C, estrutura reexportada)
+sem gerar a proposta de novo — `INTEGRACAO_ORCIMP` ficou na B, com o acabamento "Cinza", e é dela que vem o
+cabeçalho do espelho (acabamento/cor, montagem, transporte, pagamento). Agora o Processar **avisa, sem
+recusar**:
+- Plano (tela e API, um texto só): faixa amarela na conferência; `plano.avisos` na API (`[]` quando nada).
+  WBC fora na conferência = sem aviso (a execução confere de novo).
+- Execução: log `ATENÇÃO`, linha `⚠ … ATENÇÃO — proposta do WBC na revisão B, orçamento na C` e
+  `resultado.proposta_desatualizada`. Reprocessar não avisa.
+- Leitura nova só SELECT no WBC (`REVISOES_DA_PROPOSTA`); comparação de revisão = a do worker
+  (`wbcpython.domain.revisao`). Guia `API_PEDIDOS_WBC.md` (7.2, 7.4, 8.3) e clone de exemplo atualizados.
+  +15 testes (`tests/controleproducao/test_proposta_desatualizada.py`). **Pede deploy da .11.**
+
 ## [2026-10-21] — Histórico do pedido nomeia "entrega do pedido"
 
 A tela de Pedidos do OrçaView passou a gravar `ORDR.U_INO_PedEntrega` (Liberada / Bloqueada / BloqProd). O

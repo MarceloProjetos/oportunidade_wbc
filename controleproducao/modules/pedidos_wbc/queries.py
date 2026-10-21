@@ -356,6 +356,18 @@ WHERE R."CANCELED" = 'Y'
 ORDER BY R."U_INO_COTWBC", R."DocNum", W."DocNum"
 """.strip()
 
+# WBC (SQL Server): the quote's revision next to the revision of its printed proposal.
+# `INTEGRACAO_ORCIMP` (finish/colour, assembly, freight, payment texts → the order-detail header)
+# is only rewritten when the seller prints the proposal again; the tree is rewritten on every
+# save. A real case on 21/10/2026: quote C with the tree in white, proposal still B saying "Cinza".
+REVISOES_DA_PROPOSTA = """
+SELECT DISTINCT A.ORCNUM AS ORCNUM, ISNULL(A.REVISAO, '') AS REVISAO,
+       ISNULL(B.ORCIMP_REVISAO, '') AS REVISAO_PROPOSTA
+FROM dbo.INTEGRACAO_ORCLST A
+INNER JOIN dbo.INTEGRACAO_ORCIMP B ON B.ORCNUM = A.ORCNUM
+WHERE A.ORCNUM IN ({orc_nums})
+""".strip()
+
 # `SELECT *` proposital: esta é uma query de auditoria, e usar `*` evita depender dos nomes
 # exatos de coluna de OWOR/WOR1 (que variam entre versões do B1) — os campos são lidos
 # defensivamente no Python. Não replicar esse padrão na lógica de negócio.

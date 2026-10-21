@@ -120,7 +120,8 @@ def ambiente(lista):
     with patch("controleproducao.core.web.get_settings", return_value=_settings()), \
          patch("controleproducao.modules.pedidos_wbc.api_router.HanaDirectReader", MagicMock()), \
          patch("controleproducao.modules.pedidos_wbc.router.HanaDirectReader", MagicMock()), \
-         patch("controleproducao.modules.pedidos_wbc.router.get_settings", return_value=_settings()):
+         patch("controleproducao.modules.pedidos_wbc.router.get_settings", return_value=_settings()), \
+         patch(f"{ACOES}.le_propostas_desatualizadas", AsyncMock(return_value={})):
         yield lista
 
 
@@ -514,7 +515,8 @@ def test_executar_com_forcar_e_recusado(c, ambiente):
 
 def test_escrita_recusada_nao_gasta_o_token(c, lista):
     with patch("controleproducao.modules.pedidos_wbc.api_router.HanaDirectReader", MagicMock()), \
-         patch("controleproducao.core.web.get_settings", return_value=_settings()):
+         patch("controleproducao.core.web.get_settings", return_value=_settings()), \
+         patch(f"{ACOES}.le_propostas_desatualizadas", AsyncMock(return_value={})):
         token = _token(c, (4301,))
     with patch("controleproducao.core.web.get_settings", return_value=_settings(producao=True)), \
          patch(f"{SVC}.processar_pedidos_novos") as servico:

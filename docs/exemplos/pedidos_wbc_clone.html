@@ -494,6 +494,7 @@ function telaDaConferencia(plano) {
     el("section", { class: "confirmacao" },
       el("p", { class: "alerta is-erro", style: "margin-top:0" }, icone("alerta", 16),
         el("span", {}, plano.aviso.destaque ? el("strong", {}, plano.aviso.destaque) : null, plano.aviso.texto)),
+      ...(plano.avisos || []).map((a) => alerta("is-warn", "alerta", a.mensagem)),
       el("ul", { class: "resumo" }, plano.resumo_tela.map((r) => el("li", {}, el("b", {}, r.valor), " " + r.rotulo))),
       el("p", { class: "nota" }, "O que será feito, exatamente — confira antes de confirmar:"),
       el("div", { class: "tabela-cartao" }, el("div", { class: "rola" }, el("table", {},

@@ -209,6 +209,8 @@ def _plano(plano: Plano) -> dict:
         # The screen's summary line, word for word: "<b>1</b> pedido(s) selecionado(s)".
         "resumo_tela": [{"valor": len(itens), "rotulo": acoes.RESUMO_SELECIONADOS}],
         "aviso": {"destaque": op.destaque, "texto": op.aviso},
+        # Warnings that do not stop the run (proposal of an older revision); [] when none.
+        "avisos": acoes.avisos_do_plano(plano),
         "executar": f"{PREFIXO}/{op.tipo}/executar",
         "itens": itens,
     }
@@ -276,8 +278,12 @@ async def _conferir(corpo: Any, integrados: bool):
             elegiveis = await asyncio.to_thread(asyncio.run, acoes.le_pedidos(leitor, integrados))
     except Exception as exc:  # noqa: BLE001 - see listar
         return _sap_fora("releitura da lista elegível", exc)
+    # Never fails (a WBC read error is just no warning); in a thread like the list read.
+    propostas = await asyncio.to_thread(
+        asyncio.run, acoes.le_propostas_desatualizadas(elegiveis, selecao, integrados)
+    )
     try:
-        plano = acoes.monta_plano(elegiveis, selecao, integrados)
+        plano = acoes.monta_plano(elegiveis, selecao, integrados, propostas=propostas)
     except Recusa as recusa:
         return _de_recusa(recusa)
     return {"ok": True, "plano": _plano(plano)}

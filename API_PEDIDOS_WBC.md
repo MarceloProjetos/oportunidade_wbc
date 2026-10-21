@@ -1193,6 +1193,7 @@ Content-Type: application/json
       "destaque": "Cria Ordens de Produção",
       "texto": ", itens e recursos no SAP, e marca o pedido como processado. Não há desfazer automático."
     },
+    "avisos": [],
     "executar": "/api/pedidos-wbc/processar/executar",
     "itens": [
       {
@@ -1223,6 +1224,7 @@ No Reprocessar, `aviso.destaque` vem vazio e `aviso.texto` é o aviso completo:
 | --- | --- |
 | `operacao` | O título: "Confirmar: `{operacao}`". |
 | `aviso` | A faixa vermelha: `destaque` em **negrito**, seguido de `texto` (sem espaço entre os dois — o texto já começa com a vírgula). |
+| `avisos` | Faixas **amarelas** logo abaixo da vermelha, uma por item, com o `mensagem`. **Não impedem** a execução: o botão continua valendo. Lista vazia = nada a avisar ([abaixo](#aviso-proposta-desatualizada)). |
 | `resumo_tela` | As linhas do resumo: `valor` em negrito + `rotulo`. |
 | `itens` | A tabela: Pedido, Oportunidade, WBC, Cliente, Total (use `total_texto`, já formatado). |
 | `valido_ate` | "Esta conferência vale até **2026-10-01 14:29:59**" (troque o `T` por espaço). |
@@ -1234,6 +1236,28 @@ fora_da_lista`, com os números em `fora`. Nesse caso a página deve **recarrega
 Só no Processar (desde 21/10/2026): um pedido **cancelado** do mesmo orçamento ainda tem OP planejada ou
 liberada → `409 ops_orfas`, com as OPs em `ops_orfas`. Como no `fora_da_lista`, **o lote inteiro** é
 recusado; a página mostra o `motivo` e não tenta de novo — alguém precisa cancelar aquelas OPs antes.
+
+<a id="aviso-proposta-desatualizada"></a>**Aviso (não é recusa), só no Processar, desde 21/10/2026:** o
+orçamento está numa revisão mais nova que a da **proposta impressa** no WBC (ex.: orçamento C, proposta
+B). Os textos da proposta — acabamento/cor, montagem, transporte, pagamento — vão para o SAP como
+estavam na revisão antiga, enquanto a estrutura e as OPs já seguem a nova (caso real de 21/10/2026: estrutura
+branca, acabamento "Cinza"). O plano sai normalmente, com um item em `avisos`:
+
+```json
+"avisos": [
+  {
+    "codigo": "proposta_desatualizada",
+    "pedido": 84000,
+    "wbc": "00120000",
+    "revisao": "C",
+    "revisao_proposta": "B",
+    "mensagem": "Pedido 84000 (WBC 00120000): o orçamento está na revisão C, mas a proposta impressa no WBC ainda é da revisão B. Os textos da proposta (acabamento/cor, montagem, transporte, pagamento) vão para o SAP como estavam na revisão B; a estrutura e as OPs já seguem a C. Para tudo sair igual, peça ao vendedor para gerar a proposta da revisão C no WBC antes de processar."
+  }
+]
+```
+
+Mostre o `mensagem` e deixe a pessoa decidir: confirmar assim mesmo, ou cancelar e pedir ao vendedor a
+proposta nova. Se o WBC não responder na conferência, `avisos` vem vazio — a execução confere de novo.
 
 ### 7.3 `POST /processar/executar` e `/reprocessar/executar`
 
@@ -1384,6 +1408,7 @@ O que pode vir em `resultado`:
 | `sem_rateio` | Processar | OPs criadas **sem a linha de rateio** (recurso recusado pelo SAP). |
 | `nao_iniciados` | as duas | Pedidos que **não começaram** porque alguém interrompeu. |
 | `pesos_diferentes` | Processar | Linhas do pedido com o **peso no SAP diferente** da árvore do WBC + 10%, com a **causa** — quem mudou a linha no SAP ([7.4.1](#741-peso-diferente-e-a-causa)). |
+| `proposta_desatualizada` | Processar | Pedidos que passaram das checagens e foram processados com a **proposta impressa numa revisão anterior** à do orçamento (`revisao`, `revisao_proposta`, `motivo` — que diz o que fazer agora). É aviso: a linha do log sai com `⚠ … ATENÇÃO` e o desfecho continua `ok` ([7.2](#aviso-proposta-desatualizada)). |
 
 **Linhas com `⚠`** são erro ou atenção: pinte-as de vermelho (é o que a tela faz).
 
@@ -1588,6 +1613,8 @@ numa faixa vermelha.
 - Título "Confirmar: `{operacao}`"; subtítulo fixo "Nada foi gravado ainda — confira e confirme";
   ícone **escudo** no quadrado na variante **perigo** (vermelha).
 - Faixa vermelha: ícone ⚠ + `aviso.destaque` em negrito + `aviso.texto`.
+- Logo abaixo, uma faixa **amarela** (`is-warn`) por item de `avisos`, com o `mensagem`. Não desabilita
+  nada: é para a pessoa ler antes de confirmar.
 - Resumo: cada item de `resumo_tela` numa linha — `valor` em negrito maior + `rotulo`.
 - Tabela: colunas Pedido, Oportunidade, WBC, Cliente, Total — aqui **todas à esquerda** e o Total
   já vem pronto em `total_texto`.

@@ -15,6 +15,10 @@
      cannot be undone; `aviso_destaque` is the bold start of the sentence, when there is one. #}
   <p class="ov-alerta is-erro" style="margin-top:0">{{ icone('alerta', 16) }}
     <span>{% if aviso_destaque %}<strong>{{ aviso_destaque }}</strong>{% endif %}{{ aviso_operacao }}</span></p>
+  {# Warnings that do not stop the run (Pedidos WBC: proposal printed in an older revision). #}
+  {% for aviso in avisos or [] %}
+  <p class="ov-alerta is-warn">{{ icone('alerta', 16) }}<span>{{ aviso.mensagem }}</span></p>
+  {% endfor %}
 
   <ul class="ov-resumo">
     {% for chave, valor in plano.resumo.items() %}
