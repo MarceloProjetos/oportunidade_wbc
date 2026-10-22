@@ -147,21 +147,21 @@ def _chave(*escopos: str) -> dict[str, str]:
 
 
 def test_rota_devolve_itens_filtrados(c):
-    r = c.get("/compras/pedidos-itens?status=aberto&fornecedor=F000122", headers=_chave("compras:ler"))
+    r = c.get("/compras/pedidos-itens?status=aberto&fornecedor=F000122", headers=_chave("leitura"))
     b = r.get_json()
     assert r.status_code == 200 and b["ok"] is True
     assert (b["total_na_view"], b["total_filtrado"], b["cache_idade_s"]) == (4, 2, 7.0)
     assert {i["doc_num"] for i in b["itens"]} == {9863, 11000}
 
 
-def test_rota_exige_o_escopo_proprio(c):
+def test_rota_exige_leitura(c):
     assert c.get("/compras/pedidos-itens").status_code == 401
-    assert c.get("/compras/pedidos-itens", headers=_chave("leitura")).status_code == 403
+    assert c.get("/compras/pedidos-itens", headers=_chave("rh")).status_code == 403
     assert c.get("/compras/pedidos-itens", headers={"X-API-Key": MESTRA}).status_code == 200
 
 
 def test_rota_parametro_invalido_e_422(c):
-    r = c.get("/compras/pedidos-itens?status=pendente", headers=_chave("compras:ler"))
+    r = c.get("/compras/pedidos-itens?status=pendente", headers=_chave("leitura"))
     assert r.status_code == 422 and r.get_json()["motivo"] == "parametro_invalido"
 
 
@@ -169,7 +169,7 @@ def test_rota_sap_fora_e_503(c, monkeypatch):
     def _fora(recarregar=False):
         raise hana.SAPIndisponivel("HANA fora")
     monkeypatch.setattr(pc, "fetch_itens", _fora)
-    r = c.get("/compras/pedidos-itens", headers=_chave("compras:ler"))
+    r = c.get("/compras/pedidos-itens", headers=_chave("leitura"))
     assert r.status_code == 503 and r.get_json()["motivo"] == "sap_indisponivel"
 
 

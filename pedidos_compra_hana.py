@@ -1,7 +1,7 @@
 """pedidos_compra_hana — purchase-order lines from ``VW_ALTA_PEDIDOS_COMPRA_ITENS`` (read only).
 
 Serves ``GET /compras/pedidos-itens`` and the MCP tool ``pedidos_compra_itens`` (scope
-``compras:ler``). Same shape as :mod:`situacao_pedidos_hana`: one HANA connection per read,
+``leitura``). Same shape as :mod:`situacao_pedidos_hana`: one HANA connection per read,
 a 120 s cache shared by every caller, filters applied in Python over the cached snapshot,
 and :class:`situacao_pedidos_hana.SAPIndisponivel` for "HANA down" (the route turns it into 503).
 

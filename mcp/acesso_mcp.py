@@ -77,9 +77,7 @@ ESCOPO_DA_FERRAMENTA: dict[str, str] = {
     "data_entrega_pedido": "entrega:ler",
     "solicitacoes_data_entrega": "entrega:ler",
     "solicitar_data_entrega": "entrega:solicitar",
-    # Purchase-order lines (API_PEDIDOS_COMPRA.md): own scope — suppliers are not for every
-    # ``leitura`` key.
-    "pedidos_compra_itens": "compras:ler",
+    "pedidos_compra_itens": "leitura",
 }
 ESCOPO_DO_RECURSO: dict[str, str] = {
     "sap-integracao://status": "leitura",

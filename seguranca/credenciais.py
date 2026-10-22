@@ -50,8 +50,6 @@ ESCOPOS: dict[str, str] = {
                           "solicitação na base; o Comercial decide no OrçaView; nunca grava no SAP)"),
     "entrega:ler": ("ler a data de entrega combinada e a conversa das solicitações "
                     "(traz motivos internos da Produção)"),
-    "compras:ler": ("ler os itens dos pedidos de compra do SAP (VW_ALTA_PEDIDOS_COMPRA_ITENS: "
-                    "fornecedor, item, quantidades e datas)"),
     "admin": "tudo — só a chave-mestra e quem administra",
 }
 

@@ -40,7 +40,7 @@ Guias dos pacotes: `docs/wbc/README.md` (+ `DECISOES.md`) e `docs/controleproduc
 | `arquivo_pedidos.py` | Só na .11, 2 em 2 min: `ADOC` → `pedidos_sap_alteracoes` antes do teto de 99 (classifica `operacao/historico_pedido.py`); `--simular` só lê |
 | `situacao_pedidos.py` · `sap_montagem_labels.py` | **Portes** do web, diffáveis (`test_situacao_pedidos_diffavel.py`) |
 | `situacao_pedidos_hana.py` | Leitura HANA + cache + endereço de entrega das rotas `/pedidos/*` |
-| `pedidos_compra_hana.py` | Itens dos pedidos de compra (`VW_ALTA_PEDIDOS_COMPRA_ITENS`, cache 120 s) → `GET /compras/pedidos-itens` (escopo `compras:ler`); contrato `API_PEDIDOS_COMPRA.md` |
+| `pedidos_compra_hana.py` | Itens dos pedidos de compra (`VW_ALTA_PEDIDOS_COMPRA_ITENS`, cache 120 s) → `GET /compras/pedidos-itens` (escopo `leitura`); contrato `API_PEDIDOS_COMPRA.md` |
 | `entrega_combinada.py` | Data de entrega combinada (tabela `pedidos_entrega_alteracoes`); contrato `API_DATA_ENTREGA_COMBINADA.md` |
 | `pedidos_bloqueados.py` | Lista **hardcode** (84337). **3 cópias**: aqui, `web_orcaview_V118/backend/services/pedidos_bloqueados.py`, `mobile_orcaview_V4/lib/pedidos/bloqueados.ts` |
 | `monitoring.py` | `collect_status()` (`SELECTABLE_CHECKS`). Check novo = `SELECTABLE_CHECKS` + despacho + alerta + saída + `_CHECK_ALIASES` do `api.py` + `_stub_all_ok` do teste |

@@ -14,15 +14,8 @@ da view `VW_ALTA_PEDIDOS_COMPRA_ITENS`. Só leitura: nada é gravado no SAP nem 
 
 ## 2. Acesso
 
-Escopo próprio **`compras:ler`**. A chave `leitura` comum **não** abre esta rota. Concessão na .11, mantendo
-a chave atual:
-
-```
-python -m seguranca acrescentar <nome-da-chave-da-equipe> --escopos compras:ler
-python -m seguranca listar
-```
-
-Chave só no cabeçalho `X-API-Key`.
+A **mesma chave** que vocês já usam nas outras consultas da .11 (escopo `leitura`). Nada a pedir nem a
+configurar. Chave só no cabeçalho `X-API-Key`.
 
 ## 3. `GET /compras/pedidos-itens`
 
@@ -89,7 +82,7 @@ Ordem dos itens: data de entrega, número do pedido e código do item.
 | 502 | `falha` | erro inesperado; avisar o suporte |
 
 401/403 vêm do guarda comum: `{"ok": false, "error": "unauthorized"|"forbidden", ...}` — chave errada ou sem o
-escopo `compras:ler`.
+escopo `leitura`.
 
 ## 5. Tempos e cache
 
@@ -101,6 +94,6 @@ escopo `compras:ler`.
 
 | Ferramenta | Escopo | O que faz |
 | --- | --- | --- |
-| `pedidos_compra_itens(pedido, fornecedor, item, busca, status, entrega_de, entrega_ate)` | `compras:ler` | o `GET` do §3, com `status="aberto"` por padrão e no máximo 200 itens (`cortado: true` quando havia mais) |
+| `pedidos_compra_itens(pedido, fornecedor, item, busca, status, entrega_de, entrega_ate)` | `leitura` | o `GET` do §3, com `status="aberto"` por padrão e no máximo 200 itens (`cortado: true` quando havia mais) |
 
-O token MCP precisa de `mcp` + `compras:ler`.
+O token MCP precisa de `mcp` + `leitura` (o mesmo das outras ferramentas de consulta).

@@ -2799,7 +2799,7 @@ def entrega_solicitacoes():
 
 
 @app.get('/compras/pedidos-itens')
-@requer_chave('compras:ler')
+@requer_chave('leitura')
 def compras_pedidos_itens():
     """Purchase-order lines from ``VW_ALTA_PEDIDOS_COMPRA_ITENS`` (contract: API_PEDIDOS_COMPRA.md).
 
