@@ -48,6 +48,11 @@ ITENS = [pc.normalizar(r) for r in (
           Descricao="RFQ CIVIL 300 1,80X1200", Grupo="Material Produtivo", StatusPedido="Fechado",
           StatusItem="Fechado", QtdPedida=Decimal("22.53"), QtdEmAberto=Decimal("0")),
     _crua(DocEntry=17000, DocNum=11000, DataEntrega=None),
+    # The view folds several POR1 lines of one item and says Fechado once ANY is closed
+    # (purchase order 10716 on 22/10/2026): still to arrive, so it counts as open.
+    _crua(DocEntry=16400, DocNum=10716, DataEntrega=datetime(2026, 9, 23), CodItem="WMA00001",
+          Descricao="WMA", Grupo="Material Produtivo", StatusItem="Fechado",
+          QtdPedida=Decimal("4000"), QtdEmAberto=Decimal("2000")),
 )]
 
 
@@ -70,8 +75,10 @@ def test_normalizar_publica_datas_iso_e_numeros():
 
 
 @pytest.mark.parametrize("filtros,docs_itens", [
-    ({}, [(9863, "PAG516SEXTA5/8000916"), (9863, "POG516"), (10713, "I000139"), (11000, "PAG516SEXTA5/8000916")]),
-    ({"status": "aberto"}, [(9863, "PAG516SEXTA5/8000916"), (11000, "PAG516SEXTA5/8000916")]),
+    ({}, [(9863, "PAG516SEXTA5/8000916"), (9863, "POG516"), (10713, "I000139"),
+          (11000, "PAG516SEXTA5/8000916"), (10716, "WMA00001")]),
+    # Fechado in the view but 2000 still to arrive: open (and never in "fechado").
+    ({"status": "aberto"}, [(9863, "PAG516SEXTA5/8000916"), (11000, "PAG516SEXTA5/8000916"), (10716, "WMA00001")]),
     ({"status": "FECHADO"}, [(9863, "POG516"), (10713, "I000139")]),
     ({"pedido": "9863"}, [(9863, "PAG516SEXTA5/8000916"), (9863, "POG516")]),
     ({"fornecedor": "f003464"}, [(10713, "I000139")]),
@@ -80,7 +87,7 @@ def test_normalizar_publica_datas_iso_e_numeros():
     ({"busca": "fixação"}, [(9863, "PAG516SEXTA5/8000916"), (11000, "PAG516SEXTA5/8000916")]),
     # A line without a delivery date never matches a date window.
     ({"entrega_de": "2026-11-01"}, [(9863, "PAG516SEXTA5/8000916"), (9863, "POG516")]),
-    ({"entrega_ate": "2026-10-31"}, [(10713, "I000139")]),
+    ({"entrega_ate": "2026-10-31"}, [(10713, "I000139"), (10716, "WMA00001")]),
     ({"pedido": "1", "status": "todos"}, []),
 ])
 def test_filtrar(filtros, docs_itens):
@@ -150,8 +157,8 @@ def test_rota_devolve_itens_filtrados(c):
     r = c.get("/compras/pedidos-itens?status=aberto&fornecedor=F000122", headers=_chave("leitura"))
     b = r.get_json()
     assert r.status_code == 200 and b["ok"] is True
-    assert (b["total_na_view"], b["total_filtrado"], b["cache_idade_s"]) == (4, 2, 7.0)
-    assert {i["doc_num"] for i in b["itens"]} == {9863, 11000}
+    assert (b["total_na_view"], b["total_filtrado"], b["cache_idade_s"]) == (5, 3, 7.0)
+    assert {i["doc_num"] for i in b["itens"]} == {9863, 11000, 10716}
 
 
 def test_rota_exige_leitura(c):

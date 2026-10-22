@@ -27,7 +27,7 @@ from situacao_pedidos_hana import (
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["CACHE_TTL_SEGUNDOS", "VIEW", "fetch_itens", "filtrar", "idade_do_cache_s",
+__all__ = ["CACHE_TTL_SEGUNDOS", "VIEW", "aberto", "fetch_itens", "filtrar", "idade_do_cache_s",
            "limpar_cache", "normalizar"]
 
 CACHE_TTL_SEGUNDOS = 120
@@ -114,14 +114,23 @@ def _data_param(valor: str | None, nome: str) -> str | None:
         raise ValidationError(f"{nome} deve ser AAAA-MM-DD") from None
 
 
+def aberto(i: dict[str, Any]) -> bool:
+    """Still to arrive: open per the view, or with open quantity left (see :func:`filtrar`)."""
+    return str(i["status_item"] or "").casefold() == "aberto" or (i["qtd_em_aberto"] or 0) > 0
+
+
 def filtrar(itens: list[dict[str, Any]], *, pedido: str | None = None,
             fornecedor: str | None = None, item: str | None = None, busca: str | None = None,
             status: str | None = None, entrega_de: str | None = None,
             entrega_ate: str | None = None) -> list[dict[str, Any]]:
     """Apply the query filters; every one is optional and they combine with AND.
 
-    ``status`` looks at the LINE (``status_item``): an open order can have closed lines
-    (12 of them on 22/10/2026), and "what is still to arrive" is a per-line question.
+    ``status`` looks at the LINE, not the order: an open order can have closed lines, and
+    "what is still to arrive" is a per-line question. A line is open when ``status_item`` is
+    ``Aberto`` OR ``qtd_em_aberto`` > 0: the view folds every POR1 line of the same item into
+    one row and calls it ``Fechado`` as soon as ANY of them is closed (6 rows with open
+    quantity on 22/10/2026, e.g. purchase order 10716). ``status_item`` itself is published as
+    the view has it.
     """
     st = (status or "todos").strip().lower()
     if st not in STATUS:
@@ -145,7 +154,7 @@ def filtrar(itens: list[dict[str, Any]], *, pedido: str | None = None,
             return False
         if cod and str(i["cod_item"] or "").casefold() != cod:
             return False
-        if st != "todos" and str(i["status_item"] or "").casefold() != st:
+        if st != "todos" and (st == "aberto") != aberto(i):
             return False
         if de and (not i["data_entrega"] or i["data_entrega"] < de):
             return False

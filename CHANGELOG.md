@@ -6,6 +6,14 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-22] — Pedidos de compra: item com quantidade em aberto conta como aberto
+
+Teste na .11 achou 6 itens que a view `VW_ALTA_PEDIDOS_COMPRA_ITENS` marca `Fechado` com mercadoria ainda por
+chegar (ela junta as entregas do mesmo item no pedido e fecha o item quando UMA fecha; ex.: pedido 10716). O
+filtro `status` agora considera aberto o item com `status_item = Aberto` **ou** `qtd_em_aberto > 0`; o campo
+`status_item` segue como vem da view. Contrato `API_PEDIDOS_COMPRA.md` §3 e ferramenta MCP explicam.
+**Pede deploy da .11.**
+
 ## [2026-10-22] — Itens dos pedidos de compra na API e no MCP
 
 Rota nova `GET /compras/pedidos-itens` (8077) e ferramenta MCP `pedidos_compra_itens` (8078): os itens da view

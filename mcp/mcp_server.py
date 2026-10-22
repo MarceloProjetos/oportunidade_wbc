@@ -1551,7 +1551,9 @@ def pedidos_compra_itens(pedido: int | None = None, fornecedor: str = "", item: 
 
     Como responder:
     - "o que falta chegar?" → ``status="aberto"`` (o padrão); ``qtd_em_aberto`` é o que falta.
-    - ``status`` olha o ITEM: um pedido aberto pode ter itens já fechados.
+    - ``status`` olha o ITEM: um pedido aberto pode ter itens já fechados. Item com
+      ``qtd_em_aberto`` > 0 conta como aberto mesmo se ``status_item`` disser "Fechado" (a view
+      marca Fechado quando UMA das entregas do item fecha); confie em ``qtd_em_aberto``.
     - Datas em AAAA-MM-DD. ``cortado: true`` = havia mais itens que o limite; refine o filtro.
 
     Args:

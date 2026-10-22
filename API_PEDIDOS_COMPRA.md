@@ -34,6 +34,13 @@ Sem parâmetro nenhum, devolve **todos** os itens da view. Os filtros são opcio
 
 - **`status` é do item:** um pedido aberto pode ter itens já fechados. "O que falta chegar" = `status=aberto`
   e o campo `qtd_em_aberto`.
+- **Regra do filtro `status`:** um item conta como **aberto** quando `status_item` é `Aberto` **ou**
+  `qtd_em_aberto` é maior que zero. `fechado` = todo o resto. Motivo: a view junta numa linha só todas as
+  entregas do mesmo item no mesmo pedido e marca `Fechado` assim que **uma** delas fecha, mesmo com
+  mercadoria ainda por chegar (ex.: pedido 10716, item `WMA00001`: `Fechado` com 2.000 em aberto).
+- **Cuidado ao ler o campo `status_item`:** ele vem como está na view e pode dizer `Fechado` num item que
+  ainda tem `qtd_em_aberto`. Para saber se falta chegar, use `qtd_em_aberto > 0` (ou o filtro
+  `status=aberto`). Nesses itens a `data_entrega` é a da entrega mais antiga, não a das que faltam.
 - Item sem data de entrega nunca entra num filtro de data.
 - Filtro que não casa com nada devolve **200** com a lista vazia.
 
