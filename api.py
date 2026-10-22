@@ -92,6 +92,7 @@ import controle_montagem
 import entrega_combinada as entrega
 import feriados_br
 import ordens_producao_sl as op_sl
+import pedidos_compra_hana as pedidos_compra
 import situacao_pedidos as sit_ped
 import situacao_pedidos_hana as sit_ped_hana
 import windows_update
@@ -2795,6 +2796,35 @@ def entrega_solicitacoes():
         logger.error("[ENTREGA] listagem falhou: %s", exc)
         return _recusa_entrega(None, entrega.Recusa(503, 'base_indisponivel', 'base de dados indisponivel agora'))
     return jsonify(ok=True, situacao=situacao, dias=dias, total=len(linhas), solicitacoes=linhas)
+
+
+@app.get('/compras/pedidos-itens')
+@requer_chave('compras:ler')
+def compras_pedidos_itens():
+    """Purchase-order lines from ``VW_ALTA_PEDIDOS_COMPRA_ITENS`` (contract: API_PEDIDOS_COMPRA.md).
+
+    Optional filters, combined with AND: ``pedido`` (DocNum), ``fornecedor`` (code, exact),
+    ``item`` (code, exact), ``busca`` (text), ``status`` (``aberto``|``fechado``|``todos``, on the
+    LINE; default ``todos``), ``entrega_de``/``entrega_ate`` (AAAA-MM-DD), ``recarregar=1``.
+    No match = 200 with an empty list.
+    """
+    try:
+        itens = pedidos_compra.fetch_itens(recarregar=_flag_query('recarregar'))
+        filtrados = pedidos_compra.filtrar(
+            itens, pedido=request.args.get('pedido'), fornecedor=request.args.get('fornecedor'),
+            item=request.args.get('item'), busca=request.args.get('busca'),
+            status=request.args.get('status'), entrega_de=request.args.get('entrega_de'),
+            entrega_ate=request.args.get('entrega_ate'))
+    except sit_ped_hana.SAPIndisponivel as exc:
+        logger.warning("[COMPRAS] indisponivel: %s", exc)
+        return jsonify(ok=False, motivo='sap_indisponivel', error=str(exc)), 503
+    except sit_ped.ValidationError as exc:
+        return jsonify(ok=False, motivo='parametro_invalido', error=str(exc)), 422
+    except Exception as exc:  # never a bare 500
+        logger.error("[COMPRAS] falha inesperada: %s", exc)
+        return jsonify(ok=False, motivo='falha', error='falha ao ler os pedidos de compra'), 502
+    return jsonify(ok=True, cache_idade_s=pedidos_compra.idade_do_cache_s(),
+                   total_na_view=len(itens), total_filtrado=len(filtrados), itens=filtrados)
 
 
 # ---------------------------------------------------------------------------

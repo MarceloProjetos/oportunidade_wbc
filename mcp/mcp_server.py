@@ -166,7 +166,7 @@ def _tempo_limite(metodo: str, path: str) -> float:
         proprio = _TEMPO_CONEXAO
     elif path == "/operacao/boots":
         proprio = _TEMPO_BOOTS
-    elif path == "/operacao/logins-sap":
+    elif path in ("/operacao/logins-sap", "/compras/pedidos-itens"):
         proprio = _TEMPO_LEITURA_HANA
     else:
         proprio = HTTP_TIMEOUT
@@ -1530,6 +1530,47 @@ def solicitar_data_entrega(pedido: int, data_nova: str, motivo: str, observacao:
     corpo = {"data_nova": data_nova, "motivo": motivo, "observacao": observacao or None,
              "solicitante": em_nome_de or solicitante}
     return _post(f"/pedidos/{n}/data-entrega/solicitacoes", json=corpo, headers=cabecalhos)
+
+
+# --- Purchase-order lines (API_PEDIDOS_COMPRA.md) -------------------------------------------
+
+#: The whole view is ~1400 lines; a model does not need all of them in one answer.
+_LIMITE_ITENS_COMPRA = 200
+
+
+@mcp.tool(annotations=_ANOTACAO_LEITURA)
+def pedidos_compra_itens(pedido: int | None = None, fornecedor: str = "", item: str = "",
+                         busca: str = "", status: str = "aberto", entrega_de: str = "",
+                         entrega_ate: str = "") -> dict[str, Any]:
+    """Itens dos pedidos de COMPRA do SAP (o que a Altamira comprou de fornecedores).
+
+    Não confunda com pedido de venda: aqui ``pedido`` é o número do pedido de COMPRA (DocNum).
+    Cada item traz fornecedor, código e descrição do item, grupo, quantidade pedida,
+    quantidade em aberto (ainda não recebida), data do pedido e data de entrega prevista.
+    Não há preço.
+
+    Como responder:
+    - "o que falta chegar?" → ``status="aberto"`` (o padrão); ``qtd_em_aberto`` é o que falta.
+    - ``status`` olha o ITEM: um pedido aberto pode ter itens já fechados.
+    - Datas em AAAA-MM-DD. ``cortado: true`` = havia mais itens que o limite; refine o filtro.
+
+    Args:
+        pedido: número do pedido de compra (DocNum).
+        fornecedor: código do fornecedor (ex.: F000122), exato.
+        item: código do item, exato.
+        busca: trecho do nome do fornecedor, da descrição, do código do item ou do grupo.
+        status: "aberto" (padrão), "fechado" ou "todos".
+        entrega_de: entrega prevista a partir de (AAAA-MM-DD).
+        entrega_ate: entrega prevista até (AAAA-MM-DD).
+    """
+    params = {"pedido": pedido, "fornecedor": fornecedor, "item": item, "busca": busca,
+              "status": status, "entrega_de": entrega_de, "entrega_ate": entrega_ate}
+    r = _get("/compras/pedidos-itens", {k: v for k, v in params.items() if v not in (None, "")})
+    itens = r.get("itens") if isinstance(r, dict) else None
+    if isinstance(itens, list) and len(itens) > _LIMITE_ITENS_COMPRA:
+        r = {**r, "itens": itens[:_LIMITE_ITENS_COMPRA], "cortado": True,
+             "mostrados": _LIMITE_ITENS_COMPRA}
+    return r
 
 
 if __name__ == "__main__":

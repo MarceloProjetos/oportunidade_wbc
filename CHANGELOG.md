@@ -6,6 +6,14 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-22] — Itens dos pedidos de compra na API e no MCP
+
+Rota nova `GET /compras/pedidos-itens` (8077) e ferramenta MCP `pedidos_compra_itens` (8078): os itens da view
+`VW_ALTA_PEDIDOS_COMPRA_ITENS` do SAP (fornecedor, item, grupo, quantidades pedida e em aberto, datas; sem
+preço). Filtros `pedido`, `fornecedor`, `item`, `busca`, `status` (do item), `entrega_de`/`entrega_ate`;
+cache de 120 s. Escopo novo **`compras:ler`** (não é `leitura`). Contrato `API_PEDIDOS_COMPRA.md`.
+Só leitura. +23 testes (`tests/test_pedidos_compra_hana.py`). **Pede deploy da .11 e a concessão do escopo.**
+
 ## [2026-10-21] — Processar avisa quando a proposta do WBC está numa revisão anterior à do orçamento
 
 Caso real de 21/10/2026: o vendedor trocou a cor para branco (orçamento na revisão C, estrutura reexportada)
