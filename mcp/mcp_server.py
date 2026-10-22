@@ -1547,7 +1547,8 @@ def pedidos_compra_itens(pedido: int | None = None, fornecedor: str = "", item: 
     Não confunda com pedido de venda: aqui ``pedido`` é o número do pedido de COMPRA (DocNum).
     Cada item traz fornecedor, código e descrição do item, grupo, quantidade pedida,
     quantidade em aberto (ainda não recebida), data do pedido e data de entrega prevista.
-    Não há preço.
+    Não há preço. Quantidades estão em ``unidade_compra`` (a do pedido): sempre diga a unidade
+    junto do número; o mesmo item em duas unidades vem em duas linhas — nunca some.
 
     Como responder:
     - "o que falta chegar?" → ``status="aberto"`` (o padrão); ``qtd_em_aberto`` é o que falta.

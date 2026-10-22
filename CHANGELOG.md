@@ -6,6 +6,13 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-22] — Pedidos de compra: campo `unidade_compra`
+
+A view `VW_ALTA_PEDIDOS_COMPRA_ITENS` ganhou a coluna `UnidadeCompra`, já corrigida para a unidade da linha do
+pedido (`POR1.unitMsr`) e separando por unidade (conferido: 1.409/1.409 linhas com quantidade e unidade iguais
+à `POR1`). A API e o MCP publicam `unidade_compra`; o mesmo item em duas unidades vem em duas linhas.
+Contrato `API_PEDIDOS_COMPRA.md` atualizado. **Pede deploy da .11.**
+
 ## [2026-10-22] — Pedidos de compra: item com quantidade em aberto conta como aberto
 
 Teste na .11 achou 6 itens que a view `VW_ALTA_PEDIDOS_COMPRA_ITENS` marca `Fechado` com mercadoria ainda por

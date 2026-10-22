@@ -8,9 +8,13 @@ da view `VW_ALTA_PEDIDOS_COMPRA_ITENS`. Só leitura: nada é gravado no SAP nem 
 
 - **Pedido de compra** = o que a Altamira comprou de um fornecedor. O número é o **DocNum** do pedido de
   compra (não confunda com o pedido de venda).
-- Cada linha da resposta é **um item** de um pedido de compra: fornecedor, item, grupo, quantidade pedida,
-  quantidade em aberto e datas. **Não há preço.**
-- A view traz pedidos de 2026 (medido em 22/10/2026: 1.397 itens em 774 pedidos).
+- Cada linha da resposta é **um item** de um pedido de compra: fornecedor, item, grupo, unidade, quantidade
+  pedida, quantidade em aberto e datas. **Não há preço.**
+- As quantidades estão na **unidade usada no pedido** (`unidade_compra`). Se o mesmo item foi comprado em duas
+  unidades no mesmo pedido (ex.: parte em KG, parte em TN), ele vem em **duas linhas**, uma por unidade — nunca
+  some as duas.
+- A view traz pedidos de 2026 dos grupos Material Produtivo e Fixação (medido em 22/10/2026: 1.409 linhas).
+- **Versão:** `unidade_compra` desde 22/10/2026 (tarde).
 
 ## 2. Acesso
 
@@ -40,7 +44,7 @@ Sem parâmetro nenhum, devolve **todos** os itens da view. Os filtros são opcio
   mercadoria ainda por chegar (ex.: pedido 10716, item `WMA00001`: `Fechado` com 2.000 em aberto).
 - **Cuidado ao ler o campo `status_item`:** ele vem como está na view e pode dizer `Fechado` num item que
   ainda tem `qtd_em_aberto`. Para saber se falta chegar, use `qtd_em_aberto > 0` (ou o filtro
-  `status=aberto`). Nesses itens a `data_entrega` é a da entrega mais antiga, não a das que faltam.
+  `status=aberto`). Nesses itens a `data_entrega` (que é a do cabeçalho do pedido) não diz quando chegam as entregas que faltam.
 - Item sem data de entrega nunca entra num filtro de data.
 - Filtro que não casa com nada devolve **200** com a lista vazia.
 
@@ -53,11 +57,11 @@ curl.exe -s -H "X-API-Key: SUA_CHAVE" "http://192.168.7.11:8077/compras/pedidos-
 Resposta **200**:
 
 ```json
-{"ok": true, "cache_idade_s": 34.2, "total_na_view": 1397, "total_filtrado": 1,
+{"ok": true, "cache_idade_s": 34.2, "total_na_view": 1409, "total_filtrado": 1,
  "itens": [
    {"doc_entry": 15025, "doc_num": 9863, "filial": 1,
     "data_pedido": "2026-06-30", "data_entrega": "2026-11-09",
-    "cod_fornecedor": "F000122", "fornecedor": "BELENUS LTDA",
+    "cod_fornecedor": "F000122", "fornecedor": "BELENUS LTDA", "unidade_compra": "Cento",
     "cod_item": "PAG516SEXTA5/8000916", "descricao": "P. ALTAMIRA 5/16-18 X 5/8 ZB GRAU 8",
     "grupo": "Fixação", "status_pedido": "Aberto", "status_item": "Aberto",
     "qtd_pedida": 1200.0, "qtd_em_aberto": 1200.0}
@@ -69,14 +73,15 @@ Resposta **200**:
 | `doc_num` | número do pedido de compra (o da tela do SAP) |
 | `doc_entry` | chave interna do SAP; use `doc_num` para falar com pessoas |
 | `filial` | código da filial do pedido |
-| `data_pedido` / `data_entrega` | data do pedido e data de entrega prevista (`AAAA-MM-DD`; `null` = sem data) |
+| `data_pedido` / `data_entrega` | data do pedido e data de entrega prevista **do pedido** (cabeçalho, igual para todos os itens dele; `AAAA-MM-DD`; `null` = sem data) |
 | `status_pedido` / `status_item` | `Aberto` ou `Fechado` |
-| `qtd_pedida` / `qtd_em_aberto` | quantidade pedida e quanto ainda falta receber |
+| `unidade_compra` | unidade em que `qtd_pedida` e `qtd_em_aberto` estão (a digitada no pedido). Texto livre do SAP: a mesma unidade pode vir escrita de jeitos diferentes (`KG`, `kg`, `Quilo`; `TN`, `T`, `TO`, `tn`; `UN`, `un`; `Cento`, `CTO`). `null` = o pedido não informou |
+| `qtd_pedida` / `qtd_em_aberto` | quantidade pedida e quanto ainda falta receber, na `unidade_compra` |
 | `total_na_view` | quantos itens a view tem ao todo |
 | `total_filtrado` | quantos itens vieram nesta resposta |
 | `cache_idade_s` | há quantos segundos o retrato do SAP foi tirado |
 
-Ordem dos itens: data de entrega, número do pedido e código do item.
+Ordem dos itens: data de entrega, número do pedido, código do item e unidade.
 
 ## 4. Erros
 

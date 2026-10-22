@@ -30,7 +30,7 @@ def _crua(**over: Any) -> dict[str, Any]:
     base: dict[str, Any] = {
         "DocEntry": 15025, "DocNum": 9863, "Filial": 1,
         "DataPedido": datetime(2026, 6, 30), "DataEntrega": datetime(2026, 11, 9),
-        "CodFornecedor": "F000122", "Fornecedor": "BELENUS LTDA",
+        "CodFornecedor": "F000122", "Fornecedor": "BELENUS LTDA", "UnidadeCompra": "Cento",
         "CodItem": "PAG516SEXTA5/8000916", "Descricao": "P. ALTAMIRA 5/16-18 X 5/8 ZB GRAU 8",
         "Grupo": "Fixação", "StatusPedido": "Aberto", "StatusItem": "Aberto",
         "QtdPedida": Decimal("1200"), "QtdEmAberto": Decimal("1200"),
@@ -44,7 +44,7 @@ ITENS = [pc.normalizar(r) for r in (
     _crua(CodItem="POG516", Descricao="POR. SEXT. PESADA", Grupo="Material Produtivo",
           StatusItem="Fechado", QtdEmAberto=Decimal("0")),
     _crua(DocEntry=16356, DocNum=10713, DataEntrega=datetime(2026, 10, 13), CodFornecedor="F003464",
-          Fornecedor="DOX BRASIL INDUSTRIA E COMERCIO DE ACOS S.A.", CodItem="I000139",
+          Fornecedor="DOX BRASIL INDUSTRIA E COMERCIO DE ACOS S.A.", UnidadeCompra="T", CodItem="I000139",
           Descricao="RFQ CIVIL 300 1,80X1200", Grupo="Material Produtivo", StatusPedido="Fechado",
           StatusItem="Fechado", QtdPedida=Decimal("22.53"), QtdEmAberto=Decimal("0")),
     _crua(DocEntry=17000, DocNum=11000, DataEntrega=None),
@@ -67,7 +67,8 @@ def test_normalizar_publica_datas_iso_e_numeros():
     i = ITENS[2]
     assert i == {"doc_entry": 16356, "doc_num": 10713, "filial": 1, "data_pedido": "2026-06-30",
                  "data_entrega": "2026-10-13", "cod_fornecedor": "F003464",
-                 "fornecedor": "DOX BRASIL INDUSTRIA E COMERCIO DE ACOS S.A.", "cod_item": "I000139",
+                 "fornecedor": "DOX BRASIL INDUSTRIA E COMERCIO DE ACOS S.A.", "unidade_compra": "T",
+                 "cod_item": "I000139",
                  "descricao": "RFQ CIVIL 300 1,80X1200", "grupo": "Material Produtivo",
                  "status_pedido": "Fechado", "status_item": "Fechado",
                  "qtd_pedida": 22.53, "qtd_em_aberto": 0.0}

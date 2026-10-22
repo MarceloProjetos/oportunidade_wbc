@@ -5,8 +5,10 @@ Serves ``GET /compras/pedidos-itens`` and the MCP tool ``pedidos_compra_itens`` 
 a 120 s cache shared by every caller, filters applied in Python over the cached snapshot,
 and :class:`situacao_pedidos_hana.SAPIndisponivel` for "HANA down" (the route turns it into 503).
 
-The view has no price columns; it carries one row per purchase-order line (measured
-22/10/2026: 1397 rows, 774 orders, all of 2026, one branch). Contract: ``API_PEDIDOS_COMPRA.md``.
+The view has no price columns; it carries one row per (order, item, line unit): quantities are
+in the unit typed on the PO line (``POR1.unitMsr``), so an item bought in two units in the same
+order comes as two rows (measured 22/10/2026: 1409 rows, 12 such pairs). Contract:
+``API_PEDIDOS_COMPRA.md``.
 """
 from __future__ import annotations
 
@@ -40,7 +42,7 @@ CAMPOS = {
     "DocEntry": "doc_entry", "DocNum": "doc_num", "Filial": "filial",
     "DataPedido": "data_pedido", "DataEntrega": "data_entrega",
     "CodFornecedor": "cod_fornecedor", "Fornecedor": "fornecedor",
-    "CodItem": "cod_item", "Descricao": "descricao", "Grupo": "grupo",
+    "UnidadeCompra": "unidade_compra", "CodItem": "cod_item", "Descricao": "descricao", "Grupo": "grupo",
     "StatusPedido": "status_pedido", "StatusItem": "status_item",
     "QtdPedida": "qtd_pedida", "QtdEmAberto": "qtd_em_aberto",
 }
@@ -78,7 +80,7 @@ def _buscar_no_hana() -> list[dict[str, Any]]:
         if n > _MAX_LINHAS:
             raise ValidationError(f"{VIEW} devolveu {n} linhas (teto {_MAX_LINHAS}); avise o suporte.")
         linhas = _linhas(conn, f'SELECT {colunas} FROM "{schema}"."{VIEW}" '
-                               'ORDER BY "DataEntrega", "DocNum", "CodItem"')
+                               'ORDER BY "DataEntrega", "DocNum", "CodItem", "UnidadeCompra"')
     finally:
         try:
             conn.close()
