@@ -527,23 +527,6 @@ class SupabaseLoader:
             logger.error(f"Erro no upsert do Supabase: {e}")
             return False
 
-    def delete_por_filtro(self, table_name: str, filtros: dict[str, Any]) -> bool:
-        """Apaga todas as linhas que casam com ``filtros`` (igualdade em cada campo).
-
-        Existe para as cargas de chave natural sem data: quando um recorte
-        inteiro deixa de existir na origem (um dia sem venda nenhuma), o upsert
-        não tem o que sobrescrever e as linhas do dia anterior ficam.
-        """
-        try:
-            q = self.client.table(table_name).delete()
-            for coluna, valor in filtros.items():
-                q = q.eq(coluna, valor)
-            with_retries(lambda: q.execute(), what=f"delete ({table_name}, {filtros})")
-            return True
-        except Exception as exc:
-            logger.error("Erro ao apagar de '%s' (%s): %s", table_name, filtros, exc)
-            return False
-
     def delete_nao_carimbadas(self, table_name: str, coluna: str, carimbo: Any) -> bool:
         """Apaga tudo o que **não** tem o carimbo desta execução.
 

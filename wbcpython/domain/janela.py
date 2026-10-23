@@ -20,15 +20,8 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from math import ceil
-
-#: Maior janela pedível pela tela, em meses.
-#:
-#: Vinte e quatro é a escolha do Marcelo (11/09/2026): cobre dois anos de
-#: oportunidades antigas, que é o que vendas precisa alcançar, e mantém o pior
-#: caso de escrita num número que ainda cabe na cabeça de quem autoriza.
-JANELA_MAXIMA_PADRAO = 24
 
 #: Largura de cada banda de multiplicador, em meses.
 LARGURA_DA_BANDA = 6
@@ -47,13 +40,6 @@ PASSO_DO_MULTIPLICADOR = 3
 #: caso — sem este limite, um número digitado errado vira um ciclo de milhares
 #: de escritas irreversíveis em produção.
 TETO_ABSOLUTO_PADRAO = 2000
-
-#: Quanto tempo a pergunta "quer rodar outro ciclo?" fica de pé.
-#:
-#: Quinze minutos, por decisão do Marcelo (11/09/2026). Passou disso, a janela
-#: volta ao padrão e o log registra onde o ciclo parou — pergunta sem resposta
-#: não pode deixar uma janela larga armada esperando por horas.
-ESPERA_PELA_RESPOSTA = timedelta(minutes=15)
 
 
 class EstadoDaJanela(enum.StrEnum):

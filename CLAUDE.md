@@ -41,6 +41,7 @@ Guias dos pacotes: `docs/wbc/README.md` (+ `DECISOES.md`) e `docs/controleproduc
 | `situacao_pedidos.py` · `sap_montagem_labels.py` | **Portes** do web, diffáveis (`test_situacao_pedidos_diffavel.py`) |
 | `situacao_pedidos_hana.py` | Leitura HANA + cache + endereço de entrega das rotas `/pedidos/*` |
 | `pedidos_compra_hana.py` | Itens dos pedidos de compra (`VW_ALTA_PEDIDOS_COMPRA_ITENS`, cache 120 s) → `GET /compras/pedidos-itens` (escopo `leitura`); contrato `API_PEDIDOS_COMPRA.md` |
+| `controle_montagem.py` | Controle de montagem do pedido (tabela `pedidos_montagem` + previsão `@ALTA_PREV`), só leitura, para `/pedidos/<n>/situacao` |
 | `entrega_combinada.py` | Data de entrega combinada (tabela `pedidos_entrega_alteracoes`); contrato `API_DATA_ENTREGA_COMBINADA.md` |
 | `pedidos_bloqueados.py` | Lista **hardcode** (84337). **3 cópias**: aqui, `web_orcaview_V118/backend/services/pedidos_bloqueados.py`, `mobile_orcaview_V4/lib/pedidos/bloqueados.ts` |
 | `monitoring.py` | `collect_status()` (`SELECTABLE_CHECKS`). Check novo = `SELECTABLE_CHECKS` + despacho + alerta + saída + `_CHECK_ALIASES` do `api.py` + `_stub_all_ok` do teste |
@@ -57,7 +58,7 @@ Guias dos pacotes: `docs/wbc/README.md` (+ `DECISOES.md`) e `docs/controleproduc
 | `mcp/` | Fachada fina sobre a 8077, NÃO fala com banco. `acesso_mcp.py` = token por cliente, `ESCOPO_DA_FERRAMENTA`, auditoria; importa `seguranca/` por sys.path **append** (nunca insert) |
 | `seguranca/` | Credenciais (SHA-256; `OS_API_KEY` = admin), auditoria (30 dias), interruptor do agente (escrita só seg–sex 7–19h), aprovações. `docs/SEGURANCA_11.md`, `docs/APROVACOES_11.md` |
 | `operacao/` | Leituras da própria .11 (serviços, conexões, histórico de pedido, log do worker, versão, ronda do .90, logins SAP, backup, Hyper-V); `boots`/`travamentos` **idênticos** ao SAP_RDP; `acoes_agente`, `reinicio` |
-| `web/` | `sincronizar.html` (Jinja na casca `casa/`), `entrar.html`, `entrada.html` |
+| `web/` | `sincronizar.html` (Jinja na casca `casa/`), `entrar.html`, `entrada.html`, `inicio.html` (página inicial da Central) |
 | `tests/` | pytest; `test_<modulo>.py` espelha o módulo; `tests/wbc/` e `tests/controleproducao/` = suítes dos pacotes |
 | `docs/` | `wbc/`, `controleproducao/`, `INCIDENTES.md`, `changelog/`. Planos apagados ficam no git (`git log --diff-filter=D -- 'docs/PLANO_*'`) |
 | `API_*.md` (raiz) | Contratos HTTP de outras equipes. **Ficam na raiz** (repo público, links externos). Mudou rota/campo/mensagem = mude o contrato no mesmo commit |

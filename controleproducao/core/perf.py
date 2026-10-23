@@ -60,10 +60,6 @@ class Perfil:
                 acumulado.segundos += gasto
 
     @property
-    def total_medido(self) -> float:
-        return sum(a.segundos for a in self.por_categoria.values())
-
-    @property
     def decorrido(self) -> float:
         return time.perf_counter() - self.inicio
 

@@ -1514,7 +1514,7 @@ async def cria_recurso_rateio(
         "VisCode": nome_recurso,
         "Name": f"OrcNum / idOrçamento: {nome}",
         "ForeignName": f"OrcNum / idOrçamento: {nome}",
-        "ResourceWarehouses": [{"Warehouse": "01"}],
+        "ResourceWarehouses": [{"Warehouse": DEPOSITO_RECURSO}],
         "Cost1": custo_transporte,
         "Cost2": custo_embalagem,
         "Cost3": custo_montagem,
@@ -1592,7 +1592,7 @@ async def cria_ordem_producao(
             {
                 "ItemNo": recurso,
                 "ItemType": "pit_Resource",
-                "Warehouse": "01",
+                "Warehouse": DEPOSITO_RECURSO,
                 "PlannedQuantity": 1,
                 "ProductionOrderIssueType": "im_Backflush",
             }

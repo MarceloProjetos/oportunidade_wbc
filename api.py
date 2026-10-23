@@ -29,8 +29,19 @@ Endpoints
 - ``POST /vendas-bi/sincronizar``           → Vendas BI aggregates (409 if one is running)
 - ``GET  /ordens-producao/<numero>``        → one Production Order (status + transitions)
 - ``POST /ordens-producao/<numero>/status`` → **writes into SAP**: Liberada / Encerrada
+- ``GET  /wbc/orcamentos/<orcnum>[/log]``   → what the WBC worker knows about a quote (+ its log)
+- ``GET  /operacao/*``                      → the .11 itself: servicos, conexoes[/<destino>], deploy,
+                                              boots, travamentos, logins-sap, backup, hyperv, ronda-90
+- ``POST /operacao/backup/estado`` · ``POST /operacao/hyperv/estado`` → hosts report their state
+- ``POST|GET /aprovacoes`` · ``GET /aprovacoes/<chave>`` · ``POST /aprovacoes/<chave>/aprovar|recusar``
+                                            → agent requests that a person approves
 - ``GET  /pedidos/situacao``                → order-status cut (blocked / everything)
 - ``GET  /pedidos/<numero>/situacao``       → status of ONE order
+- ``GET  /pedidos/<numero>/historico``      → who changed the order and what (ADOC + archive)
+- ``GET  /pedidos/<numero>/data-entrega``   → agreed delivery date + request thread
+- ``POST /pedidos/<numero>/data-entrega/solicitacoes`` → Production asks for a new date
+- ``GET  /pedidos/data-entrega/solicitacoes`` → requests across orders
+- ``GET  /compras/pedidos-itens``           → purchase-order lines (VW_ALTA_PEDIDOS_COMPRA_ITENS)
 - ``GET  /rh/colaboradores``                → Kairos roster mirror (company → sector → people)
 - ``GET  /painel-wbc``                      → 302 to the WBC integration painel (FastAPI, PAINEL_PORTA)
 - ``GET  /controle-producao[/<tela>]``      → 302 to the Controle de Produção screen (FastAPI, CP_PORTA)

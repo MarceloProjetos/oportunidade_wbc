@@ -1,6 +1,8 @@
 # Desenho: data de entrega combinada na .11 (API 8077 + MCP 8078)
 
-> 14/10/2026 · só desenho, nada implementado · repo `MCPs/ServidorIntegracaoSAP`.
+> 14/10/2026 · desenho; **implementado em 15/10/2026** (F4) — quando divergir, valem o código e o contrato
+> `API_DATA_ENTREGA_COMBINADA.md`. Os testes ficaram em `tests/test_api_data_entrega.py`, `tests/test_mcp_data_entrega.py`
+> e `tests/test_situacao_pedidos.py` (não existe `tests/test_entrega_combinada.py`) · repo `MCPs/ServidorIntegracaoSAP`.
 > Revisão do Sonnet 5.5: **APROVADO COM AJUSTES**, e os ajustes já estão aplicados neste texto.
 > Base: as decisões D1, D2, D6, D7 e D9 do dono, mais o plano do web `web_orcaview_V118/docs/PLANO_DATA_ENTREGA_COMBINADA.md`.
 > **A D2 substitui a F1 daquele plano:** a Produção pede e lê **só pela .11**. A lista do que o plano do web tem de mudar

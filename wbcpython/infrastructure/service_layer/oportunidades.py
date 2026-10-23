@@ -57,11 +57,8 @@ ENTIDADE = "SalesOpportunities"
 CAMPO_CHAVE = "SequentialNo"
 
 UDF_ORCAMENTO = "U_ORCNUM_WBC"
-UDF_ORCAMENTO_MASC = "U_ORCNUM_MASC"
 UDF_STATUS_WBC = "U_INO_StatusWBC"
 UDF_ATUALIZAR = "U_INO_Update"
-UDF_PN_CORRECAO = "U_INO_PN_Correc"
-UDF_INTEGROU = "U_INO_IntegrouWBC"
 
 #: Estágio/tipo de documento na coleção de linhas da oportunidade.
 #: 23 = Cotação, 17 = Pedido de Venda (ObjType do SAP; o legado usa 17 na

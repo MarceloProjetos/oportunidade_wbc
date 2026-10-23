@@ -790,7 +790,3 @@ class WorkerIntegracao:
             except ValueError:
                 # Fora da thread principal (ex.: em teste) não dá para instalar.
                 pass
-
-
-def intervalo_legivel(segundos: int) -> str:
-    return str(timedelta(seconds=segundos))

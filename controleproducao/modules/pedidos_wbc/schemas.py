@@ -173,18 +173,6 @@ class SemiAcabado(BaseModel):
     linha_orc: str
 
 
-class OrccCab(BaseModel):
-    """Equivalente a `Models/ORCCAB.cs`."""
-
-    orc_per_com: float
-    orc_val_com: float
-    tip_mon_cod: str
-    orc_bas3: float
-    rep_cod: str
-    przent: int
-    pgt_cod: str
-
-
 class PedidoParaIntegrar(BaseModel):
     """Uma linha do grid "Pedidos Novos" do `Form2` (query `BuscaPedidosParaIntegrar`) —
     pedidos já vinculados a uma oportunidade integrada e ainda não processados

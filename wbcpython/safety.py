@@ -54,9 +54,6 @@ _SQL_WRITE_KEYWORDS: frozenset[str] = frozenset(
     }
 )
 
-_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
-_STRING_LITERAL = re.compile(r"'(?:[^']|'')*'")
-
 
 class SafetyViolation(RuntimeError):
     """Base das violações de regra de segurança do projeto.

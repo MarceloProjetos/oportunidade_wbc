@@ -64,7 +64,7 @@ import unicodedata
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Protocol
+from typing import Any
 
 #: Tema das linhas de log desta regra. O painel colore a linha que começa com
 #: `[porta-paletes]`, para que a quantidade lida (ou não lida) se destaque no
@@ -102,22 +102,6 @@ DEPOSITO_PADRAO = "08"
 
 #: Marcador que o legado usa para cortar o texto ao montar `U_INO_Composicao`.
 MARCADOR_COMPOSICAO = "Valor"
-
-class ItemComGrupo(Protocol):
-    """O mínimo que uma linha de orçamento precisa oferecer."""
-
-    orcitm: int
-    grupo: int
-    texto: str
-    valor: Decimal
-    quantidade: Decimal | None
-    id_integracao: int
-
-    @property
-    def quantidade_para_documento(self) -> Decimal: ...
-
-    @property
-    def preco_unitario(self) -> Decimal: ...
 
 
 @dataclass(frozen=True, slots=True)

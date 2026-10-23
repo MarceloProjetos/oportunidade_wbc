@@ -85,11 +85,6 @@ class StatusIntegracao(enum.StrEnum):
             StatusIntegracao.ERRO: "Erro",
         }[self]
 
-    @property
-    def e_terminal(self) -> bool:
-        return self in (StatusIntegracao.ENCERRADA,)
-
-
 class TipoEvento(enum.StrEnum):
     DECISAO = "decisao"
     ACAO = "acao"

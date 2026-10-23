@@ -61,10 +61,6 @@ COLECAO_LINHAS = "INO_ORC_LINHACollection"
 #: campo de continuação (`_2`) transbordam para ele em vez de perder o resto.
 LIMITE_TEXTO = 254
 
-#: Campos de texto do UDO que guardam números (ver `domain/numeros`).
-CAMPOS_NUMERICOS_TEXTUAIS = ("U_ORCVALEMB", "U_ORCIMP_RETORNO", "U_ORCIMP_INDICE_VENDAS")
-
-
 def _data_iso(valor: date | None) -> str | None:
     return valor.isoformat() if valor else None
 

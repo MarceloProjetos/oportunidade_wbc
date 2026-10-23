@@ -950,6 +950,12 @@ ServidorIntegracaoSAP/
 ├── situacao_pedidos_hana.py     # /pedidos/*: leitura HANA + cache + endereço de entrega
 ├── sap_montagem_labels.py       # Rótulos de montagem (porte do web)
 ├── pedidos_bloqueados.py        # Pedidos fora dos agregados (hardcode; 3 cópias: SIS, web, app)
+├── faturamento_pedido.py        # Como o pedido fechado foi faturado (entrega futura × remessa)
+├── controle_montagem.py         # Controle de montagem do pedido (só leitura, para /pedidos/<n>/situacao)
+├── entrega_combinada.py         # Data de entrega combinada (API_DATA_ENTREGA_COMBINADA.md)
+├── pedidos_compra_hana.py       # Itens dos pedidos de compra (API_PEDIDOS_COMPRA.md)
+├── arquivo_pedidos.py           # Arquiva as versões do pedido (ADOC) antes do teto de 99
+├── sql_seguro.py                # SQL do HANA com parâmetro (t-strings → ?)
 ├── ordens_producao_sl.py        # Status de OP no SAP via Service Layer (escrita; nasce desligado)
 ├── windows_update.py            # Reboot/updates pendentes (porte do SAP_RDP)
 ├── retry.py                     # Retry compartilhado (SAP e Supabase)
@@ -958,11 +964,14 @@ ServidorIntegracaoSAP/
 ├── api.py                       # API HTTP de disparo + /status (Flask, porta 8077)
 ├── wbcpython/                   # Integração WBC → SAP: worker + painel + CLI (python -m wbcpython)
 ├── controleproducao/            # Controle de Produção: Pedidos WBC → OPs + Manutenção de OP (python -m controleproducao; porta CP_PORTA=8080)
-├── web/                         # Páginas servidas pela API (entrada.html = GET /, sincronizar.html = /sincronizar)
+├── web/                         # Páginas servidas pela API (entrada.html = GET /, sincronizar.html = /sincronizar, inicio.html = /inicio)
 ├── sql/                         # DDL + policies do Supabase
 ├── scripts/
 │   └── scheduled_execution.py   # Agendamento via APScheduler (IntervalTrigger)
-├── mcp/                         # Fachada MCP read-only sobre a API (stdio no cliente; HTTP 8078 na .11)
+├── mcp/                         # Fachada MCP sobre a API (stdio no cliente; HTTP 8078 na .11)
+├── seguranca/                   # Credenciais, escopos, auditoria, interruptor do agente e aprovações
+├── operacao/                    # Leituras da própria .11 (serviços, deploy, boots, logins SAP, backup, Hyper-V)
+├── casa/                        # Casca comum das telas da .11 (barra, tema, login compartilhado)
 ├── maintenance/                 # Conferidor de Vendas BI + scripts de disco e logs do servidor
 ├── monitor_wbc_task.ps1         # Monitora a tarefa "Integração WBC" → state/*.json
 ├── install_monitor_task.ps1     # Registra a tarefa do monitor (a cada 10 min, SYSTEM)
@@ -981,7 +990,7 @@ ServidorIntegracaoSAP/
 ├── requirements-dev.txt         # pytest + ruff
 ├── tests/                       # Suíte pytest (tests/wbc/ = a do wbcpython; tests/controleproducao/ = a do controleproducao)
 ├── .env.example                 # Template de variáveis de ambiente
-├── API_*.md                     # Contratos HTTP entregues a outras equipes (OS, OP, RH, pedidos, Manutenção de OP)
+├── API_*.md                     # Contratos HTTP entregues a outras equipes (OS, OP, RH, pedidos, Manutenção de OP, data de entrega, pedidos de compra)
 ├── CLAUDE.md                    # Guia para agentes
 ├── CHANGELOG.md                 # Histórico de mudanças
 └── README.md                    # Este arquivo

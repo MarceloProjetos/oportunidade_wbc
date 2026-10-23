@@ -30,15 +30,11 @@ from sql_seguro import sql
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "CFOP_ENTREGA_FUTURA",
-    "CFOP_REMESSA",
     "Faturamento",
     "ler_faturamento",
     "situacao_remessa",
 ]
 
-CFOP_ENTREGA_FUTURA = ("5922", "6922")
-CFOP_REMESSA = ("5116", "6116", "5117", "6117")
 #: Tolerance on the missing value: rounding showed up as R$ 0,02 (84021) in closed cases.
 TOLERANCIA_ABSOLUTA = 1.00
 TOLERANCIA_RELATIVA = 0.005

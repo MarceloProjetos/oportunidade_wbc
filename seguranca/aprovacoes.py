@@ -47,8 +47,6 @@ TAMANHO_CODIGO = 4
 LIMITE_TEXTO = 300
 
 ESTADOS = ("pendente", "recusado", "expirado", "executando", "executado", "falhou")
-#: The states that hold the target: a second request for it is the same request.
-ABERTOS = ("pendente", "executando")
 #: An ``executando`` older than this never got its outcome (the API died mid-action): it
 #: would hold the target forever, so it closes ``falhou`` ("sem desfecho"). The longest
 #: action today answers in ~150 s (sincronizar_os).

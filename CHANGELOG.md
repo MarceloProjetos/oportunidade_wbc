@@ -6,6 +6,18 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-23] — Faxina: código sem uso e documentação em dia
+
+Auditoria do repo inteiro (varredura estática + revisão manual): removido o que não tinha **nenhum** uso,
+nem em teste — `controleproducao/modules/romaneio/queries.py` (9 consultas nunca importadas), `OrccCab`,
+`ItemComGrupo`, `intervalo_legivel`, `e_terminal`, `total_medido`, `SupabaseLoader.delete_por_filtro` e
+constantes órfãs (`JANELA_MAXIMA_PADRAO`/`ESPERA_PELA_RESPOSTA`, que duplicavam os defaults do
+`wbcpython/config.py`; `CAMPOS_NUMERICOS_TEXTUAIS`; 3 `UDF_*`; `_BLOCK_COMMENT`/`_STRING_LITERAL`; `ABERTOS`;
+`CFOP_*` do `faturamento_pedido`). `DEPOSITO_RECURSO` passou a ser usado no lugar do `"01"` repetido.
+Documentação: lista de rotas do `api.py`, árvore do `README.md`, `CLAUDE.md`, cabeçalho do desenho da data
+combinada e 7 variáveis que faltavam no `.env.example`. Sem mudança de comportamento. Ficaram de fora, de
+propósito: arquivos-irmãos de outros repos, `_update_pedido`, tela/CLI do Romaneio e métodos só de teste.
+
 ## [2026-10-22] — Pedidos de compra: campo `unidade_compra`
 
 A view `VW_ALTA_PEDIDOS_COMPRA_ITENS` ganhou a coluna `UnidadeCompra`, já corrigida para a unidade da linha do

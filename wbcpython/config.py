@@ -209,7 +209,8 @@ class Settings(BaseSettings):
     #: A janela sob demanda (`PLANO_JANELA_SOB_DEMANDA.md (removed 2026-10-06)`) existe para
     #: vendas alcançar uma oportunidade antiga sem restart e sem TI. Este é o
     #: limite do que a tela aceita; o teto de escrita do ciclo cresce junto,
-    #: por banda — ver `domain/janela.py`.
+    #: por banda — ver `domain/janela.py`. 24 é a escolha do Marcelo (11/09/2026): cobre
+    #: dois anos de oportunidades antigas e mantém o pior caso de escrita pequeno.
     janela_maxima: int = Field(
         default=24, ge=1, le=120, alias="JANELA_MAXIMA"
     )
