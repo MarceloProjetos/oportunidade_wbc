@@ -115,3 +115,57 @@ def test_tempos_proprios_da_data_de_entrega(fachada):
     assert fachada._tempo_limite("GET", "/pedidos/1/data-entrega") == 60.0
     assert fachada._tempo_limite("GET", "/pedidos/data-entrega/solicitacoes") == 60.0
     assert fachada._tempo_limite("GET", "/pedidos/1/situacao") == fachada._TEMPO_LEITURA_HANA
+
+
+# ── Phase 2 (F7): Production decides through the MCP ──────────────────────────
+
+_PENDENTES = {"ok": True, "solicitacoes": [
+    {"id": 70, "doc_num": 84146, "data_nova": "2026-11-25", "origem": "comercial", "aguarda": "producao"},
+    {"id": 71, "doc_num": 84000, "data_nova": "2026-11-27", "origem": "producao_api", "aguarda": "comercial"}]}
+
+
+def test_decidir_sem_confirmar_nao_grava_e_mostra_a_solicitacao(fachada, monkeypatch):
+    monkeypatch.setattr(fachada, "_get", lambda path, params=None: _PENDENTES)
+    monkeypatch.setattr(fachada, "_post", lambda *a, **k: pytest.fail("gravou sem confirmar"))
+    r = fachada.decidir_data_entrega(70, "recusar", motivo="Prensa parada", decidido_por="Ana")
+    assert r["preview"] is True and r["pode_confirmar"] is True and r["impedimento"] is None
+    assert r["solicitacao"]["doc_num"] == 84146
+    assert r["a_gravar"] == {"acao": "recusar", "decidido_por": "Ana", "motivo": "Prensa parada"}
+
+
+@pytest.mark.parametrize("sol,acao,motivo,trecho", [
+    (70, "recusar", "", "exige o motivo"),
+    (71, "aprovar", "", "quem aprova ou recusa é o Comercial"),
+    (70, "cancelar", "", "não cancela"),
+    (99, "aprovar", "", "não há solicitação PENDENTE"),
+])
+def test_previa_diz_por_que_nao_da_para_confirmar(fachada, monkeypatch, sol, acao, motivo, trecho):
+    monkeypatch.setattr(fachada, "_get", lambda path, params=None: _PENDENTES)
+    r = fachada.decidir_data_entrega(sol, acao, motivo=motivo, decidido_por="Ana")
+    assert r["pode_confirmar"] is False and trecho in r["impedimento"]
+
+
+def test_decidir_confirmado_chama_a_rota_com_a_pessoa_carimbada(fachada, monkeypatch):
+    enviado = {}
+
+    def _post(path, params=None, *, json=None, headers=None):
+        enviado.update(path=path, json=json, headers=headers)
+        return {"ok": True}
+
+    monkeypatch.setattr(fachada, "_post", _post)
+    fachada.decidir_data_entrega(70, "aprovar", decidido_por="digitado", confirmar=True,
+                                 pedido_por="pcp-mcp", em_nome_de="João Lima")
+    assert enviado["path"] == "/pedidos/data-entrega/solicitacoes/70/aprovar"
+    assert enviado["json"] == {"decidido_por": "João Lima", "motivo": None}
+    assert enviado["headers"] == {"X-SIS-Pedido-Por": "pcp-mcp", "X-SIS-Usuario": "Joao Lima"}
+
+
+def test_decidir_acao_invalida_nao_chama_nada(fachada, monkeypatch):
+    monkeypatch.setattr(fachada, "_post", lambda *a, **k: pytest.fail("chamou a API"))
+    r = fachada.decidir_data_entrega(70, "apagar", confirmar=True)
+    assert r["ok"] is False and "aprovar" in r["erro"]
+
+
+def test_decidir_exige_o_escopo_de_escrita(acesso):
+    assert acesso.ESCOPO_DA_FERRAMENTA["decidir_data_entrega"] == "entrega:solicitar"
+    assert "decidir_data_entrega" in acesso.PEDIDOS

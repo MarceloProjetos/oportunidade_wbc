@@ -6,6 +6,22 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-23] — Data de entrega combinada, fase 2: a Produção decide o pedido do Comercial (F7)
+
+Pedido do Marcelo (PLANO_DATA_ENTREGA_COMBINADA, D11–D17): toda mudança de data precisa do "sim" do outro lado. O
+Comercial passa a **pedir** (OrçaView, F8, ainda não ligada) e a Produção decide pelo app da fábrica:
+- Rota nova `POST /pedidos/data-entrega/solicitacoes/<id>/aprovar|recusar|cancelar` (escopo `entrega:solicitar`):
+  aprovar/recusar só pendente do Comercial (motivo obrigatório na recusa, opcional na aprovação em
+  `motivo_aprovacao`); cancelar só pendente da Produção (por lado). UPDATE condicional por id + pendente +
+  origem; a linha é lida antes, então repetição (`ja_estava`) e o que já foi decidido (`ja_decidida`,
+  `nao_e_sua_vez`) não gastam o limite; corrida entre leitura e update cai em `ja_decidida`.
+- Campo `aguarda` (`producao` | `comercial`) no `GET` do pedido e em cada item da lista. Pendente do Comercial com
+  a mesma data e motivo deixa de ser tratada como repetição do POST da Produção (`409 ja_ha_pendente`).
+- MCP `decidir_data_entrega` com prévia que mostra a solicitação e diz se dá para confirmar.
+- Contrato `API_DATA_ENTREGA_COMBINADA.md` §1/§2/§6/§7/§7b/§8/§9, guia do PCP (parte 10) e desenho atualizados.
+  +34 testes. Revisão do Sonnet 5.5 (alto): aprovada com ajustes, todos aplicados. Banco: F6 aplicada pelo
+  Marcelo em 23/10. **Pede deploy da .11.**
+
 ## [2026-10-23] — Controle de Produção: Romaneio removido
 
 O módulo 4 (Romaneio) era só esqueleto desde setembro: a tela `/romaneio` mostrava "em construção" e o

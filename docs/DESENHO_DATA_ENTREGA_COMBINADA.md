@@ -1,5 +1,9 @@
 # Desenho: data de entrega combinada na .11 (API 8077 + MCP 8078)
 
+> **Fase 2 (23/10/2026):** a aprovação passou a valer nos dois sentidos — o Comercial também pede e a Produção
+> decide pela rota `POST /pedidos/data-entrega/solicitacoes/<id>/aprovar|recusar|cancelar` (contrato §7b).
+> Este desenho é da fase 1; para a fase 2 valem o contrato e `web_orcaview_V118/docs/PLANO_DATA_ENTREGA_COMBINADA.md`.
+>
 > 14/10/2026 · desenho; **implementado em 15/10/2026** (F4) — quando divergir, valem o código e o contrato
 > `API_DATA_ENTREGA_COMBINADA.md`. Os testes ficaram em `tests/test_api_data_entrega.py`, `tests/test_mcp_data_entrega.py`
 > e `tests/test_situacao_pedidos.py` (não existe `tests/test_entrega_combinada.py`) · repo `MCPs/ServidorIntegracaoSAP`.

@@ -1,7 +1,9 @@
-"""entrega_combinada — Production's side of the agreed delivery date (PLANO_DATA_ENTREGA_COMBINADA, F4).
+"""entrega_combinada — Production's side of the agreed delivery date (PLANO_DATA_ENTREGA_COMBINADA, F4/F7).
 
 Production (the PCP team's app) asks for a new delivery date of a sales order through this
-API/MCP; Comercial decides on the OrçaView screen (.90). Both write the same Supabase table,
+API/MCP; Comercial decides on the OrçaView screen (.90). Since phase 2 (23/10/2026) it is two-way:
+Comercial's requests are born pending too and Production approves or refuses them here, with a
+reason; whoever asked may cancel their own pending request. Both write the same Supabase table,
 ``pedidos_entrega_alteracoes``, with service_role; every invariant lives there (CHECKs
 ``ck_pea_*`` + the partial unique index ``pedidos_entrega_um_pendente``). Nothing here writes
 to SAP. Design: ``docs/DESENHO_DATA_ENTREGA_COMBINADA.md``.
@@ -25,13 +27,18 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "COLUNAS",
     "INDICE_UM_PENDENTE",
+    "ACOES",
     "Recusa",
     "TABELA",
+    "aguarda",
+    "decidir",
     "inserir",
     "linhas_do_pedido",
     "listar",
+    "uma_linha",
     "validar_corpo",
     "validar_datas",
+    "validar_decisao",
     "violou_um_pendente",
 ]
 
@@ -41,7 +48,7 @@ TABELA = "pedidos_entrega_alteracoes"
 INDICE_UM_PENDENTE = "pedidos_entrega_um_pendente"
 COLUNAS = ("id,doc_num,data_nova,data_anterior,data_sap,motivo,gera_atraso,observacao,origem,"
            "situacao,solicitado_por,solicitado_cliente,solicitado_em,decidido_por,decidido_em,"
-           "motivo_recusa")
+           "motivo_recusa,motivo_aprovacao")
 OBSERVACAO_MAX = 1000
 PESSOA_MAX = 80
 #: How far ahead a new date may go (owner, Q4): beyond it is a typo.
@@ -50,6 +57,15 @@ HORIZONTE_DIAS = 365
 _LINHAS_MAX = 500
 #: Strictly AAAA-MM-DD: ``date.fromisoformat`` alone also takes ISO week dates ("2026-W47-5").
 _DATA_RE = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)
+MOTIVO_DECISAO_MAX = 1000
+
+#: Production's actions on a pending request: the target state and whose request it must be.
+#: Approve/refuse only Comercial's (Production never decides its own); cancel only its own.
+ACOES = {
+    "aprovar": {"situacao": "aprovada", "origem": "comercial"},
+    "recusar": {"situacao": "recusada", "origem": "comercial"},
+    "cancelar": {"situacao": "cancelada", "origem": "producao_api"},
+}
 
 
 class Recusa(Exception):
@@ -119,6 +135,38 @@ def validar_corpo(corpo: Any, *, solicitante_declarado: str | None) -> dict[str,
             "solicitado_por": pessoa}
 
 
+def validar_decisao(acao: str, corpo: Any, *, decisor_declarado: str | None) -> dict[str, Any]:
+    """Body of a decision → ``{decidido_por, motivo}``, or ``Recusa(400)``.
+
+    ``motivo`` is mandatory to refuse (it is what Comercial reads), optional to approve, ignored
+    to cancel. ``decisor_declarado`` (``X-SIS-Usuario`` of a trusted backend) wins over the body.
+    """
+    if corpo is None:
+        corpo = {}
+    if not isinstance(corpo, dict):
+        raise Recusa(400, "corpo_invalido", "corpo JSON nao e um objeto")
+    pessoa = decisor_declarado or _texto_livre(
+        corpo.get("decidido_por"), limite=PESSOA_MAX, motivo="decidido_por_invalido",
+        campo="decidido_por", quebra_ok=False)
+    if not pessoa:
+        raise Recusa(400, "decidido_por_invalido",
+                     "informe 'decidido_por': o nome de quem decide (ate 80 caracteres)")
+    motivo = None
+    if acao != "cancelar":
+        motivo = _texto_livre(corpo.get("motivo"), limite=MOTIVO_DECISAO_MAX, motivo="motivo_longo",
+                              campo="motivo", quebra_ok=True, motivo_controle="motivo_invalido")
+        if acao == "recusar" and not motivo:
+            raise Recusa(400, "motivo_obrigatorio", "informe 'motivo': por que a data nao pode mudar")
+    return {"decidido_por": pessoa, "motivo": motivo}
+
+
+def aguarda(linha: dict[str, Any] | None) -> str | None:
+    """Who must decide a pending row: ``producao`` (Comercial asked) or ``comercial``."""
+    if not linha or linha.get("situacao") != "pendente":
+        return None
+    return "producao" if linha.get("origem") == "comercial" else "comercial"
+
+
 def validar_datas(data_nova: date, *, hoje: date, data_vigente: str | None) -> None:
     """Date rules of a request (Q4): today is fine, yesterday is not; up to a year ahead;
     never the date already agreed. Bringing a date forward is accepted."""
@@ -155,6 +203,25 @@ def inserir(cliente: Any, linha: dict[str, Any]) -> dict[str, Any]:
         # Written or not, we cannot show it: the caller answers "check with the GET".
         raise RuntimeError("insert sem a linha gravada na resposta")
     return dados[0]
+
+
+def uma_linha(cliente: Any, id_: int) -> dict[str, Any] | None:
+    """One request by id, or ``None``. Raises on any base failure (the caller → 503)."""
+    res = cliente.table(TABELA).select(COLUNAS).eq("id", int(id_)).limit(1).execute()
+    dados = res.data or []
+    return dados[0] if dados else None
+
+
+def decidir(cliente: Any, id_: int, acao: str, mudanca: dict[str, Any]) -> dict[str, Any] | None:
+    """Conditional UPDATE: only a row still pending AND of the right origin changes.
+
+    Returns the updated row, or ``None`` when nothing matched (decided first, wrong origin or no
+    such id — the caller re-reads to say which). The condition is what makes two deciders safe.
+    """
+    res = (cliente.table(TABELA).update(mudanca).eq("id", int(id_)).eq("situacao", "pendente")
+           .eq("origem", ACOES[acao]["origem"]).execute())
+    dados = res.data or []
+    return dados[0] if dados else None
 
 
 def listar(cliente: Any, *, situacao: str, desde: str, limite: int) -> list[dict[str, Any]]:

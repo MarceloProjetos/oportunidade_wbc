@@ -41,6 +41,7 @@ class _Base:
         self.falhar = False
         self.corrida: dict[str, Any] | None = None   # a pending that lands before our insert
         self.ops: list[str] = []
+        self.antes_do_update = None
 
     def table(self, nome: str) -> _Q:
         assert nome == entrega.TABELA
@@ -80,11 +81,24 @@ class _Q:
         self.novo = dict(linha)
         return self
 
+    def update(self, mudanca):
+        self.mudanca = dict(mudanca)
+        return self
+
     def execute(self):
         from postgrest.exceptions import APIError
 
         if self.b.falhar:
             raise RuntimeError("base fora")
+        if getattr(self, "mudanca", None) is not None:
+            self.b.ops.append("update")
+            if self.b.antes_do_update:          # someone else decides between our read and update
+                self.b.antes_do_update(self.b)
+                self.b.antes_do_update = None
+            alvo = [r for r in self.b.linhas if all(f(r) for f in self.filtros)]
+            for r in alvo:
+                r.update(self.mudanca)
+            return type("R", (), {"data": [dict(r) for r in alvo]})()
         if self.novo is None:
             self.b.ops.append("select")
             return type("R", (), {"data": [r for r in self.b.linhas if all(f(r) for f in self.filtros)]})()
@@ -534,3 +548,195 @@ def test_entrega_futura_na_view_aceita_solicitacao_e_mostra_faturamento(c, pcp, 
     assert b["status_pedido"] == "Aberto" and b["faturamento"] == "entrega_futura"
     r = _post(c, pcp, n=84471)
     assert r.status_code == 201
+
+
+# ── Phase 2 (F7): Production decides Comercial's requests, cancels its own ─────
+
+def _do_comercial(doc_num=84146, data="2026-11-25", id_=70):
+    linha = _pendente(doc_num=doc_num, data=data, motivo="alteracao_cliente", id_=id_)
+    linha.update(origem="comercial", solicitado_por="vendas@altamira.com.br", solicitado_cliente=None)
+    return linha
+
+
+def _decidir(c, h, id_, acao, **corpo):
+    return c.post(f"/pedidos/data-entrega/solicitacoes/{id_}/{acao}", json=corpo, headers=h)
+
+
+def test_producao_aprova_pedido_do_comercial_com_motivo_opcional(c, pcp, base):
+    base.linhas.append(_do_comercial())
+    r = _decidir(c, pcp, 70, "aprovar", decidido_por="Ana (PCP)", motivo="Cabe na programacao")
+    assert r.status_code == 200
+    s = r.get_json()["solicitacao"]
+    assert (s["situacao"], s["decidido_por"], s["motivo_aprovacao"]) == ("aprovada", "Ana (PCP)", "Cabe na programacao")
+    assert s["decidido_em"]
+    assert s.get("motivo_recusa") is None
+    b = c.get("/pedidos/84146/data-entrega", headers=pcp).get_json()
+    assert b["data_vigente"] == "2026-11-25" and b["pendente"] is None and b["aguarda"] is None
+
+
+def test_producao_aprova_sem_motivo(c, pcp, base):
+    base.linhas.append(_do_comercial())
+    r = _decidir(c, pcp, 70, "aprovar", decidido_por="Ana")
+    assert r.status_code == 200 and "motivo_aprovacao" not in base.linhas[0]
+
+
+def test_recusa_exige_motivo_e_grava_motivo_recusa(c, pcp, base):
+    base.linhas.append(_do_comercial())
+    r = _decidir(c, pcp, 70, "recusar", decidido_por="Ana")
+    assert r.status_code == 400 and r.get_json()["motivo"] == "motivo_obrigatorio"
+    assert base.linhas[0]["situacao"] == "pendente"
+    r = _decidir(c, pcp, 70, "recusar", decidido_por="Ana", motivo="Prensa 3 parada ate 20/11")
+    assert r.status_code == 200
+    assert (base.linhas[0]["situacao"], base.linhas[0]["motivo_recusa"]) == ("recusada", "Prensa 3 parada ate 20/11")
+
+
+def test_producao_nao_decide_o_proprio_pedido(c, pcp, base):
+    base.linhas.append(_pendente())                       # origem producao_api
+    r = _decidir(c, pcp, 50, "aprovar", decidido_por="Ana")
+    assert r.status_code == 409 and r.get_json()["motivo"] == "nao_e_sua_vez"
+    assert r.get_json()["solicitacao"]["aguarda"] == "comercial"
+    assert base.linhas[0]["situacao"] == "pendente"
+
+
+def test_producao_cancela_so_o_proprio_pedido(c, pcp, base):
+    base.linhas.extend([_pendente(), _do_comercial(doc_num=84000, id_=71)])
+    r = _decidir(c, pcp, 71, "cancelar", decidido_por="Ana")
+    assert r.status_code == 409 and r.get_json()["motivo"] == "nao_e_sua_vez"
+    r = _decidir(c, pcp, 50, "cancelar", decidido_por="Ana", motivo="ignorado")
+    assert r.status_code == 200
+    assert (base.linhas[0]["situacao"], base.linhas[0]["decidido_por"]) == ("cancelada", "Ana")
+    assert base.linhas[0].get("motivo_aprovacao") is None
+    assert base.linhas[0].get("motivo_recusa") is None
+
+
+def test_repeticao_da_mesma_decisao_e_200_e_outra_e_409(c, pcp, base):
+    base.linhas.append(_do_comercial())
+    assert _decidir(c, pcp, 70, "aprovar", decidido_por="Ana").status_code == 200
+    r = _decidir(c, pcp, 70, "aprovar", decidido_por="Ana")
+    assert r.status_code == 200 and r.get_json()["ja_estava"] is True
+    r = _decidir(c, pcp, 70, "recusar", decidido_por="Bia", motivo="tarde demais")
+    assert r.status_code == 409 and r.get_json()["motivo"] == "ja_decidida"
+    assert "Ana" in r.get_json()["error"] and base.linhas[0]["situacao"] == "aprovada"
+
+
+@pytest.mark.parametrize("caminho,motivo", [
+    ("999/aprovar", "solicitacao_nao_encontrada"),
+    ("abc/aprovar", "solicitacao_nao_encontrada"),
+    ("70/apagar", "acao_invalida"),
+])
+def test_decisao_404(c, pcp, base, caminho, motivo):
+    base.linhas.append(_do_comercial())
+    r = c.post(f"/pedidos/data-entrega/solicitacoes/{caminho}", json={"decidido_por": "Ana"}, headers=pcp)
+    assert r.status_code == 404 and r.get_json()["motivo"] == motivo
+
+
+def test_decisao_exige_quem_decide_e_escopo_de_escrita(c, pcp, base):
+    base.linhas.append(_do_comercial())
+    r = _decidir(c, pcp, 70, "aprovar")
+    assert r.status_code == 400 and r.get_json()["motivo"] == "decidido_por_invalido"
+    so_ler = {"X-API-Key": credenciais.criar("leitor", ["entrega:ler"])}
+    assert _decidir(c, so_ler, 70, "aprovar", decidido_por="Ana").status_code == 403
+    assert base.linhas[0]["situacao"] == "pendente"
+
+
+def test_decisor_declarado_pelo_backend_confiavel_vence_o_corpo(c, base):
+    base.linhas.append(_do_comercial())
+    chave = credenciais.criar("mcp-servico", ["entrega:ler", "entrega:solicitar"], declara_usuario=True)
+    r = _decidir(c, {"X-API-Key": chave, "X-SIS-Usuario": "Joao Lima"}, 70, "aprovar", decidido_por="outro")
+    assert r.status_code == 200 and base.linhas[0]["decidido_por"] == "Joao Lima"
+
+
+def test_base_fora_na_decisao_e_503(c, pcp, base):
+    base.linhas.append(_do_comercial())
+    base.falhar = True
+    r = _decidir(c, pcp, 70, "aprovar", decidido_por="Ana")
+    assert r.status_code == 503 and r.get_json()["motivo"] == "base_indisponivel"
+
+
+def test_get_e_lista_dizem_quem_aguarda(c, pcp, base):
+    base.linhas.extend([_do_comercial(), _pendente(doc_num=84000, id_=51)])
+    b = c.get("/pedidos/84146/data-entrega", headers=pcp).get_json()
+    assert b["aguarda"] == "producao" and b["pendente"]["origem"] == "comercial"
+    lista = c.get("/pedidos/data-entrega/solicitacoes", headers=pcp).get_json()["solicitacoes"]
+    assert {s["id"]: s["aguarda"] for s in lista} == {70: "producao", 51: "comercial"}
+
+
+def test_pedir_com_pendente_do_comercial_avisa_que_a_producao_decide(c, pcp, base):
+    base.linhas.append(_do_comercial())
+    r = _post(c, pcp)
+    assert r.status_code == 409 and r.get_json()["motivo"] == "ja_ha_pendente"
+    assert "Comercial esperando a decisao da Producao" in r.get_json()["error"]
+
+
+def test_mesma_data_e_motivo_de_pendente_do_comercial_nao_e_repeticao(c, pcp, base):
+    base.linhas.append(_do_comercial(data="2026-11-27"))
+    base.linhas[0]["motivo"] = "quebra_maquina"
+    r = _post(c, pcp, data_nova="2026-11-27", motivo="quebra_maquina")
+    assert r.status_code == 409 and r.get_json()["motivo"] == "ja_ha_pendente"
+
+
+def test_ja_estava_exige_a_mesma_origem(c, pcp, base):
+    linha = _pendente()
+    linha.update(situacao="aprovada", decidido_por="Joao", decidido_em="2026-11-10T12:00:00+00:00")
+    base.linhas.append(linha)                        # Production's request approved by Comercial "Joao"
+    r = _decidir(c, pcp, 50, "aprovar", decidido_por="Joao")
+    assert r.status_code == 409 and r.get_json()["motivo"] == "ja_decidida"
+
+
+def test_corrida_entre_leitura_e_update(c, pcp, base):
+    base.linhas.append(_do_comercial())
+
+    def outro_decide(b):
+        b.linhas[0].update(situacao="recusada", decidido_por="Bia", decidido_em="2026-11-10T12:00:00+00:00",
+                           motivo_recusa="nao da")
+    base.antes_do_update = outro_decide
+    r = _decidir(c, pcp, 70, "aprovar", decidido_por="Ana")
+    assert r.status_code == 409 and r.get_json()["motivo"] == "ja_decidida"
+    assert base.linhas[0]["situacao"] == "recusada"
+
+
+def test_corpo_malformado_e_400_e_nao_vira_sem_motivo(c, pcp, base):
+    base.linhas.append(_do_comercial())
+    r = c.post("/pedidos/data-entrega/solicitacoes/70/aprovar", data='{"decidido_por": "Ana", "motivo": "x"',
+               headers={**pcp, "Content-Type": "application/json"})
+    assert r.status_code == 400 and r.get_json()["motivo"] == "corpo_invalido"
+    r = c.post("/pedidos/data-entrega/solicitacoes/70/aprovar", data='{"decidido_por": "Ana"}',
+               headers={**pcp, "Content-Type": "text/plain"})
+    assert r.status_code == 400 and r.get_json()["motivo"] == "corpo_invalido"
+    assert base.linhas[0]["situacao"] == "pendente"
+
+
+@pytest.mark.parametrize("id_", ["0", "-1", "1_0", "2147483648", "%E0%A5%A7%E0%A5%A6"])
+def test_id_fora_do_formato_e_404(c, pcp, base, id_):
+    r = c.post(f"/pedidos/data-entrega/solicitacoes/{id_}/aprovar", json={"decidido_por": "Ana"}, headers=pcp)
+    assert r.status_code == 404
+
+
+def test_limites_de_texto_na_decisao(c, pcp, base):
+    base.linhas.append(_do_comercial())
+    r = _decidir(c, pcp, 70, "recusar", decidido_por="Ana", motivo="x" * 1001)
+    assert r.status_code == 400 and r.get_json()["motivo"] == "motivo_longo"
+    r = _decidir(c, pcp, 70, "aprovar", decidido_por="A" * 81)
+    assert r.status_code == 400 and r.get_json()["motivo"] == "decidido_por_invalido"
+    r = _decidir(c, pcp, 70, "aprovar", decidido_por="Ana" + chr(10) + "Bia")
+    assert r.status_code == 400
+    duas_linhas = "linha 1" + chr(10) + "linha 2"
+    r = _decidir(c, pcp, 70, "recusar", decidido_por="Ana", motivo=duas_linhas)
+    assert r.status_code == 200 and base.linhas[0]["motivo_recusa"] == duas_linhas
+
+
+def test_cancelada_nao_muda_datas_e_libera_nova_solicitacao(c, pcp, base):
+    base.linhas.append(_pendente())
+    assert _decidir(c, pcp, 50, "cancelar", decidido_por="Ana").status_code == 200
+    b = c.get("/pedidos/84146/data-entrega", headers=pcp).get_json()
+    assert (b["data_vigente"], b["pendente"], b["aguarda"], b["alterada"]) == ("2026-11-20", None, None, False)
+    assert b["conversa"][0]["situacao"] == "cancelada"
+    assert _post(c, pcp).status_code == 201
+
+
+def test_repeticao_da_decisao_nao_gasta_o_limite(c, pcp, base, monkeypatch):
+    base.linhas.append(_do_comercial())
+    monkeypatch.setattr(apimod, "_RATE_ENTREGA_SOLICITAR_MAX", 1)
+    assert _decidir(c, pcp, 70, "aprovar", decidido_por="Ana").status_code == 200
+    r = _decidir(c, pcp, 70, "aprovar", decidido_por="Ana")
+    assert r.status_code == 200 and r.get_json()["ja_estava"] is True

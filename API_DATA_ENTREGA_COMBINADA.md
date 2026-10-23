@@ -2,7 +2,7 @@
 
 Contrato técnico das rotas e ferramentas da .11 (`192.168.7.11`) para a **Produção** pedir uma nova data de
 entrega de um pedido de venda e acompanhar a decisão do **Comercial**. Desenho completo:
-`docs/DESENHO_DATA_ENTREGA_COMBINADA.md`. Versão de 15/10/2026.
+`docs/DESENHO_DATA_ENTREGA_COMBINADA.md`. Versão de 23/10/2026 (fase 2: aprovação nos dois sentidos).
 
 > **Equipe do PCP:** comece pelo guia passo a passo `docs/GUIA_EQUIPE_PCP_DATA_ENTREGA.md` — este arquivo é a
 > referência técnica.
@@ -11,8 +11,13 @@ entrega de um pedido de venda e acompanhar a decisão do **Comercial**. Desenho 
 
 - **Vocabulário:** "pedido" = pedido de venda (o **DocNum**, o número da tela). "Solicitação" = o pedido de
   mudança da data.
-- A Produção **pede**; o Comercial **aprova ou recusa** na tela Situação dos Pedidos do OrçaView. O Comercial
-  também pode mudar a data por conta própria (essas mudanças aparecem na conversa, com `origem: "comercial"`).
+- **Mão dupla (desde 23/10/2026):** toda mudança precisa do "sim" do outro lado.
+  - A **Produção pede** (§5) → o **Comercial** aprova ou recusa na tela Situação dos Pedidos do OrçaView.
+  - O **Comercial pede** (aparece na conversa com `origem: "comercial"`) → a **Produção** aprova ou recusa
+    **pelo app da fábrica** (§7b), sempre com motivo na recusa.
+  - Enquanto ninguém decide, vale a data anterior. Ninguém decide o próprio pedido. Quem pediu pode **cancelar**
+    a própria solicitação pendente (§7b).
+  - O campo **`aguarda`** diz de quem é a vez: `"producao"` (a Produção decide) ou `"comercial"`.
 - **Nada muda sozinho e o SAP nunca é alterado.** A data do SAP (`data_sap`) fica como está; a data que vale é
   a `data_vigente`.
 - Motivo interno conta como **atraso nosso**; mudança pedida pelo cliente não.
@@ -21,7 +26,7 @@ entrega de um pedido de venda e acompanhar a decisão do **Comercial**. Desenho 
 
 | Escopo | Para quê |
 | --- | --- |
-| `entrega:solicitar` | `POST /pedidos/<n>/data-entrega/solicitacoes` e a ferramenta `solicitar_data_entrega` |
+| `entrega:solicitar` | `POST /pedidos/<n>/data-entrega/solicitacoes`, `POST /pedidos/data-entrega/solicitacoes/<id>/aprovar\|recusar\|cancelar` e as ferramentas `solicitar_data_entrega` e `decidir_data_entrega` |
 | `entrega:ler` | os dois `GET` e as ferramentas `data_entrega_pedido` e `solicitacoes_data_entrega` |
 
 `leitura` **não** abre estas rotas: a conversa traz motivos internos (ex.: quebra de máquina) que não podem chegar
@@ -99,8 +104,15 @@ timeout). A `observacao` nova é ignorada.
 {"ok": true, "pedido": 84453, "status_pedido": "Aberto", "sap_disponivel": true, "cache_idade_s": 34,
  "data_sap": "2026-11-20", "data_vigente": "2026-11-27", "data_referencia": "2026-11-20",
  "atraso_nosso_dias": 7, "alterada": true, "atrasado": true, "atrasado_fonte": "combinada",
- "pendente": null, "conversa": [ "...linhas no formato de 'solicitacao', mais antiga primeiro" ]}
+ "pendente": null, "aguarda": null,
+ "conversa": [ "...linhas no formato de 'solicitacao', mais antiga primeiro" ]}
 ```
+
+- `pendente`: a solicitação esperando decisão (de qualquer lado), ou `null`.
+- `aguarda`: `"producao"` quando a pendente é do Comercial (a Produção decide, §7b), `"comercial"` quando é da
+  Produção, `null` sem pendente.
+- Cada linha da `conversa` tem `situacao`: `pendente`, `aprovada`, `recusada` ou **`cancelada`** (desistência de
+  quem pediu), e, quando houver, `motivo_recusa` (recusa) e **`motivo_aprovacao`** (aprovação com motivo).
 
 Pedido fora da tela do Comercial (ex.: **fechado** ou **cancelado**): status e `data_sap` lidos do SAP ao vivo
 (`data_sap` = a data de entrega do pedido no SAP, `DocDueDate` — informativa, desde 15/10/2026); fechado ou
@@ -115,11 +127,49 @@ tela, o POST é recusado com `409 entrega_futura`.
 
 ## 7. `GET /pedidos/data-entrega/solicitacoes`
 
-- `?situacao=pendente` (padrão: todas as pendentes) | `decididas` (aprovadas/recusadas nos últimos `dias`,
-  incluindo as mudanças diretas do Comercial) | `todas` (pedidas ou decididas nos últimos `dias`).
+- `?situacao=pendente` (padrão: todas as pendentes) | `decididas` (aprovadas, recusadas e canceladas nos
+  últimos `dias`, de qualquer lado) | `todas` (pedidas ou decididas nos últimos `dias`).
 - `?dias=7` (1 a 90), `?limite=100` (1 a 200). Mais novas primeiro.
 - Resposta: `{"ok": true, "situacao": "...", "dias": 7, "total": N, "solicitacoes": [...]}` — cada item tem
-  `doc_num`.
+  `doc_num` e `aguarda` (`"producao"` nas pendentes do Comercial, que a Produção precisa decidir).
+- **Fila da Produção:** `?situacao=pendente` e filtre `aguarda == "producao"`.
+
+## 7b. `POST /pedidos/data-entrega/solicitacoes/<id>/<acao>` — a Produção decide (fase 2)
+
+`<id>` é o `id` da solicitação (vem em `pendente.id` do §6 ou na lista do §7). `<acao>`:
+
+| Ação | Vale para | Corpo | Efeito |
+| --- | --- | --- | --- |
+| `aprovar` | pendente do **Comercial** (`aguarda: "producao"`) | `{"decidido_por": "Ana (PCP)", "motivo": "opcional"}` | a data pedida vira a data combinada |
+| `recusar` | pendente do **Comercial** | `{"decidido_por": "Ana (PCP)", "motivo": "Prensa 3 parada até 20/11"}` — **motivo obrigatório** | a data não muda; o Comercial lê o motivo |
+| `cancelar` | pendente da **própria Produção** | `{"decidido_por": "Ana (PCP)"}` | a solicitação sai da fila; a data não muda |
+
+- `decidido_por`: o nome de quem decide (até 80 caracteres). `motivo`: até 1000 caracteres, quebra de linha
+  aceita. Com credencial `declara_usuario` + `X-SIS-Usuario`, a pessoa do cabeçalho vence a do corpo.
+- **200** `{"ok": true, "ja_estava": false, "solicitacao": {...}}` — a linha já decidida (`situacao`,
+  `decidido_por`, `decidido_em` em UTC, `motivo_recusa` ou `motivo_aprovacao`).
+- **200 `ja_estava: true`**: a mesma decisão, pela mesma pessoa, já estava gravada (repetição segura depois de um
+  timeout).
+- **409 `nao_e_sua_vez`**: a solicitação não é da Produção decidir (é da Produção → quem decide é o Comercial),
+  ou tentou cancelar um pedido do Comercial. Traz `solicitacao` com `aguarda`.
+- **409 `ja_decidida`**: alguém decidiu antes — o texto diz quem; traz `solicitacao`. Não repita.
+- **404 `solicitacao_nao_encontrada`** (id inexistente ou não numérico) e **404 `acao_invalida`**.
+- **400** `decidido_por_invalido`, `motivo_obrigatorio` (recusa sem motivo), `motivo_longo`, `motivo_invalido`,
+  `corpo_invalido` (corpo que não é JSON válido, ou não é um objeto; corpo **vazio** vale como `{}`).
+- **Cancelar é por lado:** qualquer pessoa da Produção cancela uma solicitação pendente da Produção (o app de
+  vocês pode mostrar o botão só para quem pediu). A Produção nunca cancela um pedido do Comercial.
+- **Limite:** o mesmo teto do §5 (30 por minuto, somado às solicitações). Uma repetição que só confirma o que já
+  está gravado (`ja_estava`, `ja_decidida`, `nao_e_sua_vez`) não conta.
+- Aprovar **não** revalida a data: uma pendente antiga é aprovada como está (igual ao OrçaView). Se a data já
+  passou, recuse e peça outra.
+
+Exemplo (PowerShell):
+
+```
+curl.exe -s -X POST -H "X-API-Key: SUA_CHAVE" -H "Content-Type: application/json" `
+  -d '{"decidido_por": "Ana (PCP)", "motivo": "Prensa 3 parada ate 20/11"}' `
+  http://192.168.7.11:8077/pedidos/data-entrega/solicitacoes/812/recusar
+```
 
 ## 8. Erros
 
@@ -129,9 +179,12 @@ pelo `motivo`**, nunca pelo texto.
 | HTTP | `motivo` | O que fazer |
 | --- | --- | --- |
 | 400 | `corpo_invalido`, `data_invalida`, `motivo_invalido` (traz `motivos`), `observacao_longa`, `observacao_invalida`, `solicitante_invalido`, `chave_nao_suportada` | corrigir o envio |
+| 400 | `decidido_por_invalido`, `motivo_obrigatorio`, `motivo_longo` (§7b) | corrigir o envio da decisão |
+| 404 | `solicitacao_nao_encontrada`, `acao_invalida` (§7b) | conferir o `id` (vem em `pendente.id`) e a ação |
 | 404 | `pedido_nao_encontrado` | conferir o número (é o DocNum) — também para número acima de 2.147.483.647 |
 | 404 | `fora_do_recorte` | pedido aberto que não está na tela do Comercial — avisar o suporte |
-| 409 | `ja_ha_pendente` (traz `pendente`: quem, quando, data, motivo) | esperar o Comercial decidir; não repetir |
+| 409 | `ja_ha_pendente` (traz `pendente`: quem, quando, data, motivo) | há uma solicitação esperando: se `pendente.origem` é `comercial`, a Produção decide antes (§7b); se é `producao_api`, esperar o Comercial ou cancelar a sua (§7b) |
+| 409 | `nao_e_sua_vez`, `ja_decidida` (§7b) | ver §7b; não repetir |
 | 409 | `pedido_fechado`, `pedido_cancelado`, `sem_data_sap`, `docnum_ambiguo` | não há data a mudar |
 | 409 | `entrega_futura` | pedido faturado para entrega futura que já saiu da tela do Comercial; combinar a data direto com o Comercial |
 | 422 | `data_no_passado`, `data_muito_distante`, `data_igual_a_vigente`, `parametro_invalido` | corrigir a data/parâmetro |
@@ -149,6 +202,7 @@ pelo `motivo`**, nunca pelo texto.
 | `data_entrega_pedido(pedido)` | `entrega:ler` | o `GET` do §6 |
 | `solicitacoes_data_entrega(situacao, dias)` | `entrega:ler` | o `GET` do §7 |
 | `solicitar_data_entrega(pedido, data_nova, motivo, observacao, solicitante, confirmar)` | `entrega:solicitar` | `confirmar=False` = prévia (não grava); `True` = o `POST` do §5 |
+| `decidir_data_entrega(solicitacao_id, acao, motivo, decidido_por, confirmar)` | `entrega:solicitar` | `confirmar=False` = prévia; `True` = o `POST` do §7b (`aprovar`, `recusar`, `cancelar`) |
 
 A porta 8078 carimba o **cliente** que chamou (`solicitado_cliente`, provado) e, quando o cliente MCP manda
 `X-SIS-Usuario` com uma credencial `declara_usuario`, a **pessoa** (`solicitado_por`). Sem esse cabeçalho, a

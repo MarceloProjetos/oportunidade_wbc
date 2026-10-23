@@ -3,7 +3,7 @@
 **Para quem é:** a equipe do PCP **e o agente de IA** que vai escrever o código no app de vocês.
 **O que vai ser construído:** a Produção pede uma nova data de entrega de um pedido de venda, e o app mostra a
 resposta do Comercial.
-**Versão:** 15/10/2026 (revisão 5, conferida por leitura independente: sem bloqueios). Este guia é completo: tudo que o agente precisa está aqui. A referência técnica
+**Versão:** 15/10/2026 (revisão 5), **atualizada em 23/10/2026 com a parte 10**: agora o Comercial também pede nova data, e quem aprova ou recusa é a Produção, no app de vocês. Este guia é completo: tudo que o agente precisa está aqui. A referência técnica
 `API_DATA_ENTREGA_COMBINADA.md` existe, mas **não é necessária** para implementar.
 
 ---
@@ -45,7 +45,7 @@ O agente **não sabe** estas coisas sobre o app de vocês. Preencha antes de ped
 2. Às vezes a Produção não consegue cumprir essa data (máquina quebrou, fábrica cheia, etc.).
 3. Agora a Produção pode **pedir** uma nova data pelo servidor `.11`.
 4. O pedido de nova data fica **esperando**. Quem decide é o **Comercial**, numa tela do OrçaView.
-5. O Comercial **aprova** ou **recusa**. Ele também pode mudar a data sozinho (por exemplo, quando o cliente pede).
+5. O Comercial **aprova** ou **recusa**. **Desde 23/10**, o Comercial também **pede** nova data, e quem aprova ou recusa esse pedido é a **Produção, no app de vocês** (parte 10).
 6. **O SAP nunca muda.** A data que vale passa a se chamar **data combinada**.
 
 O caminho completo:
@@ -770,11 +770,12 @@ deve acontecer se o DocNum vier do app.
 
 **O SAP é alterado?** Nunca.
 
-**E se o Comercial mudar a data sem a Produção pedir?** Aparece na conversa com `origem: "comercial"`. Essa é a data
-que a Produção deve cumprir.
+**E se o Comercial quiser mudar a data?** Desde 23/10 ele **pede**, como a Produção: o pedido aparece em
+`pendente` com `origem: "comercial"` e `aguarda: "producao"`, e a Produção aprova ou recusa no app (parte 10).
+Até lá, vale a data anterior.
 
-**Posso cancelar uma solicitação enviada por engano?** Ainda não. Peça ao Comercial para recusar com o texto
-"pedido por engano".
+**Posso cancelar uma solicitação enviada por engano?** Sim, desde 23/10: enquanto ela estiver pendente, use
+`cancelar` (parte 10).
 
 **O que é `atrasado_fonte`?** `sap` = calculado pela data do SAP (ninguém mudou a data); `combinada` = pela data
 combinada. Não precisa mostrar.
@@ -782,3 +783,120 @@ combinada. Não precisa mostrar.
 **E o MCP (`192.168.7.11:8078`)?** É para assistentes de IA conversarem com o servidor. **O app não usa.**
 
 **Algo não está aqui?** Pare e pergunte ao Marcelo. Não invente.
+
+## 10. Novo (23/10/2026): aprovar o pedido do Comercial
+
+> **O que mudou:** antes, quando o Comercial mudava a data, ela valia na hora. Agora **toda mudança precisa do
+> "sim" do outro lado**: o Comercial **pede** nova data no OrçaView, e a **Produção aprova ou recusa no app de
+> vocês**, sempre com motivo na recusa. O Comercial só vê o resultado. Enquanto ninguém decide, vale a data
+> anterior. Nada disso muda o SAP.
+
+### 10.1 Quem decide o quê
+
+| Quem pediu (`origem`) | Quem decide | Onde | Campo `aguarda` |
+| --- | --- | --- | --- |
+| Produção (`producao_api`) | Comercial | OrçaView (como sempre) | `"comercial"` |
+| Comercial (`comercial`) | **Produção** | **app de vocês** | `"producao"` |
+
+- O `GET /pedidos/<n>/data-entrega` ganhou o campo `aguarda`: `"producao"` = **vocês** decidem; `"comercial"` =
+  o Comercial; `null` = nada pendente.
+- A lista `GET /pedidos/data-entrega/solicitacoes?situacao=pendente` traz `aguarda` em cada item. **A fila de
+  vocês** = os itens com `aguarda == "producao"`.
+- Cada item da `conversa` pode ter `situacao` `"cancelada"` (quem pediu desistiu) e, quando houver,
+  `motivo_aprovacao` (o motivo de quem aprovou).
+
+### 10.2 As três ações (uma rota só)
+
+`POST http://192.168.7.11:8077/pedidos/data-entrega/solicitacoes/<id>/<acao>` — com a mesma chave `X-API-Key`
+de sempre (o escopo `entrega:solicitar` que vocês já têm). O `<id>` é o `id` da solicitação, que vem em
+`pendente.id`.
+
+| `acao` | Quando aparece | Corpo | O que acontece |
+| --- | --- | --- | --- |
+| `aprovar` | `aguarda == "producao"` | `{"decidido_por": "Ana Souza", "motivo": "opcional"}` | a data pedida pelo Comercial vira a data combinada |
+| `recusar` | `aguarda == "producao"` | `{"decidido_por": "Ana Souza", "motivo": "Prensa 3 parada até 20/11"}` — **motivo obrigatório** | a data não muda; o Comercial lê o motivo |
+| `cancelar` | `aguarda == "comercial"` e a pendente é de vocês | `{"decidido_por": "Ana Souza"}` | o pedido de vocês sai da fila; a data não muda |
+
+`decidido_por` = o nome do usuário logado, com a **mesma** função `nome_do_solicitante` do passo 3 (o backend
+preenche; o front não manda). `motivo`: até 1000 caracteres; quebra de linha pode.
+
+### 10.3 Código (acrescente ao arquivo do passo 2 e às rotas do passo 3)
+
+```python
+def decidir(id_: int, acao: str, decidido_por: str, motivo: str | None) -> tuple[int, dict]:
+    """acao: 'aprovar' | 'recusar' | 'cancelar'."""
+    corpo = {"decidido_por": decidido_por, "motivo": motivo or None}
+    return _chamar("POST", f"/pedidos/data-entrega/solicitacoes/{id_}/{acao}", json=corpo)
+
+
+class Decisao(BaseModel):                 # sem 'decidido_por' de propósito
+    motivo: str | None = None
+
+
+@router.post("/api/data-entrega/solicitacoes/{id_}/{acao}")
+def api_decidir(id_: int, acao: str, dados: Decisao, usuario=Depends(usuario_da_producao)):
+    if acao not in ("aprovar", "recusar", "cancelar"):
+        return JSONResponse(status_code=404, content={"ok": False, "motivo": "acao_invalida"})
+    nome = nome_do_solicitante(usuario)
+    if not nome:
+        return JSONResponse(status_code=400, content={"ok": False, "motivo": "decidido_por_invalido"})
+    status, corpo = decidir(id_, acao, nome, dados.motivo)
+    return JSONResponse(status_code=status, content=corpo)
+```
+
+### 10.4 Tela
+
+Ao abrir o pedido (passo 4.1), olhe `aguarda` **antes** da tabela 4.1:
+
+| `aguarda` | Mostrar |
+| --- | --- |
+| `"producao"` | um quadro **"O Comercial pediu nova data: [data_nova] — [motivo] — por [solicitado_por] em [solicitado_em]"** (e a observação, se houver), com **Aprovar** e **Recusar**. Recusar abre um campo de motivo **obrigatório**; Aprovar abre um campo de motivo **opcional** e um "Confirmar". "Pedir nova data" fica **desabilitado**: "Decida primeiro o pedido do Comercial." |
+| `"comercial"` e `pendente.solicitado_por == meu_nome` | "Esperando o Comercial…" (como hoje) + **Cancelar minha solicitação** (confirmação dentro da tela). |
+| `"comercial"` (de outra pessoa) | como hoje (tabela 4.1, linha 3). |
+| `null` | como hoje. |
+
+**Na conversa** (passo 5), acrescente:
+
+| Item | Texto |
+| --- | --- |
+| `origem` = `comercial` | "Comercial pediu [data_nova] — [motivo] — por [solicitado_por] em [solicitado_em]" |
+| e `situacao` = `aprovada` | "Aprovada pela Produção: [decidido_por] em [decidido_em]" + " — [motivo_aprovacao]" se houver |
+| e `situacao` = `recusada` | "Recusada pela Produção: [decidido_por] em [decidido_em] — [motivo_recusa]" |
+| e `situacao` = `pendente` | "Esperando a Produção" |
+| qualquer origem, `situacao` = `cancelada` | "Cancelada por [decidido_por] em [decidido_em]" |
+
+No mapa `estado` do `conferirEnvio` (passo 4.3), acrescente `cancelada: 'cancelada'`.
+
+> Mudanças **antigas** do Comercial (antes de 23/10) vêm com `origem: "comercial"`, `situacao: "aprovada"` e
+> `decidido_por` igual a quem pediu: mostre "Comercial mudou para [data_nova]…", como antes.
+
+### 10.5 Respostas da decisão
+
+| HTTP | `motivo` | Mostrar | Ação |
+| --- | --- | --- | --- |
+| 200 | — | "Aprovada." / "Recusada." / "Solicitação cancelada." e recarregue o pedido (`GET`) | sucesso |
+| 200 `ja_estava: true` | — | "Essa decisão já estava registrada." e recarregue | sucesso |
+| 400 | `motivo_obrigatorio` | "Escreva o motivo da recusa — o Comercial vai ler." | corrigir |
+| 400 | `motivo_longo` / `motivo_invalido` | "O motivo passou de 1000 caracteres ou tem um caractere não aceito." | corrigir |
+| 400 | `decidido_por_invalido` | "Não foi possível identificar quem está decidindo. Entre de novo no app." | desistir |
+| 409 | `ja_decidida` | o `error` (diz quem decidiu antes) e recarregue | desistir |
+| 409 | `nao_e_sua_vez` | "Esta solicitação não é para a Produção decidir." e recarregue | desistir |
+| 404 | `solicitacao_nao_encontrada` / `acao_invalida` | "Solicitação não encontrada. Recarregue o pedido." | desistir |
+| 503 / 504 / sem resposta | `base_indisponivel`, `tempo_esgotado` | "Não deu para confirmar. Conferindo…" → faça o `GET`; se a pendente sumiu ou mudou, mostre o que veio; se continua pendente, deixe decidir de novo | consultar |
+
+**E o "Pedir nova data" com pedido do Comercial pendente?** A `.11` responde `409 ja_ha_pendente` com
+`pendente.origem == "comercial"` e o texto "há um pedido do Comercial esperando a decisão da Produção". A tabela
+10.4 já desabilita o botão nesse caso.
+
+### 10.6 Testes (acrescente aos do passo 7)
+
+1. com `aguarda == "producao"`, a tela mostra Aprovar e Recusar, e "Pedir nova data" fica desabilitado;
+2. recusar sem motivo não chama a `.11` (o front pede o motivo) — e, se chamar, `400 motivo_obrigatorio` vira a
+   mensagem da tabela 10.5;
+3. `decidido_por` vem do usuário logado, nunca do front;
+4. só usuário da Produção decide (403 para os outros, sem chamar a `.11`);
+5. `409 ja_decidida` mostra quem decidiu e recarrega;
+6. "Cancelar minha solicitação" só aparece na pendente da própria pessoa.
+
+**Pronto quando:** com o Marcelo e uma pessoa do Comercial, o Comercial pede uma nova data num pedido de teste, o
+app mostra o pedido, a Produção recusa com o motivo "teste" e o OrçaView mostra "Recusada pela Produção … — teste".

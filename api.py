@@ -40,6 +40,7 @@ Endpoints
 - ``GET  /pedidos/<numero>/historico``      → who changed the order and what (ADOC + archive)
 - ``GET  /pedidos/<numero>/data-entrega``   → agreed delivery date + request thread
 - ``POST /pedidos/<numero>/data-entrega/solicitacoes`` → Production asks for a new date
+- ``POST /pedidos/data-entrega/solicitacoes/<id>/aprovar|recusar|cancelar`` → Production decides
 - ``GET  /pedidos/data-entrega/solicitacoes`` → requests across orders
 - ``GET  /compras/pedidos-itens``           → purchase-order lines (VW_ALTA_PEDIDOS_COMPRA_ITENS)
 - ``GET  /rh/colaboradores``                → Kairos roster mirror (company → sector → people)
@@ -2470,7 +2471,8 @@ def _pedido_encerrado_ordr(n: int, info: dict, situacao: str) -> dict:
 # ---------------------------------------------------------------------------
 # Data de entrega combinada — Production's requests (PLANO_DATA_ENTREGA_COMBINADA, F4)
 # ---------------------------------------------------------------------------
-# Production asks for a new delivery date; Comercial decides on the OrçaView screen (.90).
+# Production asks for a new delivery date and Comercial decides on the OrçaView screen (.90); since
+# phase 2 (23/10/2026) Comercial also asks and Production decides here (``entrega_decidir``).
 # Nothing here writes to SAP. Design and every refusal: docs/DESENHO_DATA_ENTREGA_COMBINADA.md;
 # contract for the PCP team: API_DATA_ENTREGA_COMBINADA.md.
 
@@ -2593,8 +2595,10 @@ def _bloco_entrega(n: int, linhas: list, pedido: dict | None, *, sap_disponivel:
         if (bloco['atrasado_fonte'] == 'combinada' and bloco['atrasado'] is False
                 and aberto and bloco['data_referencia'] is None):
             bloco['atrasado'] = None
+    # Phase 2: who must decide the pending request (outside the ported core, which stays byte-equal).
     return {'ok': True, 'pedido': n, 'status_pedido': status, 'sap_disponivel': sap_disponivel,
-            'cache_idade_s': sit_ped_hana.idade_do_cache_s() if sap_disponivel else None, **bloco}
+            'cache_idade_s': sit_ped_hana.idade_do_cache_s() if sap_disponivel else None, **bloco,
+            'aguarda': entrega.aguarda(bloco.get('pendente'))}
 
 
 @app.post('/pedidos/<numero>/data-entrega/solicitacoes')
@@ -2624,17 +2628,22 @@ def entrega_solicitar(numero: str):
         return _recusa_entrega(n, exc)
 
     def _repeticao(linhas: list):
-        """The pending row decides a repeat: same content → 200; another → 409."""
+        """The pending row decides a repeat: same content from Production → 200; anything else → 409.
+
+        A Comercial pending with the same date and reason is NOT a repeat: it waits for Production's
+        decision, and answering ``ja_existia`` would leave both sides waiting on each other.
+        """
         pendente = next((r for r in linhas if r.get('situacao') == 'pendente'), None)
         if pendente is None:
             return None
-        if (pendente.get('data_nova') == pedido_corpo['data_nova'].isoformat()
+        if (pendente.get('origem') == 'producao_api'
+                and pendente.get('data_nova') == pedido_corpo['data_nova'].isoformat()
                 and pendente.get('motivo') == pedido_corpo['motivo']):
             return jsonify(ok=True, ja_existia=True, solicitacao=pendente, aviso=_AVISO_ENTREGA), 200
-        return _recusa_entrega(n, entrega.Recusa(
-            409, 'ja_ha_pendente',
-            'ja existe uma solicitacao pendente para este pedido - o Comercial decide antes',
-            pendente=pendente))
+        quem = ('ha um pedido do Comercial esperando a decisao da Producao - aprove ou recuse antes'
+                if entrega.aguarda(pendente) == 'producao'
+                else 'ja existe uma solicitacao pendente para este pedido - o Comercial decide antes')
+        return _recusa_entrega(n, entrega.Recusa(409, 'ja_ha_pendente', quem, pendente=pendente))
 
     try:
         linhas = entrega.linhas_do_pedido(base, n)
@@ -2806,7 +2815,102 @@ def entrega_solicitacoes():
     except Exception as exc:
         logger.error("[ENTREGA] listagem falhou: %s", exc)
         return _recusa_entrega(None, entrega.Recusa(503, 'base_indisponivel', 'base de dados indisponivel agora'))
+    for linha in linhas:
+        linha['aguarda'] = entrega.aguarda(linha)
     return jsonify(ok=True, situacao=situacao, dias=dias, total=len(linhas), solicitacoes=linhas)
+
+
+#: Production's word on a request: what changes in the row, per action (phase 2, F7).
+_TEXTO_ACAO = {'aprovar': 'aprovada', 'recusar': 'recusada', 'cancelar': 'cancelada'}
+
+
+@app.post('/pedidos/data-entrega/solicitacoes/<id_>/<acao>')
+@requer_chave('entrega:solicitar')
+def entrega_decidir(id_: str, acao: str):
+    """Production approves or refuses Comercial's pending request, or cancels a Production one.
+
+    Conditional UPDATE (pending AND the right origin): two deciders never overwrite each other.
+    The row is read first, so a retry of the same decision by the same person answers
+    ``200 ja_estava`` before the rate limit; anything already decided is ``409 ja_decidida``.
+    Cancel is per side: any Production person cancels a Production request. Never writes SAP.
+    """
+    if acao not in entrega.ACOES:
+        return _recusa_entrega(None, entrega.Recusa(404, 'acao_invalida',
+                                                    'acao deve ser aprovar, recusar ou cancelar'))
+    # ASCII digits only: int() also takes "1_0" and non-Latin digits.
+    if not (id_.isascii() and id_.isdigit()) or not 0 < int(id_) <= 2_147_483_647:
+        return _recusa_entrega(None, entrega.Recusa(404, 'solicitacao_nao_encontrada',
+                                                    'id da solicitacao invalido'))
+    sol = int(id_)
+    base = _base_entrega()
+    if base is None:
+        return _recusa_entrega(None, entrega.Recusa(503, 'base_nao_configurada',
+                                                    'base de dados sem a chave de servico nesta maquina'))
+    cliente = _cliente()
+    corpo_json = request.get_json(silent=True)
+    if corpo_json is None and request.get_data().strip():
+        # Broken JSON or another content type: never read as "no reason given".
+        return _recusa_entrega(None, entrega.Recusa(400, 'corpo_invalido', 'corpo nao e JSON valido'))
+    try:
+        corpo = entrega.validar_decisao(acao, corpo_json, decisor_declarado=_usuario_declarado(cliente))
+    except entrega.Recusa as exc:
+        return _recusa_entrega(None, exc)
+
+    def _ja_resolvida(atual: dict | None):
+        """Answer for a row that cannot change now (missing, other side's turn, already decided)."""
+        if atual is None:
+            return _recusa_entrega(None, entrega.Recusa(404, 'solicitacao_nao_encontrada',
+                                                        f'solicitacao {sol} nao existe'))
+        n = atual.get('doc_num')
+        alvo = entrega.ACOES[acao]
+        if atual.get('situacao') == 'pendente':
+            texto = ('esta solicitacao e da Producao - quem aprova ou recusa e o Comercial, no OrcaView'
+                     if acao != 'cancelar' else
+                     'esta solicitacao e do Comercial - a Producao aprova ou recusa, nao cancela')
+            return _recusa_entrega(n, entrega.Recusa(409, 'nao_e_sua_vez', texto,
+                                                     solicitacao={**atual, 'aguarda': entrega.aguarda(atual)}))
+        if (atual.get('origem') == alvo['origem'] and atual.get('situacao') == alvo['situacao']
+                and atual.get('decidido_por') == corpo['decidido_por']):
+            return jsonify(ok=True, ja_estava=True, solicitacao={**atual, 'aguarda': None}), 200
+        return _recusa_entrega(n, entrega.Recusa(
+            409, 'ja_decidida',
+            f"esta solicitacao ja foi {atual.get('situacao')} por {atual.get('decidido_por') or '-'}",
+            solicitacao={**atual, 'aguarda': None}))
+
+    def _base_fora(exc: Exception):
+        logger.error("[ENTREGA] decisao %s da solicitacao %s falhou: %s", acao, sol, exc)
+        return _recusa_entrega(None, entrega.Recusa(
+            503, 'base_indisponivel',
+            'base de dados nao confirmou - confira com GET /pedidos/<n>/data-entrega antes de repetir'))
+
+    try:
+        atual = entrega.uma_linha(base, sol)
+    except Exception as exc:
+        return _base_fora(exc)
+    if (atual is None or atual.get('situacao') != 'pendente'
+            or atual.get('origem') != entrega.ACOES[acao]['origem']):
+        return _ja_resolvida(atual)
+
+    excedido = _checar_rate('entrega_solicitar', _RATE_ENTREGA_SOLICITAR_MAX)
+    if excedido:
+        return excedido
+
+    from datetime import UTC, datetime
+    mudanca = {'situacao': entrega.ACOES[acao]['situacao'], 'decidido_por': corpo['decidido_por'],
+               'decidido_em': datetime.now(UTC).isoformat(timespec='seconds')}
+    if acao == 'recusar':
+        mudanca['motivo_recusa'] = corpo['motivo']
+    elif acao == 'aprovar' and corpo['motivo']:
+        mudanca['motivo_aprovacao'] = corpo['motivo']
+    try:
+        linha = entrega.decidir(base, sol, acao, mudanca)
+        if linha is None:   # someone decided between our read and our update
+            return _ja_resolvida(entrega.uma_linha(base, sol))
+    except Exception as exc:
+        return _base_fora(exc)
+    logger.info("[ENTREGA] solicitacao %s (pedido %s) %s pela Producao: %s / %s", sol, linha.get('doc_num'),
+                _TEXTO_ACAO[acao], corpo['decidido_por'], _cliente_que_pede(cliente))
+    return jsonify(ok=True, ja_estava=False, solicitacao={**linha, 'aguarda': None}), 200
 
 
 @app.get('/compras/pedidos-itens')

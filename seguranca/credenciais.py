@@ -46,8 +46,9 @@ ESCOPOS: dict[str, str] = {
     "mcp": "conectar ao MCP (8078); as ferramentas seguem os outros escopos",
     "backup:relatar": "o ALTHOST manda o estado dos backups do Veeam (só grava o próprio relato)",
     "hyperv:relatar": "um host Hyper-V manda o estado das VMs dele (só grava o próprio relato)",
-    "entrega:solicitar": ("pedir a mudança da data de entrega combinada de um pedido (grava uma "
-                          "solicitação na base; o Comercial decide no OrçaView; nunca grava no SAP)"),
+    "entrega:solicitar": ("pedir a mudança da data de entrega combinada de um pedido e decidir (aprovar, "
+                          "recusar, cancelar) as solicitações do lado da Produção; grava na base, "
+                          "nunca no SAP"),
     "entrega:ler": ("ler a data de entrega combinada e a conversa das solicitações "
                     "(traz motivos internos da Produção)"),
     "admin": "tudo — só a chave-mestra e quem administra",

@@ -77,6 +77,7 @@ ESCOPO_DA_FERRAMENTA: dict[str, str] = {
     "data_entrega_pedido": "entrega:ler",
     "solicitacoes_data_entrega": "entrega:ler",
     "solicitar_data_entrega": "entrega:solicitar",
+    "decidir_data_entrega": "entrega:solicitar",
     "pedidos_compra_itens": "leitura",
 }
 ESCOPO_DO_RECURSO: dict[str, str] = {
@@ -88,7 +89,7 @@ ESCRITAS = frozenset({"os:sincronizar", "oportunidades:carga", "pedidos_wbc", "s
                       "entrega:solicitar"})
 #: Tools whose ``pedido_por``/``em_nome_de`` arguments the door overwrites with the truth.
 PEDIDOS = frozenset({"pedir_sincronizar_os", "pedir_forcar_carga", "pedir_processar_pedido",
-                     "pedir_reiniciar_servico", "solicitar_data_entrega"})
+                     "pedir_reiniciar_servico", "solicitar_data_entrega", "decidir_data_entrega"})
 #: The two direct writes that still take ``confirmar=True`` from people (rule 0); for an
 #: agent the model's ``confirmar`` no longer runs anything (F3, rule 1).
 DIRETAS = {"sincronizar_pedido_os": "pedir_sincronizar_os",
