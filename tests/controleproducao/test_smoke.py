@@ -28,7 +28,7 @@ def test_modulo_removido_nao_responde_mais():
 def test_modulos_respondem():
     # `?buscar=0`: since 30/09/2026 opening Pedidos WBC searches the SAP by itself, and this
     # smoke test has no SAP double (the conftest locks the drivers).
-    for path in ["/pedidos-wbc?buscar=0", "/manutencao-op", "/romaneio"]:
+    for path in ["/pedidos-wbc?buscar=0", "/manutencao-op"]:
         resp = client.get(path)
         assert resp.status_code == 200
 
@@ -39,12 +39,11 @@ def test_cli_help():
     assert "pedidos-wbc" in result.output
 
 
-def test_cli_modulo_nao_implementado_avisa_e_sai_com_erro():
-    # pedidos-wbc (15/09) e manutencao-op (16-17/09) já foram implementados; romaneio é o
-    # último esqueleto restante, então é ele quem exercita esse caminho agora.
-    result = cli_runner.invoke(cli_app, ["romaneio", "buscar", "123"])
-    assert result.exit_code == 2
-    assert "não foi implementado" in result.output
+def test_romaneio_removido():
+    """23/10/2026 — the owner removed the Romaneio skeleton (screen, route and CLI command)."""
+    assert client.get("/romaneio").status_code == 404
+    result = cli_runner.invoke(cli_app, ["--help"])
+    assert result.exit_code == 0 and "romaneio" not in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -80,14 +79,6 @@ def test_app_sobe_de_qualquer_diretorio_de_trabalho():
         caminho = Path(montagem.app.directory)
         assert caminho.is_absolute(), caminho
         assert caminho.is_dir()
-
-
-def test_romaneio_fora_do_menu():
-    """24/09/2026 — a pedido do Anderson, o Romaneio saiu do menu e da página inicial.
-    O módulo (esqueleto) e a rota continuam no código; só não são mais oferecidos."""
-    for pagina in ["/", "/pedidos-wbc?buscar=0", "/manutencao-op"]:
-        html = client.get(pagina).text
-        assert 'href="/romaneio"' not in html, pagina
 
 
 def test_env_com_bom_do_bloco_de_notas(tmp_path):

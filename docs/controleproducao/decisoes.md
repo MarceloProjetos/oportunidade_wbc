@@ -237,6 +237,7 @@
 ## Romaneio fora do menu (24/09/2026)
 
 - A pedido do Anderson, o Romaneio saiu do menu e da página inicial. O esqueleto do módulo, a rota e o comando da CLI continuam no código, só não aparecem mais na navegação.
+- **23/10/2026 — removido de vez** (decisão do Marcelo, na faxina de código sem uso): módulo `modules/romaneio/`, rota `/romaneio`, comando `romaneio` da CLI e a página `em_construcao.html`. Se o Romaneio voltar a ser portado, começa do zero a partir do `Views/Romaneio.b1f.cs` do addon (o original continua lá).
 
 ## Pacote de implantação para servidor Windows (24/09/2026)
 

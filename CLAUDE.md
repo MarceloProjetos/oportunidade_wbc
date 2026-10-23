@@ -48,7 +48,7 @@ Guias dos pacotes: `docs/wbc/README.md` (+ `DECISOES.md`) e `docs/controleproduc
 | `windows_update.py` | Reboot/updates pendentes (winreg + COM via PowerShell, cache). Porte diffável do SAP_RDP |
 | `ordens_producao_sl.py` | Escrita SAP nº 1: status de OP via Service Layer. Irmão de `web_orcaview_V118/backend/services/compras_sap_service.py` |
 | `wbcpython/` | Escrita SAP nº 2 (o worker): `domain/` (sem I/O), `application/`, `infrastructure/`, `tracking/` (SQLite), `host/`, `dashboard/`, `cli.py`, `safety.py`, `padroes.py` |
-| `controleproducao/` | Escrita SAP nº 3: `main.py` (FastAPI), `cli.py` (Typer), `config.py`, `core/` (trava/logout, guardas, tarefas, histórico, acesso, `sql_ligado`), `modules/{pedidos_wbc,manutencao_op,romaneio}/`. NÃO se chama `app` (colide com `api.py:app`) |
+| `controleproducao/` | Escrita SAP nº 3: `main.py` (FastAPI), `cli.py` (Typer), `config.py`, `core/` (trava/logout, guardas, tarefas, histórico, acesso, `sql_ligado`), `modules/{pedidos_wbc,manutencao_op}/`. NÃO se chama `app` (colide com `api.py:app`) |
 | `casa/` | Casca comum das telas da .11: `_casa.html` (`cabeca()`/`barra()`), `casa.css` (**sem `color-mix`**), `casa.js`, `TELAS`; `acesso.py` (cookie de login comum); cada app chama `casa.instalar(env)` |
 | `sap_connection.py` · `db_utils.py` · `retry.py` | `SAPExtractor` (hdbcli; `execute_query(sql, params)`) · `read_dbapi_query` · retry |
 | `sql_seguro.py` | `sql(t"...")`: `{v}` → `?`, `{n:ident}` identificador, `{n:int}` literal; `nome_simples()` |
@@ -240,7 +240,7 @@ python api.py                 # API local (8077)
 python -m scripts.scheduled_execution
 python -m wbcpython --help    # env, doctor, check-sap, check-hana, pendentes, ciclo, worker, dashboard, pesos, datas-de-abertura, faxina, janela
 python -m wbcpython pendentes --exportar state/wbc_previsao.json   # o que o ciclo FARIA (só leitura)
-python -m controleproducao --help   # web, pedidos-wbc, manutencao-op, romaneio, conexoes, diag
+python -m controleproducao --help   # web, pedidos-wbc, manutencao-op, conexoes, diag
 python -m controleproducao pedidos-wbc buscar   # só leitura
 ```
 

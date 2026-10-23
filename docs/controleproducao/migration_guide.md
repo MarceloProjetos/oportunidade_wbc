@@ -1770,6 +1770,9 @@ A pedido do Anderson, o item "Romaneio" saiu do menu superior (`base.html`) e da
 `/romaneio` com a página "em construção", comando `romaneio` da CLI), sem link nenhum para ele. Teste
 novo em `test_smoke.py` garante que nenhuma página volte a oferecer o link.
 
+**Atualização 23/10/2026:** o esqueleto foi removido de vez (módulo, rota, comando da CLI e a página
+"em construção"); `test_smoke.py::test_romaneio_removido` garante que `/romaneio` dá 404.
+
 
 ### 7.46 Pacote de implantação para servidor Windows (24/09/2026)
 

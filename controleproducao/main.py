@@ -31,7 +31,6 @@ from controleproducao.modules.manutencao_op.api_router import router as manutenc
 from controleproducao.modules.manutencao_op.router import router as manutencao_op_router
 from controleproducao.modules.pedidos_wbc.api_router import router as pedidos_wbc_api_router
 from controleproducao.modules.pedidos_wbc.router import router as pedidos_wbc_router
-from controleproducao.modules.romaneio.router import router as romaneio_router
 from wbcpython.dashboard import acesso as painel
 
 
@@ -121,7 +120,6 @@ app.include_router(pedidos_wbc_router)
 app.include_router(pedidos_wbc_api_router)
 app.include_router(manutencao_op_router)
 app.include_router(manutencao_op_api_router)
-app.include_router(romaneio_router)
 app.include_router(tarefas_router)
 
 # Login gate (same cookie as the painel WBC), /health, /entrar, /painel-wbc — see core/acesso.py.

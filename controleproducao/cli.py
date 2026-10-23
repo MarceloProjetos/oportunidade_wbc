@@ -43,7 +43,6 @@ from controleproducao.core.sqlserver_client import WbcSqlServerClient
 from controleproducao.modules.manutencao_op import service as manutencao_op_service
 from controleproducao.modules.pedidos_wbc import queries as pedidos_wbc_queries
 from controleproducao.modules.pedidos_wbc import service as pedidos_wbc_service
-from controleproducao.modules.romaneio import service as romaneio_service
 
 app = typer.Typer(help="Controle de Produção — WBC (CLI). Ver migration_guide.md para o contexto completo.")
 console = Console()
@@ -56,13 +55,11 @@ manutencao_op_app = typer.Typer(
     help="Módulo 3 — Manutenção de OP: buscar, liberar, replanejar e encerrar "
          "(com movimentação de estoque)."
 )
-romaneio_app = typer.Typer(help="Módulo 4 — Romaneio. Prioridade 4, em construção.")
 conexoes_app = typer.Typer(help="Diagnóstico de conectividade (Service Layer / HANA / WBC SQL Server).")
 diag_app = typer.Typer(help="Diagnóstico da Service Layer — descobrir nomes reais de entidade/campo.")
 
 app.add_typer(pedidos_wbc_app, name="pedidos-wbc")
 app.add_typer(manutencao_op_app, name="manutencao-op")
-app.add_typer(romaneio_app, name="romaneio")
 app.add_typer(conexoes_app, name="conexoes")
 app.add_typer(diag_app, name="diag")
 
@@ -301,14 +298,6 @@ def _imprime_ops_com_erro(resultado: dict) -> None:
     console.print(f"[red]Falharam:[/red] {len(resultado['com_erro'])} OP(s)")
     for erro in resultado["com_erro"]:
         console.print(f"  - OP {erro['doc_num']} (item {erro['item_code']}): {erro['motivo']}")
-
-
-def _falha_nao_implementado(modulo: str, comando: str) -> None:
-    console.print(
-        f"[yellow]O comando '{comando}' do módulo '{modulo}' ainda não foi implementado.[/yellow]\n"
-        f"Ver TODOs em controleproducao/modules/{modulo.replace('-', '_')}/service.py e a seção 7 do "
-        f"migration_guide.md para o que falta portar do C# original."
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -1328,26 +1317,6 @@ def manutencao_op_encerrar(
                     f"falhou ({estado}). Use `manutencao-op replanejar`.[/yellow]"
                 )
         raise typer.Exit(code=1)
-
-
-# ---------------------------------------------------------------------------
-# Módulo 4 — Romaneio (esqueleto)
-# ---------------------------------------------------------------------------
-@romaneio_app.command("buscar")
-def romaneio_buscar(doc_num: str = typer.Argument(..., help="Nº do pedido de venda (DocNum).")):
-    """Equivalente à busca da tela Romaneio. NÃO IMPLEMENTADO."""
-
-    async def _main():
-        settings = get_settings()
-        async with ServiceLayerClient(settings) as sl:
-            return await romaneio_service.buscar_disponivel(sl, doc_num)
-
-    try:
-        resultados = _run(_main())
-        console.print_json(json.dumps(resultados, default=str))
-    except NotImplementedError:
-        _falha_nao_implementado("romaneio", "buscar")
-        raise typer.Exit(code=2)
 
 
 # ---------------------------------------------------------------------------

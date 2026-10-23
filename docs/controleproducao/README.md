@@ -16,7 +16,8 @@ em uso (a numeração é a do addon):
 - **3 — Manutenção de OP:** liberar, replanejar e **encerrar com movimentação de estoque**
   (saída de insumo + entrada de produto + fechamento — irreversível).
 
-Módulo 4 (Romaneio) é esqueleto, fora do menu. Módulo 1 saiu do escopo em 22/09/2026.
+Módulo 4 (Romaneio) foi removido em 23/10/2026 (era só esqueleto: tela "em construção" e comando que
+não fazia nada). Módulo 1 saiu do escopo em 22/09/2026.
 
 Desde 28/09/2026 o pacote mora aqui, no mesmo molde do `wbcpython/`: **um Python** (o global
 da .11, sem venv), **um `.env`** (o da raiz), **um login** (o cookie do painel WBC), **um deploy**
@@ -26,7 +27,7 @@ da .11, sem venv), **um `.env`** (o da raiz), **um login** (o cookie do painel W
 ## Como rodar (na raiz do repositório, sempre)
 
 ```bash
-python -m controleproducao --help                 # web, pedidos-wbc, manutencao-op, romaneio, conexoes, diag
+python -m controleproducao --help                 # web, pedidos-wbc, manutencao-op, conexoes, diag
 python -m controleproducao web                    # a tela (CP_HOST/CP_PORTA do .env; log em CP_LOG_FILE)
 python -m controleproducao conexoes testar        # Service Layer, HANA e SQL Server do WBC (só leitura)
 python -m controleproducao pedidos-wbc buscar     # pedidos pendentes de OP (só leitura)
@@ -147,7 +148,7 @@ recria — o pedido volta para "Pedidos novos". Os comandos da CLI que gravam de
 | `controleproducao/core/service_layer_client.py` | cliente httpx; `_assegura_escrita` em `_request`/`_via_batch`; `/Logout` |
 | `controleproducao/core/confirmacao.py` · `core/tarefas.py` | token de uso único; execuções em memória (1 por módulo) |
 | `controleproducao/core/historico.py` | tela Execuções: as 30 últimas terminadas no Supabase (`controle_producao_execucoes`, `sql/`), só na .11; sobrevivem ao restart |
-| `controleproducao/modules/{pedidos_wbc,manutencao_op,romaneio}/` | `service.py` (regra), `queries.py` (SQL), `router.py`, `schemas.py` |
+| `controleproducao/modules/{pedidos_wbc,manutencao_op}/` | `service.py` (regra), `queries.py` (SQL), `router.py`, `schemas.py` |
 | `controleproducao/modules/pedidos_wbc/resources/` | `Solda.txt`, `Explosao.txt` — listas de negócio lidas pelo código, não remover |
 | `controleproducao/templates/` · `static/` | Jinja + CSS (guia visual em `GUIA_ESTILO_ORCAVIEW.md`) |
 | `tests/controleproducao/` | os 244 testes do pacote + config, acesso, comando `web`, trava/logout, SQL ligado e trava de leitura, histórico (≈460 em 30/09) |

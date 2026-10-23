@@ -6,6 +6,13 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-23] — Controle de Produção: Romaneio removido
+
+O módulo 4 (Romaneio) era só esqueleto desde setembro: a tela `/romaneio` mostrava "em construção" e o
+comando `romaneio buscar` saía com "não implementado". Saíram o módulo `modules/romaneio/`, a rota, o comando
+da CLI, a página `em_construcao.html`, o ícone e o atalho de volta da tela de execução. Teste novo
+(`test_romaneio_removido`): `/romaneio` dá 404 e a CLI não lista mais o comando. **Pede deploy da .11.**
+
 ## [2026-10-23] — Faxina: código sem uso e documentação em dia
 
 Auditoria do repo inteiro (varredura estática + revisão manual): removido o que não tinha **nenhum** uso,
