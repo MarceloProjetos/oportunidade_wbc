@@ -553,7 +553,15 @@ class TestSql:
         for sql in (sql_pedidos_mensal('SBOALTAMIRAPROD', 2024),
                     sql_detalhe_recente('SBOALTAMIRAPROD', date(2026, 7, 1), date(2026, 8, 12))):
             assert sql.count('"VW_PEDIDO_ALTA"') == 1
-            assert re.search(r'"VW_PEDIDO_ALTA"\s+GROUP BY "DOC"\)', sql)
+            assert re.search(r'GROUP BY "DOC"\)', sql)
+
+    def test_nota_espelho_nao_soma_nos_pedidos(self):
+        # 84534 (26/10/2026) is a mirror order: counted, it doubled the day's sales.
+        for sql in (sql_pedidos_mensal('SBOALTAMIRAPROD', 2024),
+                    sql_detalhe_recente('SBOALTAMIRAPROD', date(2026, 7, 1), date(2026, 8, 12))):
+            assert re.search(r'NOT EXISTS \(SELECT 1 FROM "SBOALTAMIRAPROD"\."ORDR" e\s+'
+                             r'WHERE e\."DocNum" = v\."DOC"\s+'
+                             r'AND e\."U_U_INO_NotaEspelho" = \'Y\'\)', sql)
 
     def test_intervalo_do_detalhe_e_meio_aberto_e_inclui_hoje_inteiro(self):
         sql = sql_detalhe_recente('SBOALTAMIRAPROD', date(2026, 7, 1), date(2026, 8, 12))

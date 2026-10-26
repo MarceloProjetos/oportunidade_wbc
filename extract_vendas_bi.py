@@ -116,11 +116,17 @@ def _pedidos_unicos(schema: str) -> str:
     R$ 49.899,33 and 3 orders too many in 2026 (R$ 105.229,56 and 4 in 2024).
     The columns read here are identical across the repeats, so ``MAX`` only picks
     among equal values. Web twin: ``resultados_estado_service.normalizar_pedidos``.
+
+    Orders flagged ``ORDR.U_U_INO_NotaEspelho = 'Y'`` are mirrors of a sale
+    already counted (84534, 26/10/2026), so they never enter the sums.
     """
     return f'''(SELECT "DOC", MAX("DATA") AS "DATA", MAX("CodVend") AS "CodVend",
                        MAX("CardCode") AS "CardCode", MAX("Cliente") AS "Cliente",
                        MAX("VlrPedido") AS "VlrPedido"
-                  FROM "{schema}"."VW_PEDIDO_ALTA"
+                  FROM "{schema}"."VW_PEDIDO_ALTA" v
+                 WHERE NOT EXISTS (SELECT 1 FROM "{schema}"."ORDR" e
+                                    WHERE e."DocNum" = v."DOC"
+                                      AND e."U_U_INO_NotaEspelho" = 'Y')
                  GROUP BY "DOC")'''
 
 

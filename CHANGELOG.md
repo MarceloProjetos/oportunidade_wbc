@@ -6,6 +6,14 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-26] — Vendas BI: pedido com Nota Espelho não soma
+
+Pedido do Marcelo: o 84534 (POLYEXCEL, R$ 67.049,02, `ORDR.U_U_INO_NotaEspelho = 'Y'`) entrou no card
+"Hoje" da tela Vendas Resultados. As consultas de pedidos (`_pedidos_unicos`, que alimenta KPIs, rankings
+e série mensal) passam a cortar todo pedido com Nota Espelho por `NOT EXISTS` no `ORDR`. Na conferência a
+`VW_PEDIDO_ALTA` já não trazia nenhum pedido espelho (22 no ORDR): o filtro é a proteção caso a view volte a
+trazê-los. Teste `test_nota_espelho_nao_soma_nos_pedidos`. **Pede deploy da .11.**
+
 ## [2026-10-23] — Data de entrega combinada, fase 2: a Produção decide o pedido do Comercial (F7)
 
 Pedido do Marcelo (PLANO_DATA_ENTREGA_COMBINADA, D11–D17): toda mudança de data precisa do "sim" do outro lado. O
