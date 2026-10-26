@@ -420,12 +420,15 @@ def test_executar_roda_pelo_orcamento_sem_forcar_e_aparece_nas_execucoes(c, ambi
 
 
 def test_execucao_de_pedido_nota_espelho_fica_marcada(c, ambiente, execucao_falsa):
-    """05/10/2026 (owner): an execution over a mirror order says so in Execuções."""
+    """05/10/2026 (owner): an execution over a mirror order says so in Execuções.
+
+    Through Reprocessar: since 26/10/2026 Processar refuses a mirror order
+    (`test_nota_espelho_bloqueio.py`)."""
     ambiente[1] = ambiente[1].model_copy(update={"nota_espelho": True})     # 84202
-    token = _token(c, (4301, 4302))
-    with patch(f"{SVC}.processar_pedidos_novos",
-               AsyncMock(return_value={"processados": [], "com_erro": []})):
-        resposta = c.post(f"{API}/processar/executar", json={"token": token, "solicitante": "Ana"},
+    token = _token(c, (4301, 4302), "reprocessar")
+    with patch(f"{SVC}.reprocessar_pedidos_integrados",
+               AsyncMock(return_value={"atualizados": [], "com_erro": []})):
+        resposta = c.post(f"{API}/reprocessar/executar", json={"token": token, "solicitante": "Ana"},
                           headers=CABECALHO)
         execucao = resposta.json()["execucao"]
         _espera(c, execucao["id"])

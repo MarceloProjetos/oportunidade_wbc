@@ -29,6 +29,8 @@ HTTP_DA_RECUSA = {
     "fora_da_lista": 409,
     # Pedidos WBC: a cancelled order of the same quote still has live OPs (PLANO_TROCA_PN_COM_OP).
     "ops_orfas": 409,
+    # Pedidos WBC: a Nota Espelho order is not confirmed yet and never goes to production.
+    "nota_espelho": 409,
 }
 
 

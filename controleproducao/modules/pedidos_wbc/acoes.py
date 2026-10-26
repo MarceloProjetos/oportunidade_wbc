@@ -170,6 +170,7 @@ def monta_plano(
         )
 
     if not integrados:
+        _recusa_nota_espelho(selecionados)
         _recusa_ops_orfas(selecionados)
 
     operacao = operacao_do_modo(integrados)
@@ -225,6 +226,26 @@ def avisos_do_plano(plano: Plano) -> list[dict]:
          "mensagem": service.mensagem_proposta_desatualizada(i["Pedido"], i["WBC"], i["_proposta"])}
         for i in plano.itens if i.get("_proposta")
     ]
+
+
+def _recusa_nota_espelho(selecionados: list) -> None:
+    """Processar refused for a Nota Espelho order, "forçar" included (Marcelo, 26/10/2026).
+
+    The mirror order is not confirmed yet: creating its OPs would send it to the factory.
+    Reprocessar stays open — it only cancels planned OPs, it never creates one.
+    """
+    espelhos = [p for p in selecionados if p.nota_espelho]
+    if not espelhos:
+        return
+    raise Recusa(
+        "nota_espelho",
+        " ".join(service.mensagem_nota_espelho(p.doc_num, p.orc_num_masc) for p in espelhos),
+        titulo="Pedido com Nota Espelho não vai para a produção",
+        detalhes=[{"Pedido": p.doc_num, "WBC": p.orc_num_masc,
+                   "Cliente": f"{p.cod_cliente} — {p.nome_cliente}"} for p in espelhos],
+        colunas=["Pedido", "WBC", "Cliente"],
+        dados={"nota_espelho": [p.doc_num for p in espelhos]},
+    )
 
 
 def _recusa_ops_orfas(selecionados: list) -> None:

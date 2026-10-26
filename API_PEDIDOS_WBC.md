@@ -823,6 +823,8 @@ O que a página mostra e por quê:
 - **Desde 21/10/2026, um item de `com_erro` pode trazer `ops_orfas`** (a mesma lista do `409 ops_orfas`
   da conferência): a barreira é conferida de novo na hora de processar, porque a conferência pode ter
   ficado velha. O `motivo` é o mesmo texto; nada foi gravado para esse pedido.
+- **Desde 26/10/2026, um item de `com_erro` pode trazer `"nota_espelho": true`**: o pedido foi marcado como
+  Nota Espelho depois da conferência (ou veio pela CLI). Nada foi gravado para esse pedido.
 - **O que fazer depois:** volte à lista e veja onde o pedido está. Neste caso o 84454 continuou em
   "Pedidos novos" e foi processado de novo às 09:02, com sucesso. Se um pedido aparecer em
   "Pedidos integrados" com OP faltando, fale com o PCP antes de qualquer coisa ([6](#6-conceitos-que-você-precisa-conhecer), "O que Processar grava").
@@ -892,6 +894,7 @@ Os textos que a pessoa pode ver nesta tela. "API" = vem pronto na resposta (use-
 | Conferência | "Esta conferência vale até … Depois disso é preciso refazê-la — o que seria feito é recalculado sobre o estado atual do SAP." | sempre | fixo + API `valido_ate` |
 | Conferência | "Estes pedidos não estão mais na lista elegível e foram recusados: … Refaça a busca — o estado no SAP mudou desde que a tela foi carregada." | `409 fora_da_lista` | API `motivo` |
 | Conferência | "O pedido … (WBC …) não pode ser processado: o pedido cancelado … ainda tem … Cancele antes as OPs do pedido cancelado (…)" | `409 ops_orfas` (só Processar) | API `motivo` |
+| Conferência | "O pedido … (WBC …) está marcado como Nota Espelho no SAP e não pode ser processado: ainda não foi confirmado e não vai para a produção." | `409 nota_espelho` (só Processar) | API `motivo` |
 | Conferência | "Nenhum pedido selecionado." | `400 invalido` | API `motivo` |
 | Executar | "Informe 'solicitante': quem pediu a operação (nome ou login), até 80 caracteres. …" | `400 invalido` | API `motivo` |
 | Executar | "O módulo 'pedidos_wbc' já tem uma execução em andamento (…). Duas execuções simultâneas no mesmo módulo disputariam os mesmos pedidos e OPs." | `409 ocupado` | API `motivo` |
@@ -1236,6 +1239,9 @@ fora_da_lista`, com os números em `fora`. Nesse caso a página deve **recarrega
 Só no Processar (desde 21/10/2026): um pedido **cancelado** do mesmo orçamento ainda tem OP planejada ou
 liberada → `409 ops_orfas`, com as OPs em `ops_orfas`. Como no `fora_da_lista`, **o lote inteiro** é
 recusado; a página mostra o `motivo` e não tenta de novo — alguém precisa cancelar aquelas OPs antes.
+Só no Processar (desde 26/10/2026), **também com "forçar"**: pedido com Nota Espelho (`nota_espelho: true`) →
+`409 nota_espelho`, com os números dos pedidos em `nota_espelho`. O lote inteiro é recusado. O Reprocessar
+continua aceitando o pedido (só cancela OP planejada, nunca cria).
 
 <a id="aviso-proposta-desatualizada"></a>**Aviso (não é recusa), só no Processar, desde 21/10/2026:** o
 orçamento está numa revisão mais nova que a da **proposta impressa** no WBC (ex.: orçamento C, proposta
@@ -1554,7 +1560,8 @@ KPIs que dividem o resto. No celular, um embaixo do outro.
 | Criado | `criado` | `2026-09-29`, cor apagada, **sem quebrar** |
 
 Com `nota_espelho: true` (pedido marcado como **Nota Espelho** no SAP, campo `U_U_INO_NotaEspelho`),
-a tela põe embaixo do número do pedido uma pílula amarela (aviso) escrita "Nota espelho". Pedido e
+a tela põe embaixo do número do pedido uma pílula amarela (aviso) escrita "Nota espelho". Desde 26/10/2026 o
+Processar recusa esse pedido (`409 nota_espelho`). Pedido e
 Oportunidade ficam centralizados (cabeçalho e valor).
 
 - Lista vazia: uma linha só, ocupando as 7 colunas, com o texto de `vazio` em cor apagada.
@@ -1805,6 +1812,7 @@ Todo erro tem o mesmo formato:
 | 405 | `metodo_invalido` | GET onde é POST (ou o contrário) | Corrigir a chamada |
 | 409 | `fora_da_lista` | Pedido conferido não está mais na lista (alguém processou) | Recarregar a lista |
 | 409 | `ops_orfas` | Processar: um pedido cancelado do mesmo orçamento ainda tem OP viva (desde 21/10/2026) | Mostrar o `motivo`; alguém cancela as OPs antes |
+| 409 | `nota_espelho` | Processar: pedido marcado como Nota Espelho no SAP — ainda não confirmado, não vai para a produção (desde 26/10/2026) | Mostrar o `motivo`; não tentar de novo |
 | 409 | `confirmacao_invalida` | Token vencido (10 min), já usado ou de outra operação | Conferir de novo |
 | 409 | `ocupado` | Já há uma execução no módulo (pela tela ou pela API) | Acompanhar a de `execucao_em_andamento`; não tentar em laço |
 | 502 | `sap_indisponivel` | O SAP não respondeu à leitura | Tentar de novo em instantes |
@@ -2002,6 +2010,7 @@ Passe por cada item antes de liberar a página para as pessoas usarem.
 - [ ] `401` → pede a chave de novo.
 - [ ] `409 fora_da_lista` → recarrega a lista e mostra o motivo.
 - [ ] `409 ops_orfas` (só Processar) → mostra o motivo; o lote inteiro foi recusado; não tenta de novo.
+- [ ] `409 nota_espelho` (só Processar) → mostra o motivo; o lote inteiro foi recusado; não tenta de novo.
 - [ ] `409 ocupado` → mostra o link para a execução em andamento (não tenta em laço).
 - [ ] `409 confirmacao_invalida` → volta para a lista para conferir de novo.
 - [ ] `502`/`503` → mostra o `motivo` e deixa tentar de novo.
@@ -2119,3 +2128,4 @@ fictícios; só os nomes de pessoa e o servidor de exemplo foram ajustados. No S
 | 05/10/2026 | `execucao.descricao`: o pedido com Nota Espelho sai como `84454 (nota espelho)` (ex.: `2 pedido(s): 84201, 84454 (nota espelho)`); as telas Execuções mostram a pílula "Nota espelho" |
 | 05/10/2026 | Linha nova no acompanhamento do Processar, depois da CAUSA: o que a integração faz com o peso reescalado — [7.4.1](#741-peso-diferente-e-a-causa). Os campos não mudaram |
 | 06/10/2026 | Seção nova [5. Caso real: o pedido 84460, do começo ao fim](#5-caso-real-o-pedido-84460-do-começo-ao-fim): o mapa de todos os objetos da tela (lista, conferência, execução) com o texto exato e de onde vem, as respostas reais da lista e da conferência, o log real de um Processar e de um Reprocessar explicado linha por linha, um erro real e o catálogo de todas as mensagens. As seções seguintes foram renumeradas (6 a 16) |
+| 26/10/2026 | Processar recusa pedido com Nota Espelho (`409 nota_espelho`, também com "forçar"), na conferência e de novo na execução (`com_erro` com `"nota_espelho": true`). Reprocessar não muda |

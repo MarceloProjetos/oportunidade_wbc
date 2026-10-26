@@ -132,7 +132,8 @@ ORDER BY idIntegracao_OrcPrdArv
 # --- HANA (SAP B1) --------------------------------------------------------------
 
 GET_ID_ORCAMENTOS_PEDIDO = """
-SELECT top 1 A."DocEntry", A."CardCode", A."DocNum"
+SELECT top 1 A."DocEntry", A."CardCode", A."DocNum",
+       IFNULL(A."U_U_INO_NotaEspelho",'N') AS "NotaEspelho"
 FROM ORDR A INNER JOIN RDR1 B ON A."DocEntry" = B."DocEntry"
 WHERE A."U_INO_COTWBC" = '{orc_num}' AND A."CANCELED" = 'N'
 ORDER BY A."DocEntry" DESC

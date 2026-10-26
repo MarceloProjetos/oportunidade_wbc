@@ -6,6 +6,17 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-26] — Controle de Produção: pedido com Nota Espelho não é processado
+
+Pedido do Marcelo: pedido com Nota Espelho (`ORDR.U_U_INO_NotaEspelho = 'Y'`) ainda não foi confirmado e não
+pode ir para a produção. Até aqui a tela só punha o selo "Nota espelho" e o Processar criava as OPs mesmo assim.
+- Conferência do Processar (tela e `/api/pedidos-wbc`) recusa com `409 nota_espelho`, **também com "forçar"**;
+  o lote inteiro é recusado, como no `ops_orfas`.
+- Na execução a barreira é conferida de novo pelo `ORDR` (`GET_ID_ORCAMENTOS_PEDIDO` traz o campo): cobre a CLI
+  e a conferência velha; o pedido vai para `com_erro` com `"nota_espelho": true`, sem gravar nada.
+- Reprocessar não muda (só cancela OP planejada, nunca cria).
+- Contrato `API_PEDIDOS_WBC.md` atualizado. Teste novo `test_nota_espelho_bloqueio.py`. **Pede deploy da .11.**
+
 ## [2026-10-26] — Vendas BI: pedido com Nota Espelho não soma
 
 Pedido do Marcelo: o 84534 (POLYEXCEL, R$ 67.049,02, `ORDR.U_U_INO_NotaEspelho = 'Y'`) entrou no card

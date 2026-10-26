@@ -215,6 +215,14 @@ async def ops_vivas_de_pedidos_cancelados(
     return por_orcamento
 
 
+def mensagem_nota_espelho(doc_num: object, orc_num: str) -> str:
+    """The Nota Espelho refusal of Processar — one text for the plan (screen and API) and the run."""
+    return (
+        f"O pedido {doc_num} (WBC {orc_num}) está marcado como Nota Espelho no SAP e não pode "
+        "ser processado: ainda não foi confirmado e não vai para a produção."
+    )
+
+
 def mensagem_ops_orfas(doc_num: object, orc_num: str, ops: list[dict]) -> str:
     """The refusal of Processar — one text for the plan (screen and API) and the run."""
     partes = []
@@ -1917,6 +1925,13 @@ async def processar_pedidos_novos(
                 continue
 
             doc_entry, card_code, doc_num = str(id_orc["DocEntry"]), str(id_orc["CardCode"]), str(id_orc["DocNum"])
+
+            # Same run-time recheck as the orphan OPs below, `force` included: a mirror order
+            # is not confirmed and never gets OPs (26/10/2026).
+            if str(id_orc.get("NotaEspelho") or "").strip().upper() == "Y":
+                com_erro.append({"orc_num": orc_num, "motivo": mensagem_nota_espelho(doc_num, orc_num),
+                                 "nota_espelho": True})
+                continue
 
             # Checked again here, at run time and even with `force`: the plan may be minutes
             # old, and the CLI never builds one (PLANO_TROCA_PN_COM_OP, F3).
