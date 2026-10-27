@@ -118,6 +118,16 @@ def test_tela_que_falhou_nao_explica_versao():
     assert linhas[1]["origem"] == "integracao"
 
 
+def test_gravacao_na_oportunidade_nao_explica_versao_do_pedido():
+    """Web PLANO_OPORTUNIDADE_SAP D4: the opportunity write makes no order version, so a worker
+    save in the same minutes must stay the integration's."""
+    versoes = [_versao(1, "orcaview", hora=100000), _versao(2, "orcaview", hora=101200, CardCode="C9")]
+    tela = {"id": 5, "pessoa": "adriano.fonseca@altamira.com.br", "acao": "oportunidade",
+            "momento": "2026-10-15T10:12:00-03:00", "resultado": "ok"}
+    linhas, _ = ap.linhas_do_pedido(_plano(mx=2), versoes, [_linha(1), _linha(2)], [tela])
+    assert linhas[1]["origem"] == "integracao" and linhas[1]["pessoa"] is None
+
+
 # ── worker events ─────────────────────────────────────────────────────────────
 
 def test_eventos_do_worker_viram_linhas_com_fuso_de_sao_paulo(tmp_path):

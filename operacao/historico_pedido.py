@@ -362,7 +362,10 @@ def casar_tela(entrada: dict, telas: list[dict]) -> dict:
         return entrada
     melhor, distancia = None, None
     for t in telas:
-        if t.get("resultado") == "falhou":
+        # A write to the order's SAP opportunity (web "Trocar Parceiro de Negócios", acao
+        # 'oportunidade') creates no order version: matching it would hand a worker save in the
+        # same minutes to that person. The web shows those rows itself (PLANO_OPORTUNIDADE_SAP D4).
+        if t.get("resultado") == "falhou" or t.get("acao") == "oportunidade":
             continue
         t_quando = _instante(t.get("momento"))
         if t_quando is None:

@@ -6,6 +6,15 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-27] — Quem mexeu no pedido: gravação na oportunidade não dá nome a versão do pedido
+
+A tela nova "Trocar Parceiro de Negócios" do web (`docs/PLANO_OPORTUNIDADE_SAP.md`, D4) grava na
+**oportunidade** do SAP e registra uma linha `fonte='tela'`, `acao='oportunidade'` em `pedidos_sap_alteracoes`.
+Essa gravação não cria versão do pedido; mesmo assim, o `casar_tela` poderia casar a linha com uma gravação do
+worker no pedido feita nos mesmos minutos e pôr nela o nome da pessoa. Agora ele ignora essas linhas, e quem as
+mostra na linha do tempo é o próprio web. Teste `test_gravacao_na_oportunidade_nao_explica_versao_do_pedido`.
+**Pede deploy da .11.**
+
 ## [2026-10-26] — Controle de Produção: pedido com Nota Espelho não é processado
 
 Pedido do Marcelo: pedido com Nota Espelho (`ORDR.U_U_INO_NotaEspelho = 'Y'`) ainda não foi confirmado e não
