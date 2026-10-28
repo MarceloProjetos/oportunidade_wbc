@@ -202,6 +202,119 @@
   <p class="ov-nota" id="dica-cancelar" data-dica aria-live="polite">Informe o nº do pedido ou do orçamento (só números).</p>
 </form>
 
+{# Separate card (owner, 28/10/2026; PLANO_ENCERRAR_OPS_PEDIDOS_FECHADOS): its own routes in
+   fechados_router.py, its own form and script — the sections above are untouched. #}
+<h2 id="pedidos-fechados">Pedidos fechados com OPs abertas</h2>
+<section class="ov-card">
+  <form method="get" action="/manutencao-op/pedidos-fechados#pedidos-fechados" class="ov-filtros">
+    <label class="ov-opcao" for="pf-atrasados"><input type="checkbox" id="pf-atrasados" name="atrasados" value="1"
+      {% if fechados_atrasados %}checked{% endif %}> Incluir pedidos atrasados</label>
+    <button type="submit" class="ov-btn">{{ icone('buscar') }} Consultar pedidos fechados com OPs abertas</button>
+  </form>
+
+  {% if fechados is defined %}
+  <form method="post" action="/manutencao-op/pedidos-fechados/encerrar/conferir" id="form-fechados">
+    <input type="hidden" name="incluir_atrasados" value="{{ '1' if fechados_atrasados else '' }}">
+    {% if fechados %}
+    <section class="ov-kpis">
+      <div class="ov-kpi"><b>{{ fechados|length }}</b><span>pedidos fechados com OP aberta</span></div>
+      <div class="ov-kpi"><b>{{ fechados|sum(attribute='ops_abertas') }}</b><span>OPs abertas</span></div>
+      <div class="ov-kpi" style="--ov-cor: var(--color-warning)"><b>{{ fechados|sum(attribute='planejadas') }}</b><span>Planejadas</span></div>
+    </section>
+    {% endif %}
+    <div class="ov-table-card">
+      <div class="ov-scroll">
+        <table class="ov-table">
+          <thead><tr><th></th><th class="num">Pedido</th><th>Cliente</th><th>Entrega</th>
+            {% if fechados_atrasados %}<th>Atrasado</th>{% endif %}
+            <th class="num">OPs abertas</th><th class="num">Planejadas</th></tr></thead>
+          <tbody>
+            {% for p in fechados %}
+            <tr>
+              <td><input type="checkbox" name="pedidos" value="{{ p.pedido }}" id="pf-{{ p.pedido }}"
+                         aria-label="Selecionar o pedido {{ p.pedido }}"></td>
+              <td class="num"><label for="pf-{{ p.pedido }}">{{ p.pedido }}</label></td>
+              <td>{{ p.cliente }}</td>
+              <td class="data">{{ p.entrega or '—' }}</td>
+              {% if fechados_atrasados %}<td>{% if p.atrasado %}<span class="ov-pill is-warn">Atrasado</span>{% else %}—{% endif %}</td>{% endif %}
+              <td class="num">{{ p.ops_abertas }}</td>
+              <td class="num">{{ p.planejadas }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="vazio">Nenhum pedido fechado com OP aberta{% if not fechados_atrasados %} (sem contar os atrasados){% endif %}.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {% if fechados %}
+    <div class="ov-filtros">
+      <div class="ov-field"><label for="pf-custo">Custo para insumo sem custo (opcional)</label>
+        <input class="ov-input ov-input--curto" id="pf-custo" type="text" name="custo" inputmode="decimal"
+               placeholder="0,01" autocomplete="off"></div>
+      <label class="ov-opcao" for="pf-inativos"><input type="checkbox" id="pf-inativos" name="ativar_inativos" value="1">
+        Ativar itens inativos só durante o encerramento</label>
+    </div>
+    <div class="ov-acoes-lote">
+      <button type="button" class="ov-btn-ghost" id="pf-selecionar">
+        <span id="pf-icone-selecionar">{{ icone('marcar-tudo') }}</span>
+        <span id="pf-texto-selecionar">Selecionar todos</span></button>
+      <span class="ov-separador" aria-hidden="true"></span>
+      <button type="submit" class="ov-btn ov-btn--perigo" id="pf-encerrar" disabled
+              title="Marque ao menos um pedido" aria-describedby="pf-dica">
+        {{ icone('raio') }} Encerrar selecionados…</button>
+      <span class="ov-nota-inline" id="pf-dica" aria-live="polite">Marque ao menos um pedido.</span>
+    </div>
+    <p class="ov-nota">Só os pedidos marcados são encerrados. Cada OP aberta deles recebe saída de
+      insumos e entrada do produto, filha antes da mãe. Insumo sem custo recebe o custo informado
+      (vazio = 0,01) e o pedido é tentado mais uma vez. A próxima tela mostra o que será feito e pede
+      confirmação.</p>
+    {% endif %}
+  </form>
+  {% else %}
+  <p class="ov-nota">Lista os pedidos com status Fechado que ainda têm Ordem de Produção Planejada ou
+    Liberada. Por padrão, só os que não estão atrasados.</p>
+  {% endif %}
+</section>
+
+<script>
+(function () {
+  // The card's own selection: separate from the OP grid's script below, which it never touches.
+  var form = document.getElementById("form-fechados");
+  var botao = document.getElementById("pf-selecionar");
+  if (!form || !botao) { return; }
+  var caixas = Array.prototype.slice.call(form.querySelectorAll('input[name="pedidos"]'));
+  var texto = document.getElementById("pf-texto-selecionar");
+  var icone = document.getElementById("pf-icone-selecionar");
+  var encerrar = document.getElementById("pf-encerrar");
+  var dica = document.getElementById("pf-dica");
+  var marcarTudo = {{ icone('marcar-tudo')|tojson }};
+  var desmarcarTudo = {{ icone('desmarcar-tudo')|tojson }};
+
+  function marcados() { return caixas.filter(function (c) { return c.checked; }).length; }
+  function pinta() {
+    var n = marcados();
+    var todos = n === caixas.length && caixas.length > 0;
+    texto.textContent = todos ? "Limpar seleção (" + n + ")"
+                              : (n ? "Selecionar todos (" + n + " marcado" + (n > 1 ? "s" : "") + ")"
+                                   : "Selecionar todos");
+    icone.innerHTML = todos ? desmarcarTudo : marcarTudo;
+    encerrar.disabled = n === 0;
+    encerrar.title = n ? "" : "Marque ao menos um pedido";
+    dica.hidden = n > 0;
+  }
+  botao.addEventListener("click", function () {
+    var todos = marcados() === caixas.length && caixas.length > 0;
+    caixas.forEach(function (c) { c.checked = !todos; });
+    pinta();
+  });
+  caixas.forEach(function (c) { c.addEventListener("change", pinta); });
+  window.addEventListener("pageshow", pinta);
+  pinta();
+})();
+</script>
+
 <script>
 (function () {
   // Marcar/desmarcar tudo de uma vez. O botão alterna e diz quantas estão marcadas —

@@ -28,6 +28,8 @@ from controleproducao.core.tarefas import TAREFAS
 from controleproducao.core.tarefas_router import router as tarefas_router
 from controleproducao.core.templates import templates
 from controleproducao.modules.manutencao_op.api_router import router as manutencao_op_api_router
+from controleproducao.modules.manutencao_op.fechados_api import router as manutencao_op_fechados_api_router
+from controleproducao.modules.manutencao_op.fechados_router import router as manutencao_op_fechados_router
 from controleproducao.modules.manutencao_op.router import router as manutencao_op_router
 from controleproducao.modules.pedidos_wbc.api_router import router as pedidos_wbc_api_router
 from controleproducao.modules.pedidos_wbc.router import router as pedidos_wbc_router
@@ -120,6 +122,8 @@ app.include_router(pedidos_wbc_router)
 app.include_router(pedidos_wbc_api_router)
 app.include_router(manutencao_op_router)
 app.include_router(manutencao_op_api_router)
+app.include_router(manutencao_op_fechados_router)
+app.include_router(manutencao_op_fechados_api_router)
 app.include_router(tarefas_router)
 
 # Login gate (same cookie as the painel WBC), /health, /entrar, /painel-wbc — see core/acesso.py.

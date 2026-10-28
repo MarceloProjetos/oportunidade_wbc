@@ -7,7 +7,9 @@ do Controle de Produção. Com ela você:
 - **libera** OPs (Planejada → Liberada);
 - **replaneja** OPs (Liberada → Planejada);
 - **encerra** OPs **com movimentação de estoque** (saída dos insumos + entrada do produto);
-- **acompanha** e **interrompe** o que mandou fazer.
+- **acompanha** e **interrompe** o que mandou fazer;
+- **lista os pedidos fechados com OPs abertas** e encerra as OPs dos pedidos escolhidos
+  ([seção 5.6](#56-pedidos-fechados-com-ops-abertas)).
 
 **Quem pode usar:** qualquer pessoa ou sistema que tenha a **chave da API**, de dentro da rede
 da empresa. Não é preciso cadastro: com a chave, é só chamar.
@@ -851,6 +853,69 @@ Resposta:
 
 ⚠️ **Interromper não desfaz nada.** O que já foi gravado no SAP continua lá.
 
+### 5.6 Pedidos fechados com OPs abertas
+
+Lista os pedidos com status **Fechado** na `VW_STATUS_PEDIDO` que ainda têm OP **Planejada ou
+Liberada**, e encerra as OPs **só dos pedidos que você escolher**. É o card "Pedidos fechados
+com OPs abertas" da tela. Por padrão a lista deixa de fora os pedidos atrasados
+(`Atrasado = 'S'`).
+
+**Listar** (só lê):
+
+```bash
+curl "http://192.168.7.11:8080/api/manutencao-op/pedidos-fechados?incluir_atrasados=false" \
+     -H "X-API-Key: SUA_CHAVE"
+```
+
+```json
+{"ok": true, "incluir_atrasados": false, "total_pedidos": 2, "total_ops_abertas": 17,
+ "pedidos": [
+   {"pedido": 84396, "cliente": "Cliente A", "entrega": "2026-10-27", "atrasado": false,
+    "ops_abertas": 9, "planejadas": 0, "total_os": 9, "total_os_fechadas": 0},
+   {"pedido": 84397, "cliente": "Cliente B", "entrega": "2026-10-27", "atrasado": false,
+    "ops_abertas": 8, "planejadas": 0, "total_os": 8, "total_os_fechadas": 0}]}
+```
+
+**Conferir** (só lê; devolve o plano e o `token`, como no Encerrar):
+
+```bash
+curl -X POST "http://192.168.7.11:8080/api/manutencao-op/pedidos-fechados/encerrar/conferir" \
+     -H "X-API-Key: SUA_CHAVE" -H "Content-Type: application/json" \
+     -d '{"pedidos": [84396], "custo": null, "ativar_inativos": false}'
+```
+
+| Campo | Obrigatório | O que é |
+| --- | --- | --- |
+| `pedidos` | sim | lista de números de pedido (DocNum). Só esses são encerrados |
+| `custo` | não | custo para **insumo sem custo** no SAP. Vazio ou `null` = **0,01**. Aceita `0.01` e `"0,01"` |
+| `ativar_inativos` | não | `true` ativa os itens inativos do pedido só durante o encerramento e os inativa de novo no fim. Padrão `false`: o pedido falha e o item aparece no erro |
+| `incluir_atrasados` | não | `true` aceita também pedidos atrasados |
+
+Pedido que não está mais na lista (já encerrado, ou não é mais Fechado) recusa a conferência
+inteira com `409 fora_da_lista`: consulte de novo e escolha outra vez.
+
+**Executar** (grava; `solicitante` obrigatório):
+
+```bash
+curl -X POST "http://192.168.7.11:8080/api/manutencao-op/pedidos-fechados/encerrar/executar" \
+     -H "X-API-Key: SUA_CHAVE" -H "Content-Type: application/json" \
+     -d '{"token": "TOKEN_DA_CONFERENCIA", "solicitante": "pcp.ana"}'
+```
+
+Responde `202` com a execução, que você acompanha em `/api/manutencao-op/execucoes/{id}`
+(seção 5.4) e interrompe pela seção 5.5. Os pedidos são encerrados **um de cada vez**, na ordem
+da conferência; dentro de cada pedido, a OP filha antes da mãe. Em `resultado.pedidos` vem, por
+pedido: `encerradas`, `com_erro`, `puladas`, `nao_iniciadas`, `ajustes` e `tentativas`.
+
+Quando um pedido falha por um motivo conhecido, o servidor corrige e **tenta esse pedido mais uma
+vez** (nunca mais de uma):
+
+- **insumo sem custo** (SAP `10001287`): grava `custo` como custo médio dos insumos com custo zero
+  do pedido (reavaliação de estoque, documento contábil). Semiacabado que outra OP do mesmo
+  pedido produz fica de fora, porque ele ganha custo quando essa OP encerra;
+- **item inativo** (SAP `10001069`): só com `ativar_inativos: true`;
+- **o Service Layer caiu** ("Server disconnected"): tenta de novo.
+
 ---
 
 ## 6. Quando dá errado: erros e como tratar
@@ -1397,3 +1462,4 @@ trazer mais passos.
 | 29/09/2026 | Replanejar (`POST /replanejar`, recusa por `saida_lancada`); Interromper do Encerrar passa a parar entre uma OP e outra |
 | 29/09/2026 | Replanejar recusa também OP com produto apontado (`entrada_lancada`) |
 | 29/09/2026 | Aberta a qualquer um com a chave, inclusive páginas web de outra origem (CORS); respostas declaram `charset=utf-8` (acentos corretos no PowerShell 5.1); documento reescrito como guia, com receitas e exemplos |
+| 28/10/2026 | Pedidos fechados com OPs abertas: listar, conferir e encerrar só os pedidos escolhidos, com custo padrão 0,01 para insumo sem custo (seção 5.6) |
