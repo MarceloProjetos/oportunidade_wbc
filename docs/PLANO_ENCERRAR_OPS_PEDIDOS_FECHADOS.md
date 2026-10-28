@@ -35,7 +35,13 @@ Manutenção de OP lista os pedidos e encerra só os marcados → a API e a Mira
 6. <span class="warn">**Semiacabado não recebe o custo padrão.**</span> O item que uma OP filha do mesmo
    pedido produz ganha custo real quando a filha encerra. No lote, sem essa exclusão, seriam 60 pedidos
    reavaliados em vez de 5.
-7. <span class="warn">**Valor com vírgula no PowerShell virou 0,1.**</span> Na tela e na API o campo é numérico;
+7. **Não alterar o que já existe na página** (Marcelo, 28/10). A busca por pedido, liberar, replanejar,
+   "Encerrar todas as OPs de um pedido" e "Cancelar as OPs de um pedido", assim como as rotas e a API delas,
+   continuam iguais. O card novo só **reaproveita** essas peças sem mudá-las: `service.finalizar_ops`,
+   `levanta_ops`, a ordem filha → mãe, a página Sim/Não (`confirmar.html` + token de uso único), as Execuções
+   com Interromper e o `/execucoes/{id}` da API. Os testes atuais da Manutenção de OP têm de passar sem
+   nenhuma mudança neles: esse é o sinal de que nada existente foi tocado.
+8. <span class="warn">**Valor com vírgula no PowerShell virou 0,1.**</span> Na tela e na API o campo é numérico;
    aceita "0,01" e "0.01" porque não passa por shell.
 
 ## Arquitetura
