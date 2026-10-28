@@ -48,7 +48,12 @@ def _custos(pares: list[str]) -> dict[str, float]:
         item, _, valor = par.partition("=")
         if not item or not valor:
             raise SystemExit(f"--custo invalido: {par!r} (use ITEM=VALOR, ex.: ALPRFQ30-KG20000F280=7.50)")
-        custos[item.strip()] = float(valor.replace(",", "."))
+        if "," in valor:
+            # PowerShell reads an unquoted comma as an array: `X=0,01` arrives as `X=0,1`
+            # (28/10/2026, a revaluation went in at 0.1). A dot has no such reading.
+            raise SystemExit(f"--custo {par!r}: use ponto no valor (ex.: {item}=0.01). "
+                             "No PowerShell, 0,01 chega aqui como 0,1.")
+        custos[item.strip()] = float(valor)
         if custos[item.strip()] <= 0:
             raise SystemExit(f"--custo {par!r}: o valor precisa ser maior que zero.")
     return custos
