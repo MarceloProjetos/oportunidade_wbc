@@ -1,8 +1,11 @@
 # PLANO — Encerrar OPs de pedidos fechados (Manutenção de OP)
 
-> **Status (28/10/2026):** plano escrito, **aguardando aprovação**. Nada implementado.
-> Hoje isto roda à mão na .11 com dois scripts de `maintenance/` (`encerrar_ops_pedidos_fechados.py`
-> e `ajustar_e_encerrar_ops.py`). O plano os transforma em função da tela, da API e da Mira.
+> **Status (28/10/2026):** aprovado com as 6 recomendações. **F0–F4 no código e no master**
+> (SIS e7c6917, a1aa383, fa494db; web V118.1329). Na .11 já rodou o deploy de e7c6917 + a1aa383: a
+> consulta responde de ponta a ponta (MCP → 8077 → CP → SAP: 10 pedidos / 140 OPs). **Falta:** deploy
+> da tela final (fa494db, aprovada pelo revisor isolado na 3ª rodada), restart do .90 para a Mira, e
+> a F5 (nenhuma OP foi encerrada ainda pelo card nem pela API). Escopo `manutencao_op` já dado à
+> credencial `mira-agente`.
 
 **Começo → Meio → Fim:** a regra que já funciona nos scripts vira função do CP → a tela da
 Manutenção de OP lista os pedidos e encerra só os marcados → a API e a Mira consultam e
