@@ -204,79 +204,87 @@
 
 {# Separate card (owner, 28/10/2026; PLANO_ENCERRAR_OPS_PEDIDOS_FECHADOS): its own routes in
    fechados_router.py, its own form and script — the sections above are untouched. #}
+{# Scoped to this card: the shared style.css (and its ?v=) stays untouched. #}
+<style>
+  /* The fixed top bar is ~65px: an anchor jump (and the way back from the check page) must
+     land with the title in view. */
+  #pedidos-fechados { scroll-margin-top: 5rem; }
+  /* A long list scrolls inside its card, header pinned, so the bottom bar stays one scroll
+     away instead of ~10,000px below the title (172 orders on 28/10). */
+  #form-fechados .ov-table-card > .ov-scroll { max-height: 65vh; }
+  #form-fechados .ov-table thead th { position: sticky; top: 0; z-index: 1; }
+  #form-fechados .pf-cliente { max-width: 34ch; white-space: normal; }
+  #form-fechados .pf-entrega { display: inline-flex; align-items: center; gap: var(--space-2); }
+  #form-fechados tbody tr:has(input:checked) { background: var(--ov-a13); }
+</style>
 <h2 id="pedidos-fechados">Pedidos fechados com OPs abertas</h2>
-<section class="ov-card">
-  <form method="get" action="/manutencao-op/pedidos-fechados#pedidos-fechados" class="ov-filtros">
-    <label class="ov-opcao" for="pf-atrasados"><input type="checkbox" id="pf-atrasados" name="atrasados" value="1"
-      {% if fechados_atrasados %}checked{% endif %}> Incluir pedidos atrasados</label>
-    <button type="submit" class="ov-btn">{{ icone('buscar') }} Consultar pedidos fechados com OPs abertas</button>
-  </form>
-
-  {% if fechados is defined %}
-  <form method="post" action="/manutencao-op/pedidos-fechados/encerrar/conferir" id="form-fechados">
-    <input type="hidden" name="incluir_atrasados" value="{{ '1' if fechados_atrasados else '' }}">
-    {% if fechados %}
-    <section class="ov-kpis">
-      <div class="ov-kpi"><b>{{ fechados|length }}</b><span>pedidos fechados com OP aberta</span></div>
-      <div class="ov-kpi"><b>{{ fechados|sum(attribute='ops_abertas') }}</b><span>OPs abertas</span></div>
-      <div class="ov-kpi" style="--ov-cor: var(--color-warning)"><b>{{ fechados|sum(attribute='planejadas') }}</b><span>Planejadas</span></div>
-    </section>
-    {% endif %}
-    <div class="ov-table-card">
-      <div class="ov-scroll">
-        <table class="ov-table">
-          <thead><tr><th></th><th class="num">Pedido</th><th>Cliente</th><th>Entrega</th>
-            {% if fechados_atrasados %}<th>Atrasado</th>{% endif %}
-            <th class="num">OPs abertas</th><th class="num">Planejadas</th></tr></thead>
-          <tbody>
-            {% for p in fechados %}
-            <tr>
-              <td><input type="checkbox" name="pedidos" value="{{ p.pedido }}" id="pf-{{ p.pedido }}"
-                         aria-label="Selecionar o pedido {{ p.pedido }}"></td>
-              <td class="num"><label for="pf-{{ p.pedido }}">{{ p.pedido }}</label></td>
-              <td>{{ p.cliente }}</td>
-              <td class="data">{{ p.entrega or '—' }}</td>
-              {% if fechados_atrasados %}<td>{% if p.atrasado %}<span class="ov-pill is-warn">Atrasado</span>{% else %}—{% endif %}</td>{% endif %}
-              <td class="num">{{ p.ops_abertas }}</td>
-              <td class="num">{{ p.planejadas }}</td>
-            </tr>
-            {% else %}
-            <tr><td colspan="7" class="vazio">Nenhum pedido fechado com OP aberta{% if not fechados_atrasados %} (sem contar os atrasados){% endif %}.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    {% if fechados %}
-    <div class="ov-filtros">
-      <div class="ov-field"><label for="pf-custo">Custo para insumo sem custo (opcional)</label>
-        <input class="ov-input ov-input--curto" id="pf-custo" type="text" name="custo" inputmode="decimal"
-               placeholder="0,01" autocomplete="off"></div>
-      <label class="ov-opcao" for="pf-inativos"><input type="checkbox" id="pf-inativos" name="ativar_inativos" value="1">
-        Ativar itens inativos só durante o encerramento</label>
-    </div>
-    <div class="ov-acoes-lote">
-      <button type="button" class="ov-btn-ghost" id="pf-selecionar">
-        <span id="pf-icone-selecionar">{{ icone('marcar-tudo') }}</span>
-        <span id="pf-texto-selecionar">Selecionar todos</span></button>
-      <span class="ov-separador" aria-hidden="true"></span>
-      <button type="submit" class="ov-btn ov-btn--perigo" id="pf-encerrar" disabled
-              title="Marque ao menos um pedido" aria-describedby="pf-dica">
-        {{ icone('raio') }} Encerrar selecionados…</button>
-      <span class="ov-nota-inline" id="pf-dica" aria-live="polite">Marque ao menos um pedido.</span>
-    </div>
-    <p class="ov-nota">Só os pedidos marcados são encerrados. Cada OP aberta deles recebe saída de
-      insumos e entrada do produto, filha antes da mãe. Insumo sem custo recebe o custo informado
-      (vazio = 0,01) e o pedido é tentado mais uma vez. A próxima tela mostra o que será feito e pede
-      confirmação.</p>
-    {% endif %}
-  </form>
-  {% else %}
+<form method="get" action="/manutencao-op/pedidos-fechados#pedidos-fechados" class="ov-filtros">
+  <label class="ov-opcao" for="pf-atrasados"><input type="checkbox" id="pf-atrasados" name="atrasados" value="1"
+    {% if fechados_atrasados %}checked{% endif %}> Incluir pedidos atrasados</label>
+  <button type="submit" class="ov-btn">{{ icone('buscar') }} Consultar pedidos fechados com OPs abertas</button>
+  {% if fechados is not defined %}
   <p class="ov-nota">Lista os pedidos com status Fechado que ainda têm Ordem de Produção Planejada ou
     Liberada. Por padrão, só os que não estão atrasados.</p>
+  {% elif not fechados %}
+  <p class="ov-nota">Nenhum pedido fechado com OP aberta{% if not fechados_atrasados %} sem contar os
+    atrasados — marque "Incluir pedidos atrasados" e consulte de novo{% endif %}.</p>
   {% endif %}
-</section>
+</form>
+
+{% if fechados %}
+<form method="post" action="/manutencao-op/pedidos-fechados/encerrar/conferir" id="form-fechados">
+  <input type="hidden" name="incluir_atrasados" value="{{ '1' if fechados_atrasados else '' }}">
+  <section class="ov-kpis">
+    <div class="ov-kpi"><b>{{ fechados|length }}</b><span>pedidos fechados com OP aberta</span></div>
+    <div class="ov-kpi"><b>{{ fechados|sum(attribute='ops_abertas') }}</b><span>OPs abertas</span></div>
+    <div class="ov-kpi" style="--ov-cor: var(--color-warning)"><b>{{ fechados|sum(attribute='planejadas') }}</b><span>Planejadas</span></div>
+  </section>
+  <div class="ov-table-card">
+    <div class="ov-scroll">
+      <table class="ov-table">
+        <thead><tr><th></th><th class="num">Pedido</th><th>Cliente</th><th>Entrega</th>
+          <th class="num">OPs abertas</th><th class="num">Planejadas</th></tr></thead>
+        <tbody>
+          {% for p in fechados %}
+          <tr>
+            <td><input type="checkbox" name="pedidos" value="{{ p.pedido }}" id="pf-{{ p.pedido }}"
+                       aria-label="Selecionar o pedido {{ p.pedido }}"></td>
+            <td class="num"><label for="pf-{{ p.pedido }}">{{ p.pedido }}</label></td>
+            <td class="pf-cliente">{{ p.cliente }}</td>
+            <td class="data"><span class="pf-entrega">{{ p.entrega or '—' }}{% if p.atrasado %}
+              <span class="ov-pill is-warn">Atrasado</span>{% endif %}</span></td>
+            <td class="num">{{ p.ops_abertas }}</td>
+            <td class="num">{{ p.planejadas }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="ov-filtros">
+    <div class="ov-field"><label for="pf-custo">Custo p/ insumo sem custo (R$)</label>
+      <input class="ov-input ov-input--curto" id="pf-custo" type="text" name="custo" inputmode="decimal"
+             placeholder="0,01" autocomplete="off" aria-describedby="pf-nota"></div>
+    <label class="ov-opcao" for="pf-inativos"><input type="checkbox" id="pf-inativos" name="ativar_inativos" value="1">
+      Ativar itens inativos só durante o encerramento</label>
+  </div>
+  <div class="ov-acoes-lote">
+    <button type="button" class="ov-btn-ghost" id="pf-selecionar">
+      <span id="pf-icone-selecionar">{{ icone('marcar-tudo') }}</span>
+      <span id="pf-texto-selecionar">Selecionar todos</span></button>
+    <span class="ov-separador" aria-hidden="true"></span>
+    <button type="submit" class="ov-btn ov-btn--perigo" id="pf-encerrar" disabled
+            title="Marque ao menos um pedido" aria-describedby="pf-dica">
+      {{ icone('raio') }} Encerrar selecionados…</button>
+    <span class="ov-nota-inline" id="pf-dica" aria-live="polite">Marque ao menos um pedido.</span>
+  </div>
+  <p class="ov-nota" id="pf-nota">Só os pedidos marcados são encerrados. Cada OP aberta deles recebe saída
+    de insumos e entrada do produto, filha antes da mãe; as Planejadas são liberadas antes. Se faltar
+    custo de algum insumo, ele recebe o custo informado (vazio = 0,01) e o encerramento do pedido é
+    repetido uma vez. A próxima tela mostra o que será feito e pede confirmação.</p>
+</form>
+{% endif %}
 
 <script>
 (function () {

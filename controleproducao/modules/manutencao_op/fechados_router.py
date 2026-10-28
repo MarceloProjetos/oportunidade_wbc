@@ -23,7 +23,11 @@ from controleproducao.modules.manutencao_op import router as tela
 router = APIRouter(prefix="/manutencao-op/pedidos-fechados", tags=["manutencao_op"])
 
 COLUNAS_PLANO = ["#", "Pedido", "Cliente", "Entrega", "OPs abertas", "Planejadas (serão liberadas)"]
-VOLTAR = "/manutencao-op/pedidos-fechados#pedidos-fechados"
+
+
+def _voltar(incluir_atrasados: bool) -> str:
+    """Back to the list as it was consulted: without ``atrasados=1`` it could come back empty."""
+    return "/manutencao-op/pedidos-fechados" + ("?atrasados=1" if incluir_atrasados else "") + "#pedidos-fechados"
 
 
 def _leitor() -> HanaDirectReader:
@@ -76,9 +80,10 @@ def conferir(
          "aviso_operacao":
              "Encerra todas as OPs abertas dos pedidos abaixo com saída de insumos e entrada do "
              "produto — lançamentos de estoque que o sistema não desfaz. Em cada pedido a OP "
-             "filha é encerrada antes da mãe. Insumo sem custo recebe o custo informado "
-             "(reavaliação de estoque) e o pedido é tentado mais uma vez.",
-         "voltar": VOLTAR},
+             "filha é encerrada antes da mãe, e as Planejadas são liberadas antes. Se faltar custo "
+             "de algum insumo, ele recebe o custo informado (reavaliação de estoque) e o "
+             "encerramento do pedido é repetido uma vez.",
+         "voltar": _voltar(_marcado(incluir_atrasados))},
     )
 
 

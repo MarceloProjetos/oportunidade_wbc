@@ -193,9 +193,10 @@ def monta_plano(
         resumo={
             "pedido(s) marcados": len(pedidos),
             "OP(s) abertas nesses pedidos": sum(lista[n]["ops_abertas"] for n in pedidos),
-            "custo para insumo sem custo": f"R$ {str(custo).replace('.', ',')}",
-            "itens inativos": "ativados só durante o encerramento" if ativar_inativos
-                              else "não são ativados (o pedido falha)",
+            "de custo para insumo sem custo": f"R$ {str(custo).replace('.', ',')}",
+            # The screen prints "<value> <key>": the key carries the rest of the sentence.
+            ("serão ativados só durante o encerramento" if ativar_inativos
+             else "não serão ativados (pedido com item inativo falha)"): "Itens inativos:",
         },
         itens=itens,
         tipo=TIPO,

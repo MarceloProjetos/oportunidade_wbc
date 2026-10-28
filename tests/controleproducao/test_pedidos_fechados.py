@@ -284,6 +284,18 @@ def test_consultar_lista_com_checkbox(cliente, isolado):
     assert "Encerrar selecionados" in html and 'placeholder="0,01"' in html
 
 
+def test_lista_vazia_aponta_o_caminho(cliente, isolado):
+    with patch(f"{M}.fechados.pedidos_fechados_com_op", return_value=[]):
+        html = cliente.get("/manutencao-op/pedidos-fechados").text
+    assert 'id="form-fechados"' not in html and "Incluir pedidos atrasados\" e consulte de novo" in html
+
+
+def test_cancelar_da_conferencia_volta_com_os_atrasados(cliente, isolado):
+    r = cliente.post("/manutencao-op/pedidos-fechados/encerrar/conferir",
+                     data={"pedidos": ["84104"], "incluir_atrasados": "1"})
+    assert 'href="/manutencao-op/pedidos-fechados?atrasados=1#pedidos-fechados"' in r.text
+
+
 def test_tela_encerra_so_os_marcados(cliente, isolado):
     conferir = cliente.post("/manutencao-op/pedidos-fechados/encerrar/conferir",
                             data={"pedidos": ["84106"], "custo": ""})
