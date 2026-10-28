@@ -90,7 +90,10 @@ def test_acrescentar_liga_declara_usuario_sem_trocar_chave():
 # ---------------------------------------------------------------------------
 def test_catalogo_fechado_e_papeis():
     assert set(acoes_agente.CATALOGO) == {"sincronizar_os", "forcar_carga", "processar_pedido", "reiniciar_servico",
-                                          "reiniciar_sap_servertools"}
+                                          "reiniciar_sap_servertools", "encerrar_ops_pedidos_fechados"}
+    fechados = acoes_agente.CATALOGO["encerrar_ops_pedidos_fechados"]
+    assert fechados.escopo == "manutencao_op" and fechados.por_hora == 5
+    assert acoes_agente.pode_aprovar(fechados, "pcp") and not acoes_agente.pode_aprovar(fechados, "vendas")
     sap = acoes_agente.CATALOGO["reiniciar_sap_servertools"]
     assert sap.escopo == "sap:reiniciar" and sap.por_hora == 2 and not acoes_agente.pode_aprovar(sap, "pcp")
     pedido = acoes_agente.CATALOGO["processar_pedido"]
@@ -436,11 +439,13 @@ def test_rota_devolve_200_ja_existia_e_valida_a_chave(api):
 def test_toda_acao_do_catalogo_declara_o_alvo():
     """An action without a target would never be reserved: each one names what it holds."""
     exemplos = {"sincronizar_os": {"nped": 84080}, "forcar_carga": {}, "processar_pedido": {"pedido": 84455},
-                "reiniciar_servico": {"servico": "OrcaView-MCP"}, "reiniciar_sap_servertools": {}}
+                "reiniciar_servico": {"servico": "OrcaView-MCP"}, "reiniciar_sap_servertools": {},
+                "encerrar_ops_pedidos_fechados": {"pedidos": [84397, 84396]}}
     assert set(exemplos) == set(acoes_agente.CATALOGO)
     alvos = {nome: acao.alvo(exemplos[nome]) for nome, acao in acoes_agente.CATALOGO.items()}
     assert alvos == {"sincronizar_os": "84080", "forcar_carga": "oportunidades", "processar_pedido": "84455",
-                     "reiniciar_servico": "OrcaView-MCP", "reiniciar_sap_servertools": "sapb1servertools"}
+                     "reiniciar_servico": "OrcaView-MCP", "reiniciar_sap_servertools": "sapb1servertools",
+                     "encerrar_ops_pedidos_fechados": "84397,84396"}
 
 
 def test_concorrencia_sem_a_trava_do_processo(monkeypatch):

@@ -81,8 +81,9 @@ e só executam com `confirmar=True`, depois do "sim" explícito do usuário — 
 Comercial decide no OrçaView; `decidir_data_entrega` é a Produção aprovando ou recusando o pedido
 de data do Comercial (ou cancelando o seu); agente não tem acesso a elas. Para um agente,
 escrever é sempre PEDIR:
-`pedir_sincronizar_os`, `pedir_forcar_carga`, `pedir_processar_pedido` e
-`pedir_reiniciar_servico` criam um pedido com um código de 4 dígitos e NÃO executam nada;
+`pedir_sincronizar_os`, `pedir_forcar_carga`, `pedir_processar_pedido`,
+`pedir_encerrar_ops_pedidos_fechados` e `pedir_reiniciar_servico` criam um pedido com um código
+de 4 dígitos e NÃO executam nada;
 uma pessoa aprova (na Central da .11, ou respondendo "aprovar <código>" no canal da Mira) e
 `acompanhar_aprovacao` diz o resultado. Você nunca aprova.
 
@@ -1374,6 +1375,45 @@ def pedir_processar_pedido(pedido: int, motivo: str = "", pedido_por: str = "",
         em_nome_de: preenchido pelo servidor — não informe.
     """
     return _pedir("processar_pedido", {"pedido": int(pedido)}, motivo, pedido_por, em_nome_de)
+
+
+@mcp.tool(annotations=_ANOTACAO_LEITURA)
+def pedidos_fechados_com_op(incluir_atrasados: bool = False) -> dict[str, Any]:
+    """Pedidos de venda FECHADOS que ainda têm Ordem de Produção (OP) Planejada ou Liberada.
+
+    É a lista do card "Pedidos fechados com OPs abertas" da Manutenção de OP. Cada pedido traz
+    cliente, data de entrega, ``ops_abertas`` e ``planejadas``. Por padrão deixa de fora os
+    pedidos atrasados; ``incluir_atrasados=True`` traz todos. Para encerrar, use
+    ``pedir_encerrar_ops_pedidos_fechados`` (uma pessoa aprova).
+
+    Args:
+        incluir_atrasados: também os pedidos com entrega atrasada.
+    """
+    return _get("/manutencao-op/pedidos-fechados", {"incluir_atrasados": "1"} if incluir_atrasados else None)
+
+
+@mcp.tool(annotations=_ANOTACAO_PEDIDO)
+def pedir_encerrar_ops_pedidos_fechados(pedidos: list[int], custo: str = "", ativar_inativos: bool = False,
+                                        motivo: str = "", pedido_por: str = "",
+                                        em_nome_de: str = "") -> dict[str, Any]:
+    """PEDE aprovação para ENCERRAR as OPs abertas de pedidos fechados (saída de insumo + entrada
+    do produto no SAP — irreversível). NÃO executa.
+
+    Só pedidos que estão em ``pedidos_fechados_com_op``; até 20 por pedido de aprovação. Aprova:
+    PCP ou administrador. Insumo sem custo no SAP recebe ``custo`` (vazio = 0,01). Se a lista
+    mudar até a aprovação, a execução é recusada e é preciso pedir de novo.
+
+    Args:
+        pedidos: números dos pedidos de venda (DocNum) a encerrar, ex.: [84396, 84397].
+        custo: custo para insumo sem custo; vazio = 0,01.
+        ativar_inativos: ativar itens inativos só durante o encerramento.
+        motivo: por que (aparece para quem aprova).
+        pedido_por: preenchido pelo servidor — não informe.
+        em_nome_de: preenchido pelo servidor — não informe.
+    """
+    parametros = {"pedidos": [int(p) for p in pedidos], "custo": custo or None,
+                  "ativar_inativos": bool(ativar_inativos)}
+    return _pedir("encerrar_ops_pedidos_fechados", parametros, motivo, pedido_por, em_nome_de)
 
 
 @mcp.tool(annotations=_ANOTACAO_PEDIDO)

@@ -43,6 +43,7 @@ Endpoints
 - ``POST /pedidos/data-entrega/solicitacoes/<id>/aprovar|recusar|cancelar`` → Production decides
 - ``GET  /pedidos/data-entrega/solicitacoes`` → requests across orders
 - ``GET  /compras/pedidos-itens``           → purchase-order lines (VW_ALTA_PEDIDOS_COMPRA_ITENS)
+- ``GET  /manutencao-op/pedidos-fechados``  → closed orders with open OPs (read from the CP)
 - ``GET  /rh/colaboradores``                → Kairos roster mirror (company → sector → people)
 - ``GET  /painel-wbc``                      → 302 to the WBC integration painel (FastAPI, PAINEL_PORTA)
 - ``GET  /controle-producao[/<tela>]``      → 302 to the Controle de Produção screen (FastAPI, CP_PORTA)
@@ -2911,6 +2912,22 @@ def entrega_decidir(id_: str, acao: str):
     logger.info("[ENTREGA] solicitacao %s (pedido %s) %s pela Producao: %s / %s", sol, linha.get('doc_num'),
                 _TEXTO_ACAO[acao], corpo['decidido_por'], _cliente_que_pede(cliente))
     return jsonify(ok=True, ja_estava=False, solicitacao={**linha, 'aguarda': None}), 200
+
+
+@app.get('/manutencao-op/pedidos-fechados')
+@requer_chave('leitura')
+def manutencao_op_pedidos_fechados():
+    """Closed orders that still have open OPs — read from the Controle de Produção (loopback).
+
+    PLANO_ENCERRAR_OPS_PEDIDOS_FECHADOS F3: the MCP talks only to this API, and the list lives
+    in the CP (``/api/manutencao-op/pedidos-fechados``), the same one its screen card shows.
+    ``incluir_atrasados=1`` adds the late ones. Closing is never here: an agent asks for it
+    through ``POST /aprovacoes`` (action ``encerrar_ops_pedidos_fechados``).
+    """
+    http, corpo = acoes_agente.pedidos_fechados_com_op(_flag_query('incluir_atrasados'))
+    if http == 0:
+        return jsonify(ok=False, motivo='controle_producao_indisponivel', error=corpo.get('erro')), 503
+    return jsonify(corpo), http
 
 
 @app.get('/compras/pedidos-itens')

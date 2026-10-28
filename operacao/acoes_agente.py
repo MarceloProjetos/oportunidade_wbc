@@ -191,6 +191,83 @@ def _executar_pedido(p: dict, previa: dict, ctx: Contexto) -> tuple[bool, dict]:
 
 
 # ---------------------------------------------------------------------------
+# encerrar_ops_pedidos_fechados (Manutenção de OP, /api/manutencao-op/pedidos-fechados —
+# docs/PLANO_ENCERRAR_OPS_PEDIDOS_FECHADOS.md, F3)
+# ---------------------------------------------------------------------------
+#: Decision 5 of the plan: at most 20 orders in one approval (the screen has no cap).
+PEDIDOS_FECHADOS_MAX = 20
+
+
+def _validar_fechados(p: dict) -> dict:
+    valores = p.get("pedidos")
+    if not isinstance(valores, list) or not valores:
+        raise AcaoInvalida("'pedidos' deve ser uma lista com ao menos um número de pedido.")
+    pedidos: list[int] = []
+    for valor in valores:
+        numero = _inteiro({"pedido": valor}, "pedido")
+        if numero not in pedidos:
+            pedidos.append(numero)
+    if len(pedidos) > PEDIDOS_FECHADOS_MAX:
+        raise AcaoInvalida(f"No máximo {PEDIDOS_FECHADOS_MAX} pedidos por aprovação; recebidos {len(pedidos)}.")
+    custo = str(p.get("custo") if p.get("custo") is not None else "").strip().replace(",", ".")
+    if custo:
+        try:
+            if float(custo) <= 0:
+                raise ValueError
+        except ValueError as exc:
+            raise AcaoInvalida("'custo' deve ser um número maior que zero (vazio = 0,01).") from exc
+    return {"pedidos": sorted(pedidos), "custo": custo or None,
+            "ativar_inativos": p.get("ativar_inativos") is True}
+
+
+def _conferir_fechados(p: dict) -> dict:
+    http, corpo = _chamar(_cp(), "POST", "/api/manutencao-op/pedidos-fechados/encerrar/conferir",
+                          corpo={"pedidos": p["pedidos"], "custo": p["custo"],
+                                 "ativar_inativos": p["ativar_inativos"]}, tempo=90)
+    if http != 200 or not corpo.get("ok"):
+        raise AcaoInvalida(f"O Controle de Produção recusou conferir: {corpo.get('motivo') or corpo.get('erro')}")
+    return corpo["plano"]
+
+
+def _essencial_fechados(plano: dict) -> list[list]:
+    return [[i.get("pedido"), i.get("ops_abertas")] for i in plano.get("itens", [])]
+
+
+def _previa_fechados(p: dict) -> dict:
+    plano = _conferir_fechados(p)
+    resumo = plano.get("resumo", {})
+    custo = str(resumo.get("custo") or "0.01").replace(".", ",")
+    return {
+        "texto": (f"Encerrar as OPs abertas de {resumo.get('pedidos')} pedido(s) fechado(s) "
+                  f"({resumo.get('ops_abertas')} OPs) com saída de insumo e entrada do produto no SAP. "
+                  f"IRREVERSÍVEL. Insumo sem custo recebe R$ {custo}. "
+                  + ("Itens inativos são ativados só durante o encerramento."
+                     if resumo.get("ativar_inativos") else "Item inativo faz o pedido falhar.")),
+        "pedidos": p["pedidos"], "itens": _essencial_fechados(plano),
+    }
+
+
+def _executar_fechados(p: dict, previa: dict, ctx: Contexto) -> tuple[bool, dict]:
+    try:
+        plano = _conferir_fechados(p)
+    except AcaoInvalida as exc:
+        return False, {"motivo": str(exc)}
+    if _essencial_fechados(plano) != [list(i) for i in previa.get("itens", [])]:
+        return False, {"motivo": "Os pedidos ou as OPs abertas mudaram desde o pedido de aprovação. "
+                                 "Nada foi feito; o agente precisa pedir de novo."}
+    solicitante = f"{ctx.pessoa} (aprovou {ctx.codigo}, pedido de {ctx.pedido_por})"[:80]
+    http, corpo = _chamar(_cp(), "POST", "/api/manutencao-op/pedidos-fechados/encerrar/executar",
+                          corpo={"token": plano["token"], "solicitante": solicitante}, ctx=ctx, tempo=90)
+    return http == 202 and bool(corpo.get("ok")), {"http": http, **corpo}
+
+
+def pedidos_fechados_com_op(incluir_atrasados: bool = False) -> tuple[int, dict]:
+    """Read-only loopback for ``GET /manutencao-op/pedidos-fechados`` of the 8077 (the MCP's door)."""
+    caminho = "/api/manutencao-op/pedidos-fechados" + ("?incluir_atrasados=true" if incluir_atrasados else "")
+    return _chamar(_cp(), "GET", caminho, tempo=60)
+
+
+# ---------------------------------------------------------------------------
 # reiniciar_servico
 # ---------------------------------------------------------------------------
 def _validar_servico(p: dict) -> dict:
@@ -237,6 +314,9 @@ CATALOGO: dict[str, Acao] = {a.nome: a for a in (
          lambda _p: {}, _previa_carga, _executar_carga, alvo=lambda _p: "oportunidades"),
     Acao("processar_pedido", "Processar um pedido (cria OPs no SAP)", "pedidos_wbc", PAPEIS_PCP, 10,
          _validar_pedido, _previa_pedido, _executar_pedido, alvo=lambda p: str(p["pedido"])),
+    Acao("encerrar_ops_pedidos_fechados", "Encerrar as OPs de pedidos fechados (estoque no SAP)",
+         "manutencao_op", PAPEIS_PCP, 5, _validar_fechados, _previa_fechados, _executar_fechados,
+         alvo=lambda p: ",".join(map(str, p["pedidos"]))),
     Acao("reiniciar_servico", "Reiniciar um serviço da .11", "servico:reiniciar", PAPEIS_ADMIN, 3,
          _validar_servico, _previa_servico, _executar_servico, alvo=lambda p: p["servico"]),
     # Its own scope: only the Téo's key (ti-agente) holds it -- the Téo is the one infrastructure agent.
