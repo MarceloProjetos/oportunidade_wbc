@@ -6,6 +6,18 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-29] — Levantamento de acessos da .11 (só leitura) + conserto do script do firewall da 8078
+
+- `maintenance/levantamento_acessos_11.ps1`: em um relatório, quem usa cada porta e cada chave antes de fechar
+  algo (regra "segurança acrescenta, nunca tira função"): firewall, portas abertas, conexões agora, auditoria
+  por cliente + IP (chave-mestra e `mcp-legado` à vista), chaves registradas, `.env` só como
+  preenchida/vazia, RDP, senhas erradas, compartilhamentos, administradores e contas dos serviços. Não muda
+  nada; grava `logs\levantamento_acessos_<data>.txt`. Recusa rodar fora da `SAPBusinessOneI` sem `-Forcar`.
+- `maintenance/firewall_mcp_8078.ps1`: a linha `[Console]::OutputEncoding` vinha **antes** do `param()`, e o
+  PowerShell então lia o bloco como expressão — `-Permitidos`/`-Aplicar`/`-Remover` não chegavam ao script.
+  Passou para depois do `param()`. Com o firewall da .11 desligado, isso não tinha feito falta até aqui.
+- Não pede deploy: basta `git pull --ff-only` na .11 (o `reinicio_pendente` some no boot das 06:12).
+
 ## [2026-10-27] — Quem mexeu no pedido: gravação na oportunidade não dá nome a versão do pedido
 
 A tela nova "Trocar Parceiro de Negócios" do web (`docs/PLANO_OPORTUNIDADE_SAP.md`, D4) grava na

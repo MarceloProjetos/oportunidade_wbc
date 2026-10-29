@@ -173,6 +173,9 @@ registra o IP de cada chamada ao MCP. Deixe passar alguns dias úteis e veja os 
 Get-Content logs\auditoria\mcp-*.jsonl | ConvertFrom-Json | Group-Object ip | Select-Object Count, Name
 ```
 
+O `.\maintenance\levantamento_acessos_11.ps1` (só leitura) traz isso junto com as outras portas, o RDP e
+quem ainda usa a chave-mestra ou o `SIS_MCP_TOKEN`.
+
 Coloque **todos** esses IPs em `-Permitidos`. Primeiro rode **sem** `-Aplicar` — ele só mostra:
 
 ```powershell

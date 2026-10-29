@@ -1,4 +1,3 @@
-[Console]::OutputEncoding = [Text.Encoding]::UTF8
 <#
   firewall_mcp_8078.ps1 - fecha a porta do MCP (8078) para todos, exceto os IPs permitidos.
   F1 de PLANO_MIRA_AGENTE_11.md (removed 2026-10-06), regra 9 (02/10/2026). Roda NA .11, como administrador.
@@ -23,6 +22,9 @@ param(
     [switch]$Aplicar,
     [switch]$Remover
 )
+
+# After param(): any statement before it turns the param block into a plain expression.
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
 
 $ErrorActionPreference = "Stop"
 $Nome = "OrcaView-MCP-$Porta-bloqueio"
