@@ -6,6 +6,15 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-10-30] — SOUL.md + REGRAS.md da Mira e do Téo (`docs/agentes/`)
+
+Só documentação. Para cada agente do .90, `SOUL.md` (voz e caráter, ~3 KB) e `REGRAS.md` (operação, autocontido:
+linhas vermelhas com o porquê e o arquivo da .11 que segura, matriz ler/pedir/proibido, respostas da .11 e o que
+fazer, expediente, rotina do Téo, quando chamar gente). Escritos a partir do que a .11 já impõe
+(`seguranca/`, `operacao/acoes_agente.py`, `mcp/acesso_mcp.py`) e no formato do OpenClaw (cabeçalho YAML fixo,
+Markdown puro, sem IP no corpo), para o OrçaView carregar como estão. Um texto nunca concede permissão: vale o
+`403`. Pendências marcadas `<a confirmar ...>` em `docs/agentes/README.md`. Não pede deploy.
+
 ## [2026-10-29] — Levantamento de acessos da .11 (só leitura) + conserto do script do firewall da 8078
 
 - `maintenance/levantamento_acessos_11.ps1`: em um relatório, quem usa cada porta e cada chave antes de fechar

@@ -60,7 +60,7 @@ Guias dos pacotes: `docs/wbc/README.md` (+ `DECISOES.md`) e `docs/controleproduc
 | `operacao/` | Leituras da própria .11 (serviços, conexões, histórico de pedido, log do worker, versão, ronda do .90, logins SAP, backup, Hyper-V); `boots`/`travamentos` **idênticos** ao SAP_RDP; `acoes_agente`, `reinicio` |
 | `web/` | `sincronizar.html` (Jinja na casca `casa/`), `entrar.html`, `entrada.html`, `inicio.html` (página inicial da Central) |
 | `tests/` | pytest; `test_<modulo>.py` espelha o módulo; `tests/wbc/` e `tests/controleproducao/` = suítes dos pacotes |
-| `docs/` | `wbc/`, `controleproducao/`, `INCIDENTES.md`, `changelog/`. Planos apagados ficam no git (`git log --diff-filter=D -- 'docs/PLANO_*'`) |
+| `docs/` | `wbc/`, `controleproducao/`, `agentes/` (SOUL.md + REGRAS.md da Mira e do Téo), `INCIDENTES.md`, `changelog/`. Planos apagados ficam no git (`git log --diff-filter=D -- 'docs/PLANO_*'`) |
 | `API_*.md` (raiz) | Contratos HTTP de outras equipes. **Ficam na raiz** (repo público, links externos). Mudou rota/campo/mensagem = mude o contrato no mesmo commit |
 | `sql/` | DDL de referência (NÃO roda sozinho); `sql/hana/` = view do worker; `sql/migracoes/` = já aplicadas |
 | `maintenance/` | Conferidor de Vendas BI, scripts de disco/log, relatos do ALTHOST/Hyper-V |
@@ -96,6 +96,7 @@ Módulo da raiz = ele + `tests/test_<modulo>.py`; `tests/wbc/` e `tests/controle
 | Variável do CP (`CP_*`, `SL_BUSINESS_PLACE_ID`…) | `controleproducao/config.py` + `tests/controleproducao/test_config.py` |
 | Leituras da .11 para o agente | `operacao/` + `tests/test_operacao.py` |
 | Credencial, escopo, auditoria, interruptor | `seguranca/` + `tests/test_seguranca.py`, `test_api_seguranca.py`, `test_mcp_acesso.py` |
+| Ação do agente, ferramenta MCP, escopo ou teto novo | o código + `docs/agentes/{mira,teo}/REGRAS.md` no mesmo commit (`docs/agentes/README.md`) |
 
 ## NÃO reler
 
