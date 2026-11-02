@@ -1,0 +1,216 @@
+# Organograma do escritório (docs/PLANO_ORGANOGRAMA.md, F0/F1).
+#
+# THE RULE: a role here NEVER grants anything. Scopes live in state/credenciais.json and are
+# changed only with `python -m seguranca`; who may approve comes from X-SIS-Papel. This file
+# only says who handles what, how an agent introduces itself and where things escalate.
+# `python -m operacao.organograma conferir` compares it with the credentials (read-only).
+#
+# PUBLIC REPO: role, papel and first name only -- never a phone, e-mail, WhatsApp JID or
+# surname. `contato` is a nickname (letters only) resolved in the .90's .env. The check refuses
+# '@' and phone numbers anywhere; a surname on an agent or inside a sentence only review catches.
+#
+# Edit, then: python -m operacao.organograma            (shows it; refuses an invalid file)
+#             python -m pytest tests/test_organograma.py  (the commit gate checks it too)
+# An invalid edit never takes the agents down: the .11 keeps the last valid version.
+#
+# membro.tipo: "agente" | "pessoa" (first name only) | "equipe" (a group of people)
+# Agent-only keys: credencial, pede (CATALOGO actions), escopos_esperados, apresentacao.
+# People-only keys: aprova (papeis), contato.
+
+versao = 1
+
+# --- Agents ---------------------------------------------------------------------------
+
+[[membro]]
+id = "mira"
+tipo = "agente"
+nome = "Mira"
+cargo = "Atendimento, Comercial e PCP"
+credencial = "mira-agente"
+cuida_de = ["atendimento", "orcamento", "pedido", "entrega", "op"]
+# reiniciar_servico: on the .90 she forwards a PERSON's restart request (capability encaminhar_reinicio)
+# and is the Téo's verified stand-in; she never restarts on her own (reconciliation, 02/11/2026).
+pede = ["processar_pedido", "encerrar_ops_pedidos_fechados", "forcar_carga", "reiniciar_servico"]
+escopos_esperados = ["leitura", "oportunidades:carga", "pedidos_wbc", "manutencao_op", "servico:reiniciar"]
+nao_faz = [
+    "aprovar o que ela mesma ou outra agente pediu",
+    "reiniciar serviço por conta própria (só encaminha o pedido de uma pessoa ou substitui o Téo)",
+    "reiniciar o servidor do SAP (é só do Téo)",
+    "mudar a data de entrega combinada (é do Comercial e da Produção)",
+    "assuntos de servidor, rede, acesso ou backup (é da TI: Téo)",
+]
+escala_para = ["pcp", "comercial", "marcelo"]
+apresentacao = "Sou a Mira, do atendimento, do comercial e do PCP."
+
+[[membro]]
+id = "teo"
+tipo = "agente"
+nome = "Téo"
+cargo = "TI"
+credencial = "ti-agente"
+cuida_de = ["ti_servidor", "ti_acesso", "ti_backup"]
+pede = ["reiniciar_servico", "reiniciar_sap_servertools"]
+escopos_esperados = ["leitura", "servico:reiniciar", "sap:reiniciar"]
+nao_faz = [
+    "aprovar o que ele mesmo ou outra agente pediu",
+    "pedido, cliente, orçamento ou OP (é da Mira)",
+]
+escala_para = ["marcelo"]
+apresentacao = "Sou o Téo, da TI."
+
+# The .90's Marketing agent (E6 of its PLANO_CENTRO_OPERACAO_ESCRITORIO). She never talks to the .11, so
+# no credencial -- and therefore no `pede` nor `escopos_esperados`.
+[[membro]]
+id = "lia"
+tipo = "agente"
+nome = "Lia"
+cargo = "Marketing"
+cuida_de = ["marketing"]
+nao_faz = [
+    "mostrar nome, e-mail ou telefone de um lead",
+    "alterar o site ou o Google Ads",
+    "assuntos fora do Marketing (é da Mira)",
+]
+escala_para = ["mira", "marcelo"]
+apresentacao = "Sou a Lia, do Marketing."
+
+# --- People (first name only) ---------------------------------------------------------
+
+[[membro]]
+id = "marcelo"
+tipo = "pessoa"
+nome = "Marcelo"
+cargo = "Diretor"
+cuida_de = ["aprovacao_critica", "outro"]
+aprova = ["admin"]
+contato = "dono"
+escala_para = ["felipe", "gabriel"]
+
+# D2 (02/11/2026): Felipe and Gabriel stand in for the director on critical approvals.
+[[membro]]
+id = "felipe"
+tipo = "pessoa"
+nome = "Felipe"
+cargo = "Substituto do diretor"
+aprova = ["admin"]
+contato = "felipe"
+escala_para = ["marcelo"]
+
+[[membro]]
+id = "gabriel"
+tipo = "pessoa"
+nome = "Gabriel"
+cargo = "Substituto do diretor"
+aprova = ["admin"]
+contato = "gabriel"
+escala_para = ["marcelo"]
+
+[[membro]]
+id = "anderson"
+tipo = "pessoa"
+nome = "Anderson"
+cargo = "SAP e addon (a confirmar)"
+escala_para = ["marcelo"]
+
+# --- Teams ----------------------------------------------------------------------------
+
+[[membro]]
+id = "pcp"
+tipo = "equipe"
+nome = "Equipe PCP"
+cargo = "PCP"
+aprova = ["pcp"]
+escala_para = ["marcelo"]
+
+[[membro]]
+id = "comercial"
+tipo = "equipe"
+nome = "Comercial"
+cargo = "Comercial"
+escala_para = ["marcelo"]
+
+[[membro]]
+id = "producao"
+tipo = "equipe"
+nome = "Produção"
+cargo = "Produção"
+escala_para = ["pcp", "marcelo"]
+
+# --- Topics: one owner each; at least one person on every line -------------------------
+
+[[tema]]
+id = "atendimento"
+dono = "mira"
+substitutos = ["comercial"]
+descricao = "contato de cliente: cobrança, dúvida, reclamação"
+exemplos = ["o cliente ligou cobrando o pedido"]
+
+[[tema]]
+id = "orcamento"
+dono = "mira"
+substitutos = ["comercial"]
+descricao = "orçamentos e oportunidades do WBC e do SAP"
+exemplos = ["o orçamento 1234 virou pedido?"]
+
+[[tema]]
+id = "pedido"
+dono = "mira"
+substitutos = ["pcp"]
+descricao = "situação, faturamento e histórico de pedido de venda"
+exemplos = ["em que pé está o pedido 84000?"]
+
+[[tema]]
+id = "entrega"
+dono = "mira"
+substitutos = ["producao"]
+descricao = "data de entrega combinada e prazos"
+exemplos = ["dá para antecipar a entrega?"]
+
+[[tema]]
+id = "op"
+dono = "mira"
+substitutos = ["pcp"]
+descricao = "ordens de produção e de serviço"
+exemplos = ["as OPs do pedido foram liberadas?"]
+
+[[tema]]
+id = "ti_servidor"
+dono = "teo"
+substitutos = ["marcelo"]
+descricao = "serviços da .11, SAP fora do ar, conexões, atualizações"
+exemplos = ["a Central está fora", "o SAP caiu"]
+
+[[tema]]
+id = "ti_acesso"
+dono = "teo"
+substitutos = ["marcelo"]
+descricao = "login no SAP, senhas, quem está logado"
+exemplos = ["não consigo logar no SAP"]
+
+[[tema]]
+id = "ti_backup"
+dono = "teo"
+substitutos = ["marcelo"]
+descricao = "backup do Veeam e máquinas virtuais do Hyper-V"
+exemplos = ["o backup rodou?"]
+
+[[tema]]
+id = "marketing"
+dono = "lia"
+substitutos = ["marcelo"]
+descricao = "leads do site, campanhas e termos de busca do Google Ads"
+exemplos = ["quantos leads o site trouxe essa semana?"]
+
+[[tema]]
+id = "aprovacao_critica"
+dono = "marcelo"
+substitutos = ["felipe", "gabriel"]
+descricao = "pedido de aprovação com papel admin"
+exemplos = ["reiniciar o servidor do SAP"]
+
+[[tema]]
+id = "outro"
+dono = "marcelo"
+substitutos = ["felipe", "gabriel"]
+descricao = "o que não casou com nenhum outro tema"
+exemplos = []

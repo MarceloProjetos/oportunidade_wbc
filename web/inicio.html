@@ -3,8 +3,9 @@
   Home page of the "Central Integração SAP" (PLANO_CASA_COMUM_11, F5): one card per screen with
   the state of the service behind it, and the connections they depend on. Everything is read in
   the browser from `/status` (the same data the .90's watchdog and the MCP use) and from the sync
-  logs — no new check, no new query. Four calls instead of one so the fast cards (local) do not
-  wait for the slow ones (HANA, SQL Server, Supabase). Refreshes every minute.
+  logs — no new check, no new query — plus the approvals and the org chart (PLANO_ORGANOGRAMA F2,
+  read only). Separate calls so the fast cards (local) do not wait for the slow ones (HANA, SQL
+  Server, Supabase). Refreshes every minute.
 #}
 <html lang="pt-BR" data-theme="{{ 'light' if casa_tema(request.cookies) == 'claro' else 'dark' }}">
 {% import "casa/_casa.html" as casa_ui %}
@@ -129,6 +130,20 @@
     .aprov-vazio { margin: 0; color: var(--casa-texto-2); font-size: .875rem; }
     .decididas { margin: 10px 0 0; padding: 0; list-style: none; color: var(--casa-texto-2); font-size: .8125rem; }
     .decididas li { padding: 4px 0; border-bottom: 1px dashed var(--casa-borda); }
+
+    /* Org chart (PLANO_ORGANOGRAMA F2): each agent's role and the chart-x-credentials check. */
+    .org { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+    .org-agente { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; background: var(--casa-cartao);
+      border: 1px solid var(--casa-borda); border-radius: 12px; }
+    .org-agente .linha1 { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .org-agente b { font-size: .9375rem; }
+    .org-agente p { margin: 0; color: var(--casa-texto-2); font-size: .8125rem; }
+    .org-agente p.escopos { color: var(--casa-texto); }
+    .org-temas { margin: 12px 0 0; padding: 0; list-style: none; display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 4px 16px; font-size: .8125rem; }
+    .org-temas li { padding: 4px 0; border-bottom: 1px dashed var(--casa-borda); color: var(--casa-texto-2); }
+    .org-temas code { color: var(--casa-texto); }
+    .org-aviso { margin: 0 0 12px; }
   </style>
 </head>
 <body>
@@ -160,6 +175,16 @@
     </div>
     <div class="aprovacoes" id="aprovacoes"><p class="aprov-vazio">Consultando…</p></div>
     <ul class="decididas" id="decididas"></ul>
+
+    <h2 class="secao">Organograma</h2>
+    <section class="avisos org-aviso" id="orgAviso" hidden aria-live="polite">
+      <b>O arquivo do organograma no disco está inválido — vale a última versão boa</b>
+      <ul id="orgAvisoLista"></ul>
+    </section>
+    <div class="org" id="org"><p class="aprov-vazio">Consultando…</p></div>
+    <ul class="org-temas" id="orgTemas"></ul>
+    <p class="nota">O cargo não dá permissão: quem decide o que cada agente pode fazer é a credencial. A conferência
+      só aponta — nada é concedido nem retirado por ela; tirar um escopo é com <code>python -m seguranca</code>.</p>
 
     <h2 class="secao">As telas</h2>
     <div class="telas">
@@ -423,9 +448,59 @@
       }
     }
 
+    // ---- Org chart: each agent's role and whether its credential matches it (read only) ----
+    const CONFERE = {
+      ok: ['ok', 'Confere'], sobram: ['warn', 'Escopo a mais'], faltam: ['err', 'Falta escopo'],
+      sem_credencial: ['err', 'Sem credencial'], credencial_nao_e_agente: ['err', 'Sem marca de agente'],
+      escopo_proibido: ['err', 'Escopo proibido'], sem_acesso_a_11: ['neutro', 'Não usa a .11'],
+    };
+
+    function cartaoAgente(m, conf) {
+      const card = el('div', 'org-agente');
+      const linha = el('div', 'linha1');
+      linha.append(el('b', null, m.nome));
+      const [nivel, texto] = conf ? (CONFERE[conf.situacao] || ['neutro', conf.situacao]) : ['neutro', '—'];
+      const pilula = el('span', 'pilula' + (nivel === 'neutro' ? '' : ' ' + nivel), texto);
+      linha.append(pilula);
+      card.append(linha, el('p', null, m.credencial ? `${m.cargo} · credencial ${m.credencial}` : `${m.cargo} · sem credencial da .11`));
+      if (m.cuida_de.length) card.append(el('p', null, 'Cuida de: ' + m.cuida_de.join(', ')));
+      if (conf && conf.proibidos && conf.proibidos.length) card.append(el('p', 'escopos', 'Proibido a agente: ' + conf.proibidos.join(', ')));
+      if (conf && conf.faltam.length) card.append(el('p', 'escopos', 'Falta (a ficha espera): ' + conf.faltam.join(', ')));
+      if (conf && conf.sobram.length) card.append(el('p', 'escopos', 'A mais (o cargo não prevê): ' + conf.sobram.join(', ')));
+      return card;
+    }
+
+    async function organograma() {
+      try {
+        const d = await pegar('/operacao/organograma');
+        if (!d.ok) {
+          $('org').replaceChildren(el('p', 'aprov-vazio', 'Organograma inválido: ' + (d.erros || [d.error]).join('; ')));
+          return;
+        }
+        const erros = (d.situacao && d.situacao.erros) || [];
+        $('orgAviso').hidden = !erros.length;
+        $('orgAvisoLista').replaceChildren(...erros.map((e) => el('li', null, e)));
+        const nomes = Object.fromEntries(d.membros.map((m) => [m.id, m.nome]));
+        const conf = Object.fromEntries(((d.conferencia && d.conferencia.agentes) || []).map((a) => [a.membro, a]));
+        const cartoes = d.membros.filter((m) => m.tipo === 'agente').map((m) => cartaoAgente(m, conf[m.id]));
+        const semFicha = (d.conferencia && d.conferencia.credencial_sem_ficha) || [];
+        if (semFicha.length) cartoes.push(el('p', 'aprov-vazio', 'Credencial de agente sem ficha: ' + semFicha.join(', ')));
+        $('org').replaceChildren(...cartoes);
+        $('orgTemas').replaceChildren(...d.temas.map((t) => {
+          const li = el('li');
+          const subs = t.substitutos.length ? ` (subst.: ${t.substitutos.map((s) => nomes[s] || s).join(', ')})` : '';
+          li.append(el('code', null, t.id), document.createTextNode(` → ${nomes[t.dono] || t.dono}${subs}`));
+          li.title = t.descricao;
+          return li;
+        }));
+      } catch (e) {
+        if (e.message !== '401') $('org').replaceChildren(el('p', 'aprov-vazio', 'Não foi possível ler o organograma.'));
+      }
+    }
+
     async function atualizar() {
       $('relogio').textContent = 'Consultando…';
-      await Promise.all([aprovacoes(), telasLocais(), sincronizacao(), conexoes()]);
+      await Promise.all([aprovacoes(), organograma(), telasLocais(), sincronizacao(), conexoes()]);
       $('relogio').textContent = 'Atualizado às ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     }
     $('atualizar').addEventListener('click', atualizar);
