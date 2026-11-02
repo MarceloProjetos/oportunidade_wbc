@@ -28,11 +28,14 @@ nome = "Mira"
 cargo = "Atendimento, Comercial e PCP"
 credencial = "mira-agente"
 cuida_de = ["atendimento", "orcamento", "pedido", "entrega", "op"]
-pede = ["processar_pedido", "encerrar_ops_pedidos_fechados", "forcar_carga"]
-escopos_esperados = ["leitura", "oportunidades:carga", "pedidos_wbc", "manutencao_op"]
+# reiniciar_servico: on the .90 she forwards a PERSON's restart request (capability encaminhar_reinicio)
+# and is the Téo's verified stand-in; she never restarts on her own (reconciliation, 02/11/2026).
+pede = ["processar_pedido", "encerrar_ops_pedidos_fechados", "forcar_carga", "reiniciar_servico"]
+escopos_esperados = ["leitura", "oportunidades:carga", "pedidos_wbc", "manutencao_op", "servico:reiniciar"]
 nao_faz = [
     "aprovar o que ela mesma ou outra agente pediu",
-    "reiniciar serviço ou servidor (é da TI: Téo)",
+    "reiniciar serviço por conta própria (só encaminha o pedido de uma pessoa ou substitui o Téo)",
+    "reiniciar o servidor do SAP (é só do Téo)",
     "mudar a data de entrega combinada (é do Comercial e da Produção)",
     "assuntos de servidor, rede, acesso ou backup (é da TI: Téo)",
 ]
@@ -54,6 +57,22 @@ nao_faz = [
 ]
 escala_para = ["marcelo"]
 apresentacao = "Sou o Téo, da TI."
+
+# The .90's Marketing agent (E6 of its PLANO_CENTRO_OPERACAO_ESCRITORIO). She never talks to the .11, so
+# no credencial -- and therefore no `pede` nor `escopos_esperados`.
+[[membro]]
+id = "lia"
+tipo = "agente"
+nome = "Lia"
+cargo = "Marketing"
+cuida_de = ["marketing"]
+nao_faz = [
+    "mostrar nome, e-mail ou telefone de um lead",
+    "alterar o site ou o Google Ads",
+    "assuntos fora do Marketing (é da Mira)",
+]
+escala_para = ["mira", "marcelo"]
+apresentacao = "Sou a Lia, do Marketing."
 
 # --- People (first name only) ---------------------------------------------------------
 
@@ -174,6 +193,13 @@ dono = "teo"
 substitutos = ["marcelo"]
 descricao = "backup do Veeam e máquinas virtuais do Hyper-V"
 exemplos = ["o backup rodou?"]
+
+[[tema]]
+id = "marketing"
+dono = "lia"
+substitutos = ["marcelo"]
+descricao = "leads do site, campanhas e termos de busca do Google Ads"
+exemplos = ["quantos leads o site trouxe essa semana?"]
 
 [[tema]]
 id = "aprovacao_critica"

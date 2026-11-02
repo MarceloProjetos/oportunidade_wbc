@@ -70,11 +70,11 @@ def test_agente_le_mas_nao_ve_a_conferencia(c):
 
 def test_administrador_ve_a_conferencia_sem_hash(c):
     credenciais.criar("mira-agente", ["leitura", "oportunidades:carga", "pedidos_wbc", "manutencao_op",
-                                      "servico:reiniciar"], agente=True)
+                                      "servico:reiniciar", "os:sincronizar"], agente=True)
     resposta = c.get("/operacao/organograma", headers=_h(MESTRA))
     d = resposta.get_json()
     mira = next(a for a in d["conferencia"]["agentes"] if a["membro"] == "mira")
-    assert mira["situacao"] == "sobram" and mira["sobram"] == ["servico:reiniciar"]
+    assert mira["situacao"] == "sobram" and mira["sobram"] == ["os:sincronizar"]
     assert d["conferencia"]["ok"] is False          # the Téo has no credential here
     corpo = resposta.get_data(as_text=True)
     hash_mira = credenciais.carregar()[0]["hash"]

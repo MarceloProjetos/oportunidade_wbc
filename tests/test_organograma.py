@@ -63,7 +63,7 @@ def _registrar(nome: str, escopos: list[str], *, agente: bool = True) -> None:
 def test_ficha_do_repositorio_e_valida():
     org = org_mod.carregar(org_mod.ARQUIVO_PADRAO)
     assert {"mira", "teo", "marcelo", "felipe", "gabriel"} <= set(org.membros)
-    assert {a.id for a in org.agentes()} == {"mira", "teo"}
+    assert {a.id for a in org.agentes()} == {"mira", "teo", "lia"}
 
 
 def test_d2_felipe_e_gabriel_substituem_o_diretor():
@@ -237,7 +237,7 @@ QUEBRAS = [
     (_quebra_chave_de_agente_em_pessoa, "chave 'credencial' não vale para tipo 'pessoa'"),
     (_quebra_id_repetido, "membro 'anderson' repetido"),
     (_quebra_credencial_repetida, "credencial 'mira-agente' já é de 'mira'"),
-    (_quebra_agente_sem_credencial, "falta 'credencial'"),
+    (_quebra_agente_sem_credencial, "precisa de 'credencial'"),
     (_quebra_agente_sem_escala, "agente sem 'escala_para'"),
     (_quebra_tipo, "tipo 'consultor' inválido"),
     (_quebra_versao, "versao tem de ser 1"),
@@ -398,11 +398,13 @@ def test_ficha_que_promete_escopo_nao_abre_a_rota(monkeypatch, tmp_path):
     from config import reset_settings
 
     texto = TEXTO_REAL.replace(
-        'pede = ["processar_pedido", "encerrar_ops_pedidos_fechados", "forcar_carga"]',
-        'pede = ["processar_pedido", "encerrar_ops_pedidos_fechados", "forcar_carga", "sincronizar_os"]',
+        'pede = ["processar_pedido", "encerrar_ops_pedidos_fechados", "forcar_carga", "reiniciar_servico"]',
+        'pede = ["processar_pedido", "encerrar_ops_pedidos_fechados", "forcar_carga", "reiniciar_servico",'
+        ' "sincronizar_os"]',
     ).replace(
-        'escopos_esperados = ["leitura", "oportunidades:carga", "pedidos_wbc", "manutencao_op"]',
-        'escopos_esperados = ["leitura", "oportunidades:carga", "pedidos_wbc", "manutencao_op", "os:sincronizar"]',
+        'escopos_esperados = ["leitura", "oportunidades:carga", "pedidos_wbc", "manutencao_op", "servico:reiniciar"]',
+        'escopos_esperados = ["leitura", "oportunidades:carga", "pedidos_wbc", "manutencao_op", "servico:reiniciar",'
+        ' "os:sincronizar"]',
     )
     assert texto != TEXTO_REAL
     arquivo = tmp_path / "organograma.toml"
@@ -414,8 +416,8 @@ def test_ficha_que_promete_escopo_nao_abre_a_rota(monkeypatch, tmp_path):
     monkeypatch.setenv("OS_API_KEY", "chave-mestra-de-teste")
     reset_settings()
     api._rate_limiter.reset()
-    chave = credenciais.criar("mira-agente", ["leitura", "oportunidades:carga", "pedidos_wbc", "manutencao_op"],
-                              agente=True)
+    chave = credenciais.criar("mira-agente", ["leitura", "oportunidades:carga", "pedidos_wbc", "manutencao_op",
+                                              "servico:reiniciar"], agente=True)
     api.app.config.update(TESTING=True)
     resposta = api.app.test_client().post("/ordens-servico/84080/sincronizar", headers={"X-API-Key": chave})
     assert resposta.status_code == 403
@@ -446,25 +448,45 @@ def _agente(resultado: dict, membro: str) -> dict:
     return next(a for a in resultado["agentes"] if a["membro"] == membro)
 
 
-def test_servico_reiniciar_da_mira_aparece_como_sobra():
-    """The real case on 02/11/2026: the Mira's key holds ``servico:reiniciar`` (SEGURANCA_11, F5),
-    but restarting is IT's job. Reported, never removed (D8)."""
-    _registrar("mira-agente", ["leitura", "oportunidades:carga", "pedidos_wbc", "servico:reiniciar", "manutencao_op"])
+def test_credenciais_de_hoje_conferem():
+    """The .11's real keys (SEGURANCA_11) against the reconciled chart (02/11/2026): the Mira's
+    ``servico:reiniciar`` is expected -- on the .90 she forwards a person's restart and stands in for
+    the Téo. The Lia never talks to the .11 and does not fail the check."""
+    _registrar("mira-agente", ["leitura", "oportunidades:carga", "pedidos_wbc", "manutencao_op", "servico:reiniciar"])
+    _registrar("ti-agente", ["leitura", "servico:reiniciar", "sap:reiniciar"])
+    resultado = org_mod.conferir(org_mod.carregar(org_mod.ARQUIVO_PADRAO))
+    assert _agente(resultado, "mira")["situacao"] == "ok"
+    assert _agente(resultado, "teo")["situacao"] == "ok"
+    lia = _agente(resultado, "lia")
+    assert lia["situacao"] == "sem_acesso_a_11" and lia["credencial"] is None
+    assert resultado["ok"] is True and resultado["credencial_sem_ficha"] == []
+
+
+def test_escopo_a_mais_aparece_como_sobra_e_nao_e_retirado():
+    """A scope the role does not expect is reported, never removed (D8)."""
+    _registrar("mira-agente", ["leitura", "oportunidades:carga", "pedidos_wbc", "manutencao_op", "servico:reiniciar",
+                               "os:sincronizar"])
     _registrar("ti-agente", ["leitura", "servico:reiniciar", "sap:reiniciar"])
     resultado = org_mod.conferir(org_mod.carregar(org_mod.ARQUIVO_PADRAO))
     mira = _agente(resultado, "mira")
     assert mira["situacao"] == "sobram"
-    assert mira["sobram"] == ["servico:reiniciar"] and mira["faltam"] == []
-    assert _agente(resultado, "teo")["situacao"] == "ok"
+    assert mira["sobram"] == ["os:sincronizar"] and mira["faltam"] == []
     assert resultado["ok"] is True      # a sobra is a warning, not a failure
-    assert "servico:reiniciar" in credenciais.carregar()[0]["escopos"]
+    assert "os:sincronizar" in credenciais.carregar()[0]["escopos"]
+
+
+def test_agente_sem_credencial_nao_pode_pedir():
+    dados = _dados()
+    _membro(dados, "lia")["pede"] = ["forcar_carga"]
+    assert any("membro 'lia': agente que pede ou espera escopo precisa de 'credencial'" in e for e in _erros(dados))
 
 
 def test_falta_de_escopo_reprova_a_conferencia():
     _registrar("mira-agente", ["leitura"])
     _registrar("ti-agente", ["leitura", "servico:reiniciar", "sap:reiniciar"])
     resultado = org_mod.conferir(org_mod.carregar(org_mod.ARQUIVO_PADRAO))
-    assert _agente(resultado, "mira")["faltam"] == ["manutencao_op", "oportunidades:carga", "pedidos_wbc"]
+    assert _agente(resultado, "mira")["faltam"] == ["manutencao_op", "oportunidades:carga", "pedidos_wbc",
+                                                     "servico:reiniciar"]
     assert resultado["ok"] is False
 
 
@@ -590,11 +612,13 @@ def test_cli_tema(capsys):
 def test_cli_conferir_codigos_de_saida(capsys):
     assert org_mod.main(["conferir"]) == 1              # no credentials at all
     assert "sem_credencial" in capsys.readouterr().out
-    _registrar("mira-agente", ["leitura", "oportunidades:carga", "pedidos_wbc", "manutencao_op", "servico:reiniciar"])
+    _registrar("mira-agente", ["leitura", "oportunidades:carga", "pedidos_wbc", "manutencao_op", "servico:reiniciar",
+                               "os:sincronizar"])
     _registrar("ti-agente", ["leitura", "servico:reiniciar", "sap:reiniciar"])
     assert org_mod.main(["conferir"]) == 0
     saida = capsys.readouterr().out
-    assert "sobram" in saida and "servico:reiniciar" in saida
+    assert "sobram" in saida and "os:sincronizar" in saida
+    assert "lia (sem credencial da .11): sem_acesso_a_11" in saida
     assert "nada é concedido nem revogado" in saida
 
 

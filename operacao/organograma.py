@@ -199,7 +199,7 @@ def _membro(dados: Any, n: int, erros: list[str]) -> Membro | None:
         cuida_de=_lista(dados, "cuida_de", onde, erros),
         nao_faz=_lista(dados, "nao_faz", onde, erros),
         escala_para=_lista(dados, "escala_para", onde, erros),
-        credencial=_texto(dados, "credencial", onde, erros, obrigatorio=agente) if agente else None,
+        credencial=_texto(dados, "credencial", onde, erros, obrigatorio=False) if agente else None,
         pede=_lista(dados, "pede", onde, erros) if agente else (),
         escopos_esperados=_lista(dados, "escopos_esperados", onde, erros) if agente else (),
         apresentacao=_texto(dados, "apresentacao", onde, erros, obrigatorio=False) if agente else None,
@@ -287,6 +287,8 @@ def _validar(org: Organograma, erros: list[str]) -> None:
             continue
         if not m.escala_para:
             erros.append(f"{onde}: agente sem 'escala_para'")
+        if not m.credencial and (m.pede or m.escopos_esperados):
+            erros.append(f"{onde}: agente que pede ou espera escopo precisa de 'credencial' (a da .11)")
         if m.credencial:
             if not _CREDENCIAL.match(m.credencial):
                 erros.append(f"{onde}: credencial '{m.credencial}' não é um nome de credencial")
@@ -570,7 +572,11 @@ def conferir(org: Organograma, clientes: list[dict] | None = None) -> dict[str, 
         esperados = set(m.escopos_esperados)
         registro = ativos.get(m.credencial or "")
         item: dict[str, Any] = {"membro": m.id, "credencial": m.credencial}
-        if registro is None:
+        if not m.credencial:
+            # An agent that never talks to the .11 (the Lia): nothing to compare, nothing wrong.
+            item |= {"situacao": "sem_acesso_a_11", "faltam": [], "sobram": [], "proibidos": [],
+                     "marcada_como_agente": None}
+        elif registro is None:
             item |= {"situacao": "sem_credencial", "faltam": sorted(esperados), "sobram": [],
                      "proibidos": [], "marcada_como_agente": None}
             ok = False
@@ -586,7 +592,7 @@ def conferir(org: Organograma, clientes: list[dict] | None = None) -> dict[str, 
                      "marcada_como_agente": marcada}
             ok = ok and marcada and not faltam and not proibidos
         agentes.append(item)
-    usadas = {m.credencial for m in org.agentes()}
+    usadas = {m.credencial for m in org.agentes() if m.credencial}
     sem_ficha = sorted(n for n, c in ativos.items() if c.get("agente") and n not in usadas)
     return {"ok": ok, "agentes": agentes, "credencial_sem_ficha": sem_ficha,
             "regra": "A conferência só aponta: nada é concedido nem revogado por ela."}
@@ -620,7 +626,7 @@ def _mostrar(org: Organograma) -> None:
 
 def _mostrar_conferencia(resultado: dict[str, Any]) -> None:
     for item in resultado["agentes"]:
-        print(f"{item['membro']} ({item['credencial']}): {item['situacao']}")
+        print(f"{item['membro']} ({item['credencial'] or 'sem credencial da .11'}): {item['situacao']}")
         if item["situacao"] == "sem_credencial":
             print("   nenhuma credencial ativa com esse nome")
         if item["proibidos"]:

@@ -6,6 +6,22 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-02] — Organograma: reconciliado com o .90 (ficha da Mira, Lia, planos)
+
+O repo do .90 entrou na sessão e mostrou que o escritório já existe lá (cadastro de agentes com dono por
+ferramenta, tarefas entre agentes, Escritório com fila e feed). Marcelo escolheu reconciliar antes da F3.
+
+- `operacao/organograma.toml`: a Mira passa a **esperar** `servico:reiniciar` e a pedir `reiniciar_servico` —
+  no .90 ela encaminha o reinício que uma pessoa pediu e substitui o Téo; não é sobra (D8 resolvida). Entra a
+  **Lia** (Marketing), sem credencial da .11, e o tema `marketing` (substituto Marcelo, a confirmar).
+- `operacao/organograma.py`: agente sem `credencial` é aceito se não pede nada nem espera escopo; a conferência
+  diz `sem_acesso_a_11` e não reprova. Card da Central mostra "Não usa a .11".
+- `docs/PLANO_ORGANOGRAMA.md`: seção "Reconciliação com o .90"; F3 vira ferramenta de leitura da Mira + teste
+  que confere os dois cadastros (sem mexer no prompt); **F4 e F5 canceladas** (o repasse é o `pedir_ao_teo`).
+- `docs/PLANO_QUADRO_TAREFAS.md`: reescrito — o quadro **não** será construído na .11; sobram 4 lacunas,
+  propostas para o plano do .90. `docs/ORGANOGRAMA_11.md`: quem é fonte de quê.
+- Depois do deploy, a conferência da Mira fica verde na Central (era amarela).
+
 ## [2026-11-02] — Organograma do escritório, F2: a ficha pela API, pelo MCP e na Central
 
 F2 do `docs/PLANO_ORGANOGRAMA.md`; contrato em `docs/ORGANOGRAMA_11.md`. Só leitura; o cargo continua sem dar
@@ -20,8 +36,7 @@ permissão.
 - MCP: ferramentas `organograma` e `quem_cuida_de` (`leitura`); o tema vai num segmento só da URL.
 - Página inicial da Central: card "Organograma" com cada agente e a conferência (verde / amarelo "escopo a
   mais" / vermelho "falta escopo"), a lista de temas e o aviso quando o arquivo no disco estiver inválido.
-- **Pede deploy da .11** (`deploy_update.bat`: API e MCP). Depois: abrir a Central e ver o card; a Mira deve
-  aparecer em amarelo por causa do `servico:reiniciar` (D8 — decisão do Marcelo).
+- **Pede deploy da .11** (`deploy_update.bat`: API e MCP). Depois: abrir a Central e ver o card.
 
 ## [2026-11-02] — Organograma do escritório, F1: a ficha, a validação e a conferência (só leitura)
 

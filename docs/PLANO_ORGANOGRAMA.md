@@ -4,12 +4,39 @@
 > **F0, F1 e F2 no código.** F1: `operacao/organograma.toml` + `operacao/organograma.py` (revisor isolado
 > aplicado). F2: `GET /operacao/organograma[?para=]`, `GET /operacao/organograma/temas/<tema>`, ferramentas
 > MCP `organograma` e `quem_cuida_de`, card na página inicial da Central; contrato `docs/ORGANOGRAMA_11.md`.
-> **Pede deploy da .11** (API e MCP). **Próxima:** F3, no repo do .90.
+> **Pede deploy da .11** (API e MCP).
+> **Reconciliado com o .90 em 02/11/2026** (seção abaixo; Marcelo escolheu "reconciliar primeiro"): F3 virou
+> uma ferramenta de leitura + uma conferência entre os dois cadastros, sem mexer no prompt; F4 (repasse na
+> .11) e F5 foram **canceladas** — o .90 já tem o repasse (`pedir_ao_teo` + `mira_tarefas`).
 
 **Começo → Meio → Fim:** cada agente e cada pessoa ganha uma ficha por escrito (cargo, o que faz, o
-que não faz, a quem escala) → a .11 lê, confere com as credenciais e entrega a ficha às agentes →
-uma pergunta que chega à agente errada vira um **repasse** para a dona do assunto, sem a pessoa
-repetir, e volta para uma pessoa se ninguém resolver.
+que não faz, a quem escala) → a .11 lê, confere com as credenciais e serve a ficha → a Mira responde
+"quem cuida disso?" e "quem aprova quando o Marcelo não está?" lendo a ficha, e o cadastro de agentes do
+.90 e o organograma da .11 são conferidos um contra o outro.
+
+## Reconciliação com o .90 (02/11/2026)
+
+Este plano foi escrito sem ver o repo do .90. Quando ele entrou na sessão, apareceu que o "escritório" já
+existe lá, mais maduro do que o plano supunha (`docs/PLANO_CENTRO_OPERACAO_ESCRITORIO.md`, etapas E0–E7):
+
+| O que o plano previa | O que o .90 já tem | Quem fica com o quê |
+| --- | --- | --- |
+| Ficha do agente (cargo, o que faz, o que não faz) | `services/mira_agentes.py` (`AGENTES`: papel, `quem_e`, versão; `CAPACIDADES`: cada ferramenta com **um dono**, compartilhada e substitutos) + `docs/agentes/<id>/SOUL.md`/`REGRAS.md` com versão travada por hash | **.90** é a fonte do que cada agente faz e de qual ferramenta é de quem |
+| Seção "Seu cargo" no prompt | Prompts versionados, bancos de teste antes de mudar, WhatsApp congelado (decisão 1 de lá) | **Não muda o prompt.** O `texto_cargo` da F2 fica disponível, mas não entra no prompt |
+| Repasse Mira → Téo (F4) | `pedir_ao_teo` + `services/mira_tarefas.py` (SQLite durável: quem pediu, quem responde, prazo, resultado); despacho "Pedir ao Téo" pela tela (E3b); `pedir_a(agente)` previsto na E6 | **.90**. A tabela `tarefas` da .11 **não será criada** |
+| Medir o roteamento (F5) | `services/mira_metas.py` (metas do dia no cartão da manhã, E7) | **.90** |
+| Pessoas, papéis de quem aprova, substitutos do diretor, temas em linguagem de gente | Não existe (o `.90` conhece o dono pelo `MIRA_OWNER_JID` e o papel pelo `X-SIS-Papel`) | **.11** (`organograma.toml`) |
+| Conferir cargo × credencial da .11 | Não existe | **.11** (`conferir`, card da Central) |
+
+Ajustes feitos na ficha por causa do que o .90 mostrou:
+
+- **Mira e `servico:reiniciar` não é sobra:** no .90 a capacidade `encaminhar_reinicio` é da Mira ("só repassa
+  ao Téo o reinício que uma pessoa pediu") e ela é a substituta verificada do Téo em `reiniciar_servico`. A
+  ficha passa a esperar esse escopo e a ação `reiniciar_servico`; o `nao_faz` diz "por conta própria". A
+  conferência da Mira fica verde (D8 resolvida pelo código, não por gosto).
+- **A Lia entra no organograma** (agente de Marketing do .90, E6), sem credencial da .11 (ela não fala com a
+  .11). Agente sem credencial é aceito quando não pede nada nem espera escopo; a conferência diz
+  `sem_acesso_a_11` e não reprova. Tema novo `marketing` (dona Lia, substituto Marcelo — a confirmar).
 
 ## A regra inegociável
 
@@ -33,20 +60,15 @@ Consequências que o plano trava em código e teste:
 
 ## Fatos que travam o desenho
 
-1. **As agentes moram no .90** (repo `web_orcaview_V118`: `mira_whatsapp_gateway.py`, prompts,
-   WhatsApp). Este repo não vê os prompts. O plano tem **duas frentes**: .11 (este repo: ficha,
-   conferência, API, repasse) e .90 (prompts e roteamento na conversa).
+1. **As agentes moram no .90** (repo `web_orcaview`; no .90, `web_orcaview_V118`): cadastro, prompts,
+   tarefas entre agentes, WhatsApp. O plano tem **duas frentes**: .11 (este repo: ficha das pessoas e dos
+   agentes, conferência com credenciais, API) e .90 (a ferramenta de leitura e a conferência entre cadastros).
 2. **Só a .11 vê todas as credenciais e todos os pedidos** — é por isso que as aprovações moram aqui.
    Pelo mesmo motivo a ficha mora aqui: é o único lugar onde dá para conferir ficha × credencial.
 3. **O repo é público.** A ficha leva cargo, papel e primeiro nome — **nunca** telefone, JID do
    WhatsApp, e-mail ou sobrenome. O contato de cada pessoa continua no `.env` do .90
    (`MIRA_OWNER_JID` e afins), referenciado na ficha por um apelido (`contato = "dono"`).
-4. **Escrita de agente só seg–sex 07–19h** (`seguranca/agente.py`). Um repasse é escrita (na base da
-   .11, nunca no SAP), então segue a regra (D5).
-5. **Já existe o padrão de "um dono por alvo"**: `aprovacoes.criar` em `BEGIN IMMEDIATE`, índice
-   parcial `(acao, alvo)` nos estados abertos, `Idempotency-Key`, teto por hora, varredura de órfãos.
-   O repasse **copia o padrão** num arquivo próprio; o `aprovacoes.db` não é tocado.
-6. **Sem `pip`**: a ficha é TOML, lida com `tomllib` (stdlib desde o 3.11; a .11 roda 3.14).
+4. **Sem `pip`**: a ficha é TOML, lida com `tomllib` (stdlib desde o 3.11; a .11 roda 3.14).
 
 ## Organograma proposto (para o Marcelo corrigir na F0)
 
@@ -61,10 +83,11 @@ Consequências que o plano trava em código e teste:
 | **Comercial** | pessoas | Comercial | Pede mudança da data combinada (`entrega:solicitar`) | — | Marcelo |
 | **Produção** | pessoas | Produção | Decide as solicitações de data | — | PCP / Marcelo |
 | **Anderson** | pessoa | SAP / addon (a confirmar) | `controleproducao/`, addon C# | — | Marcelo |
+| **Lia** (02/11) | agente | Marketing | Leads do site, campanhas, Google Ads (só lê; sem acesso à .11) | Mostrar nome/e-mail/telefone de lead; alterar site ou Google Ads | Mira, Marcelo |
 
-**Uma divergência que a conferência já vai mostrar no 1º dia:** a credencial `mira-agente` tem
-`servico:reiniciar` (SEGURANCA_11.md, F5), mas pelo cargo reiniciar serviço é da TI (Téo). A F1
-**só aponta**; manter ou tirar é do Marcelo (D8). Isso é a regra 3 funcionando, não um defeito.
+**Divergência do 1º dia, resolvida na reconciliação:** a credencial `mira-agente` tem `servico:reiniciar`.
+Parecia sobra (reiniciar é da TI), mas o .90 usa esse escopo de propósito: a Mira encaminha o reinício que uma
+**pessoa** pediu e é a substituta verificada do Téo. A ficha passou a esperá-lo.
 
 ### Temas (o roteamento)
 
@@ -80,6 +103,7 @@ Cada pergunta cai num tema; cada tema tem **um** dono e um substituto. Tema desc
 | `ti_servidor` | Téo | Marcelo | "a Central está fora", "o SAP caiu" |
 | `ti_acesso` | Téo | Marcelo | "não consigo logar no SAP" |
 | `ti_backup` | Téo | Marcelo | "o backup rodou?" |
+| `marketing` (02/11) | Lia | Marcelo (a confirmar) | "quantos leads o site trouxe?" |
 | `aprovacao_critica` | Marcelo | Felipe, Gabriel | pedido com papel `admin` |
 | `outro` | Marcelo | Felipe, Gabriel | o que não casou com nenhum |
 
@@ -90,10 +114,10 @@ flowchart LR
   F[operacao/organograma.toml<br/>versionado no git] --> L[operacao/organograma.py<br/>carrega + valida + confere]
   C[(state/credenciais.json)] -->|só leitura| L
   L --> R1[GET /operacao/organograma<br/>escopo leitura]
-  L --> R2[POST/GET /operacao/repasses<br/>escopo repasse]
-  R2 --> DB[(state/tarefas.db<br/>origem = repasse)]
-  R1 --> M[.90: prompt da Mira e do Téo<br/>seção 'Seu cargo']
-  R2 --> W[.90: vigia de repasses<br/>cartão no WhatsApp]
+  L --> CEN[Central: card Organograma]
+  R1 --> M[.90: ferramenta quem_cuida_de<br/>da Mira, só leitura]
+  CAD[.90: mira_agentes.AGENTES + CAPACIDADES] -. conferência F3 .- F
+  T[.90: pedir_ao_teo + mira_tarefas] --> TEO[Téo]
   A[api.requer_chave / mcp/acesso_mcp / seguranca/] -. NUNCA lê .-> F
 ```
 
@@ -113,7 +137,7 @@ cada campo. Resumo do formato:
 - `[[tema]]` com `id`, `dono`, `substitutos`, `descricao`, `exemplos`.
 - O substituto do diretor (D2) é o `escala_para` do Marcelo e os `substitutos` dos temas
   `aprovacao_critica` e `outro`.
-- O escopo `repasse` só entra nos `escopos_esperados` na F4, quando passar a existir em `ESCOPOS`.
+- Agente sem `credencial` (a Lia) não fala com a .11: não pode ter `pede` nem `escopos_esperados`.
 
 ### F1 — Leitor, validação e conferência (.11; ~1 dia) — **feito 02/11/2026**
 
@@ -124,7 +148,7 @@ cada campo. Resumo do formato:
 >   equipe na linha; agente nunca tem `aprova`; ação em `pede` exige o escopo dela em `escopos_esperados`;
 >   chave desconhecida é erro (pega `escala_pra`); pessoa só com o primeiro nome; `contato` sem dígitos.
 > - Laço de escalada só é proibido **entre agentes**; entre pessoas é substituição (Marcelo ⇄ Felipe).
->   O repasse da F4 vai pelo dono do tema, não por essa cadeia.
+>   (O repasse entre agentes é do .90, `pedir_ao_teo`.)
 > - Dado pessoal: `@` em qualquer texto; telefone brasileiro em texto livre (faixa de pedidos passa);
 >   10+ dígitos somados em campo de identidade. A mensagem diz **onde**, nunca repete o número.
 > - Conferência também reprova credencial **sem a marca de agente** e escopo de `PROIBIDOS_AO_AGENTE`
@@ -179,99 +203,61 @@ credenciais **sem escrever nada**.
 - Testes em `tests/test_api.py` / `tests/test_api_seguranca.py`: escopo declarado, sem credencial →
   401/403, `?para=` desconhecido → 404.
 
-### F3 — As agentes passam a saber o próprio cargo (.90; ~1 dia; outro repo)
+### F3 — A Mira lê o organograma; os dois cadastros se conferem (.90; ~1 dia)
 
-**Goal:** Mira e Téo se apresentam pelo cargo, dizem "isso é com o Téo/a Mira/o PCP" e respondem
-"quem cuida de X?" — ainda sem repasse automático.
+**Goal:** a Mira responde "quem cuida disso?", "quem aprova quando o Marcelo não está?" e "a quem eu passo
+isso?" lendo a ficha da .11 — sem mudar o prompt — e um teste do .90 avisa quando o cadastro de agentes de lá
+e o organograma daqui discordam.
 
-- O .90 busca `GET /operacao/organograma?para=<agente>` na subida e a cada 10 min; guarda a última
-  cópia boa em disco. API fora → usa a cópia; nunca sobe sem cargo.
-- O prompt ganha a seção **"Seu cargo"** gerada da ficha (`cargo`, `cuida_de`, `nao_faz`,
-  `escala_para`) — texto escrito à mão sobre o cargo sai do prompt (uma fonte só).
-- Instrução explícita no prompt: *"o cargo não te dá poder; se uma ferramenta recusar, é a credencial
-  que manda"* — para a agente não tentar contornar uma recusa citando o cargo.
-- Teste no .90: prompt montado a partir de uma ficha fixa; API fora usa a cópia.
+- **Ferramenta de leitura `quem_cuida_de`** no catálogo da Mira (capacidade `atender`, efeito `leitura`),
+  pelo mesmo caminho das outras leituras da .11 (`mira_infra`, chave da Mira): sem argumento devolve o
+  organograma resumido (pessoas, agentes, temas, substitutos); com `tema` devolve o dono e os substitutos.
+  Contrato em `mira_contratos`, versão da Mira sobe, tabelas de autorização e de rotina regeneradas só com o
+  nome novo (o molde é o `pedidos_fechados_com_op`, V118.1329). O prompt não muda: a descrição da ferramenta
+  é o que o modelo lê.
+- **Conferência entre os cadastros** (`tests/test_organograma_11.py` no .90), contra uma cópia
+  `tests/data/organograma_11.json` gerada por `tools/dev/organograma_11.py` a partir deste repo:
+  todo agente da .11 existe no `AGENTES` do .90; toda ação que a ficha diz que um agente **pede** é uma
+  ferramenta do .90 de que ele é dono, compartilhado ou substituto; tema de agente aponta para um agente que
+  existe. A cópia é dado, não regra: quando a .11 muda a ficha, regenera-se a cópia e o teste diz o que
+  discorda.
+- **WhatsApp:** fica como está (congelado lá). A ferramenta nova só aparece onde as habilidades da Mira já
+  aparecem; se o canal congelado tiver lista própria de ferramentas, ela não entra nele.
 
-### F4 — Repasse entre agentes e para pessoas (.11 + .90; ~1–2 dias)
+### F4 e F5 — canceladas (02/11/2026)
 
-**Goal:** pergunta de TI que chega à Mira vira um repasse do Téo com o resumo da conversa; o Téo
-recebe, aceita, resolve ou devolve; depois de 2 saltos vai para uma pessoa.
-
-**.11** — `operacao/repasses.py`, tabela `tarefas` em `state/tarefas.db` com `origem = 'repasse'`
-(semente do Quadro de Tarefas, D4):
-
-| Coluna | Uso |
-| --- | --- |
-| `id`, `codigo` | uuid + 4 dígitos (mesmo formato do `aprovar 4821`) |
-| `tema` | obrigatório, existe no organograma |
-| `de`, `para` | `membro.id`; **`para` é decidido pela .11** a partir do tema (o modelo sugere o tema, não o destino) |
-| `resumo`, `conversa_ref` | o que a pessoa pediu, em 1–3 linhas, e a referência da conversa no .90 |
-| `pedido_por`, `em_nome_de` | carimbados pela .11/8078 como nas aprovações |
-| `estado` | `aberto` → `aceito` → `concluido` · `devolvido` · `escalado` · `expirado` |
-| `saltos` | +1 a cada devolução/repasse; **≥ 2 → `para` = substituto humano do tema** (D6) |
-| `aprovacao_id` | opcional: liga o repasse a um pedido de aprovação, sem mexer no `aprovacoes.db` |
-| `criado_em`, `expira_em`, `concluido_em` | aberto sem aceite em 4 h (horário útil) → escala para pessoa |
-
-- Rotas: `POST /operacao/repasses` (escopo novo `repasse`, permitido a agente; `Idempotency-Key`),
-  `GET /operacao/repasses?para=teo&estado=aberto` (`leitura`), `POST /operacao/repasses/<codigo>/
-  aceitar|devolver|concluir` (`repasse`; só o `para` atual ou uma pessoa).
-- `BEGIN IMMEDIATE` + índice único parcial em `(tema, conversa_ref)` nos estados abertos: a mesma
-  conversa nunca gera dois repasses (Mira e Téo repassando ao mesmo tempo dão um só).
-- Teto por hora por agente (como `contar_recentes`): 20/h. Agente não repassa para si mesma.
-- Interruptor e horário de `seguranca/agente.py` valem igual (é escrita de agente).
-- Retenção: concluídos com mais de 30 dias são apagados (mesmo prazo da auditoria).
-- `python -m seguranca acrescentar mira-agente --escopos repasse` e idem `ti-agente` — **o Marcelo
-  roda na .11**; só acrescenta, nada muda nas chaves.
-- Testes `tests/test_repasses.py`: destino vem do tema (o `para` enviado é ignorado), dois saltos
-  escalam para pessoa, deduplicação concorrente (duas threads), teto/h, fora do horário recusa, agente
-  sem `repasse` → 403, expiração escala.
-
-**.90** — a Mira chama `repassar(tema, resumo)` e diz à pessoa "passei ao Téo, código 3150"; o Téo
-lê os repasses abertos no ciclo dele; um vigia (o mesmo desenho do vigia de aprovações, 30 s) manda
-cartão no grupo quando o `para` é uma pessoa ou quando escalou. Fora do horário o .90 guarda o
-repasse e envia às 07:00 (D5) e avisa a pessoa disso.
-
-### F5 — Medir e ajustar (2 semanas de uso)
-
-**Goal:** saber se o roteamento acerta antes de construir o Quadro de Tarefas inteiro.
-
-- `GET /operacao/repasses/resumo`: por tema — criados, devolvidos (= roteado errado), escalados para
-  pessoa, tempo até aceitar.
-- Tema com muitos devolvidos → ajusta `exemplos`/descrição na ficha (só TOML, sem deploy de código).
-- Fim da F5: decidir o Plano 1 (Quadro de Tarefas) com números na mão. A tabela `tarefas` já existe;
-  ele acrescenta colunas e origens (`rotina`, `alerta`, `whatsapp`).
+O repasse entre agentes, o registro de tarefas e a medição já existem no .90 (tabela da reconciliação). O que
+sobrar de "tarefas para pessoas" vai como proposta para o `PLANO_CENTRO_OPERACAO_ESCRITORIO` do .90, não como
+tabela nova aqui (`docs/PLANO_QUADRO_TAREFAS.md`, reescrito).
 
 ## O que NÃO muda
 
 - `seguranca/credenciais.py`, `aprovacoes.py`, `agente.py`, `PROIBIDOS_AO_AGENTE`, `acoes_agente.CATALOGO`
   e o `aprovacoes.db`: zero linhas alteradas. Os testes atuais deles passam sem mudança — é o sinal.
-- Nenhum escopo é retirado de ninguém. O único escopo novo (`repasse`) só é acrescentado.
-- Nenhuma escrita no SAP. Repasse grava só em `state/tarefas.db` na .11.
+- Nenhum escopo é retirado nem criado. Nenhuma escrita no SAP nem tabela nova na .11.
+- No .90: prompts, `SOUL.md`/`REGRAS.md`, WhatsApp e tarefas entre agentes ficam como estão.
 
 ## Riscos e como o plano responde
 
 | Risco | Resposta |
 | --- | --- |
 | A ficha virar permissão "pela porta dos fundos" | Regra inegociável + teste por AST + teste do 403 |
-| Pingue-pongue Mira ↔ Téo | `saltos ≥ 2` vai para pessoa; destino decidido pela .11, não pelo modelo |
-| Repasse esquecido | Expira em 4 h úteis e escala; cartão no grupo |
+| Dois cadastros discordarem (.90 × .11) | Conferência da F3 no .90, contra a cópia regenerada |
 | Ficha errada derrubar as agentes | Validação + última ficha válida; teste da ficha do repo é gate do commit |
 | Dado pessoal num repo público | Só cargo/papel/1º nome; validador recusa telefone/e-mail/JID |
 | Diretor como gargalo único | D2: Felipe e Gabriel substituem; o papel `admin` deles vem do .90, não da ficha |
-| Laço de custo entre agentes | Teto 20 repasses/h por agente; interruptor de sempre |
 
 ## Execução sugerida (subagentes)
 
 - **F1+F2** (.11): um agente Sonnet numa worktree isolada, com este plano e os arquivos
   `operacao/acoes_agente.py`, `seguranca/credenciais.py`, `tests/test_api_seguranca.py`.
-- **F4 .11**: o mesmo agente, depois da F2 aprovada; o código de concorrência fica com o Sonnet.
 - **Haiku** só em tarefas de leitura: varrer o .90 atrás de texto de cargo escrito à mão nos prompts,
   listar onde cada escopo é usado, revisar o português das fichas. **Nada em `seguranca/` nem em código
   de concorrência com Haiku.**
 - **Revisor isolado** (sem ver a conversa, só o diff + este plano) antes de cada merge, como no plano
   dos pedidos fechados.
-- **F3/F4 .90**: sessão no repo `web_orcaview_V118`. Ordem de deploy: **.11 antes do .90** (o .90 passa
-  a chamar rotas novas).
+- **F3 .90**: repo `web_orcaview` (no .90 a pasta é `web_orcaview_V118`), revisor `revisor-codigo` de lá.
+  Ordem de deploy: **.11 antes do .90** (a ferramenta chama a rota nova).
 
 ## Decisões para o Marcelo
 
@@ -280,8 +266,8 @@ repasse e envia às 07:00 (D5) e avisa a pessoa disso.
 | D1 | Onde mora a ficha? | `operacao/organograma.toml` no git deste repo (histórico, revisão, conferência com credenciais). Alternativas: Supabase (edita sem commit, perde o gate) ou .90 (não confere credenciais) |
 | D2 | Quem substitui o diretor nas aprovações críticas? | **Decidido (02/11/2026): Felipe e Gabriel.** Na ficha só o primeiro nome (repo público, D7). A ficha só descreve: para eles aprovarem de fato, o .90 tem de mandar `X-SIS-Papel: admin` quando a decisão vier deles (regra 4) — passo à parte, no .90, feito pelo Marcelo |
 | D3 | Os temas e donos da tabela acima estão certos? | Começar com esses 10; ajustar na F5 com os números |
-| D4 | O repasse grava registro? | Sim, já na tabela `tarefas` (semente do Plano 1). Só mensagem não deixa rastro nem responde "o que ficou pendente" |
-| D5 | Repasse fora de seg–sex 07–19h? | Manter a regra da .11; o .90 guarda e envia às 07:00 e avisa a pessoa |
-| D6 | Quantos saltos até uma pessoa? | 2 |
+| D4 | O repasse grava registro? | ~~Tabela na .11~~ — **superada (02/11):** o registro é o `mira_tarefas` do .90 |
+| D5 | Repasse fora de seg–sex 07–19h? | **Superada (02/11):** o repasse é do .90 e segue as regras de lá |
+| D6 | Quantos saltos até uma pessoa? | **Superada (02/11):** idem |
 | D7 | Pessoas pelo nome ou pelo papel? | Papel + primeiro nome; contatos só no `.env` do .90 (repo público) |
-| D8 | Divergência ficha × credencial (ex.: `servico:reiniciar` da Mira)? | v1 só relatório no card da Central; você decide caso a caso. Alerta no `/status` só depois, se fizer falta |
+| D8 | Divergência ficha × credencial (ex.: `servico:reiniciar` da Mira)? | Só relatório no card da Central. **O caso da Mira foi resolvido (02/11):** o .90 usa esse escopo de propósito (encaminhar o pedido de uma pessoa; substituta do Téo) — a ficha passou a esperá-lo |

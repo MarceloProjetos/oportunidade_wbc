@@ -452,7 +452,7 @@
     const CONFERE = {
       ok: ['ok', 'Confere'], sobram: ['warn', 'Escopo a mais'], faltam: ['err', 'Falta escopo'],
       sem_credencial: ['err', 'Sem credencial'], credencial_nao_e_agente: ['err', 'Sem marca de agente'],
-      escopo_proibido: ['err', 'Escopo proibido'],
+      escopo_proibido: ['err', 'Escopo proibido'], sem_acesso_a_11: ['neutro', 'Não usa a .11'],
     };
 
     function cartaoAgente(m, conf) {
@@ -462,7 +462,7 @@
       const [nivel, texto] = conf ? (CONFERE[conf.situacao] || ['neutro', conf.situacao]) : ['neutro', '—'];
       const pilula = el('span', 'pilula' + (nivel === 'neutro' ? '' : ' ' + nivel), texto);
       linha.append(pilula);
-      card.append(linha, el('p', null, `${m.cargo} · credencial ${m.credencial}`));
+      card.append(linha, el('p', null, m.credencial ? `${m.cargo} · credencial ${m.credencial}` : `${m.cargo} · sem credencial da .11`));
       if (m.cuida_de.length) card.append(el('p', null, 'Cuida de: ' + m.cuida_de.join(', ')));
       if (conf && conf.proibidos && conf.proibidos.length) card.append(el('p', 'escopos', 'Proibido a agente: ' + conf.proibidos.join(', ')));
       if (conf && conf.faltam.length) card.append(el('p', 'escopos', 'Falta (a ficha espera): ' + conf.faltam.join(', ')));

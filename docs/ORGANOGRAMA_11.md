@@ -3,6 +3,12 @@
 > F2 do `docs/PLANO_ORGANOGRAMA.md` (02/11/2026). Fonte: `operacao/organograma.toml`; código:
 > `operacao/organograma.py`. Quem consome: as agentes no .90 (F3), o MCP e a página inicial da Central.
 
+**Quem é fonte de quê** (reconciliação com o .90, 02/11/2026): o **.90** é a fonte do que cada agente faz
+(`mira_agentes.CAPACIDADES`: cada ferramenta com um dono), das instruções (`docs/agentes/`) e das tarefas entre
+agentes (`mira_tarefas`). A **.11** é a fonte das **pessoas** (cargo, substitutos do diretor, quem aprova o
+quê), dos **temas** em linguagem de gente e da **conferência** cargo × credencial da .11. Um teste no .90
+confere os dois cadastros.
+
 **Regra:** o cargo nunca dá permissão. Estas rotas só dizem quem cuida do quê e a quem passar. O que cada
 cliente pode fazer continua sendo o escopo da credencial (`docs/SEGURANCA_11.md`), e quem aprova continua
 sendo o papel (`docs/APROVACOES_11.md`). Nada que autoriza lê o organograma.
@@ -29,7 +35,8 @@ sendo o papel (`docs/APROVACOES_11.md`). Nada que autoriza lê o organograma.
 
 - `conferencia` vem **só para administrador** (cookie da Central, chave-mestra): é a comparação ficha ×
   credencial de cada agente (`situacao`: `ok`, `sobram`, `faltam`, `sem_credencial`,
-  `credencial_nao_e_agente`, `escopo_proibido`; listas `faltam`, `sobram`, `proibidos`). Nunca traz hash.
+  `credencial_nao_e_agente`, `escopo_proibido`, `sem_acesso_a_11` — agente que não fala com a .11, como a
+  Lia, que não reprova; listas `faltam`, `sobram`, `proibidos`). Nunca traz hash.
   Para qualquer outro cliente com `leitura`, inclusive as agentes, vem `null`: que escopo cada agente tem
   não é informação para todo leitor.
 - `situacao.arquivo_valido: false` = o arquivo no disco foi editado errado; a resposta é a **última versão
