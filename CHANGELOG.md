@@ -13,7 +13,7 @@ ferramenta, tarefas entre agentes, Escritório com fila e feed). Marcelo escolhe
 
 - `operacao/organograma.toml`: a Mira passa a **esperar** `servico:reiniciar` e a pedir `reiniciar_servico` —
   no .90 ela encaminha o reinício que uma pessoa pediu e substitui o Téo; não é sobra (D8 resolvida). Entra a
-  **Lia** (Marketing), sem credencial da .11, e o tema `marketing` (substituto Marcelo, a confirmar).
+  **Lia** (Marketing), sem credencial da .11, e o tema `marketing` (substituto Marcelo, confirmado por ele em 02/11).
 - `operacao/organograma.py`: agente sem `credencial` é aceito se não pede nada nem espera escopo; a conferência
   diz `sem_acesso_a_11` e não reprova. Card da Central mostra "Não usa a .11".
 - `docs/PLANO_ORGANOGRAMA.md`: seção "Reconciliação com o .90"; F3 vira ferramenta de leitura da Mira + teste

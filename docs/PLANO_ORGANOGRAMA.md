@@ -38,7 +38,7 @@ Ajustes feitos na ficha por causa do que o .90 mostrou:
   conferência da Mira fica verde (D8 resolvida pelo código, não por gosto).
 - **A Lia entra no organograma** (agente de Marketing do .90, E6), sem credencial da .11 (ela não fala com a
   .11). Agente sem credencial é aceito quando não pede nada nem espera escopo; a conferência diz
-  `sem_acesso_a_11` e não reprova. Tema novo `marketing` (dona Lia, substituto Marcelo — a confirmar).
+  `sem_acesso_a_11` e não reprova. Tema novo `marketing` (dona Lia, substituto Marcelo — confirmado em 02/11, D9).
 
 ## A regra inegociável
 
@@ -105,7 +105,7 @@ Cada pergunta cai num tema; cada tema tem **um** dono e um substituto. Tema desc
 | `ti_servidor` | Téo | Marcelo | "a Central está fora", "o SAP caiu" |
 | `ti_acesso` | Téo | Marcelo | "não consigo logar no SAP" |
 | `ti_backup` | Téo | Marcelo | "o backup rodou?" |
-| `marketing` (02/11) | Lia | Marcelo (a confirmar) | "quantos leads o site trouxe?" |
+| `marketing` (02/11) | Lia | Marcelo (D9) | "quantos leads o site trouxe?" |
 | `aprovacao_critica` | Marcelo | Felipe, Gabriel | pedido com papel `admin` |
 | `outro` | Marcelo | Felipe, Gabriel | o que não casou com nenhum |
 
@@ -283,3 +283,4 @@ tabela nova aqui (`docs/PLANO_QUADRO_TAREFAS.md`, reescrito).
 | D6 | Quantos saltos até uma pessoa? | **Superada (02/11):** idem |
 | D7 | Pessoas pelo nome ou pelo papel? | Papel + primeiro nome; contatos só no `.env` do .90 (repo público) |
 | D8 | Divergência ficha × credencial (ex.: `servico:reiniciar` da Mira)? | Só relatório no card da Central. **O caso da Mira foi resolvido (02/11):** o .90 usa esse escopo de propósito (encaminhar o pedido de uma pessoa; substituta do Téo) — a ficha passou a esperá-lo |
+| D9 | Quem substitui a Lia no tema `marketing`? | **Decidido (02/11/2026): Marcelo**, por enquanto |
