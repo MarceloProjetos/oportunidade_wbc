@@ -4,7 +4,9 @@
 > **F0, F1 e F2 no código.** F1: `operacao/organograma.toml` + `operacao/organograma.py` (revisor isolado
 > aplicado). F2: `GET /operacao/organograma[?para=]`, `GET /operacao/organograma/temas/<tema>`, ferramentas
 > MCP `organograma` e `quem_cuida_de`, card na página inicial da Central; contrato `docs/ORGANOGRAMA_11.md`.
-> **Pede deploy da .11** (API e MCP).
+> **Pede deploy da .11** (API e MCP). **F3 no código do .90** (repo `web_orcaview`, branch
+> `ccr-0586ccf4-0jx19d`, V118.1451, commits `98e715d` + `3492c8d`; revisor de código de lá aplicado) —
+> **falta o merge e o deploy, a .11 antes do .90**.
 > **Reconciliado com o .90 em 02/11/2026** (seção abaixo; Marcelo escolheu "reconciliar primeiro"): F3 virou
 > uma ferramenta de leitura + uma conferência entre os dois cadastros, sem mexer no prompt; F4 (repasse na
 > .11) e F5 foram **canceladas** — o .90 já tem o repasse (`pedir_ao_teo` + `mira_tarefas`).
@@ -203,7 +205,17 @@ credenciais **sem escrever nada**.
 - Testes em `tests/test_api.py` / `tests/test_api_seguranca.py`: escopo declarado, sem credencial →
   401/403, `?para=` desconhecido → 404.
 
-### F3 — A Mira lê o organograma; os dois cadastros se conferem (.90; ~1 dia)
+### F3 — A Mira lê o organograma; os dois cadastros se conferem (.90; ~1 dia) — **feito 02/11/2026**
+
+> **Como ficou:** módulo próprio `services/mira_organograma.py` (o molde das ferramentas só da tela: ações,
+> Lia, manuais), não `mira_infra`. A ferramenta entrou no **núcleo da tela**, ao lado de `quem_pode_ver`, e
+> não numa sala própria: sala nova muda as descrições que o seletor lê, e o teste do .90 exige medir o
+> seletor antes (`tools/dev/mira_avaliar_seletor.py --tela`, que usa o LM Studio do .90). **Limite disso:**
+> pergunta que o seletor manda para "Geral" ("quem aprova quando o Marcelo não está?") não abre o modo com
+> ferramentas, então a Mira não a usa ali. **Próximo passo opcional (no .90):** criar a sala "Organograma"
+> (`so_tela=True`) e rodar a medição. Vale para as três empresas (`DAS_TRES`: sem dado de empresa). Conferência
+> entre cadastros: `backend/tests/test_mira_organograma.py` sobre `tests/data/organograma_11.json`
+> (`python tools/dev/organograma_11.py --toml <esta pasta>/operacao/organograma.toml` quando a ficha mudar).
 
 **Goal:** a Mira responde "quem cuida disso?", "quem aprova quando o Marcelo não está?" e "a quem eu passo
 isso?" lendo a ficha da .11 — sem mudar o prompt — e um teste do .90 avisa quando o cadastro de agentes de lá
