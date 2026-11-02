@@ -6,6 +6,23 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-02] — Organograma do escritório, F2: a ficha pela API, pelo MCP e na Central
+
+F2 do `docs/PLANO_ORGANOGRAMA.md`; contrato em `docs/ORGANOGRAMA_11.md`. Só leitura; o cargo continua sem dar
+permissão.
+
+- `GET /operacao/organograma` (`leitura`): membros, temas e a situação do arquivo. A conferência ficha ×
+  credencial vai **só para administrador** (Central, chave-mestra) — as agentes e os outros clientes com
+  `leitura` recebem `conferencia: null`. `?para=<id>` devolve a ficha de um membro; para agente, com o
+  `texto_cargo` pronto para o prompt (a regra "o cargo não te dá poder" é sempre a última linha).
+- `GET /operacao/organograma/temas/<tema>` (`leitura`): dono e substitutos; tema desconhecido vai para `outro`
+  (`casou: false`), nunca 404. Arquivo inválido sem nenhuma versão boa → 503 com onde está o erro.
+- MCP: ferramentas `organograma` e `quem_cuida_de` (`leitura`); o tema vai num segmento só da URL.
+- Página inicial da Central: card "Organograma" com cada agente e a conferência (verde / amarelo "escopo a
+  mais" / vermelho "falta escopo"), a lista de temas e o aviso quando o arquivo no disco estiver inválido.
+- **Pede deploy da .11** (`deploy_update.bat`: API e MCP). Depois: abrir a Central e ver o card; a Mira deve
+  aparecer em amarelo por causa do `servico:reiniciar` (D8 — decisão do Marcelo).
+
 ## [2026-11-02] — Organograma do escritório, F1: a ficha, a validação e a conferência (só leitura)
 
 F1 do `docs/PLANO_ORGANOGRAMA.md`. **Regra: o cargo nunca dá permissão** — escopos, papéis de aprovação e

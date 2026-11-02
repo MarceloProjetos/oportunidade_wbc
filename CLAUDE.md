@@ -96,7 +96,7 @@ Módulo da raiz = ele + `tests/test_<modulo>.py`; `tests/wbc/` e `tests/controle
 | Variável do CP (`CP_*`, `SL_BUSINESS_PLACE_ID`…) | `controleproducao/config.py` + `tests/controleproducao/test_config.py` |
 | Leituras da .11 para o agente | `operacao/` + `tests/test_operacao.py` |
 | Credencial, escopo, auditoria, interruptor | `seguranca/` + `tests/test_seguranca.py`, `test_api_seguranca.py`, `test_mcp_acesso.py` |
-| Organograma (cargo, tema, a quem escala; conferência com as credenciais) | `operacao/organograma.toml` + `organograma.py` + `tests/test_organograma.py` (plano `docs/PLANO_ORGANOGRAMA.md`) |
+| Organograma (cargo, tema, a quem escala; conferência com as credenciais) | `operacao/organograma.toml` + `organograma.py` + `tests/test_organograma.py`; rotas `/operacao/organograma*` + `tests/test_api_organograma.py`; contrato `docs/ORGANOGRAMA_11.md` |
 
 ## NÃO reler
 

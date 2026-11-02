@@ -488,6 +488,63 @@ def situacao(arquivo: Path | None = None) -> dict[str, Any]:
             "erros": list(estado.erros)}
 
 
+# --- what the API serves (F2) ---------------------------------------------------------
+
+#: The last line of every agent's role text. The prompt carries it so the model never argues
+#: its way past a refusal by quoting its role.
+REGRA_PARA_AGENTE = ("O cargo não te dá poder: se uma ferramenta recusar, é a credencial que manda — "
+                     "não insista citando o cargo; diga o que falta e a quem pedir.")
+
+
+def _resumo(m: Membro) -> dict[str, str]:
+    return {"id": m.id, "nome": m.nome, "cargo": m.cargo, "tipo": m.tipo}
+
+
+def texto_do_cargo(org: Organograma, m: Membro) -> str:
+    """The "Seu cargo" section of an agent's prompt (F3), built here so the chart stays the only
+    source: the .90 pastes it as is. Plain PT, one fact per line."""
+    def nomes(ids: tuple[str, ...]) -> str:
+        return ", ".join(org.membros[i].nome for i in ids)
+
+    linhas = [f"Você é {m.nome}, {m.cargo}." + (f" {m.apresentacao}" if m.apresentacao else "")]
+    if m.cuida_de:
+        linhas.append("Você cuida de: " + "; ".join(f"{org.temas[t].descricao} ({t})" for t in m.cuida_de) + ".")
+    if m.pede:
+        linhas.append("Você pode PEDIR (uma pessoa aprova): " + "; ".join(CATALOGO[a].titulo for a in m.pede) + ".")
+    if m.nao_faz:
+        linhas.append("Você não faz: " + "; ".join(m.nao_faz) + ".")
+    if m.escala_para:
+        linhas.append(f"Quando não resolver, passe para: {nomes(m.escala_para)}.")
+    outros = [t for t in org.temas.values() if t.dono != m.id]
+    if outros:
+        linhas.append("Os outros assuntos: " + "; ".join(
+            f"{t.id} → {org.membros[t.dono].nome}" for t in outros) + ".")
+    linhas.append(REGRA_PARA_AGENTE)
+    return "\n".join(linhas)
+
+
+def ficha(org: Organograma, membro_id: str) -> dict[str, Any]:
+    """One member, with names resolved, and, for an agent, the ready role text. ``KeyError`` if
+    the id is not in the chart."""
+    m = org.membros[membro_id]
+    dados = m.como_dict()
+    dados["escala_para"] = [_resumo(org.membros[e]) for e in m.escala_para]
+    if m.agente:
+        dados["pede"] = [{"acao": a, "titulo": CATALOGO[a].titulo} for a in m.pede]
+        dados["texto_cargo"] = texto_do_cargo(org, m)
+    return {"membro": dados, "temas": [{"id": t.id, "dono": t.dono, "descricao": t.descricao}
+                                       for t in org.temas.values()]}
+
+
+def tema_publico(org: Organograma, tema_id: str) -> dict[str, Any]:
+    """Who handles a topic. A topic that does not exist goes to the catch-all one (``casou``
+    False), so the caller always gets an owner."""
+    t = org.quem_cuida_de(tema_id)
+    return {"pedido": tema_id, "casou": t.id == tema_id, "tema": t.id, "descricao": t.descricao,
+            "exemplos": list(t.exemplos), "dono": _resumo(org.membros[t.dono]),
+            "substitutos": [_resumo(org.membros[s]) for s in t.substitutos]}
+
+
 # --- chart x credentials (read-only) ----------------------------------------------------
 
 def conferir(org: Organograma, clientes: list[dict] | None = None) -> dict[str, Any]:

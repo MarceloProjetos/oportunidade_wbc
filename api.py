@@ -32,6 +32,7 @@ Endpoints
 - ``GET  /wbc/orcamentos/<orcnum>[/log]``   → what the WBC worker knows about a quote (+ its log)
 - ``GET  /operacao/*``                      → the .11 itself: servicos, conexoes[/<destino>], deploy,
                                               boots, travamentos, logins-sap, backup, hyperv, ronda-90
+- ``GET  /operacao/organograma[/temas/<tema>]`` → the office's org chart: who handles what (never grants)
 - ``POST /operacao/backup/estado`` · ``POST /operacao/hyperv/estado`` → hosts report their state
 - ``POST|GET /aprovacoes`` · ``GET /aprovacoes/<chave>`` · ``POST /aprovacoes/<chave>/aprovar|recusar``
                                             → agent requests that a person approves
@@ -132,6 +133,7 @@ from operacao import (
     hyperv,
     log_worker,
     logins_sap,
+    organograma,
     reinicio,
     ronda_90,
     travamentos,
@@ -1738,6 +1740,49 @@ def operacao_ronda_90():
     """The .90 seen from the .11 (F6 of PLANO_AGENTE_TI, web repo): its state now and the periods
     it was down, with the real times. Read from the round's file; nothing is tested here."""
     return jsonify(ok=True, **ronda_90.publico())
+
+
+# --- F2 of docs/PLANO_ORGANOGRAMA.md: the org chart for whoever asks ---------------------------
+# Read only. The chart never grants anything: these routes serve it, nothing that authorises
+# reads it (tests/test_organograma.py). Contract: docs/ORGANOGRAMA_11.md.
+
+def _organograma_ou_503():
+    try:
+        return organograma.carregar(), None
+    except organograma.OrganogramaInvalido as exc:
+        # The errors name where the problem is, never a value (the validation's own rule).
+        return None, (jsonify(ok=False, error='organograma_invalido', erros=exc.erros), 503)
+
+
+@app.get('/operacao/organograma')
+@requer_chave('leitura')
+def operacao_organograma():
+    """The whole chart, or ``?para=<id>`` one member (for an agent: the ready role text of its
+    prompt). The chart-x-credentials check goes only to an administrator (the Central's screen,
+    the master key): which scopes each agent holds is not for every ``leitura`` client."""
+    org, erro = _organograma_ou_503()
+    if erro:
+        return erro
+    estado = organograma.situacao()
+    para = (request.args.get('para') or '').strip().lower()
+    if para:
+        if para not in org.membros:
+            return jsonify(ok=False, error='membro_desconhecido', membros=sorted(org.membros)), 404
+        return jsonify(ok=True, versao=org.versao, situacao=estado, **organograma.ficha(org, para))
+    cliente = _cliente()
+    conferencia = organograma.conferir(org) if cliente is not None and cliente.pode('admin') else None
+    return jsonify(ok=True, **org.como_dict(), situacao=estado, conferencia=conferencia)
+
+
+@app.get('/operacao/organograma/temas/<tema>')
+@requer_chave('leitura')
+def operacao_organograma_tema(tema: str):
+    """Who handles one topic. An unknown topic is not 404: it goes to the catch-all one
+    (``casou: false``), so an agent always learns whom to hand the question to."""
+    org, erro = _organograma_ou_503()
+    if erro:
+        return erro
+    return jsonify(ok=True, **organograma.tema_publico(org, tema.strip().lower()[:40]))
 
 
 # --- F3/F4 of PLANO_MIRA_AGENTE_11.md (removed 2026-10-06): the agent asks, a person approves -----------------

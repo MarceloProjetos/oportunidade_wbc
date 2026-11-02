@@ -1,9 +1,10 @@
 # PLANO — Organograma do escritório (Mira, Téo e as pessoas)
 
 > **Status (02/11/2026):** aprovado com todas as recomendações (D1–D8; D2 = Felipe e Gabriel).
-> **F0 e F1 no código** (`operacao/organograma.toml`, `operacao/organograma.py`, 83 testes; revisor isolado
-> aplicado). Não pede deploy: na .11, depois do `git pull`, `python -m operacao.organograma conferir`.
-> **Próxima:** F2 (API + MCP + card na Central).
+> **F0, F1 e F2 no código.** F1: `operacao/organograma.toml` + `operacao/organograma.py` (revisor isolado
+> aplicado). F2: `GET /operacao/organograma[?para=]`, `GET /operacao/organograma/temas/<tema>`, ferramentas
+> MCP `organograma` e `quem_cuida_de`, card na página inicial da Central; contrato `docs/ORGANOGRAMA_11.md`.
+> **Pede deploy da .11** (API e MCP). **Próxima:** F3, no repo do .90.
 
 **Começo → Meio → Fim:** cada agente e cada pessoa ganha uma ficha por escrito (cargo, o que faz, o
 que não faz, a quem escala) → a .11 lê, confere com as credenciais e entrega a ficha às agentes →
@@ -158,7 +159,13 @@ credenciais **sem escrever nada**.
   - `conferir()` nunca chama `criar`/`acrescentar`/`revogar` (monkeypatch que explode);
   - `servico:reiniciar` da Mira aparece em `sobram` (o caso real acima).
 
-### F2 — A ficha para quem pergunta (.11; ~meio dia)
+### F2 — A ficha para quem pergunta (.11; ~meio dia) — **feito 02/11/2026**
+
+> **Como ficou:** a `conferencia` vai **só para administrador** (Central, chave-mestra) — mais fechado que o
+> texto abaixo: que escopo cada agente tem não é para todo cliente com `leitura`. `?para=<agente>` já traz o
+> `texto_cargo` pronto (a seção "Seu cargo" da F3, com a regra na última linha), então o .90 não monta texto.
+> Tema desconhecido não é 404: vai para `outro` (`casou: false`). Arquivo inválido sem versão boa → 503.
+> Testes: `tests/test_api_organograma.py`, `tests/test_mcp_organograma.py`.
 
 **Goal:** as agentes e a Central leem a ficha pela API; a conferência fica visível.
 
