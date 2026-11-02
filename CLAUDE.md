@@ -57,7 +57,7 @@ Guias dos pacotes: `docs/wbc/README.md` (+ `DECISOES.md`) e `docs/controleproduc
 | `scripts/scheduled_execution.py` | Loop do agendador (APScheduler, 7–18, seg–sex) |
 | `mcp/` | Fachada fina sobre a 8077, NÃO fala com banco. `acesso_mcp.py` = token por cliente, `ESCOPO_DA_FERRAMENTA`, auditoria; importa `seguranca/` por sys.path **append** (nunca insert) |
 | `seguranca/` | Credenciais (SHA-256; `OS_API_KEY` = admin), auditoria (30 dias), interruptor do agente (escrita só seg–sex 7–19h), aprovações. `docs/SEGURANCA_11.md`, `docs/APROVACOES_11.md` |
-| `operacao/` | Leituras da própria .11 (serviços, conexões, histórico de pedido, log do worker, versão, ronda do .90, logins SAP, backup, Hyper-V); `boots`/`travamentos` **idênticos** ao SAP_RDP; `acoes_agente`, `reinicio` |
+| `operacao/` | Leituras da própria .11 (serviços, conexões, histórico de pedido, log do worker, versão, ronda do .90, logins SAP, backup, Hyper-V); `boots`/`travamentos` **idênticos** ao SAP_RDP; `acoes_agente`, `reinicio`; `organograma` (+ `.toml`: cargo, temas, escalada) |
 | `web/` | `sincronizar.html` (Jinja na casca `casa/`), `entrar.html`, `entrada.html`, `inicio.html` (página inicial da Central) |
 | `tests/` | pytest; `test_<modulo>.py` espelha o módulo; `tests/wbc/` e `tests/controleproducao/` = suítes dos pacotes |
 | `docs/` | `wbc/`, `controleproducao/`, `INCIDENTES.md`, `changelog/`. Planos apagados ficam no git (`git log --diff-filter=D -- 'docs/PLANO_*'`) |
@@ -96,6 +96,7 @@ Módulo da raiz = ele + `tests/test_<modulo>.py`; `tests/wbc/` e `tests/controle
 | Variável do CP (`CP_*`, `SL_BUSINESS_PLACE_ID`…) | `controleproducao/config.py` + `tests/controleproducao/test_config.py` |
 | Leituras da .11 para o agente | `operacao/` + `tests/test_operacao.py` |
 | Credencial, escopo, auditoria, interruptor | `seguranca/` + `tests/test_seguranca.py`, `test_api_seguranca.py`, `test_mcp_acesso.py` |
+| Organograma (cargo, tema, a quem escala; conferência com as credenciais) | `operacao/organograma.toml` + `organograma.py` + `tests/test_organograma.py` (plano `docs/PLANO_ORGANOGRAMA.md`) |
 
 ## NÃO reler
 
@@ -176,6 +177,10 @@ Regra com teste = 1 linha + o teste que a protege; sem teste = o porquê junto.
   `acoes_agente.CATALOGO`, nunca comando livre; credencial `agente` nunca recebe `aprovar`/`admin`
   (`PROIBIDOS_AO_AGENTE`); a 8078 carimba `pedido_por`/`em_nome_de`; nunca dê `aprovar` à chave que a
   Mira usa para pedir. — `tests/test_aprovacoes.py`
+- ⚠️⚠️ **O cargo nunca dá permissão**: `operacao/organograma` só diz quem cuida do quê e a quem escala;
+  nada que autoriza (`seguranca/`, `requer_chave`, `acesso_mcp`, `casa/`/CP `acesso`, `acoes_agente`) o
+  importa, e a conferência com as credenciais só aponta (nunca concede nem revoga). Repo público: ficha
+  só com primeiro nome, sem contato. — `tests/test_organograma.py`
 - Rota protegida da 8077 declara escopo (`@requer_chave('leitura')`); ferramenta MCP nova entra em
   `ESCOPO_DA_FERRAMENTA` (senão exige `admin`). Chave registrada só no cabeçalho; só a `OS_API_KEY`
   mantém o `?key=` antigo. — `tests/test_api_seguranca.py`, `tests/test_mcp_acesso.py`

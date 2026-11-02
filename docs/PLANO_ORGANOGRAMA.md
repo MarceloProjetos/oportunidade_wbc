@@ -1,8 +1,9 @@
 # PLANO — Organograma do escritório (Mira, Téo e as pessoas)
 
-> **Status (02/11/2026):** proposta, **aguardando aprovação do Marcelo**. Nada no código ainda.
-> **D2 decidida** (Marcelo, 02/11): Felipe e Gabriel substituem o diretor. As outras decisões (fim do
-> arquivo) precisam de resposta antes da F1; a F0 é ele quem preenche.
+> **Status (02/11/2026):** aprovado com todas as recomendações (D1–D8; D2 = Felipe e Gabriel).
+> **F0 e F1 no código** (`operacao/organograma.toml`, `operacao/organograma.py`, 83 testes; revisor isolado
+> aplicado). Não pede deploy: na .11, depois do `git pull`, `python -m operacao.organograma conferir`.
+> **Próxima:** F2 (API + MCP + card na Central).
 
 **Começo → Meio → Fim:** cada agente e cada pessoa ganha uma ficha por escrito (cargo, o que faz, o
 que não faz, a quem escala) → a .11 lê, confere com as credenciais e entrega a ficha às agentes →
@@ -101,40 +102,37 @@ flowchart LR
 
 **Goal:** `operacao/organograma.toml` existe, revisado pelo Marcelo, com as decisões D1–D8 tomadas.
 
-Formato (exemplo; os comentários do arquivo explicam cada campo):
+**Feito (02/11/2026):** o arquivo é `operacao/organograma.toml` — ele é a fonte; o cabeçalho explica
+cada campo. Resumo do formato:
 
-```toml
-versao = 1
+- `[[membro]]` com `id`, `tipo` (`agente` | `pessoa` | `equipe`), `nome`, `cargo`, `cuida_de` (os temas de que
+  é **dono**), `nao_faz`, `escala_para`.
+- Só agente: `credencial`, `pede` (ações do `CATALOGO`), `escopos_esperados`, `apresentacao`.
+- Só pessoa/equipe: `aprova` (papéis: `admin`, `pcp` — descreve, não autoriza) e `contato` (apelido).
+- `[[tema]]` com `id`, `dono`, `substitutos`, `descricao`, `exemplos`.
+- O substituto do diretor (D2) é o `escala_para` do Marcelo e os `substitutos` dos temas
+  `aprovacao_critica` e `outro`.
+- O escopo `repasse` só entra nos `escopos_esperados` na F4, quando passar a existir em `ESCOPOS`.
 
-[[membro]]
-id = "mira"
-tipo = "agente"
-credencial = "mira-agente"          # o nome em state/credenciais.json
-cargo = "Atendimento, Comercial e PCP"
-cuida_de = ["atendimento", "orcamento", "pedido", "entrega", "op"]
-pede = ["processar_pedido", "encerrar_ops_pedidos_fechados", "forcar_carga"]   # chaves do CATALOGO
-escopos_esperados = ["leitura", "oportunidades:carga", "pedidos_wbc", "manutencao_op", "repasse"]
-nao_faz = ["aprovar", "reiniciar servidor", "mudar data de entrega"]
-escala_para = ["pcp", "comercial", "marcelo"]
-apresentacao = "Sou a Mira, do atendimento e do PCP."
+### F1 — Leitor, validação e conferência (.11; ~1 dia) — **feito 02/11/2026**
 
-[[membro]]
-id = "marcelo"
-tipo = "pessoa"
-cargo = "Diretor"
-aprova = ["admin"]                  # descreve; quem confere o papel é o X-SIS-Papel, não isto
-contato = "dono"                    # apelido; o JID mora no .env do .90 (repo público)
-substitutos = ["felipe", "gabriel"] # D2 (02/11/2026)
-
-[[tema]]
-id = "ti_servidor"
-dono = "teo"
-substituto = "marcelo"
-descricao = "serviços da .11, SAP fora do ar, conexões"
-exemplos = ["a Central está fora", "o SAP caiu"]
-```
-
-### F1 — Leitor, validação e conferência (.11; ~1 dia)
+> **Como ficou** (o que mudou em relação ao texto abaixo):
+> - API pública: `carregar()`, `situacao()`, `ler(texto)`/`de_dados(dict)` (validam), `conferir(org)` e
+>   `Organograma.quem_cuida_de(tema)`. Não há `validar()` solto: carregar já valida.
+> - Regras a mais: o dono de um tema lista o tema em `cuida_de` (e só o dono); todo tema tem uma pessoa ou
+>   equipe na linha; agente nunca tem `aprova`; ação em `pede` exige o escopo dela em `escopos_esperados`;
+>   chave desconhecida é erro (pega `escala_pra`); pessoa só com o primeiro nome; `contato` sem dígitos.
+> - Laço de escalada só é proibido **entre agentes**; entre pessoas é substituição (Marcelo ⇄ Felipe).
+>   O repasse da F4 vai pelo dono do tema, não por essa cadeia.
+> - Dado pessoal: `@` em qualquer texto; telefone brasileiro em texto livre (faixa de pedidos passa);
+>   10+ dígitos somados em campo de identidade. A mensagem diz **onde**, nunca repete o número.
+> - Conferência também reprova credencial **sem a marca de agente** e escopo de `PROIBIDOS_AO_AGENTE`
+>   (só um JSON editado à mão chega lá); para agente, `admin` não cobre falta.
+> - O teste "ficha dizendo que a Mira tem `admin`" virou "ficha esperando `os:sincronizar` que a credencial
+>   não tem → 403": a própria validação já recusa `admin` na ficha de agente (duas travas).
+> - Além do AST, um interpretador limpo importa todos os caminhos de autorização e prova que o organograma
+>   não foi carregado (pega import indireto e `importlib`).
+> - Arquivo salvo com BOM (Bloco de Notas, PowerShell 5.1) é aceito; cache por mtime + tamanho.
 
 **Goal:** `operacao/organograma.py` carrega a ficha, recusa ficha inconsistente e compara com as
 credenciais **sem escrever nada**.
