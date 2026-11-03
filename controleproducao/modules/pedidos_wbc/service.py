@@ -1,29 +1,34 @@
-"""Lógica de negócio do módulo Pedidos WBC — porte do addon original.
+"""Business logic of the Pedidos WBC module — port of the legacy C# addon.
 
-Equivalente a `Form2` (Views/IntegraPedidoWBC.b1f.cs) + `Controllers/ProcessDefault.cs`.
-Ver seção 4.4 do migration_guide.md para a descrição passo a passo do fluxo original, e a
-seção 7.4 para o histórico desta implementação (extração do C# feita em 15/09/2026).
+Equivalent of `Form2` (Views/IntegraPedidoWBC.b1f.cs) + `Controllers/ProcessDefault.cs`. See
+migration_guide.md section 4.4 for the original step-by-step flow and section 7.4 for the history of
+this implementation (C# extraction done 15/09/2026).
 
-⚠️ Não testado contra um ambiente real (sem credenciais/rede de homologação disponíveis
-nesta sessão) — antes de usar em produção, seguir o passo 4 da seção 10 do guia
-(rodar em paralelo ao addon legado e comparar registro a registro, DUPLAMENTE importante
-aqui: é o módulo mais complexo, com a cascata recursiva de Ordens de Produção).
+Writes to PRODUCTION: since 28/09/2026 the writes are unlocked only on the .11, by machine IP
+(`wbcpython/safety.py`). Rules protected by tests:
+- `processar_pedidos_novos` has no rollback: it marks `U_INO_ProcessWBC='Y'` before the first OP.
+  Resume = `manutencao-op buscar` -> `cancelar-ops` -> `processar-novos` WITHOUT `--force`
+  (force duplicates OPs).
+- `reprocessar_pedidos_integrados` cancels every planned OP and does not recreate.
+- Processing refuses (also with `force`) an order whose quote has a cancelled order with a live
+  P/R OP (`ops_orfas`) and an order with `U_U_INO_NotaEspelho='Y'` (`nota_espelho`); reprocessing
+  passes.
+- `_update_pedido` (recreates the order lines) is CLOSED with an error until Anderson validates it.
 
-⚠️ Nomes de entidade/campo da Service Layer para Ordens de Produção (`ProductionOrders`)
-foram confirmados contra o padrão documentado da SAP; os de **Resources** (Recurso —
-`CriaResources`) e das linhas de `SalesOpportunities` (`AddPedidoOportunidade`) usam os
-nomes mais prováveis, mas **precisam ser validados contra o `$metadata` real da Service
-Layer do Anderson** antes do primeiro teste (marcado com TODO no local exato).
+Service Layer names: the `ProductionOrders` ones follow the documented SAP standard; the
+`Resources` ones were confirmed against a real record on 23/09/2026 (`diag entidade Resources`);
+`SalesOpportunitiesLines` is the real collection (docs/wbc/APRENDIZADOS.md).
 
-✅ `Resources/Solda.txt` recebido em 21/09/2026 e instalado em `pedidos_wbc/resources/Solda.txt`
-(5.015 códigos distintos). Antes disso o porte rodava com a lista vazia — ver seção
-7.20 do migration_guide.md para o que isso significa nas OPs já geradas.
+`Resources/Solda.txt` received 21/09/2026 and installed at `pedidos_wbc/resources/Solda.txt` (5,015
+distinct codes). Before that the port ran with an empty list — see migration_guide.md section 7.20
+for what that means for the OPs already generated.
 """
 from __future__ import annotations
 
 import logging
 from collections.abc import Callable
 from datetime import datetime, timedelta
+from typing import Any
 
 from controleproducao.core.audit_log import preenche_log
 from controleproducao.core.formato import numero_br
@@ -50,20 +55,17 @@ _UDO_ORC_DETALHE = "OrcDetalhe"
 
 
 def _chave_do_documento_criado(resultado: dict, entidade: str) -> int:
-    """Extrai a chave do documento recém-criado da resposta da Service Layer.
+    """Extract the key of the just-created document from the Service Layer response.
 
-    ⚠️ Corrigido em 16/09/2026. O código lia direto `resultado["DocEntry"]`, mas a entidade
-    `ProductionOrders` da Service Layer expõe a chave como **`AbsoluteEntry`** (a coluna da
-    tabela `OWOR` é que se chama `DocEntry`). Resultado: toda OP criada devolvia `0`, e esse
-    zero era gravado em `U_INO_OP` nas linhas do pedido por `_atualiza_doc(..., "OP")` —
-    as OPs nasciam certas, mas o vínculo com o pedido ficava zerado. Apareceu no log do
-    orçamento 00125192 como `OP criada: DocEntry=0`, sete vezes.
+    Fixed 16/09/2026: the code read `resultado["DocEntry"]`, but the `ProductionOrders` entity exposes
+    the key as **`AbsoluteEntry`** (`DocEntry` is only the `OWOR` column name). Every OP came back as
+    `0`, and that zero was written to `U_INO_OP` on the order lines by `_atualiza_doc(..., "OP")`: the
+    OPs were right but the link to the order was zeroed (quote 00125192 logged `OP criada: DocEntry=0`
+    seven times).
 
-    Tenta as duas grafias em vez de fixar uma só, porque entidades diferentes da Service
-    Layer usam nomes diferentes (`DocEntry` em `Orders`, `AbsoluteEntry` em
-    `ProductionOrders`), e avisa alto se não achar nenhuma — melhor um aviso do que
-    continuar gravando zero em silêncio. Para conferir o nome real de qualquer entidade:
-    `python -m controleproducao diag entidade <Entidade> --campos`.
+    Tries `AbsoluteEntry`, `DocEntry` and `DocNum` (entities differ: `Orders` uses `DocEntry`,
+    `ProductionOrders` uses `AbsoluteEntry`) and warns loudly, returning 0, when none is found. To
+    check an entity's real field names: `python -m controleproducao diag entidade <Entidade> --campos`.
     """
     for chave in ("AbsoluteEntry", "DocEntry", "DocNum"):
         valor = resultado.get(chave)
@@ -110,25 +112,23 @@ DEPOSITO_RECURSO = "01"
 PRAZO_OP_DIAS = 20
 
 
-def _primeiro_valor(rows: list, padrao=None):
-    """Primeiro valor da primeira linha de um resultado, ou `padrao` se não houver linha.
+def _primeiro_valor(rows: list, padrao: Any = None) -> Any:
+    """First value of the first row, or `padrao` when there is no row.
 
-    Existe porque várias queries transcritas do C# não têm alias (`SELECT COUNT(...)`,
-    `SELECT top 1 "OpprId"`), e sem alias o driver devolve a coluna com um nome que não
-    dá para escrever no código. O idioma `list(rows[0].values())[0]` aparecia nove vezes
-    e some no meio da linha; nomeado, a intenção fica visível — e o `if rows` que faltava
-    em alguns pontos passa a ser único.
+    Many queries transcribed from the C# have no alias (`SELECT COUNT(...)`, `SELECT top 1
+    "OpprId"`), so the driver returns a column name that cannot be written in code. Naming the
+    `list(rows[0].values())[0]` idiom (nine copies) makes the intent visible and keeps the `if rows`
+    guard in one place.
     """
     return list(rows[0].values())[0] if rows else padrao
 
 
 def _deposito_do_item(item_code: str) -> dict:
-    """`{"Warehouse": "08"}` para item que começa com "I", `{}` para os demais.
+    """`{"Warehouse": "08"}` for an item code starting with "I", `{}` otherwise.
 
-    Devolve DICIONÁRIO e não string porque o campo precisa ficar **ausente** do corpo
-    quando não se aplica — mandar `Warehouse: None` não é a mesma coisa para a Service
-    Layer. Era um `**({...} if ... else {})` repetido em quatro pontos, com a regra do
-    prefixo escrita por extenso em cada um.
+    Returns a dict, not a string, because the field must be ABSENT from the body when it does not
+    apply — sending `Warehouse: None` is not the same for the Service Layer. It replaces a
+    `**({...} if ... else {})` repeated in four places.
     """
     if str(item_code or "")[:1].upper() == PREFIXO_ITEM_DEPOSITO_08:
         return {"Warehouse": DEPOSITO_ITEM_I}
@@ -138,23 +138,23 @@ def _deposito_do_item(item_code: str) -> dict:
 async def buscar_pedidos_para_integrar(
     hana_reader: HanaDirectReader, integrados: bool = False
 ) -> list[PedidoParaIntegrar]:
-    """Equivalente ao botão 'Buscar' do `Form2` — lista os pedidos de cada um dos dois modos
-    da tela original:
+    """Equivalent of the `Form2` "Buscar" button — lists the orders of each of the two original modes.
 
-    - `integrados=False` (padrão) → modo **"Pedidos Novos"** (`BuscaPedidosParaIntegrar`):
-      pedidos já vinculados a uma oportunidade integrada (`U_INO_IntegrouWBC='Y'`) e ainda
-      **não** processados (`U_INO_ProcessWBC='N'`) — os candidatos a `processar_pedidos_novos`.
-    - `integrados=True` → modo **"Pedidos Integrados"** (`BuscaPedidosIntegrados`): os que
-      já têm `U_INO_ProcessWBC='Y'`. Útil durante a validação: assim que o porte processa um
-      pedido (ou o addon legado processou), ele sai da primeira lista e aparece nesta — é aqui
-      que se acha um pedido para reprocessar com `--force` ou com `reprocessar-integrados`.
+    - `integrados=False` (default): mode **"Pedidos Novos"** (`BuscaPedidosParaIntegrar`): orders
+      linked to an integrated opportunity (`U_INO_IntegrouWBC='Y'`) and not yet processed
+      (`U_INO_ProcessWBC='N'`) — the candidates for `processar_pedidos_novos`.
+    - `integrados=True`: mode **"Pedidos Integrados"** (`BuscaPedidosIntegrados`): orders with
+      `U_INO_ProcessWBC='Y'` — where to find an order to reprocess with `reprocessar-integrados`.
 
-    ⚠️ Função adicionada em 15/09/2026 (a pedido do Anderson) — antes desta reescrita não
-    havia comando de listagem para o módulo 2, só `processar-novos`/`reprocessar-integrados`
-    (que exigem o `orc_num` já em mãos). A query em si já vinha transcrita do C# original em
-    `queries.py`, com um placeholder `{filtro}` (igual ao padrão usado em
-    o módulo 1, desde removido) — sem filtro adicional nesta primeira versão, listamos todos
-    os pedidos elegíveis (`filtro=""`)."""
+    Added 15/09/2026 (Anderson's request); before it only `processar-novos`/`reprocessar-integrados`
+    existed, both needing the `orc_num` in hand. The query is transcribed from the C# in `queries.py`
+    with a `{filtro}` placeholder, unused here (`filtro=""`: every eligible order is listed). Each
+    `PedidoParaIntegrar` also carries `nota_espelho` and, in "novos" mode only, `ops_orfas`
+    (`ops_vivas_de_pedidos_cancelados`), so the screen can show the Processar refusals.
+
+    Sorted by `doc_num` descending (22/09/2026, Anderson): done here and not in the SQL because the SQL
+    is verbatim from the C# and serves as the comparison reference with the legacy.
+    """
     sql = q.BUSCA_PEDIDOS_INTEGRADOS if integrados else q.BUSCA_PEDIDOS_PARA_INTEGRAR
     rows = hana_reader.fetch_all(*ligar(sql, filtro=""))
     # "Pedidos novos" only: that is where Processar would plan the items a second time.
@@ -309,36 +309,35 @@ def mensagem_proposta_desatualizada(
 # Helpers de leitura (HANA — tabelas padrão do SAP B1: ORDR/OOPR/OPR1/OITM/OWOR)
 # ---------------------------------------------------------------------------
 async def _verifica_congelado(hana_reader: HanaDirectReader, doc_entry: str) -> str:
-    """`Querys.VerificaCong` — campo `U_INO_Congelado` do pedido (`ORDR`)."""
+    """`Querys.VerificaCong` — `U_INO_Congelado` of the order (`ORDR`); "N" when there is no row."""
     rows = hana_reader.fetch_all(*ligar(q.VERIFICA_CONG, doc_entry=doc_entry))
     return str(rows[0]["U_INO_Congelado"]) if rows else "N"
 
 
 async def _verifica_tab_update(hana_reader: HanaDirectReader, doc_entry: str) -> str:
-    """`Querys.VerificaTabUpdate` — campo `U_INO_UpdateDetalhe` do pedido (`ORDR`)."""
+    """`Querys.VerificaTabUpdate` — `U_INO_UpdateDetalhe` of the order (`ORDR`); "" when there is no row."""
     rows = hana_reader.fetch_all(*ligar(q.VERIFICA_TAB_UPDATE, doc_entry=doc_entry))
     return str(rows[0]["U_INO_UpdateDetalhe"]) if rows else ""
 
 
 async def _verifica_process_wbc(hana_reader: HanaDirectReader, doc_entry: str) -> str:
-    """`U_INO_ProcessWBC` do pedido (`ORDR`) — "Y" quando o pedido já foi processado.
+    """`U_INO_ProcessWBC` of the order (`ORDR`) — "Y" when it was already processed ("N" without a row).
 
-    ⚠️ Checagem adicionada em 15/09/2026 a pedido do Anderson — **não existe no C#
-    original**. No addon legado a proteção contra reprocessamento vinha só da tela: a
-    grade "Pedidos Novos" listava apenas pedidos com `U_INO_ProcessWBC='N'`
-    (`BuscaPedidosParaIntegrar`), então um pedido já processado simplesmente não
-    aparecia mais para ser selecionado de novo. Como a CLI recebe o `orc_num` direto, sem
-    passar pela grade, essa proteção precisa existir em código — ver `processar_pedidos_novos`
-    e a flag `--force`."""
+    Check added 15/09/2026 at Anderson's request — **not in the original C#**. In the legacy addon the
+    only guard against reprocessing was the screen: the "Pedidos Novos" grid listed just
+    `U_INO_ProcessWBC='N'` (`BuscaPedidosParaIntegrar`), so a processed order never showed up to be
+    selected again. The CLI receives `orc_num` directly, bypassing the grid, so the guard has to exist
+    in code — see `processar_pedidos_novos` and the `--force` flag.
+    """
     rows = hana_reader.fetch_all(*ligar(q.VERIFICA_PROCESS_WBC, doc_entry=doc_entry))
     return str(rows[0]["U_INO_ProcessWBC"]) if rows else "N"
 
 
 def _op_previa_do_grupo(previas: list[int], ordem_do_grupo: int) -> int | None:
-    """A OP que já cobre o `ordem_do_grupo`-ésimo grupo de um item, ou `None`.
+    """The OP that already covers the `ordem_do_grupo`-th group of an item, or `None`.
 
-    `previas` são as OPs que o item já tinha ANTES desta execução. Com 1 OP prévia e três
-    grupos do mesmo item, o 1º grupo é reprocessamento (devolve a OP), o 2º e o 3º não.
+    `previas` are the OPs the item already had BEFORE this run. With 1 previous OP and three groups of
+    the same item, the 1st group is a reprocess (returns that OP) and the 2nd and 3rd are not.
     """
     if 1 <= ordem_do_grupo <= len(previas):
         return previas[ordem_do_grupo - 1]
@@ -346,20 +345,19 @@ def _op_previa_do_grupo(previas: list[int], ordem_do_grupo: int) -> int | None:
 
 
 async def _ops_existentes_para_item(hana_reader: HanaDirectReader, doc_num_ped: str, item_code: str) -> list[int]:
-    """Todas as OPs não canceladas do pedido para o item (`OWOR.OriginNum` +
-    `OWOR.ItemCode`), em ordem de `DocEntry`.
+    """All non-cancelled OPs (`OWOR.Status <> 'C'`) of the order for the item (`OWOR.OriginNum` +
+    `OWOR.ItemCode`), ordered by `DocEntry`; `[]` without `doc_num_ped`.
 
-    Checagem adicionada em 15/09/2026 (mesma motivação de `_verifica_process_wbc`) — o C#
-    original (`CriaOP`/`CriaOPSA`) nunca verificava isso antes de criar; sem ela, rodar
-    `processar-novos` duas vezes para o mesmo pedido duplica as OPs.
+    Check added 15/09/2026 (same motivation as `_verifica_process_wbc`): the original C#
+    (`CriaOP`/`CriaOPSA`) never checked this before creating, so running `processar-novos` twice for
+    the same order duplicates the OPs.
 
-    ⚠️ 23/09/2026 — pedido 84426. Até esta data a checagem respondia "existe ou não", e
-    isso não bastava: **vários grupos do WBC podem apontar para o mesmo item SAP** (no 84426,
-    três dos quatro itens do orçamento viraram `I000003` — Porta-Paletes). O primeiro grupo
-    criava a OP; o segundo e o terceiro consultavam, encontravam a OP que o primeiro tinha
-    acabado de criar **na mesma execução** e pulavam como se fosse reprocessamento. O
-    chamador agora compara QUANTAS OPs já existiam com QUANTOS grupos daquele item já
-    passaram — ver `_processa_grupo_producao`."""
+    23/09/2026, order 84426: answering only "exists or not" was not enough, because **several WBC
+    groups can point to the same SAP item** (in 84426 three of the four quote items became `I000003` —
+    Porta-Paletes). The 1st group created the OP; the 2nd and 3rd found the OP the 1st had just
+    created **in the same run** and skipped as if it were a reprocess. The caller now compares HOW MANY
+    OPs already existed with HOW MANY groups of that item have gone by — see `_processa_grupo_producao`.
+    """
     if not doc_num_ped:
         return []
     rows = hana_reader.fetch_all(*ligar(q.CHECA_OP_EXISTENTE_PEDIDO, doc_num=doc_num_ped, item_code=item_code))
@@ -367,25 +365,28 @@ async def _ops_existentes_para_item(hana_reader: HanaDirectReader, doc_num_ped: 
 
 
 async def _get_id_orcamentos_pedido(hana_reader: HanaDirectReader, orc_num: str) -> dict | None:
-    """`Querys.GetIdOrcamentosPedido` — (DocEntry, CardCode, DocNum) do pedido vinculado."""
+    """`Querys.GetIdOrcamentosPedido` — the newest non-cancelled order linked to the quote
+    (`U_INO_COTWBC`), as a row with `DocEntry`, `CardCode`, `DocNum` and `NotaEspelho`
+    (`U_U_INO_NotaEspelho`, "N" when empty); `None` when there is none.
+    """
     rows = hana_reader.fetch_all(*ligar(q.GET_ID_ORCAMENTOS_PEDIDO, orc_num=orc_num))
     return rows[0] if rows else None
 
 
 async def _oppr_id_do_orcamento(hana_reader: HanaDirectReader, orc_num: str) -> str:
-    """A chave da Oportunidade no SAP (`OOPR.OpprId`) a partir do nº do orçamento WBC.
+    """The SAP Opportunity key (`OOPR.OpprId`) from the WBC quote number ("" when there is none).
 
-    ⚠️ Acrescentada em 22/09/2026 porque o porte tinha **colapsado duas numerações numa
-    só**. A grade do addon trazia as duas lado a lado:
+    Added 22/09/2026 because the port had **collapsed two numberings into one**. The addon's grid
+    showed both side by side:
 
-    - `"Nº Oportunidade"` = `OOPR.U_ORCNUM_MASC` — o nº do orçamento WBC (ex. `00125566`),
-      usado em praticamente todo o fluxo;
-    - `"Num Oportunidade"` = `OPR1.OpprId` — a chave da Oportunidade (ex. `15149`), usada
-      em **um único ponto**: `AddPedidoOportunidade`, que faz `GetByKey` de
-      `SalesOpportunities` (`Convert.ToInt32(OpprId)` no C#, linha 848 da view).
+    - `"Nº Oportunidade"` = `OOPR.U_ORCNUM_MASC` — the WBC quote number (e.g. `00125566`), used in
+      practically the whole flow;
+    - `"Num Oportunidade"` = `OPR1.OpprId` — the Opportunity key (e.g. `15149`), used in **one single
+      place**: `AddPedidoOportunidade`, which does `GetByKey` on `SalesOpportunities`
+      (`Convert.ToInt32(OpprId)` in the C#, line 848 of the view).
 
-    Como CLI e web recebem só o número do orçamento, a chave é reobtida aqui. É uma
-    consulta que o legado não fazia — lá o valor já estava na linha da grade.
+    CLI and web receive only the quote number, so the key is re-read here — a query the legacy did not
+    need, since the value was already in the grid row.
     """
     rows = hana_reader.fetch_all(*ligar(q.OPPR_ID_POR_ORCAMENTO, orc_num=orc_num))
     return str(_primeiro_valor(rows, ""))
@@ -397,7 +398,7 @@ async def _pega_doc_entry_ped(hana_reader: HanaDirectReader, orc_num: str) -> st
 
 
 async def _busca_orcamentos_wbc(wbc: WbcSqlServerClient, orc_num: str) -> list[OportunidadeDoc]:
-    """Equivalente a `SQLConnection.PegaOrcamentosWBC(GetOrcsWBC)`."""
+    """Equivalent of `SQLConnection.PegaOrcamentosWBC(GetOrcsWBC)`."""
     rows = wbc.fetch_all(q.GET_ORCS_WBC, (orc_num,))
     return [
         OportunidadeDoc(
@@ -431,22 +432,23 @@ async def _busca_orcamentos_wbc(wbc: WbcSqlServerClient, orc_num: str) -> list[O
 async def preenche_tabela(
     sl: ServiceLayerClient, wbc: WbcSqlServerClient, hana_reader: HanaDirectReader, orc_num: str
 ) -> int:
-    """Grava/atualiza o "espelho" do orçamento no UDO `OrcDetalhe` (+ filha
-    `INO_ORC_LINHA`) e devolve o `DocEntry` do registro criado.
+    """Write the quote "mirror" to the `OrcDetalhe` UDO (+ child `INO_ORC_LINHA`) and return the
+    `DocEntry` of the record created.
 
-    Dois caminhos, exatamente como no C# (`ProcessDefault.preencheTabela`,
-    ProcessDefault.cs ~1458):
+    Always creates a new record (never updates one). Any failure is logged (including to `INO_LOG`)
+    and swallowed: it returns 0, as does a quote with no header in the WBC.
 
-    - **Caminho principal** (`GetTableValdixson` tem linhas — o orçamento tem estrutura
-      detalhada em `INTEGRACAO_ORCPRDARV`): uma linha do UDO por item da estrutura,
-      cabeçalho vindo de `NovaTabelaQuot` (usa só o último item lido, igual ao C#: o
-      `foreach` original reescreve os mesmos campos de cabeçalho a cada iteração).
-    - **Caminho de fallback** (sem estrutura detalhada): cabeçalho + linhas vêm de
-      `NovaTabelaQuot`/`NovaTabelaQuotLinha`, cada linha de `INTEGRACAO_ORCIMP` vira uma
-      linha "rasa" do UDO. ⚠️ Réplica de uma particularidade do C# original: o método lá
-      tem um `return` dentro do primeiro `foreach`, então processa **só o primeiro**
-      registro de `NovaTabelaQuot` mesmo que existam outros — replicado aqui de propósito
-      (fidelidade fase 1, ver seção 8 do migration_guide.md).
+    Two paths, exactly as in the C# (`ProcessDefault.preencheTabela`, ProcessDefault.cs ~1458):
+
+    - **Main path** (`GetTableValdixson` has rows — the quote has a detailed structure in
+      `INTEGRACAO_ORCPRDARV`): one UDO line per structure item; header from `NovaTabelaQuot` (only the
+      last item read is used, as in the C#, whose `foreach` rewrites the same header fields on each
+      iteration).
+    - **Fallback path** (no detailed structure): header + lines come from
+      `NovaTabelaQuot`/`NovaTabelaQuotLinha`; each `INTEGRACAO_ORCIMP` row becomes a "shallow" UDO
+      line. Replicates a C# quirk: the method has a `return` inside the first `foreach`, so it
+      processes **only the first** `NovaTabelaQuot` record even if there are more (phase-1 fidelity,
+      migration_guide.md section 8).
     """
     try:
         estrutura_rows = wbc.fetch_all(q.GET_TABLE_VALDIXSON, (orc_num, orc_num, orc_num))
@@ -534,20 +536,20 @@ async def preenche_tabela(
         return 0
 
 
-def _monta_body_orc_detalhe(orc_num: str, header, linhas_udo: list[dict]) -> dict:
-    """Monta o corpo do UDO `OrcDetalhe` (+ coleção filha) para a Service Layer.
+def _monta_body_orc_detalhe(orc_num: str, header: NewOrcPrd, linhas_udo: list[dict]) -> dict:
+    """Build the `OrcDetalhe` UDO body (+ child collection) for the Service Layer.
 
-    ⚠️ **Tipos importam aqui** (descoberto em 15/09/2026 com `diag entidade OrcDetalhe`,
-    lendo um registro real criado pelo addon legado): o C# original passava tudo como
-    string (`oGeneralData.SetProperty("U_ORCVALVND", item.ORCVALVND.ToString())`) porque a
-    DI API converte para o tipo do UDF automaticamente. A Service Layer é tipada em JSON e
-    **rejeita** string onde o campo é numérico — devolvendo um genérico
-    `Internal server error`, sem dizer qual campo. Por isso os campos abaixo seguem os
-    tipos observados no registro real, e não o `.ToString()` do C#:
-      - `float`: U_ORCVAL{VND,LST,INV,LUC,EXP,COM,TRP,MON}, U_ORCPERCOM, U_ORCBAS{1,2,3}
-      - `int`:   U_CLICOD, U_CLICONCOD, U_PRZENT
-      - `str`:   os demais — incluindo **U_ORCVALEMB**, que apesar do nome é um UDF de
-                 texto no SAP (vem como `"0.0000"` no registro real), então continua `str`.
+    ⚠️ **Types matter here** (found 15/09/2026 with `diag entidade OrcDetalhe`, reading a real record
+    created by the legacy addon): the C# passed everything as strings
+    (`oGeneralData.SetProperty("U_ORCVALVND", item.ORCVALVND.ToString())`) because the DI API converts
+    to the UDF type. The Service Layer is typed JSON and **rejects** a string where the field is
+    numeric, answering a generic `Internal server error` without naming the field. So the fields
+    follow the types observed in the real record, not the C# `.ToString()`:
+
+    - `float`: U_ORCVAL{VND,LST,INV,LUC,EXP,COM,TRP,MON}, U_ORCPERCOM, U_ORCBAS{1,2,3}
+    - `int`:   U_CLICOD, U_CLICONCOD, U_PRZENT
+    - `str`:   the rest — including **U_ORCVALEMB**, which despite the name is a text UDF in the SAP
+      (`"0.0000"` in the real record), so it stays `str`.
     """
     campos_header = {
         "U_INO_COD": orc_num,
@@ -630,9 +632,13 @@ async def _busca_header_nova_tabela_quot(wbc: WbcSqlServerClient, orc_num: str) 
 
 
 async def _busca_nova_tabela_quot_com_linhas(wbc: WbcSqlServerClient, orc_num: str) -> list[NewOrcPrd]:
-    """Equivalente a `SQLConnection.ExecuteSelectNew` — um `NewOrcPrd` por linha de
-    `INTEGRACAO_ORCIMP`, cada um com sua própria lista de `linhas` (`NovaTabelaQuotLinha`,
-    consultada uma vez por item — igual ao C#, que reabre a query dentro do loop)."""
+    """Equivalent of `SQLConnection.ExecuteSelectNew`, returning a one-element list: the
+    `NovaTabelaQuot` header with all `NovaTabelaQuotLinha` rows in `linhas`.
+
+    The C# returned one `NewOrcPrd` per `INTEGRACAO_ORCIMP` row, re-running the line query inside the
+    loop; the port builds a single header, which is all `preenche_tabela` uses (it processes only the
+    first, as in the C#).
+    """
     header = await _busca_header_nova_tabela_quot(wbc, orc_num)
     # `fetch_all_values` (não `fetch_all`/dict) pelo mesmo motivo de
     # `_busca_header_nova_tabela_quot`: `NOVA_TABELA_QUOT_LINHA` tem várias colunas `''`
@@ -659,7 +665,7 @@ async def _busca_nova_tabela_quot_com_linhas(wbc: WbcSqlServerClient, orc_num: s
 
 
 async def _pega_linha_manual(wbc: WbcSqlServerClient, id_integracao_orc_prd: int) -> str:
-    """`Querys.PegaLinha` — devolve o `ORCITM` associado a uma linha da árvore."""
+    """`Querys.PegaLinha` — the `ORCITM` tied to a tree line (`idIntegracao_OrcPrdArv`); "" when none."""
     rows = wbc.fetch_all(q.PEGA_LINHA, (id_integracao_orc_prd,))
     if not rows:
         return ""
@@ -667,8 +673,9 @@ async def _pega_linha_manual(wbc: WbcSqlServerClient, id_integracao_orc_prd: int
 
 
 async def _get_linha(hana_reader: HanaDirectReader, orc_num: str, orc_itm: str) -> str:
-    """`Querys.GetLinha` — número da linha (`LineNum`) do pedido de venda já criado no
-    SAP para este `orc_itm`. Consulta HANA (tabelas `RDR1`/`ORDR`), não WBC."""
+    """`Querys.GetLinha` — `LineNum` of the sales-order line already created in the SAP for this
+    `orc_itm` (newest non-cancelled order of the quote; "0" when none). HANA (`RDR1`/`ORDR`), not WBC.
+    """
     rows = hana_reader.fetch_all(*ligar(q.GET_LINHA, orc_num=orc_num, orc_itm=orc_itm))
     if not rows:
         return "0"
@@ -754,16 +761,25 @@ async def atualiza_pedido_tabela(
     tb_valdixson: int,
     process: str,
 ) -> int:
-    """Decide entre `UpdateTabPedido` / `UpdateTabPedidoCong` / `UpdatePedido`, replicando
-    exatamente a árvore de decisão de `Button0_ClickAfter` (IntegraPedidoWBC.b1f.cs,
-    ~linha 258-283 e ~2000-2023): primeiro checa `U_INO_Congelado`; se "N", checa
-    `U_INO_UpdateDetalhe" (`resultado`) para escolher entre os outros dois.
+    """Decide between `UpdateTabPedido` / `UpdateTabPedidoCong` / `UpdatePedido`, replicating the
+    decision tree of `Button0_ClickAfter` (IntegraPedidoWBC.b1f.cs, ~258-283 and ~2000-2023): first
+    `U_INO_Congelado`; if "N", `U_INO_UpdateDetalhe` (`resultado`) picks between the other two:
 
-    ⚠️ Nomes dos parâmetros corrigidos em 23/09/2026. Eram `oppr_id` e `oppr_id_orig` —
-    dois nomes quase iguais para coisas diferentes: o primeiro recebe o nº do ORÇAMENTO
-    WBC e o segundo recebe o nº do PEDIDO, como se vê nas duas chamadas. Nenhum dos dois
-    é a chave da Oportunidade, que é o que `oppr_id` sugeria — e confundir essas
-    numerações já custou um bug em 22/09 (seção 7.35 do migration_guide.md).
+    - frozen (`!= "N"`): `_update_tab_pedido_cong` (control fields; with `process != "Y"` it also
+      zeroes `U_INO_OP` on the lines);
+    - not frozen, `U_INO_UpdateDetalhe != "Y"`: `_update_tab_pedido` (control fields only);
+    - not frozen, `U_INO_UpdateDetalhe == "Y"`: `_update_pedido`, which is CLOSED and raises
+      `ValueError` until Anderson validates it (F7, 29/09/2026).
+
+    `process` is the `U_INO_ProcessWBC` value to write ("Y" when processing, "N" when reprocessing);
+    `tb_valdixson` is the DocEntry of the new `OrcDetalhe`. Afterwards `_confere_detalhe` reads
+    `U_INO_ORCAMENTO` back from the SAP and logs where it points (never raises). Returns the result of
+    the chosen path (0).
+
+    ⚠️ Parameter names fixed 23/09/2026. They were `oppr_id` and `oppr_id_orig` — two near-identical
+    names for different things: the first received the WBC QUOTE number and the second the ORDER
+    number. Neither is the Opportunity key that `oppr_id` suggested, and mixing those numberings
+    already cost a bug on 22/09 (section 7.35 of migration_guide.md).
     """
     # Qual dos três caminhos foi tomado é a informação mais útil desta etapa: eles
     # gravam coisas bem diferentes (um só mexe em campos de controle, outro RECRIA as
@@ -806,8 +822,10 @@ async def _update_tab_pedido(
     tb_valdixson: int,
     process: str,
 ) -> int:
-    """`ProcessDefault.UpdateTabPedido` — só atualiza campos de controle do pedido, sem
-    mexer nas linhas."""
+    """`ProcessDefault.UpdateTabPedido` — updates only the order's control fields
+    (`U_INO_ProcessWBC`, `U_INO_Congelado='Y'`, `U_INO_ORCAMENTO` when non-zero, `U_INO_VERSAOWBC`),
+    without touching the lines. Logs the error to `INO_LOG` and re-raises.
+    """
     campos: dict = {"U_INO_ProcessWBC": process, "U_INO_Congelado": "Y"}
     if tb_valdixson != 0:
         campos["U_INO_ORCAMENTO"] = tb_valdixson
@@ -829,9 +847,11 @@ async def _update_tab_pedido_cong(
     tb_valdixson: int,
     process: str,
 ) -> int:
-    """`ProcessDefault.UpdateTabPedidoCong` — como `_update_tab_pedido`, mas quando
-    `process != "Y"` também zera `U_INO_OP` em todas as linhas existentes do pedido
-    (equivalente ao loop `DocCot.Lines.SetCurrentLine(i); ...U_INO_OP = 0`)."""
+    """`ProcessDefault.UpdateTabPedidoCong` — control-field update for a frozen order
+    (`U_INO_ProcessWBC`, `U_INO_ORCAMENTO` when non-zero); when `process != "Y"` it also zeroes
+    `U_INO_OP` on every existing line (the C# loop `DocCot.Lines.SetCurrentLine(i); ...U_INO_OP = 0`).
+    Logs the error to `INO_LOG` and re-raises.
+    """
     campos: dict = {"U_INO_ProcessWBC": process}
     if tb_valdixson != 0:
         campos["U_INO_ORCAMENTO"] = tb_valdixson
@@ -864,7 +884,9 @@ async def _update_tab_pedido_cong(
         raise
 
 
-def _loga_pesos(hana_reader: HanaDirectReader, orc_num: str, doc_entry, estrutura) -> list[dict]:
+def _loga_pesos(
+    hana_reader: HanaDirectReader, orc_num: str, doc_entry: str | int, estrutura: list[EstruturaPrd]
+) -> list[dict]:
     """One log line per order line: the SAP ``Weight1`` next to what it should be.
 
     Expected = WBC tree level 1 + 10% — the worker's rule (`wbcpython.domain.linhas.
@@ -932,7 +954,9 @@ def _loga_pesos(hana_reader: HanaDirectReader, orc_num: str, doc_entry, estrutur
     return diferentes
 
 
-def _versoes_da_linha(hana_reader: HanaDirectReader, doc_entry, line_num) -> list[dict]:
+def _versoes_da_linha(
+    hana_reader: HanaDirectReader, doc_entry: str | int, line_num: int | None
+) -> list[dict]:
     """The order line's change log (ADOC/ADO1), oldest first — empty when it cannot be read."""
     if line_num is None:
         return []
@@ -998,7 +1022,7 @@ def _veredito_do_worker(versoes: list[dict], linha: dict) -> tuple[int, str] | N
     )
 
 
-def _mudanca_do_peso(versoes: list[dict], line_num, esperado: float) -> dict | None:
+def _mudanca_do_peso(versoes: list[dict], line_num: int | None, esperado: float) -> dict | None:
     """Who changed the order line in the SAP, from its change log (ADOC/ADO1) — or ``None``.
 
     Orders 84444 (29/09/2026) and 84453 (01/10/2026) were created by the worker with the right
@@ -1046,7 +1070,7 @@ def _mudanca_do_peso(versoes: list[dict], line_num, esperado: float) -> dict | N
     return None
 
 
-def _momento_iso(data, hora) -> str | None:
+def _momento_iso(data: object, hora: object) -> str | None:
     """`UpdateDate` + `UpdateTS` (HHMMSS) → "2026-10-01T14:00:06", or the date alone, or None."""
     if data is None or not hasattr(data, "strftime"):
         return None
@@ -1057,7 +1081,7 @@ def _momento_iso(data, hora) -> str | None:
     return f"{data:%Y-%m-%d}T{hhmmss // 10000:02d}:{hhmmss // 100 % 100:02d}:{hhmmss % 100:02d}"
 
 
-def _momento_do_sap(data, hora) -> str:
+def _momento_do_sap(data: object, hora: object) -> str:
     """`UpdateDate` (date) + `UpdateTS` (HHMMSS as an int) → " em 01/10/2026 às 14:00"."""
     texto = ""
     if data is not None and hasattr(data, "strftime"):
@@ -1072,12 +1096,15 @@ def _momento_do_sap(data, hora) -> str:
 _LINHA_MANUAL_VAZIA = Linha(ped_cliente="", item_cliente="0", nf="", cor="")
 
 
-def _monta_linha_pedido(item, item_sap: str, manual: Linha, peso=None) -> dict:
-    """Uma linha de `DocumentLines` a partir do item do orçamento WBC.
+def _monta_linha_pedido(
+    item: OportunidadeDoc, item_sap: str, manual: Linha, peso: float | None = None
+) -> dict:
+    """One `DocumentLines` entry built from a WBC quote item.
 
-    Os dois ramos de `_update_pedido` montavam as MESMAS nove chaves, na mesma ordem,
-    diferindo apenas por `Weight1` (que só o primeiro tem). Duas cópias de nove campos é
-    o tipo de duplicação que sobrevive a uma correção feita só num lado.
+    The two branches of `_update_pedido` built the SAME nine keys in the same order, differing only by
+    `Weight1` (only the first has it). Two copies of nine fields is the kind of duplication that
+    survives a fix made on one side only. `U_nItem` is added only when the manual line has a customer
+    item.
     """
     linha = {
         "ItemCode": item_sap,
@@ -1110,15 +1137,20 @@ async def _update_pedido(
     tb_valdixson: int,
     process: str,
 ) -> int:
-    """`ProcessDefault.UpdatePedido` — recria as linhas do pedido a partir de
-    `oportunidades` (`GetItensSAP` + `GetPesoPedido`). Dois sub-caminhos, como no C#:
-    `tb_valdixson != 0` (reaproveita o pedido/DocEntry existente) vs. o `else` (busca
-    vendedor/condições no `SalesOpportunities` original e monta um pedido do zero).
+    """`ProcessDefault.UpdatePedido` — recreate the order lines from `oportunidades`
+    (`GetItensSAP` + `GetPesoPedido`).
 
-    ⚠️ A Service Layer substitui linhas de documento enviando o array `DocumentLines`
-    completo num único `PATCH` (não há `Lines.Delete()` linha a linha como na DI API) —
-    portado assim aqui; validar contra o ambiente real que isso recria as linhas com o
-    mesmo efeito do legado.
+    CLOSED (F7, 29/09/2026): it raises `ValueError` at its first statement until Anderson validates it
+    in homologation, so everything after the `raise` is unreachable (kept as the port of the C#). Only
+    a non-frozen order with `U_INO_UpdateDetalhe='Y'` gets here. Two sub-paths, as in the C#:
+    `tb_valdixson != 0` (reuse the existing order/DocEntry, line weights from `GetPesoPedido`) vs the
+    `else` (read salesperson/terms from the original `SalesOpportunities` and build the order from
+    scratch).
+
+    ⚠️ The Service Layer replaces document lines by sending the whole `DocumentLines` array in a single
+    `PATCH` (there is no line-by-line `Lines.Delete()` as in the DI API); ported that way — still to be
+    validated against the real environment that this recreates the lines with the same effect as the
+    legacy.
     """
     # F7 (29/09/2026): closed until Anderson validates it in homologation. This path
     # rewrites every order line with a full DocumentLines PATCH and was never exercised by
@@ -1214,8 +1246,9 @@ async def _update_pedido(
 
 
 async def _busca_linhas_manuais(hana_reader: HanaDirectReader, doc_entry: str) -> list[Linha]:
-    """`Querys.ManualLinha` — dados manuais (pedido do cliente, item, NF, cor) já
-    preenchidos nas linhas existentes do pedido, na ordem em que aparecem (RDR1: HANA)."""
+    """`Querys.ManualLinha` — manual data (customer order, item, NF, colour) already filled in the
+    order's existing lines, in the order they appear (`RDR1`: HANA).
+    """
     rows = hana_reader.fetch_all(*ligar(q.MANUAL_LINHA, doc_entry=doc_entry))
     return [
         Linha(
@@ -1232,18 +1265,17 @@ async def _busca_linhas_manuais(hana_reader: HanaDirectReader, doc_entry: str) -
 # 3. busca_estrutura_produto  <- SQLConnection.PegaEstruturaPrd
 # ---------------------------------------------------------------------------
 async def busca_estrutura_produto(wbc: WbcSqlServerClient, orc_nums: list[str]) -> list[EstruturaPrd]:
-    """Busca a árvore completa de estrutura do(s) orçamento(s) (`PEGA_ESTRUTURA_PRD_WBC`).
+    """Fetch the full structure tree of the quote(s) (`PEGA_ESTRUTURA_PRD_WBC`).
 
-    Mapeamento **posicional**, replicando exatamente `SQLConnection.PegaEstruturaPrd`
-    (SQLConnection.cs ~487) — a query faz `SELECT tst.*, num_row, <PRDCOD calculado>` e o
-    C# lê por índice, não por nome (o `PRDCOD` de `INTEGRACAO_ORCPRDARV`, coluna 4, vira
-    `PrdArv`; a ÚLTIMA coluna, o `PRDCOD` recalculado/coalescido com `INTEGRACAO_ORCPRD`,
-    vira `PrdCode`; a coluna `num_row` (`ROW_NUMBER()`), penúltima, vira `linhaOrc`; e
-    `linha = OrcItm`). Importante não confundir com `prd_arv`/`prd_code` invertidos.
+    **Positional** mapping, replicating `SQLConnection.PegaEstruturaPrd` (SQLConnection.cs ~487): the
+    query does `SELECT tst.*, num_row, <computed PRDCOD>` and the C# reads by index, not by name — the
+    `PRDCOD` of `INTEGRACAO_ORCPRDARV` (column 4) becomes `PrdArv`; the LAST column, the `PRDCOD`
+    recomputed/coalesced with `INTEGRACAO_ORCPRD`, becomes `PrdCode`; `num_row` (`ROW_NUMBER()`, second
+    to last) becomes `linhaOrc`; and `linha = OrcItm`. Do not swap `prd_arv`/`prd_code`.
 
-    Réplica também o `.Reverse()` do método original — a ordem da lista importa para os
-    agrupamentos por nível feitos depois (a ordem final é do nível mais profundo para o
-    nível 1, igual ao C#)."""
+    Also replicates the original `.Reverse()`: list order matters for the per-level groupings done
+    later (the final order is deepest level first, down to level 1, as in the C#).
+    """
     if not orc_nums:
         return []
     rows = wbc.fetch_all(*ligar(q.PEGA_ESTRUTURA_PRD_WBC, orc_nums=[str(n) for n in orc_nums]))
@@ -1284,14 +1316,13 @@ async def busca_estrutura_produto(wbc: WbcSqlServerClient, orc_nums: list[str]) 
 async def garante_itens_cadastrados(
     sl: ServiceLayerClient, hana_reader: HanaDirectReader, estrutura: list[EstruturaPrd]
 ) -> None:
-    """Para cada item da estrutura ainda não cadastrado no SAP, cria (`CriaItem`); se já
-    existir e o `PrdArv` estiver na lista de solda, força o grupo 332 (`UpdateItem`).
+    """For each structure item not yet registered in the SAP, create it (`CriaItem`); if it already
+    exists and its `PrdArv` is in the solda list, force group 332 (`UpdateItem`).
 
-    `nivel_top` — o menor `nivel` entre os itens da estrutura — é calculado uma vez no
-    início do loop (equivalente a `Form2.nivelTop`, lido por `CriaItem` para decidir
-    `ProcurementMethod` Make vs. Buy) e reaproveitado para todos os itens, igual ao C#
-    original (que só recalcula `nivelTop` quando cria um item de nível menor que o atual —
-    detalhe sem efeito prático aqui já que a estrutura inteira já está em mãos).
+    `nivel_top` — the lowest `nivel` in the structure — is computed once and reused for every item
+    (equivalent of `Form2.nivelTop`, read by `CriaItem` to choose `ProcurementMethod` Make vs Buy). The
+    C# only recomputed it when creating an item of a lower level; no practical effect here since the
+    whole structure is already in hand.
     """
     nivel_top = min((item.nivel for item in estrutura), default=0)
     solda = listas_fixas.carregar_solda()
@@ -1306,9 +1337,13 @@ async def _cria_ou_atualiza_item(
     nivel_top: int,
     solda: frozenset[str],
 ) -> None:
-    """Passo por item do loop de `Button0_ClickAfter` (linhas ~324-374) — separado de
-    `garante_itens_cadastrados` para poder ser chamado com o `HanaDirectReader` já aberto
-    pelo orquestrador (`processar_pedidos_novos`)."""
+    """Per-item step of the `Button0_ClickAfter` loop (~324-374), split from
+    `garante_itens_cadastrados` so it can run with the `HanaDirectReader` already opened by the
+    orchestrator (`processar_pedidos_novos`).
+
+    A failure to create the item is logged (error + `INO_LOG`) and swallowed;
+    `item.processado_itens` becomes "Y" only when the item exists or was created.
+    """
     contagem_rows = hana_reader.fetch_all(*ligar(q.SELECT_CODIGO_ITEM, item_code=item.prd_code))
     ja_existe = contagem_rows and int(_primeiro_valor(contagem_rows)) != 0
 
@@ -1382,7 +1417,7 @@ async def _update_item_grupo_332(sl: ServiceLayerClient, item_code: str) -> None
 # 5. cria_recurso_rateio  <- ProcessDefault.CriaResources
 # ---------------------------------------------------------------------------
 def _descricao_item(hana_reader: HanaDirectReader, item_code: str) -> str:
-    """Nome do item no SAP — usado só para o log. Nunca derruba a execução."""
+    """Item name in the SAP — used only for the log. Never aborts the run."""
     try:
         rows = hana_reader.fetch_all(*ligar(q.DESCRICAO_ITEM, item_code=item_code))
         return str(_primeiro_valor(rows, ""))
@@ -1391,17 +1426,17 @@ def _descricao_item(hana_reader: HanaDirectReader, item_code: str) -> str:
 
 
 def _resumo(texto: object, limite: int = 60) -> str:
-    """Descrição encurtada para caber numa linha de log.
+    """Description shortened to fit one log line.
 
-    Descrições de produto do WBC passam de 100 caracteres ("COLUNA NORMAL 80 mm ch. 1,80
-    4800MM ..."), e uma linha que quebra três vezes na tela deixa de ser acompanhamento.
+    WBC product descriptions exceed 100 characters ("COLUNA NORMAL 80 mm ch. 1,80 4800MM ..."), and a
+    line that wraps three times on screen stops being a progress trace.
     """
     limpo = " ".join(str(texto or "").split())
     return limpo if len(limpo) <= limite else limpo[: limite - 1].rstrip() + "…"
 
 
 def _quantidade(valor: object) -> str:
-    """Quantidade sem casas decimais inúteis: `640`, não `640.0`."""
+    """Quantity without useless decimals: `640`, not `640.0`."""
     try:
         return f"{float(valor):g}"
     except (TypeError, ValueError):
@@ -1409,22 +1444,21 @@ def _quantidade(valor: object) -> str:
 
 
 def _num(valor: object, padrao: float = 0.0) -> float:
-    """Converte para `float` um número vindo do HANA ou do SQL Server.
+    """Convert a number coming from HANA or SQL Server to `float`.
 
-    Os dois drivers devolvem `decimal.Decimal` para colunas numéricas, e `Decimal` **não
-    opera com `float`**: `2.0 / Decimal("10")` levanta
-    `TypeError: unsupported operand type(s) for /: 'float' and 'decimal.Decimal'`.
-    Foi exatamente esse erro que fez o recurso de rateio do item I000005 falhar no
-    orçamento 00120634 (21/09/2026) — o `except` do `_processa_grupo_producao` engoliu a
-    exceção, registrou no `INO_LOG` e a OP saiu sem a linha de rateio. Só apareceu na
-    comparação com o legado, dias depois.
+    Both drivers return `decimal.Decimal` for numeric columns, and `Decimal` **does not mix with
+    `float`**: `2.0 / Decimal("10")` raises `TypeError: unsupported operand type(s) for /: 'float' and
+    'decimal.Decimal'`. That exact error made the rateio resource of item I000005 fail on quote
+    00120634 (21/09/2026) — the `except` of `_processa_grupo_producao` swallowed it, logged to
+    `INO_LOG`, and the OP went out without the rateio line; it only showed up days later, comparing
+    with the legacy.
 
-    É a mesma classe de problema do `Decimal is not JSON serializable` (seção 7.8): tipo
-    de banco escapando para dentro da lógica. A resposta aqui é a mesma — converter na
-    fronteira, uma vez, em vez de espalhar `float(...)` por cada operação.
+    Same class of problem as `Decimal is not JSON serializable` (section 7.8): a database type leaking
+    into the logic. The answer is the same — convert once at the boundary instead of scattering
+    `float(...)` around every operation.
 
-    Aceita `None` e string vazia (devolve `padrao`) e string com vírgula decimal, que é
-    como o WBC devolve alguns campos convertidos.
+    Accepts `None` and "" (returns `padrao`) and strings with a decimal comma, which is how the WBC
+    returns some converted fields.
     """
     if valor is None or valor == "":
         return padrao
@@ -1437,22 +1471,21 @@ def _num(valor: object, padrao: float = 0.0) -> float:
 
 
 def _digitos_do_valor_como_no_legado(valor: object) -> str:
-    """Devolve os dígitos de um número como o C# os produziria, para compor o código do
-    Recurso de rateio (`GGF_<orc><item><dígitos>`).
+    """Digits of a number as the C# would produce them, to compose the rateio Resource code
+    (`GGF_<orc><item><digits>`).
 
-    O legado monta esse código com `valor.ToString()` de um `double` em cultura pt-BR e
-    depois remove o separador decimal. Em `double.ToString()`, um valor inteiro sai **sem
-    parte decimal**: `0` vira `"0"`, e `3854.14` vira `"3854,14"` -> `"385414"`.
+    The legacy builds that code from `valor.ToString()` of a `double` in the pt-BR culture and then
+    strips the decimal separator. In `double.ToString()` a whole value comes out **without a decimal
+    part**: `0` becomes `"0"`, and `3854.14` becomes `"3854,14"` -> `"385414"`.
 
-    O porte fazia `str(valor)` direto. Para 3854.14 o resultado coincide, mas para um
-    valor inteiro o Python acrescenta o `.0` (`str(0.0) == "0.0"`, e `str(Decimal("0.00"))
-    == "0.00"`), o que gerava `"00"`/`"000"` em vez de `"0"` — código diferente do que o
-    legado criou. Efeito prático: o porte não reconhecia o recurso já existente
-    (`GGF_00120634I0000050`) e tentava criar outro. Descoberto em 21/09/2026 na primeira
-    comparação real contra produção (seção 7.24).
+    The port used a plain `str(valor)`. For 3854.14 the result matches, but for a whole value Python
+    appends `.0` (`str(0.0) == "0.0"`, `str(Decimal("0.00")) == "0.00"`), producing `"00"`/`"000"`
+    instead of `"0"` — a different code from the one the legacy created. Practical effect: the port did
+    not recognise the existing resource (`GGF_00120634I0000050`) and tried to create another. Found
+    21/09/2026 in the first real comparison against production (section 7.24).
 
-    Continua sendo o débito nº 8 da seção 8 (cultura de parsing decimal), aqui no lugar
-    mais traiçoeiro possível: não num cálculo, mas na formação de um identificador.
+    Still debt no. 8 of section 8 (decimal parsing culture), here in the trickiest place: not in a
+    calculation but in the formation of an identifier.
     """
     numero = _num(valor)
     if numero == int(numero):
@@ -1472,21 +1505,23 @@ async def cria_recurso_rateio(
     valor_linha: float,
     nome: str,
 ) -> str:
-    """Cria (se não existir) um Recurso representando rateio de transporte/embalagem/
-    montagem, ou devolve o código do existente. Retorna `""` quando não há custos WBC.
+    """Create (if it does not exist) a Resource representing the transport/packing/assembly rateio,
+    or return the code of the existing one.
 
-    Nomes de campo confirmados em 23/09/2026 contra um recurso real
-    (`diag entidade Resources`, só leitura). Até essa data o corpo usava `ResourceCode`/
-    `Warehouses`/`WarehouseCode`/`DailyCapacities` "segundo a documentação" — nenhum
-    existe na Service Layer — e **todo** `POST /Resources` do porte falhou com `Data
-    DailyCapacities not found`. A OP saía assim mesmo, sem a linha de rateio (pedido
-    84426, seção 7.42 do guia). Os nomes reais são os mesmos da DI API com prefixo nas
-    coleções: `VisCode`, `ResourceWarehouses[].Warehouse`,
-    `ResourceDailyCapacities[].Weekday/Factor1`.
+    Returns the `Code` of the created resource; for an existing one, the `VisResCode` read from ORSC
+    (`PegaRecursoCode`); or `""` when there is no rateio base (`quantidade_linha == -1`,
+    `valor_total == -1`, or `valor_total == 0`, which also warns). Existence is checked first, so an
+    existing resource is returned even then. With empty `custos_wbc` the resource is still created, with
+    zero costs.
 
-    Fiel ao C# (`CriaResources`): só `VisCode` é informado — o `Code` interno fica com o
-    B1 — e o que se devolve na criação é o `Code` retornado (`ret.Code`); no ramo do
-    recurso já existente, o `VisResCode` lido do ORSC (`PegaRecursoCode`).
+    Field names confirmed 23/09/2026 against a real resource (`diag entidade Resources`, read-only).
+    Until then the body used `ResourceCode`/`Warehouses`/`WarehouseCode`/`DailyCapacities` "per the
+    documentation" — none exists in the Service Layer — and **every** `POST /Resources` of the port
+    failed with `Data DailyCapacities not found`. The OP went out anyway, without the rateio line
+    (order 84426, guide section 7.42). The real names are the DI API's, prefixed in the collections:
+    `VisCode`, `ResourceWarehouses[].Warehouse`, `ResourceDailyCapacities[].Weekday/Factor1`.
+
+    Faithful to the C# (`CriaResources`): only `VisCode` is sent — the internal `Code` is left to B1.
     """
     contagem_rows = hana_reader.fetch_all(*ligar(q.COUNT_RECURSO, nome_recurso=nome_recurso))
     ja_existe = contagem_rows and str(list(contagem_rows[0].values())[0]) != "0"
@@ -1547,14 +1582,16 @@ async def cria_ordem_producao(
     recurso: str,
     entrega_multipla: str,
 ) -> tuple[int, int]:
-    """`ProcessDefault.CriaOP` — cria a Ordem de Produção do item pai, com uma linha de
-    componente por item nível 1 da estrutura + a linha de recurso (se houver).
+    """`ProcessDefault.CriaOP` — create the parent item's OP, with one component line per level-1
+    item of the structure plus the resource line (if any). A `TPO00000000000000000` line with colour
+    `S/ COR` or `S/ PINT` is skipped.
 
-    Retorna `(status, doc_entry_criado)` — 0/DocEntry em caso de sucesso, réplica do
-    `int[] final` original. Quando `entrega_multipla == "Y"`, o C# **não cria a OP**
-    (deixa `retorno = 0, final[1] = 0` sem chamar `Add()`) — comportamento preservado
-    aqui, embora pareça uma condição invertida (ver seção 9 do migration_guide.md — vale
-    confirmar com o Anderson se é intencional)."""
+    Returns `(status, doc_entry_created)` — `0`/DocEntry on success, replicating the original
+    `int[] final`. When `entrega_multipla == "Y"` the C# **does not create the OP** (leaves
+    `retorno = 0, final[1] = 0` without calling `Add()`) — preserved here (returns `(0, 0)`), although
+    it looks like an inverted condition (migration_guide.md section 9; worth confirming with Anderson
+    whether it is intentional). A Service Layer error is logged to `INO_LOG` and re-raised.
+    """
     if entrega_multipla == "Y":
         return 0, 0
 
@@ -1650,9 +1687,11 @@ async def cria_ordem_producao_semi_acabado(
     oopr: str,
     quantidade_item_pai: float,
 ) -> int:
-    """`ProcessDefault.CriaOPSA` — cria a Ordem de Produção de um semiacabado, com uma
-    linha por item em `semi_acabados`. A linha de recurso fica comentada no C# original
-    (dead code) — **não portada de propósito**, réplica fiel."""
+    """`ProcessDefault.CriaOPSA` — create the OP of a semi-finished item, one line per item in
+    `semi_acabados`. Returns the created DocEntry, or `-1` when the Service Layer call fails (logged,
+    not raised). The resource line is commented out in the original C# (dead code) — **deliberately
+    not ported**, so `recurso` and `quantidade_anterior` are accepted and ignored.
+    """
     doc_entry_rows = hana_reader.fetch_all(*ligar(q.PEGA_DOC_ENTRY_PED, orc_num=oopr))
     doc_entry = int(doc_entry_rows[0]["DocEntry"]) if doc_entry_rows else None
 
@@ -1719,13 +1758,14 @@ async def checa_semi_acabado(
     numero_orc: str,
     estrutura_completa: list[EstruturaPrd],
 ) -> None:
-    """Verifica (via `newBuscaItem`/`verificaSemiAcabadoPeso`) se `item_pai` tem "filhos"
-    no próximo nível da estrutura; se tiver, cria uma nova OP para o semiacabado
-    (`cria_ordem_producao_semi_acabado`) e **repete recursivamente** para cada filho — é
-    aqui que a árvore de estrutura do orçamento vira a cascata de OPs encadeadas por
-    nível (ver seção 4.4.1, passo 6, do migration_guide.md).
+    """Check (via `newBuscaItem`/`verificaSemiAcabadoPeso`) whether `item_pai` has "children" at the
+    next structure level; if so, create a new OP for the semi-finished item
+    (`cria_ordem_producao_semi_acabado`) and **recurse** for each child — this is where the quote's
+    structure tree becomes the cascade of OPs chained by level (migration_guide.md section 4.4.1,
+    step 6).
 
-    Qualquer erro é logado e engolido (nunca propaga) — igual ao `catch` do C# original.
+    Any error is logged (`INO_LOG` + logger) and swallowed, never propagated — like the original C#
+    `catch`.
     """
     from controleproducao.modules.pedidos_wbc.schemas import SemiAcabado  # import local p/ evitar ciclo
 
@@ -1790,20 +1830,18 @@ async def marca_op_nas_linhas(
     num_op: int,
     doc_entry: str,
 ) -> None:
-    """Grava `U_INO_OP = num_op` nas linhas do pedido correspondentes a `orc_itens`
-    (valores de `U_INO_ORCITM`), em **uma única** chamada à Service Layer.
+    """Write `U_INO_OP = num_op` on the order lines matching `orc_itens` (`U_INO_ORCITM` values), in
+    **a single** Service Layer call.
 
-    ⚠️ Otimização de 16/09/2026. Antes, `_processa_grupo_producao` chamava
-    `_atualiza_doc(..., "OP")` uma vez por item do grupo, e cada chamada fazia 1 consulta ao
-    HANA + 1 `PATCH /Orders`. No perfil do orçamento 00125192 foram **6 PATCHes somando
-    4,1s** (~680 ms cada) — a maior fatia isolada da execução. Agora: 1 consulta (resolvendo
-    todas as linhas de uma vez) + 1 PATCH com todas as linhas no mesmo corpo.
+    ⚠️ Optimisation of 16/09/2026. Before, `_processa_grupo_producao` called `_atualiza_doc(..., "OP")`
+    once per group item, each doing 1 HANA query + 1 `PATCH /Orders`. In the profile of quote 00125192
+    that was **6 PATCHes totalling 4.1 s** (~680 ms each) — the largest single slice of the run. Now: 1
+    query (resolving all lines at once) + 1 PATCH with all lines in the same body.
 
-    O estado final é idêntico — o C# original também fazia um `Update()` por item, mas isso
-    era característica da DI API, não regra de negócio. A diferença aparece só em caso de
-    falha no meio do grupo: antes, as marcações já feitas ficavam gravadas; agora, ou grava
-    todas ou nenhuma. Como uma exceção aborta o pedido inteiro de qualquer forma (o `except`
-    de `processar_pedidos_novos`), o estado parcial não era coerente nos dois casos.
+    The final state is identical — the C# also did one `Update()` per item, but that was a DI API trait,
+    not a business rule. The difference shows only when something fails mid-group: before, the marks
+    already made stayed saved; now it is all or nothing. Since an exception aborts the whole order
+    anyway (the `except` of `processar_pedidos_novos`), the partial state was not coherent either way.
     """
     if not doc_entry:
         return
@@ -1858,11 +1896,12 @@ async def _atualiza_doc(
     doc_entry: str,
     tipo: str,
 ) -> None:
-    """`ProcessDefault.AtualizaDoc` restrito aos tipos usados neste módulo.
+    """`ProcessDefault.AtualizaDoc` restricted to the types used in this module (no-op without
+    `doc_entry`):
 
-    - `"OP"`: grava `U_INO_OP` na linha do pedido correspondente a `linha`.
-    - `"Sucesso"`: marca `U_INO_ProcessWBC = "Y"` no pedido.
-    - `"Erro"`: marca `U_INO_ProcessWBC = "N"` no pedido.
+    - `"OP"`: write `U_INO_OP` on the order line matching `linha`.
+    - `"Sucesso"`: set `U_INO_ProcessWBC = "Y"` on the order.
+    - `"Erro"`: set `U_INO_ProcessWBC = "N"` on the order.
     """
     if not doc_entry:
         return
@@ -1885,23 +1924,30 @@ async def processar_pedidos_novos(
     orc_nums_selecionados: list[str],
     force: bool = False,
 ) -> dict:
-    """Orquestra o fluxo completo do modo "Pedidos Novos" (IntegraPedidoWBC.b1f.cs,
-    ~219-763): para cada oportunidade selecionada, preenche a tabela de orçamento,
-    decide/aplica a atualização do pedido, garante os itens da estrutura cadastrados,
-    e cria a cascata de Ordens de Produção (uma por grupo `(GrpCode, OrcItm)` de nível 1,
-    com semiacabados recursivos).
+    """Orchestrate the full "Pedidos Novos" flow (IntegraPedidoWBC.b1f.cs, ~219-763): for each selected
+    quote, fill the quote table, decide/apply the order update, ensure the structure items are
+    registered, and create the cascade of Production Orders (one per level-1 `(GrpCode, OrcItm)`
+    group, with recursive semi-finished items).
 
-    Verificação de reprocessamento (adicionada em 15/09/2026, ver `_verifica_process_wbc`
-    e `_ops_existentes_para_item` — **não existe no C# original**, que dependia só do
-    filtro da grade da tela): por padrão, um pedido com `U_INO_ProcessWBC='Y'` é pulado
-    (motivo registrado em `com_erro`), e uma OP não é recriada para um item que já tem
-    uma OP não cancelada vinculada ao mesmo pedido. Passe `force=True` para pular as duas
-    checagens e reprocessar mesmo assim (útil depois de corrigir algo manualmente, ou em
-    conjunto com `reprocessar_pedidos_integrados`, que cancela as OPs antigas primeiro).
+    ⚠️ NO ROLLBACK: `atualiza_pedido_tabela(..., "Y")` marks `U_INO_ProcessWBC='Y'` before the first
+    OP, so a failure midway leaves the order "processed" with partial OPs. Resume =
+    `manutencao-op buscar` -> `cancelar-ops` -> `processar-novos` WITHOUT `--force`.
 
-    Retorna um resumo `{"processados": [...], "com_erro": [...]}` — igual ao padrão já
-    usado no módulo 1 enquanto ele existiu (diferente do legado, que só mostrava a
-    status bar).
+    Refusals (recorded in `com_erro`): no linked order; order with `U_U_INO_NotaEspelho='Y'`
+    (`nota_espelho`, 26/10/2026); quote whose cancelled order still has a live P/R OP (`ops_orfas`,
+    20/10/2026). Those two are re-checked at run time and apply even with `force`.
+
+    Reprocess guard (added 15/09/2026, see `_verifica_process_wbc` and `_ops_existentes_para_item` —
+    **not in the original C#**, which relied only on the screen's grid filter): by default an order
+    with `U_INO_ProcessWBC='Y'` is skipped, and an OP is not recreated for an item that already has a
+    non-cancelled OP on the same order. `force=True` skips both checks and therefore DUPLICATES the
+    OPs on top of the existing ones — it is not a way to resume.
+
+    Returns `{"processados", "com_erro", "sem_op", "sem_rateio", "pesos_diferentes",
+    "proposta_desatualizada"}`: `sem_op` = groups that produced no OP; `sem_rateio` = OPs that went out
+    without the rateio line; `pesos_diferentes` = order-line weights off the WBC tree
+    (`_loga_pesos`); `proposta_desatualizada` = warnings for a printed proposal older than the quote
+    (warning only, the order is still processed). The legacy only showed the status bar.
     """
     processados: list[str] = []
     com_erro: list[dict] = []
@@ -2042,9 +2088,13 @@ async def processar_pedidos_novos(
             "pesos_diferentes": pesos_diferentes, "proposta_desatualizada": proposta_desatualizada}
 
 
-def _agrupa_por_grp_orc_itm(estrutura: list[EstruturaPrd]):
-    """Equivalente a `ListaItensEst.Where(x => x.nivel == 1).GroupBy(x => new
-    {x.GrpCode, x.OrcItm})` — agrupa preservando a ordem de primeira ocorrência."""
+def _agrupa_por_grp_orc_itm(
+    estrutura: list[EstruturaPrd],
+) -> list[tuple[tuple[int, int], list[EstruturaPrd]]]:
+    """Equivalent of `ListaItensEst.Where(x => x.nivel == 1).GroupBy(x => new {x.GrpCode, x.OrcItm})`
+    — groups the level-1 items preserving first-occurrence order. Returns
+    `[((grp_code, orc_itm), items), ...]`.
+    """
     grupos: dict[tuple[int, int], list[EstruturaPrd]] = {}
     for item in estrutura:
         if item.nivel != 1:
@@ -2066,36 +2116,37 @@ async def _processa_grupo_producao(
     force: bool = False,
     contexto: dict | None = None,
 ) -> str | None:
-    """Corpo do `foreach (var final in ...GroupBy(...))` em `Button0_ClickAfter`
-    (linhas ~2304-2472): resolve o item pai de produção, cria o recurso de rateio, cria a
-    OP e dispara a cascata de semiacabados.
+    """Body of the `foreach (var final in ...GroupBy(...))` in `Button0_ClickAfter` (~2304-2472):
+    resolve the production parent item, create the rateio resource, create the OP and trigger the
+    semi-finished cascade.
 
-    ⚠️ Parâmetro `force` adicionado em 15/09/2026 (mesma checagem de `_verifica_process_wbc` —
-    ver docstring de `_ops_existentes_para_item`): quando `force=False` (padrão), pula a criação
-    de uma nova OP se já existir uma OP não cancelada para este pedido+item.
+    Returns `None` when the OP was created, or a sentence saying why this group produced no OP
+    (`GrpCode` missing from `@INO_GRP_PRODUTOS`; item already had a non-cancelled OP; the Service Layer
+    refused the OP).
 
-    Devolve `None` quando a OP foi criada, ou uma frase explicando por que este grupo não
-    gerou OP nenhuma.
+    `force` (added 15/09/2026; same check as `_verifica_process_wbc`, see `_ops_existentes_para_item`):
+    with `force=False` the creation is skipped when the item already had an OP on this order before
+    this run; `force=True` creates it anyway (duplicating).
 
-    ⚠️ 23/09/2026 — pedido 84426: saíram OPs de apenas 2 dos 4 itens e a execução terminou
-    "sem erro". As três saídas sem OP abaixo gravavam só no `@INO_LOG` (`preenche_log`), sem
-    nenhum `logger.*`, então não apareciam no acompanhamento em tela nem no resultado da
-    tarefa: o operador via "concluída" e não tinha como saber que dois grupos não produziram
-    nada. Cada uma passou a emitir também `logger.*` e a devolver o motivo, que
-    `processar_pedidos_novos` acumula em `sem_op`. Mesma classe de correção do `except`
-    do rateio (21/09) — é a quinta vez neste porte que uma proteção/condição silenciosa só
-    aparece depois do estrago.
+    ⚠️ 23/09/2026, order 84426: OPs came out for only 2 of the 4 items and the run ended "without
+    error". The three no-OP exits wrote only to `@INO_LOG` (`preenche_log`), with no `logger.*`, so they
+    showed neither in the on-screen trace nor in the task result: the operator saw "done" with no way
+    to know two groups produced nothing. Each now also emits `logger.*` and returns the reason, which
+    `processar_pedidos_novos` accumulates in `sem_op`. Same class of fix as the rateio `except`
+    (21/09) — the fifth time in this port that a silent protection/condition only showed after the
+    damage.
 
-    `contexto` é compartilhado entre os grupos DO MESMO PEDIDO (criado por
-    `processar_pedidos_novos`): guarda quantas OPs cada item já tinha antes desta execução
-    e quantos grupos de cada item já passaram, e recolhe os grupos cujo rateio falhou.
-    Chamadas avulsas (testes) podem omiti-lo.
+    `contexto` is shared across the groups OF THE SAME ORDER (created by `processar_pedidos_novos`):
+    it keeps how many OPs each item already had before this run and how many groups of each item have
+    gone by, and collects the groups whose rateio failed (`sem_rateio`). Standalone calls (tests) may
+    omit it.
 
-    Since 30/09/2026 it also keeps the per-order reads (`leituras`): DocEntry/DocNum of the
-    order, multiple delivery, the SAP item of a group code, the WBC costs and the max price
-    used to be read again for EVERY group, and the DocEntry twice per group. None of them
-    changes during the execution — this run only adds OPs and marks `U_INO_OP` on lines;
-    the order, its lines' prices and @INO_GRP_PRODUTOS stay as they were."""
+    Since 30/09/2026 it also keeps the per-order reads (`leituras`): the order's DocEntry/DocNum,
+    multiple delivery, the SAP item of a group code, the WBC costs and the max price used to be read
+    again for EVERY group, and the DocEntry twice per group. None of them changes during the run — it
+    only adds OPs and marks `U_INO_OP` on lines; the order, its lines' prices and
+    `@INO_GRP_PRODUTOS` stay as they were.
+    """
     if contexto is None:
         contexto = {}
     ops_previas: dict[str, list[int]] = contexto.setdefault("ops_previas", {})
@@ -2296,14 +2347,18 @@ async def reprocessar_pedidos_integrados(
     hana_reader: HanaDirectReader,
     orc_nums_selecionados: list[str],
 ) -> dict:
-    """Modo "Pedidos Integrados" (IntegraPedidoWBC.b1f.cs, ~764-883): para pedidos já
-    processados, reatualiza o vínculo pedido↔oportunidade (`AddPedidoOportunidade`) e
-    cancela as OPs antigas ainda planejadas (`CancelaOP`) antes de recriar.
+    """Mode "Pedidos Integrados" (IntegraPedidoWBC.b1f.cs, ~764-883): for already-processed orders,
+    rewrite the quote table, update the order with `U_INO_ProcessWBC='N'` (`atualiza_pedido_tabela`),
+    re-link order and opportunity (`AddPedidoOportunidade`) and cancel every PLANNED OP of the order
+    (`CancelaOP`, query `BUSCA_OPS`: `Status = 'P'`).
 
-    Nota do C# original: o corpo roda uma vez por linha de grade selecionada, não uma vez
-    por item de `listaOport` — havia um `foreach (var item in listaOport)` comentado
-    (dead code) envolvendo o bloco. Comportamento replicado aqui (uma chamada por
-    oportunidade selecionada, não por item do orçamento)."""
+    It does **not** recreate the OPs — run `processar-novos` (without `--force`) afterwards. Released
+    or closed OPs are not touched. Returns `{"atualizados", "com_erro"}`.
+
+    Note from the original C#: the body runs once per selected grid row, not once per `listaOport`
+    item — a commented-out `foreach (var item in listaOport)` (dead code) wrapped the block. Replicated
+    here (one call per selected opportunity, not per quote item).
+    """
     atualizados: list[str] = []
     com_erro: list[dict] = []
 
@@ -2387,22 +2442,24 @@ async def reprocessar_pedidos_integrados(
 async def _add_pedido_oportunidade(
     sl: ServiceLayerClient, oppr_id: str, status_wbc: str, doc_num_pedido: int, doc_entry: int
 ) -> int:
-    """`ProcessDefault.AddPedidoOportunidade` — vincula o pedido como documento seguinte
-    da oportunidade e marca status "Ganha" (`sos_Sold`).
+    """`ProcessDefault.AddPedidoOportunidade` — link the order as a follow-up document of the
+    opportunity and mark it "Won" (`sos_Sold`).
 
-    ⚠️ TODO: nome exato da coleção de linhas de `SalesOpportunities` na Service Layer
-    (`SalesOpportunitiesLines` é o nome mais provável) precisa ser confirmado contra o
-    `$metadata` real antes do primeiro teste — a DI API usa `oport.Lines.Add()` com
-    `DocumentType`/`DocumentNumber`/`PercentageRate`/`MaxLocalTotal`. Use
-    `diag entidade SalesOpportunities --campos`: contra a Service Layer, nome de campo se
-    descobre lendo um registro real, nunca por analogia (seção 7.29 do guia).
+    Sequence: set `U_INO_StatusWBC` + `sos_Open`; re-read the opportunity and APPEND a
+    `SalesOpportunitiesLines` entry (`DocumentType='bodt_Order'`, `DocumentNumber=DocEntry` — not the
+    DocNum, despite the field name —, `PercentageRate=100`, `MaxLocalTotal=DocTotal`); then `sos_Sold`.
+    Returns 0 (the status is a constant); errors are logged to `INO_LOG` and re-raised.
 
-    ⚠️ Esta função relê as linhas e devolve o array inteiro — o mesmo padrão que quebrou
-    `marca_op_nas_linhas` (15/09) e `_update_tab_pedido_cong` (22/09) com
-    `'' is not a valid value for property ...`. Aqui é preciso ACRESCENTAR uma linha, não
-    só alterar campos de linhas existentes, então não dá para simplesmente mandar o
-    parcial; se o erro reaparecer, o caminho é montar cada linha existente só com a chave
-    de linha e os campos que importam."""
+    The collection name `SalesOpportunitiesLines` is the real one (confirmed in
+    docs/wbc/APRENDIZADOS.md). Against the Service Layer a field name is found by reading a real record
+    (`diag entidade SalesOpportunities --campos`), never by analogy (section 7.29 of the guide).
+
+    ⚠️ This re-reads the lines and sends the whole array back — the same pattern that broke
+    `marca_op_nas_linhas` (15/09) and `_update_tab_pedido_cong` (22/09) with `'' is not a valid value
+    for property ...`. Here a line must be APPENDED, not just fields changed on existing lines, so a
+    partial body is not possible; if the error reappears, build each existing line with only its line
+    key and the fields that matter.
+    """
     try:
         pedido = await sl.get_by_key("Orders", doc_entry)
         doc_total = pedido.get("DocTotal", 0)
@@ -2436,8 +2493,9 @@ async def _add_pedido_oportunidade(
 
 
 async def _cancela_op(sl: ServiceLayerClient, doc_entry: int) -> None:
-    """`ProcessDefault.CancelaOP` — sem try/catch no C# original (propaga exceção);
-    comportamento preservado aqui (não engolimos o erro nesta função específica)."""
+    """`ProcessDefault.CancelaOP` — no try/catch in the original C# (the exception propagates);
+    preserved here: the error is not swallowed in this function.
+    """
     await sl.update_entity("ProductionOrders", doc_entry, {"ProductionOrderStatus": "boposCancelled"})
 
 
@@ -2446,16 +2504,18 @@ async def _cancela_op(sl: ServiceLayerClient, doc_entry: int) -> None:
 # (adicionado em 15/09/2026 a pedido do Anderson — sem equivalente no C#, é só leitura)
 # ---------------------------------------------------------------------------
 def _prefixo_schema(schema: str | None) -> str:
-    """`"SBOALTAMIRAPROD".` quando um schema é informado, string vazia para usar o schema
-    corrente da conexão (o de `SL_COMPANY_DB`; since 28/09/2026 the package reads its schema
-    from the write company). Permite comparar produção vs homologação na
-    mesma conexão HANA, desde que o usuário tenha leitura nos dois schemas."""
+    """`"SBOALTAMIRAPROD".` when a schema is given, an empty string to use the connection's current
+    schema (the one of `SL_COMPANY_DB`; since 28/09/2026 the package reads its schema from the write
+    company). Allows comparing production vs homologation on the same HANA connection, provided the
+    user can read both schemas.
+    """
     return f'"{schema}".' if schema else ""
 
 
 def _resumo_op(row: dict) -> dict:
-    """Extrai de uma linha de `OWOR` só os campos que interessam à comparação, de forma
-    defensiva (a query usa `SELECT *`; nomes de coluna variam entre versões do B1)."""
+    """Extract from an `OWOR` row only the fields relevant to the comparison, defensively (the query is
+    `SELECT *`; column names vary between B1 versions).
+    """
     return {
         "doc_entry": row.get("DocEntry"),
         "doc_num": row.get("DocNum"),
@@ -2473,7 +2533,7 @@ def _resumo_op(row: dict) -> dict:
 
 
 def _resumo_linha_op(row: dict) -> dict:
-    """Idem para `WOR1` (componentes da OP)."""
+    """Same for `WOR1` (OP components)."""
     return {
         "item_code": str(row.get("ItemCode") or ""),
         "planejada": float(row.get("PlannedQty") or 0),
@@ -2486,27 +2546,29 @@ def _resumo_linha_op(row: dict) -> dict:
 
 
 def _chave_ordenacao_op(op: dict) -> tuple:
-    """Ordena as OPs por **conteúdo**, não pelo `DocEntry`/`DocNum`.
+    """Sort OPs by **content**, not by `DocEntry`/`DocNum`.
 
-    A numeração das OPs é diferente em cada ambiente (produção e homologação têm suas
-    próprias sequências), então ordenar por número deixaria as duas tabelas desalinhadas e
-    a conferência manual seria um vai-e-vem. Ordenando pelos mesmos atributos de negócio, a
-    mesma OP cai (quando existe dos dois lados) na mesma posição das duas tabelas.
+    OP numbering differs per environment (production and homologation have their own sequences), so
+    sorting by number would misalign the two tables and make the manual check a back-and-forth. Sorting
+    by the same business attributes puts the same OP (when it exists on both sides) at the same position
+    in both tables.
 
-    Chave: item produzido → quantidade planejada → linha de referência → nº da OP. A
-    quantidade entra antes da linha porque um mesmo item pode ter várias OPs no mesmo
-    pedido (ex.: `PAR000PADRA000000000`, com quantidades diferentes), e é pela quantidade
-    que se distingue uma da outra; o `U_INO_LinhaRef` pode divergir entre os ambientes, por
-    isso não é a chave principal."""
+    Key: produced item -> planned quantity -> reference line -> OP number. Quantity comes before the
+    line because one item can have several OPs on the same order (e.g. `PAR000PADRA000000000`, with
+    different quantities), and quantity is what tells them apart; `U_INO_LinhaRef` may diverge between
+    environments, so it is not the primary key.
+    """
     return (op["item_code"], op["planejada"], op["linha_ref"], str(op["doc_num"]))
 
 
 def _le_ops_do_lado(
     hana_reader: HanaDirectReader, orc_num: str, schema: str | None, com_linhas: bool
 ) -> dict:
-    """Lê, de um schema, o pedido do orçamento e todas as OPs vinculadas a ele (incluindo
-    canceladas — o Anderson avisou que algumas foram canceladas manualmente em produção, e
-    elas continuam valendo como "o addon legado criou esta OP")."""
+    """Read, from one schema, the quote's order and all OPs linked to it (cancelled ones included —
+    Anderson noted some were cancelled by hand in production, and they still count as "the legacy addon
+    created this OP"). Returns `{"schema", "pedido", "ops"}`, OPs sorted by `_chave_ordenacao_op` (each
+    with its `linhas` when `com_linhas`).
+    """
     prefixo = _prefixo_schema(schema)
     pedidos = hana_reader.fetch_all(
         *ligar(q.PEDIDO_POR_ORCAMENTO, schema=prefixo, orc_num=orc_num)
@@ -2546,32 +2608,30 @@ async def comparar_ops(
     desde: str | None = None,
     incluir_canceladas: bool = False,
 ) -> dict:
-    """Compara as OPs de um orçamento entre o schema onde o **addon legado** roda e o
-    schema onde **este porte** roda, e diagnostica as que faltaram.
+    """Compare a quote's OPs between the schema where the **legacy addon** runs and the schema where
+    **this port** runs, and diagnose the missing ones.
 
-    Os dois ambientes são schemas HANA distintos e permanentes (confirmado pelo Anderson em
-    16/09/2026): `SBOALTAMIRAPROD` é onde o addon legado executa, `SBOALTAMIRAHOMOLOG` é
-    onde este porte executa. A comparação é sempre schema a schema — não existe separação
-    por data de criação (uma versão anterior deste comando tentava isso e só confundia, já
-    que os dois lados nunca convivem no mesmo schema).
+    The two environments are distinct, permanent HANA schemas (confirmed by Anderson on 16/09/2026):
+    `SBOALTAMIRAPROD` is where the legacy addon runs and `SBOALTAMIRAHOMOLOG` was where this port ran;
+    since 28/09/2026 the package writes where `SL_COMPANY_DB` points, and `schema_novo=None` means that
+    current schema. The comparison is always schema to schema — there is no split by creation date (an
+    earlier version tried that and only confused, since the two sides never share a schema).
 
-    `desde` (opcional, `AAAA-MM-DD`) filtra o lado NOVO para considerar só as OPs criadas a
-    partir daquela data. Serve para isolar a última execução quando a homologação acumulou
-    OPs de execuções anteriores do próprio porte — o que acontece facilmente ao reprocessar
-    com `--force`.
+    `desde` (optional, `AAAA-MM-DD`) filters the NEW side to OPs created from that date on. It isolates
+    the last run when homologation accumulated OPs from earlier runs of the port itself — easy to
+    happen when reprocessing with `--force`.
 
-    `incluir_canceladas=False` (padrão, pedido pelo Anderson em 16/09/2026): OPs canceladas
-    (`OWOR."Status" = 'C'`) ficam FORA da comparação, dos dois lados — em produção várias
-    foram canceladas manualmente depois, e isso é ruído operacional, não resultado da
-    integração. As descartadas não somem do relatório: voltam em `canceladas_legado` /
-    `canceladas_novo` para serem contabilizadas, e os itens que só têm OP cancelada no
-    legado voltam em `itens_so_cancelados_legado`. Isso importa porque, ao descartar, um
-    item cuja OP de produção foi cancelada passa a aparecer como "só no novo (a mais)" —
-    parecendo que o porte criou algo indevido, quando na verdade os dois criaram e um
-    humano cancelou depois.
+    `incluir_canceladas=False` (default, Anderson's request of 16/09/2026): cancelled OPs
+    (`OWOR."Status" = 'C'`) stay OUT of the comparison on both sides — in production several were
+    cancelled by hand afterwards, which is operational noise, not an integration result. The discarded
+    ones do not vanish from the report: they come back in `canceladas_legado` / `canceladas_novo`, and
+    items that only have a cancelled OP in the legacy come back in `itens_so_cancelados_legado`. That
+    matters because, once discarded, an item whose production OP was cancelled would show as "only in
+    the new (extra)", looking like the port created something undue when in fact both created it and a
+    human cancelled one later.
 
-    ⚠️ Só leitura — nunca escreve nada. Requer que o usuário HANA tenha SELECT nos dois
-    schemas. Adicionado em 15/09/2026, não existe no C#.
+    ⚠️ Read-only — never writes. Requires the HANA user to have SELECT on both schemas. Added
+    15/09/2026, no C# equivalent.
     """
     lado_legado = _le_ops_do_lado(hana_reader, orc_num, schema_legado, com_linhas=True)
     lado_novo = _le_ops_do_lado(hana_reader, orc_num, schema_novo, com_linhas=True)
@@ -2619,20 +2679,20 @@ async def _diagnostica_ops_faltantes(
     lado_legado: dict,
     lado_novo: dict,
 ) -> list[dict]:
-    """Para cada item que tem OP no legado mas não no novo, tenta apontar o motivo,
-    checando as causas conhecidas (todas documentadas no migration_guide.md):
+    """For each item that has an OP in the legacy but not in the new side, try to point out the
+    reason by checking the known causes (all documented in migration_guide.md):
 
-    1. `U_INO_EntregaMultipla = 'Y'` no pedido → `CriaOP` não cria a OP (quirk do C#
-       original que parece condição invertida, pergunta 9 da seção 9 do guia).
-    2. Grupo do WBC sem mapeamento em `@INO_GRP_PRODUTOS` → o grupo inteiro é pulado com
-       log "Item correspondente ... não cadastrado".
-    3. OP não cancelada já existente + execução sem `--force` → pulada pela verificação de
-       reprocessamento (seção 7.6 do guia).
+    1. `U_INO_EntregaMultipla = 'Y'` on the order -> `CriaOP` does not create the OP (a quirk of the
+       original C# that looks like an inverted condition, question 9 of section 9 of the guide).
+    2. WBC group with no mapping in `@INO_GRP_PRODUTOS` -> the whole group is skipped with the log
+       "Item correspondente ... não cadastrado".
+    3. Non-cancelled OP already existing + run without `--force` -> skipped by the reprocess check
+       (section 7.6 of the guide).
 
-    ⚠️ Todas as checagens olham o **lado NOVO** (o schema onde o porte roda), porque é o que
-    o porte enxergava ao decidir criar ou não a OP. Olhar o lado do legado daria um
-    diagnóstico errado: a verificação de reprocessamento consulta as OPs do próprio schema
-    do porte, e o pedido que importa para `U_INO_EntregaMultipla` é o de lá.
+    ⚠️ Every check looks at the **NEW side** (the schema where the port runs), because that is what the
+    port saw when deciding whether to create the OP. Looking at the legacy side would give a wrong
+    diagnosis: the reprocess check queries the OPs of the port's own schema, and the order that matters
+    for `U_INO_EntregaMultipla` is the one there.
     """
     itens_legado = {op["item_code"] for op in lado_legado["ops"]}
     itens_novo = {op["item_code"] for op in lado_novo["ops"]}
@@ -2729,17 +2789,17 @@ STATUS_QUE_PERMITEM_CANCELAR = {"P", "C"}
 async def levanta_ops_para_cancelamento(
     hana_reader: HanaDirectReader, doc_num: str | None = None, orc_num: str | None = None
 ) -> dict:
-    """Levanta as OPs de um pedido e diz se o cancelamento em lote pode começar.
+    """List an order's OPs and say whether the batch cancellation may start.
 
-    **Não escreve nada** — é a etapa de verificação, deliberadamente separada da execução
-    para que a CLI possa mostrar o que vai acontecer, barrar quando houver impedimento, e
-    só então pedir confirmação.
+    **Writes nothing** — it is the checking step, deliberately separate from the execution so the CLI
+    can show what will happen, stop when something blocks, and only then ask for confirmation.
+    Raises `ValueError` when neither `doc_num` nor `orc_num` is given.
 
-    Devolve `{pedido, ops, bloqueantes, a_cancelar, ja_canceladas}`:
-    - `bloqueantes`: OPs em status fora de `STATUS_QUE_PERMITEM_CANCELAR`. Se houver
-      qualquer uma, **nada deve ser cancelado** — nem as que estariam liberadas para isso.
-    - `a_cancelar`: as planejadas (`P`), que é o que de fato será alterado.
-    - `ja_canceladas`: as `C`, contadas para o relatório e ignoradas na execução.
+    Returns `{pedido, ops, bloqueantes, a_cancelar, ja_canceladas}`:
+    - `bloqueantes`: OPs in a status outside `STATUS_QUE_PERMITEM_CANCELAR`. If there is any, **nothing
+      should be cancelled** — not even the ones that would be allowed.
+    - `a_cancelar`: the planned ones (`P`), which is what will actually change.
+    - `ja_canceladas`: the `C` ones, counted for the report and ignored in the execution.
     """
     if doc_num:
         pedidos = hana_reader.fetch_all(*ligar(q.PEDIDO_POR_DOCNUM, doc_num=doc_num))
@@ -2770,14 +2830,14 @@ async def levanta_ops_para_cancelamento(
 
 
 async def cancela_ops_do_pedido(sl: ServiceLayerClient, ops_a_cancelar: list[dict]) -> dict:
-    """Cancela as OPs recebidas, uma a uma, e relata o que aconteceu com cada uma.
+    """Cancel the given OPs one by one and report what happened to each.
 
-    ⚠️ Chame **somente** depois de `levanta_ops_para_cancelamento` confirmar que não há
-    bloqueantes — esta função não repete a verificação, ela executa o que foi decidido.
+    ⚠️ Call **only** after `levanta_ops_para_cancelamento` confirmed there are no blockers — this
+    function does not repeat the check, it executes what was decided.
 
-    Um erro numa OP não interrompe as demais: cancelar 8 de 10 e dizer exatamente quais
-    falharam é mais útil do que parar na terceira e deixar o pedido num estado que ninguém
-    sabe qual é. O resultado traz `canceladas` e `com_erro` separados.
+    An error on one OP does not stop the others: cancelling 8 of 10 and saying exactly which failed is
+    more useful than stopping at the third and leaving the order in an unknown state. The result has
+    `canceladas` and `com_erro` separately.
     """
     canceladas: list[dict] = []
     com_erro: list[dict] = []
@@ -2870,26 +2930,25 @@ async def cancela_ops_conferidas(
 async def limpa_vinculos_do_pedido(
     sl: ServiceLayerClient, hana_reader: HanaDirectReader, doc_entry: str | int
 ) -> dict:
-    """Devolve o pedido ao estado de "não processado", desfazendo o que a integração marcou.
+    """Return the order to the "not processed" state, undoing what the integration marked.
 
-    Duas coisas, **numa única chamada** à Service Layer (aplicando a lição da seção 7.14 —
-    agrupar atualizações da mesma entidade):
-    - cabeçalho: `U_INO_ProcessWBC = 'N'`;
-    - linhas: `U_INO_OP = 0` nas que têm OP vinculada.
+    Two things, in **a single** Service Layer call (applying the lesson of section 7.14 — group
+    updates of the same entity):
+    - header: `U_INO_ProcessWBC = 'N'`;
+    - lines: `U_INO_OP = 0` on those with a linked OP.
 
-    **Os valores não foram escolhidos por conveniência, são os do próprio sistema**: `'N'`
-    é o que `_atualiza_doc(..., "Erro")` já grava e o que `BUSCA_PEDIDOS_PARA_INTEGRAR`
-    filtra para listar um pedido como pendente; e `0` é como o addon legado zerava esse
-    campo (`DocCot.Lines.SetCurrentLine(i); ...U_INO_OP = 0`, portado em
-    `_update_tab_pedido`) e como o resto do código lê "sem OP" (`IFNULL(U_INO_OP,0) = 0`).
+    **The values were not chosen for convenience, they are the system's own**: `'N'` is what
+    `_atualiza_doc(..., "Erro")` already writes and what `BUSCA_PEDIDOS_PARA_INTEGRAR` filters on to
+    list an order as pending; and `0` is how the legacy addon zeroed that field
+    (`DocCot.Lines.SetCurrentLine(i); ...U_INO_OP = 0`, ported in `_update_tab_pedido_cong`) and how
+    the rest of the code reads "no OP" (`IFNULL(U_INO_OP,0) = 0`).
 
-    Efeito prático: o pedido volta a aparecer em `pedidos-wbc buscar` e pode ser
-    reprocessado sem `--force`.
+    Practical effect: the order shows up again in `pedidos-wbc buscar` and can be reprocessed without
+    `--force`.
 
-    ⚠️ Chamar somente quando **todas** as OPs do pedido estiverem canceladas. Se alguma
-    continuar planejada (ex.: um cancelamento falhou), limpar os vínculos deixaria o pedido
-    dizendo "nunca processado" enquanto existem OPs vivas apontando para ele — pior que o
-    estado anterior. Quem garante essa condição é o chamador.
+    ⚠️ Call only when **all** the order's OPs are cancelled. If any stays planned (e.g. a cancellation
+    failed), cleaning the links would leave the order saying "never processed" while live OPs point at
+    it — worse than before. The caller guarantees that condition. Returns `{"linhas_limpas": n}`.
     """
     linhas = hana_reader.fetch_all(*ligar(q.LINHAS_COM_OP, doc_entry=doc_entry))
 
@@ -2909,26 +2968,25 @@ async def limpa_vinculos_do_pedido(
 # Verificação do PATCH parcial de DocumentLines (21/09/2026)
 # ---------------------------------------------------------------------------
 def historico_de_linhas(hana_reader: HanaDirectReader, doc_entry: int) -> list[dict]:
-    """Quantas linhas o pedido tinha em cada versão salva (`ADOC`/`ADO1`). Só leitura.
+    """How many lines the order had in each saved version (`ADOC`/`ADO1`). Read-only.
 
-    Forense retroativa: o B1 guarda uma cópia das linhas a cada atualização do documento.
-    Se a contagem cair de uma versão para a seguinte, alguma atualização comeu linhas — e
-    dá para ver em qual. Devolve lista vazia quando o log de histórico não está ativo, o
-    que não prova nada em nenhuma direção.
+    Retroactive forensics: B1 keeps a copy of the lines on every document update. If the count drops
+    from one version to the next, some update ate lines — and you can see which. Returns an empty list
+    when the history log is not active, which proves nothing either way.
     """
     return hana_reader.fetch_all(*ligar(q.HISTORICO_LINHAS_PEDIDO, doc_entry=int(doc_entry)))
 
 
 def foto_das_linhas(hana_reader: HanaDirectReader, doc_entry: int) -> list[dict]:
-    """Fotografia das linhas do pedido, para comparar antes/depois de um PATCH."""
+    """Snapshot of the order's lines, to compare before/after a PATCH."""
     return hana_reader.fetch_all(*ligar(q.FOTO_LINHAS_PEDIDO, doc_entry=int(doc_entry)))
 
 
 def compara_fotos(antes: list[dict], depois: list[dict]) -> dict:
-    """Diferença entre duas fotos de `RDR1`, por `LineNum`.
+    """Difference between two `RDR1` snapshots, by `LineNum`.
 
-    Devolve `{sumiram, surgiram, alteradas}`. `alteradas` lista, por linha, quais campos
-    mudaram — com o valor antes e depois, para que a diferença fale por si.
+    Returns `{sumiram, surgiram, alteradas}`. `alteradas` lists, per line, which fields changed — with
+    the value before and after, so the difference speaks for itself.
     """
     por_linha_antes = {int(linha["LineNum"]): linha for linha in antes}
     por_linha_depois = {int(linha["LineNum"]): linha for linha in depois}
@@ -2954,12 +3012,12 @@ def compara_fotos(antes: list[dict], depois: list[dict]) -> dict:
 async def patch_parcial_de_prova(
     sl: ServiceLayerClient, doc_entry: int, line_num: int, valor_atual: int
 ) -> None:
-    """Reenvia UMA linha com o valor que ela já tem — um PATCH que não deveria mudar nada.
+    """Resend ONE line with the value it already has — a PATCH that should change nothing.
 
-    É o experimento isolado: mesmo formato de corpo que `marca_op_nas_linhas` usa em
-    produção (`DocumentLines` com só `LineNum` + um campo), mas escolhendo um valor igual
-    ao atual. Assim, tudo o que aparecer na comparação antes/depois é efeito colateral do
-    mecanismo, não da alteração pedida.
+    It is the isolated experiment: the same body shape `marca_op_nas_linhas` uses in production
+    (`DocumentLines` with only `LineNum` + one field), but with a value equal to the current one. So
+    everything that shows up in the before/after comparison is a side effect of the mechanism, not of
+    the requested change.
     """
     await sl.update_entity(
         "Orders",

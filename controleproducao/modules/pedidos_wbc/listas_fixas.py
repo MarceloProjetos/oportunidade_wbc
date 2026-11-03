@@ -1,30 +1,30 @@
-"""Listas fixas de negócio usadas por `ProcessDefault.CriaItem` no addon original.
+"""Fixed business lists used by `ProcessDefault.CriaItem` in the original addon.
 
-Fase 1 (portar 1:1, ver "Débitos técnicos" item 4 do migration_guide.md): estas listas
-continuam como dados hardcoded, exatamente como no C#. Migrar para tabela configurável
-fica para uma fase 2 (pergunta 6, seção 9 do migration_guide.md).
+Phase 1 (1:1 port, see "Débitos técnicos" item 4 of migration_guide.md): the lists stay
+hardcoded data, exactly as in the C#. Moving them to a configurable table is phase 2
+(question 6, section 9 of migration_guide.md).
 
-Três listas, cada uma decidindo uma coisa diferente ao criar um item novo em `CriaItem`:
+Three lists, each deciding something different when a new item is created in `CriaItem`:
 
-1. `PREFIXOS_GRUPO_333` — se `ItemCode` contém algum destes prefixos, o item recebe
-   `ItemsGroupCode = 333` e `MaterialType = FinishedGoods`. Veio hardcoded como
-   `string[] stringArray` dentro do próprio método (não é um arquivo externo).
-2. `SOLDA` — lida de `Resources/Solda.txt` (comparação exata, não "contém"), via
-   `carregar_solda()`. **Recebida em 21/09/2026** e copiada sem alteração para
-   `resources/Solda.txt`; até essa data o porte rodava com a lista vazia, o que mandava
-   para 358 itens que o legado mandaria para 332 (ver seção 7.20 do migration_guide.md).
-   Decide `ItemsGroupCode = 332` vs `358` — mas só é consultada quando o item NÃO caiu na
-   lista de prefixos acima, porque no C# o teste dos prefixos vem primeiro e vence. Vale
-   notar: 1.477 dos códigos da Solda contêm algum prefixo de 333, ou seja, nunca chegam a
-   ser avaliados para 332. É assim no legado também, e foi preservado.
+1. `PREFIXOS_GRUPO_333` — if `ItemCode` contains any of these prefixes, the item gets
+   `ItemsGroupCode = 333` and `MaterialType = FinishedGoods`. It was a hardcoded
+   `string[] stringArray` inside the C# method (not an external file).
+2. `SOLDA` — read from `Resources/Solda.txt` (exact match, not "contains") by
+   `carregar_solda()`. **Received 21/09/2026** and copied unchanged to `resources/Solda.txt`;
+   until then the port ran with an empty list, sending to 358 items the legacy sends to 332
+   (section 7.20 of migration_guide.md). Decides `ItemsGroupCode = 332` vs `358`, but is only
+   consulted when the item did NOT match a prefix above: in the C# the prefix test comes first
+   and wins. 1,467 of the Solda codes contain a 333 prefix, so they never reach the 332
+   decision; the legacy does the same and it was preserved.
 
-   A mesma lista é usada num segundo ponto, com outro campo: em `CriaItem` a comparação é
-   com `ItemCode`/`PrdCode`, e no laço de `UpdateItem` (grupo 332 de item já existente) é
-   com `PrdArv`. A assimetria parece erro, mas foi conferida nas duas fontes do C#
-   (`ProcessDefault.cs` linha ~941 e `IntegraPedidoWBC.b1f.cs` linha ~368) e é fiel.
-3. `EXPLOSAO_SOLDA` — lida de `Resources/Explosao.txt` no legado (comparação exata de
-   `ItemCode`). Decide a flag `U_INO_EXPL_SOLDA = "S"`. Este arquivo veio completo no
-   projeto e está reproduzido abaixo.
+   The list is used at a second point, against a different field: `CriaItem` compares
+   `ItemCode`/`PrdCode`, while the `UpdateItem` loop (force group 332) compares `PrdArv`. The
+   asymmetry looks like a bug but was checked in both C# sources (`ProcessDefault.cs` line
+   ~941 and `IntegraPedidoWBC.b1f.cs` line ~368) and is faithful. In the port that second
+   check runs for every structure item, new or already existing
+   (`service._cria_ou_atualiza_item`).
+3. `EXPLOSAO_SOLDA` — `Resources/Explosao.txt` in the legacy (exact `ItemCode` match), 180
+   codes, embedded below. Decides the flag `U_INO_EXPL_SOLDA = "S"`.
 """
 from __future__ import annotations
 
@@ -116,20 +116,18 @@ _SOLDA_PATH = Path(__file__).resolve().parent / "resources" / "Solda.txt"
 
 @lru_cache(maxsize=1)
 def carregar_solda() -> frozenset[str]:
-    """Carrega `Solda.txt` (cópia fiel de `Resources/Solda.txt` do addon, 21/09/2026).
+    """Load `Solda.txt` (faithful copy of the addon's `Resources/Solda.txt`, 21/09/2026).
 
-    São ~5.200 códigos, e a consulta acontece uma vez por item da estrutura em dois
-    pontos distintos. Daí as duas decisões aqui:
+    ~5,200 codes, queried once per structure item at two points. Hence two choices:
 
-    - **`frozenset`**, não lista: o C# varre o array inteiro com `foreach` a cada item
-      (O(n)); com 5.200 entradas e estruturas grandes isso seria desperdício gratuito.
-      O resultado da comparação é idêntico — só a busca muda.
-    - **`lru_cache`**: sem ele o arquivo de 115 KB seria lido do disco a cada item,
-      porque `_cria_item` chama esta função por item. O C# também relê o arquivo a cada
-      chamada de `CriaItem`; não é comportamento a preservar, é um custo a evitar.
+    - **`frozenset`**, not a list: the C# scans the whole array with `foreach` per item
+      (O(n)). Same comparison result, only the lookup changes.
+    - **`lru_cache`**: otherwise the 115 KB file would be read from disk per item, since
+      `_cria_item` calls this per item. The C# also rereads it on every `CriaItem`; that is a
+      cost to avoid, not behavior to preserve.
 
-    O arquivo tem 5.229 linhas e 5.015 códigos distintos — há repetições no original,
-    que o `frozenset` absorve sem mudar nada (pertencer duas vezes é pertencer).
+    The file has 5,229 lines and 5,015 distinct codes; the `frozenset` absorbs the repeats.
+    Falls back to the empty `SOLDA` (with a warning) if the file is missing.
     """
     if _SOLDA_PATH.exists():
         linhas = (linha.strip() for linha in _SOLDA_PATH.read_text(encoding="utf-8").splitlines())

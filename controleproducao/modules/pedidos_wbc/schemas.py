@@ -1,6 +1,6 @@
-"""Modelos de dados do módulo Pedidos WBC.
+"""Data models of the Pedidos WBC module.
 
-Equivalentes às classes em `Models/`: `OportunidadeDoc`, `EstruturaPrd`, `SemiAcabado`,
+Equivalent to the classes in `Models/`: `OportunidadeDoc`, `EstruturaPrd`, `SemiAcabado`,
 `ORCCAB`, `ORCPRD`, `NewOrcPrd`/`OrcPrdLinha`.
 """
 from __future__ import annotations
@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 
 class OportunidadeDoc(BaseModel):
-    """Equivalente a `Models/OportunidadeDoc.cs` — uma linha do orçamento fechado no WBC."""
+    """Equivalent to `Models/OportunidadeDoc.cs` — one row of the closed quote in the WBC."""
 
     orc_num: str
     versao: str
@@ -35,9 +35,9 @@ class OportunidadeDoc(BaseModel):
 
 
 class EstruturaPrd(BaseModel):
-    """Equivalente a `Models/EstruturaPrd.cs` — um nó da árvore de estrutura do orçamento
-    (`INTEGRACAO_ORCPRDARV`). É o objeto central da recursão de semiacabados
-    (`ProcessDefault.ChecaSemiAcabado`) — ver seção 4.4.1, passo 6, do migration_guide.md.
+    """Equivalent to `Models/EstruturaPrd.cs` — one node of the quote's structure tree
+    (`INTEGRACAO_ORCPRDARV`). Central object of the semi-finished recursion
+    (`ProcessDefault.ChecaSemiAcabado`); see section 4.4.1, step 6, of migration_guide.md.
     """
 
     orc_num: str
@@ -66,12 +66,11 @@ class EstruturaPrd(BaseModel):
 
 
 class OrcPrdLinha(BaseModel):
-    """Equivalente a `Models/NewOrcPrd.cs` classe `OrcPrdLinha` — uma linha filha do UDO
-    `OrcDetalhe`/`INO_ORC_LINHA`, no caminho de fallback de `preencheTabela` (quando o
-    orçamento não tem estrutura detalhada em `INTEGRACAO_ORCPRDARV`). Vem da query
-    `NOVA_TABELA_QUOT_LINHA` — só `codigo_item`/`orc_val`/`orc_itm`/`orc_txt` vêm
-    preenchidos de verdade no legado; os demais campos ficam vazios (comportamento
-    replicado de propósito, não é lacuna da transcrição).
+    """Equivalent to `Models/NewOrcPrd.cs` class `OrcPrdLinha` — a child row of the UDO
+    `OrcDetalhe`/`INO_ORC_LINHA`, on the `preencheTabela` fallback path (quote without a
+    detailed structure in `INTEGRACAO_ORCPRDARV`). Comes from `NOVA_TABELA_QUOT_LINHA`; in
+    the legacy only `codigo_item`/`orc_val`/`orc_itm`/`orc_txt` are really filled and the rest
+    stay empty (replicated on purpose, not a transcription gap).
     """
 
     peso: str
@@ -88,10 +87,10 @@ class OrcPrdLinha(BaseModel):
 
 
 class NewOrcPrd(BaseModel):
-    """Equivalente a `Models/NewOrcPrd.cs` — cabeçalho do orçamento vindo de
-    `INTEGRACAO_ORCIMP` (query `NOVA_TABELA_QUOT`), usado por `preencheTabela` para
-    montar os campos de cabeçalho do UDO `OrcDetalhe`. Cada instância carrega também
-    sua própria lista de linhas (`linhas`) no caminho de fallback (ver `OrcPrdLinha`).
+    """Equivalent to `Models/NewOrcPrd.cs` — quote header from `INTEGRACAO_ORCIMP` (query
+    `NOVA_TABELA_QUOT`), used by `preencheTabela` to build the header fields of the UDO
+    `OrcDetalhe`. On the fallback path each instance also carries its own `linhas` (see
+    `OrcPrdLinha`).
     """
 
     orc_val_vnd: float
@@ -133,9 +132,9 @@ class NewOrcPrd(BaseModel):
 
 
 class TabelaValdixsonLinha(BaseModel):
-    """Equivalente a `Models/ORCPRD.cs` — uma linha da estrutura detalhada do orçamento
-    vinda de `INTEGRACAO_ORCPRDARV` (query `GET_TABLE_VALDIXSON`), usada por
-    `preencheTabela` no caminho principal (quando existe estrutura detalhada).
+    """Equivalent to `Models/ORCPRD.cs` — one row of the quote's detailed structure from
+    `INTEGRACAO_ORCPRDARV` (query `GET_TABLE_VALDIXSON`), used by `preencheTabela` on the main
+    path (when a detailed structure exists).
     """
 
     orc_num: str
@@ -153,9 +152,9 @@ class TabelaValdixsonLinha(BaseModel):
 
 
 class Linha(BaseModel):
-    """Equivalente a `Models/EstruturaPrd.cs` classe `Linha` — dados manuais da linha do
-    pedido (query `MANUAL_LINHA`), usados por `UpdatePedido`/`UpdateTabPedidoCong` para
-    reconstituir campos que o usuário preencheu manualmente antes do reprocessamento."""
+    """Equivalent to `Models/EstruturaPrd.cs` class `Linha` — manual order-line data (query
+    `MANUAL_LINHA`), used by `UpdatePedido`/`UpdateTabPedidoCong` to restore fields the user
+    filled in by hand before the reprocessing."""
 
     ped_cliente: str
     item_cliente: str
@@ -164,7 +163,7 @@ class Linha(BaseModel):
 
 
 class SemiAcabado(BaseModel):
-    """Equivalente a `Models/EstruturaPrd.cs` classe `SemiAcabado`."""
+    """Equivalent to `Models/EstruturaPrd.cs` class `SemiAcabado`."""
 
     item_code: str
     quantidade: float
@@ -174,13 +173,14 @@ class SemiAcabado(BaseModel):
 
 
 class PedidoParaIntegrar(BaseModel):
-    """Uma linha do grid "Pedidos Novos" do `Form2` (query `BuscaPedidosParaIntegrar`) —
-    pedidos já vinculados a uma oportunidade integrada e ainda não processados
-    (`U_INO_ProcessWBC='N'`), candidatos a `pedidos-wbc processar-novos`.
+    """One row of the `Form2` grid, built by `service.buscar_pedidos_para_integrar` for both
+    modes: "Pedidos Novos" (`BuscaPedidosParaIntegrar`: pedidos linked to an integrated
+    Oportunidade and not yet processed, `U_INO_ProcessWBC='N'`, candidates for
+    `pedidos-wbc processar-novos`) and "Pedidos Integrados" (`BuscaPedidosIntegrados`,
+    `U_INO_ProcessWBC='Y'`, candidates for Reprocessar).
 
-    ⚠️ Modelo/consulta adicionados em 15/09/2026 (a pedido do Anderson, para listar pedidos
-    de homologação a testar) — não existiam antes nesta reescrita; a query em si já vinha
-    transcrita do C# original."""
+    Model and listing added 15/09/2026 (Anderson's request, to list homologation pedidos to
+    test); the query itself was already transcribed from the original C#."""
 
     selecionar: str = "N"
     opp_id: int

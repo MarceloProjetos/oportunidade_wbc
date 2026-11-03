@@ -1,7 +1,7 @@
 # Plano — docstrings e type hints em inglês (ServidorIntegracaoSAP)
 
-> **Status (03/11/2026):** **E1 concluída** (20 arquivos, 16 docstrings desatualizados corrigidos);
-> E2–E8 abertas.
+> **Status (03/11/2026):** **E1 e E2 concluídas** (25 arquivos; 38 docstrings desatualizados
+> corrigidos); E3–E8 abertas.
 > Página: ver o artifact "Docstrings EN" (mesmo conteúdo).
 
 **Começo → Meio → Fim:** núcleo que tudo importa (E1) → regras que escrevem no SAP (E2–E5) → API,
@@ -55,7 +55,7 @@ tarefa; um em `dashboard/` vale só quando mexo na tela.
 | Etapa | O que | Arquivos | Docstrings PT | Sem tipo | Status |
 | --- | --- | --- | --- | --- | --- |
 | **E1** | Núcleo: `safety`, configs, `padroes`, clientes do Service Layer, HANA e SQL Server, `tarefas`, `acesso`, `guardas`, `sql_seguro` | 20 | 79 | 3 | **concluída** |
-| **E2** | Regra do CP — Pedidos WBC (`service.py`, `acoes.py`, `queries.py`, `listas_fixas.py`) | 6 | 69 | 11 | aberta |
+| **E2** | Regra do CP — Pedidos WBC (`service.py`, `acoes.py`, `queries.py`, `listas_fixas.py`) | 5 | 69 | 11 | **concluída** |
 | **E3** | Regra do CP — Manutenção de OP | 7 | 17 | 8 | aberta |
 | **E4** | Worker WBC — `domain/`, `application/`, `host/` | 19 | 125 | 0 | aberta |
 | **E5** | Worker WBC — `infrastructure/`, `tracking/` | 24 | 115 | 0 | aberta |
@@ -87,6 +87,30 @@ Cada etapa sai num commit próprio (`docs(en): E<n> …`).
 <span class="warn">Fica para depois:</span> as **mensagens de erro** do `safety.py` (texto que
 roda) ainda citam `ai_spec/04_environment_constraints.md`, que não existe. Corrigir é mudança de
 código (e de teste), fora deste plano.
+
+### O que a E2 achou de desatualizado (22)
+
+`service.py` (17), `acoes.py`, `queries.py`, `listas_fixas.py` (2), `schemas.py`. Os que mais
+enganavam:
+
+- `processar_pedidos_novos` dizia que `force=True` "serve junto com o reprocessar" — **`force`
+  duplica OP**; não citava a falta de rollback nem as recusas `nota_espelho`/`ops_orfas`, e dizia
+  devolver 2 listas (são 6).
+- `reprocessar_pedidos_integrados` dizia que cancela as OPs "antes de recriar": **nunca recria**.
+- `_update_pedido` descrevia dois caminhos funcionando: a 1ª instrução é o `raise` (fechado em 29/09).
+- `cria_recurso_rateio`, `preenche_tabela`, `cria_ordem_producao_semi_acabado`: retornos e erros
+  engolidos (`return 0`/`-1`) não descritos ou descritos errado.
+- `_busca_nova_tabela_quot_com_linhas` dizia uma tabela por linha: devolve `[header]`.
+- `_add_pedido_oportunidade`: o TODO de confirmar `SalesOpportunitiesLines` já estava resolvido.
+- `acoes.monta_plano` dizia que pedido fora da lista "não entra": ele **recusa o plano inteiro**
+  (`409 fora_da_lista`).
+- `listas_fixas`: 1.467 códigos (não 1.477) contêm prefixo 333; o `UpdateItem` da solda vale para
+  item novo **e** existente.
+- `comparar_ops` dizia que o porte roda em HOMOLOG; desde 28/09 escreve onde `SL_COMPANY_DB` aponta.
+
+<span class="warn">Achado fora do escopo:</span> `controleproducao/cli.py` (linhas ~312/345/350)
+**diz ao operador** que pedido integrado é "reprocessável com `--force`" — e `--force` duplica OP.
+É texto de tela (código), não docstring.
 
 ## Decisões
 

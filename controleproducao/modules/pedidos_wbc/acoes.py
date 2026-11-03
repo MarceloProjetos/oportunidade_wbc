@@ -150,10 +150,17 @@ def monta_plano(
 
     ``elegiveis`` is the list read again from the SAP right now, not what the page showed:
     what arrives from a browser is a number anyone can type, and the legacy grid never let the
-    user act on a pedido outside its filter. Whoever is not in the list does not enter.
+    user act on a pedido outside its filter. A selected pedido missing from it refuses the
+    whole plan (`fora_da_lista`); it is never skipped silently.
+
+    Processar also refuses `nota_espelho` and `ops_orfas`, ``force`` included; Reprocessar
+    skips both checks. ``force`` is ignored for Reprocessar and travels in the plan (`_force`).
 
     ``propostas`` is `le_propostas_desatualizadas` — quotes whose printed proposal is an older
     revision. It only adds warnings to the plan (`avisos_do_plano`); nothing is refused by it.
+
+    Raises:
+        Recusa: `invalido` (empty selection), `fora_da_lista`, `nota_espelho`, `ops_orfas`.
     """
     if not opp_ids:
         raise Recusa("invalido", MSG_NENHUM_SELECIONADO)
@@ -343,7 +350,7 @@ def corrotina_pedidos(plano: Plano) -> Callable[[Tarefa], Awaitable[dict]]:
     return executa
 
 
-async def _roda_pedidos(tarefa: Tarefa, alvos: list[tuple[str, str]], modo: str, force: bool):
+async def _roda_pedidos(tarefa: Tarefa, alvos: list[tuple[str, str]], modo: str, force: bool) -> dict:
     """``alvos`` are pairs ``(pedido SAP, orçamento WBC)``.
 
     The service gets the QUOTE — what `GetOrcsWBC` and `GetIdOrcamentosPedido` look up, not
@@ -357,7 +364,15 @@ async def _roda_pedidos(tarefa: Tarefa, alvos: list[tuple[str, str]], modo: str,
         return await _roda_pedidos_com(tarefa, alvos, modo, force, settings, hana_reader, wbc)
 
 
-async def _roda_pedidos_com(tarefa, alvos, modo, force, settings, hana_reader, wbc):
+async def _roda_pedidos_com(
+    tarefa: Tarefa,
+    alvos: list[tuple[str, str]],
+    modo: str,
+    force: bool,
+    settings: Any,
+    hana_reader: HanaDirectReader,
+    wbc: WbcSqlServerClient,
+) -> dict:
     """Body of `_roda_pedidos`, with both readers opened (and closed) by the caller."""
     async with ServiceLayerClient(settings) as sl:
         # One pedido at a time, not the whole list at once, so the follow-up says where it

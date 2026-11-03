@@ -1,14 +1,14 @@
-"""Queries do módulo Pedidos WBC, transcritas de `Controllers/Querys.resx`.
+"""Queries of the Pedidos WBC module, transcribed from `Controllers/Querys.resx`.
 
-Este é o módulo com as queries mais pesadas do addon original (várias tinham
-`CommandTimeout` aumentado manualmente para 300-500s — ver "Débitos técnicos" item 9 no
-migration_guide.md). São executadas via `HanaDirectReader` (`hdbcli`), o caminho
-preferencial de leitura desde a revisão da decisão em 16/09/2026 (seção 6.4). A orientação
-anterior, de transformá-las em Calculation Views antes de ir para produção, foi descartada
-— o peso delas continua sendo um ponto de atenção de performance, mas isso é otimização de
-query, não mais uma mudança de caminho de acesso.
+The heaviest queries of the original addon (several had `CommandTimeout` raised by hand to
+300-500s — see "Débitos técnicos" item 9 in migration_guide.md). HANA queries run through
+`HanaDirectReader` (`hdbcli`), the preferred read path since the 16/09/2026 decision review
+(section 6.4); the WBC ones (SQL Server) through `WbcSqlServerClient`. Values go in via
+`core/sql_ligado` (`{name}` placeholders) or `?` parameters. Turning the HANA queries into
+Calculation Views was dropped: their weight is a query-tuning concern, not a change of
+access path.
 
-Prefixo indica o banco: HANA (SAP B1) ou MSSQL (WBC / WBCCAD).
+The section comments mark the database: HANA (SAP B1) or MSSQL (WBC / WBCCAD).
 """
 
 # --- MSSQL (WBC) ---------------------------------------------------------------
