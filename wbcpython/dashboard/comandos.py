@@ -1,31 +1,28 @@
-"""Os comandos da linha de comando, disponíveis na aba "Executar" do painel.
+"""The CLI commands available on the panel's "Executar" tab.
 
-## Por que subprocesso e não chamada direta
+## Why a subprocess and not a direct call
 
-O painel executa a **CLI de verdade** (`python -m wbcpython ...`), em
-subprocesso. Chamar as funções internas seria mais rápido e daria resultado já
-estruturado, e ainda assim é a escolha errada aqui:
+The panel runs the **real CLI** (`python -m wbcpython ...`) in a subprocess. Calling the internal functions would
+be faster and give already-structured results, and is still the wrong choice here:
 
-1. **Não diverge.** O que o painel faz é literalmente o comando. Não existe um
-   "caminho do painel" que possa passar a se comportar diferente do caminho do
-   terminal na primeira regra nova — que é exatamente o defeito que a prévia e o
-   ciclo teriam se duplicassem a decisão (ver `DECISOES.md`).
-2. **A saída é a mesma.** O que aparece na tela é o texto que apareceria no
-   terminal, na mesma ordem. É a extensão natural de "uma fonte, duas telas".
-3. **Isolamento.** Um ciclo que estoure não derruba o painel, e dá para
-   interromper — coisa que uma chamada em processo não permite.
+1. **No divergence.** What the panel does is literally the command. There is no "panel path" that can start
+   behaving differently from the terminal path at the first new rule — exactly the defect the preview and the
+   cycle would have if they duplicated the decision (see `docs/wbc/DECISOES.md`).
+2. **Same output.** What appears on screen is the text that would appear in the terminal, in the same order. It
+   is the natural extension of "one source, two screens" (`wbcpython.logs`).
+3. **Isolation.** A cycle that blows up does not take the panel down, and it can be interrupted — which an
+   in-process call does not allow.
 
-O custo é que o painel precisa rodar **na máquina do worker**, com os drivers
-instalados e acesso ao SAP e ao WBC. É onde ele já roda.
+The cost is that the panel must run **on the worker's machine**, with the drivers installed and access to SAP and
+WBC. That is where it already runs.
 
-## Concorrência
+## Concurrency
 
-Uma execução por vez, garantida aqui (`Executor`). Isso é conveniência de tela:
-a garantia que importa é a **trava de execução única** no banco de
-acompanhamento, que o `executar_ciclo` toma e que vale entre processos — o
-painel e o worker disputam a mesma trava, e quem perde não roda. Sem ela, um
-clique no painel enquanto o worker trabalha poderia criar o mesmo documento
-duas vezes.
+One execution at a time, enforced here (`Executor`). That is a screen convenience: the guarantee that matters is
+the **single-execution lock** in the tracking database, taken by `executar_ciclo` and valid across processes — the
+panel and the worker contend for the same lock, and whoever loses does not run (the scheduled cycle never waits; a
+per-quote run waits up to `ESPERA_PELA_TRAVA_DIRIGIDA`). Without it, a click on the panel while the worker is busy
+could create the same document twice.
 """
 
 from __future__ import annotations
@@ -42,11 +39,10 @@ from pathlib import Path
 
 
 def _agora() -> datetime:
-    """Horário local ingênuo, como o resto do projeto.
+    """Naive local time, like the rest of the project.
 
-    O banco de acompanhamento e o log em arquivo gravam assim de propósito (ver
-    `pyproject.toml`); um carimbo em UTC no meio deles seria uma diferença de
-    três horas que ninguém percebe até comparar com um documento no SAP.
+    The tracking database and the file log write it this way on purpose; a UTC stamp among them would be a
+    three-hour difference nobody notices until comparing with a document in SAP.
     """
     return datetime.now()  # noqa: DTZ005
 
@@ -61,7 +57,7 @@ TETO_DE_SAIDA = 2000
 
 @dataclass(frozen=True, slots=True)
 class Campo:
-    """Um argumento que o comando aceita, como aparece no formulário."""
+    """An argument the command accepts, as it appears in the form."""
 
     nome: str
     rotulo: str
@@ -79,13 +75,11 @@ class Campo:
 
 @dataclass(frozen=True, slots=True)
 class Comando:
-    """Um comando exposto na tela.
+    """A command exposed on the screen.
 
-    `escreve` marca os que tocam o SAP: são os que exigem senha e ficam
-    indisponíveis quando o painel está apontado para produção — exceto os
-    `dirigido` (one quote typed by the operator; see the field). `escreve_tracking`
-    marca quem só mexe no banco de acompanhamento — pede senha, mas não tem o
-    mesmo peso: nada disso chega ao SAP.
+    `escreve` marks those that touch SAP: they require the password and are unavailable when the panel points at
+    production — except the `dirigido` ones (one quote typed by the operator; see the field). `escreve_tracking` marks
+    those that only touch the tracking database: they ask for the password too, but weigh less — none of it reaches SAP.
     """
 
     id: str
@@ -274,11 +268,11 @@ POR_ID = {comando.id: comando for comando in CATALOGO}
 
 
 class JaEmExecucao(RuntimeError):
-    """Já existe um comando rodando pelo painel."""
+    """A command started from the panel is already running."""
 
 
 class PreviaObrigatoria(RuntimeError):
-    """`pesos` só aplica depois de uma prévia do mesmo alvo."""
+    """`pesos` only applies after a preview of the same target."""
 
 
 #: Commands that stop through the stop file instead of being terminated: the cycle writes to
@@ -288,7 +282,7 @@ PARADA_ENTRE_ORCAMENTOS = frozenset({"ciclo"})
 
 @dataclass
 class Execucao:
-    """Uma execução disparada pelo painel."""
+    """One execution started by the panel."""
 
     id: int
     comando: str
@@ -324,12 +318,11 @@ class Execucao:
 
 
 def montar_argv(comando: Comando, valores: dict[str, str]) -> list[str]:
-    """Traduz o formulário em argumentos da CLI.
+    """Translates the form into CLI arguments.
 
-    Só o que está no catálogo entra: um campo que o `Comando` não declara é
-    ignorado, e o valor nunca vai para um shell — o subprocesso recebe a lista
-    de argumentos direto. É o que impede que um campo de texto na tela vire
-    execução de comando arbitrário na máquina do worker.
+    Only what is in the catalog gets in: a field the `Comando` does not declare is ignored, and the value never goes
+    to a shell — the subprocess receives the argument list directly. That is what keeps a text field on the screen
+    from becoming arbitrary command execution on the worker's machine.
     """
     argv = list(comando.argv)
     for campo in comando.campos:
@@ -344,13 +337,11 @@ def montar_argv(comando: Comando, valores: dict[str, str]) -> list[str]:
 
 
 def _ajustar_exportar(comando: Comando, argv: list[str], arquivo_do_retrato: str) -> list[str]:
-    """`--exportar` na tela é caixa; na CLI é opção com caminho.
+    """On the screen `--exportar` is a checkbox; on the CLI it is an option with a path.
 
-    Um ensaio (`--meses`) **nunca** exporta, mesmo com a caixa marcada. A aba
-    "Próximo ciclo" existe para mostrar o que a próxima passada vai fazer;
-    gravar ali o retrato de uma janela que ninguém armou faria a tela prometer
-    um ciclo que não vai acontecer — e é justamente essa aba que alguém lê para
-    decidir se deixa o worker rodar.
+    A rehearsal (`--meses`) **never** exports, even with the box checked. The "Próximo ciclo" tab exists to show what
+    the next pass will do; writing there the snapshot of a window nobody armed would make the screen promise a cycle
+    that will not happen — and that is the very tab someone reads to decide whether to let the worker run.
     """
     if comando.id != "pendentes" or "--exportar" not in argv:
         return argv
@@ -362,10 +353,10 @@ def _ajustar_exportar(comando: Comando, argv: list[str], arquivo_do_retrato: str
 
 
 class Executor:
-    """Roda um comando por vez e guarda a saída.
+    """Runs one command at a time and keeps the output.
 
-    A serialização aqui é de tela — impedir que dois cliques disparem dois
-    ciclos. A garantia entre processos é a trava no banco de acompanhamento.
+    Serialization here is a screen concern — stopping two clicks from starting two cycles. The cross-process guarantee
+    is the lock in the tracking database.
     """
 
     def __init__(self, *, arquivo_do_retrato: str = "state/wbc_previsao.json") -> None:
@@ -410,7 +401,12 @@ class Executor:
         solicitante: str,
         aplicar_pesos: bool = False,
     ) -> Execucao:
-        """Dispara o comando. `JaEmExecucao` se outro ainda estiver rodando."""
+        """Starts the command.
+
+        Raises `JaEmExecucao` if another is still running, `PreviaObrigatoria` if `pesos` is applied without
+        a preview of the same target, `ValueError` if a `dirigido` command lacks its mandatory field, and lets
+        `OSError` through when the subprocess cannot be spawned.
+        """
         if comando.dirigido and any(
             c.obrigatorio and not (valores.get(c.nome) or "").strip() for c in comando.campos
         ):
@@ -496,11 +492,10 @@ class Executor:
     # ---------------------------------------------------------------- interno
 
     def _ambiente(self) -> dict[str, str]:
-        """O ambiente do subprocesso, sem a senha do painel.
+        """The subprocess environment, without the panel password.
 
-        A senha autoriza o clique; não tem nada a fazer dentro do comando, e
-        deixá-la no ambiente de um processo filho é vazamento gratuito — ela
-        apareceria para qualquer coisa que o comando venha a executar.
+        The password authorizes the click; it has nothing to do inside the command, and leaving it in a child's
+        environment is a free leak — it would be visible to anything the command ends up running.
         """
         import os
 
@@ -509,12 +504,12 @@ class Executor:
         return ambiente
 
     def _pesos(self, argv: list[str], valores: dict[str, str], *, aplicar: bool) -> list[str]:
-        """Prévia obrigatória: aplicar exige uma simulação do **mesmo** alvo.
+        """Mandatory preview: applying requires a simulation of the **same** target.
 
-        Não é a caixa "simular" desmarcada que libera. O que libera é ter visto
-        a prévia daquele pedido: o comando altera peso de documento já criado, e
-        a diferença entre o peso líquido da árvore e o de embarque (×1,10) é
-        justamente o tipo de coisa que se confere olhando, não confiando.
+        Not applying (`aplicar=False`) appends `--simular` and forgets any earlier preview. What releases applying is
+        having seen the preview of that very order: the command alters the weight of an already-created
+        document, and the difference between the tree's net weight and the shipping one (x1.10) is exactly
+        the kind of thing you check by looking, not by trusting.
         """
         alvo = self._alvo_de_peso(valores)
         if not aplicar:
@@ -534,11 +529,11 @@ class Executor:
         return f"pedido:{pedido}|orcamento:{orcamento}"
 
     def _colher(self) -> None:
-        """Fecha a execução corrente se o processo já terminou.
+        """Closes the current execution if its process has already ended.
 
-        Chamado de dentro da trava, em toda leitura: não há thread vigiando o
-        processo, e é a própria consulta da tela que percebe o fim. Um painel
-        que ninguém está olhando não precisa perceber nada.
+        Called inside the lock, on every read: no thread watches the process, and it is the screen's own query that
+        notices the end. A panel nobody is looking at does not need to notice anything. A successful `pesos --simular`
+        records its target as the authorized preview.
         """
         execucao = self._atual
         if execucao is None or execucao._processo is None:

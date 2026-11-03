@@ -1,20 +1,22 @@
-"""Rotas web do módulo Pedidos WBC — equivalente à tela `IntegraPedidoWBC.b1f.cs`.
+"""Web routes of the Pedidos WBC module — equivalent to the legacy screen `IntegraPedidoWBC.b1f.cs`.
 
-A tela original tinha dois modos ("Pedidos Novos" e "Pedidos Integrados"), uma grade com
-caixas de seleção e botões que agiam sobre o que estava marcado. O desenho aqui é o mesmo,
-com três diferenças deliberadas, todas por causa de erros reais desta migração:
+The original screen had two modes ("Pedidos Novos" and "Pedidos Integrados"), a grid with
+checkboxes and buttons acting on the selection. The design here is the same, with three
+deliberate differences, all caused by real mistakes of this migration:
 
-1. **Nada grava direto do botão.** Processar, reprocessar e cancelar OPs passam por um
-   plano conferido em tela (`core/confirmacao.py`). Reprocessar saiu da tela em 28/09 (D8) e
-   voltou em 30/09, a pedido do Marcelo, com o aviso do que ele faz de fato. No legado o botão agia sobre a seleção
-   e pronto; aqui o usuário vê antes o que vai acontecer e confirma sobre isso.
-2. **A execução é em segundo plano** (`core/tarefas.py`): um orçamento médio leva ~7s e um
-   grande passa de minuto — tempo demais para um request segurar.
-3. **A trava de produção vale aqui igual à CLI** (`core/web.py`). Mesmo `.env`, mesma regra.
+1. **Nothing writes straight from the button.** Processar, Reprocessar and cancelling OPs go
+   through a plan checked on screen (`core/confirmacao.py`). Reprocessar left the screen on
+   28/09 (D8) and came back on 30/09 at Marcelo's request, with the notice of what it really
+   does. In the legacy screen the button acted on the selection and that was it; here the
+   user first sees what will happen and confirms that.
+2. **Execution runs in the background** (`core/tarefas.py`): an average quote takes ~7 s and
+   a large one over a minute — too long for a request to hold.
+3. **The production gate applies here exactly as in the CLI** (`core/web.py`). Same `.env`,
+   same rule.
 
-O que a grade protegia e o código não (tema recorrente da migração, seção 8): o filtro da
-tela é reproduzido pelas próprias queries de busca — a rota nunca aceita um identificador
-digitado que não tenha passado por elas.
+What the legacy grid protected and the code did not (recurring theme of the migration,
+section 8): the screen's filter is reproduced by the search queries themselves — the route
+never accepts a typed identifier that did not come through them.
 
 Since 01/10/2026 the rules live in ``acoes.py``, shared with the JSON API (``api_router.py``,
 PLANO_API_PEDIDOS_WBC.md (removed 2026-10-06)); this file only reads the form and renders HTML.
@@ -57,7 +59,7 @@ COLUNAS_PEDIDO = ["Pedido", "Oportunidade", "WBC", "Cliente", "Total"]
 COLUNAS_OP = ["doc_num", "item_code", "status", "descricao"]
 
 
-def _erro(request: Request, mensagem: str, **extra):
+def _erro(request: Request, mensagem: str, **extra: object) -> HTMLResponse:
     return templates.TemplateResponse(
         request, "erro.html",
         {"mensagem": mensagem, "voltar": "/pedidos-wbc", **extra},
@@ -139,7 +141,9 @@ async def conferir_reprocessar(request: Request, opp_ids: list[str] = Form(defau
     return await _confere_pedidos(request, opp_ids, integrados=True, force=False)
 
 
-async def _confere_pedidos(request: Request, opp_ids: list[str], integrados: bool, force: bool):
+async def _confere_pedidos(
+    request: Request, opp_ids: list[str], integrados: bool, force: bool
+) -> HTMLResponse:
     if not opp_ids:
         return _erro(request, acoes.MSG_NENHUM_SELECIONADO)
     # The list is read again instead of trusting the form (see `acoes.monta_plano`).
@@ -234,11 +238,11 @@ async def conferir_cancelar_ops(
 # Etapa 2 — execução (grava; exige token e passa pela trava de produção)
 # ---------------------------------------------------------------------------
 def _consome(request: Request, token: str, tipo: str):
-    """Valida o token do plano conferido. Devolve `(plano, resposta_de_erro)`.
+    """Validate the token of the checked plan. Returns `(plan, error_response)`.
 
-    A conferência em duas etapas **não é** a trava de produção (removida em 22/09/2026):
-    ela vale igual em homologação e existe porque a operação é irreversível — o usuário
-    confirma sobre o que foi calculado e mostrado, e um F5 não reexecuta.
+    The two-step confirmation is **not** the production gate (removed 22/09/2026): it applies
+    equally in homologation and exists because the operation is irreversible — the user confirms
+    what was calculated and shown, and F5 does not re-execute.
 
     The write gate comes BEFORE the token is spent (01/10/2026, as module 3 does since 29/09);
     `acoes.consome_plano` checks the busy module before spending it too.
@@ -252,7 +256,7 @@ def _consome(request: Request, token: str, tipo: str):
         return None, _erro(request, recusa.mensagem, titulo=recusa.titulo)
 
 
-def _ocupado(request: Request, exc: Exception):
+def _ocupado(request: Request, exc: Exception) -> HTMLResponse:
     # The link matters: after a double submit the operator must land on the run that DID
     # start, not on an error that invites doing it again.
     rodando = TAREFAS.em_execucao(MODULO)
@@ -261,7 +265,7 @@ def _ocupado(request: Request, exc: Exception):
                  link_texto="Acompanhar a execução em andamento")
 
 
-def _dispara(request: Request, nome: str, descricao: str, corrotina):
+def _dispara(request: Request, nome: str, descricao: str, corrotina) -> HTMLResponse | RedirectResponse:
     try:
         tarefa = acoes.dispara(nome, descricao, corrotina,
                                ip=request.client.host if request.client else None)
@@ -286,7 +290,7 @@ async def executar_reprocessar(request: Request, token: str = Form(default="")):
     return _dispara(request, plano.operacao, acoes.descricao(plano), acoes.corrotina_pedidos(plano))
 
 
-def _relata_cancelamento(tarefa: Tarefa, doc_num, resultado: dict) -> None:
+def _relata_cancelamento(tarefa: Tarefa, doc_num: object, resultado: dict) -> None:
     """The cancel run, line by line, in the operator's words."""
     if tarefa.parada_pedida and not resultado["nao_iniciadas"]:
         tarefa.parada_pedida = False
@@ -318,7 +322,7 @@ async def executar_cancelar_ops(request: Request, token: str = Form(default=""))
     ops = plano.itens
     doc_num = plano.resumo.get("_doc_num")
 
-    async def executa(tarefa: Tarefa):
+    async def executa(tarefa: Tarefa) -> dict:
         settings = get_settings()
         tarefa.avanca(f"Relendo as OPs do pedido {doc_num} e cancelando {len(ops)}…", 0, len(ops))
         with HanaDirectReader(settings) as hana_reader, acompanha_log(tarefa, service.__name__):

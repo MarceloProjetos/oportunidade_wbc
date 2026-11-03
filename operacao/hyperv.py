@@ -7,8 +7,8 @@ announcing IPv6 on the LAN. No agent holds a password on a host, so the host PUS
 for the backups (``operacao/backup.py``): a scheduled task runs ``maintenance/estado_hyperv.ps1`` every hour
 as SYSTEM and POSTs to ``/operacao/hyperv/estado`` with a key of scope ``hyperv:relatar``.
 
-The same script runs on either host: the ORIGIN decides which host the report is (never the body's own
-host name, which is untrusted text), one file per host. Validation is a closed shape, as in ``backup``.
+The same script runs on every host listed in ``ORIGENS``: the ORIGIN decides which host the report is (never the
+body's own host name, which is untrusted text), one file per host. Validation is a closed shape, as in ``backup``.
 """
 from __future__ import annotations
 

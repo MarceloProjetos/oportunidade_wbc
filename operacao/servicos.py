@@ -31,7 +31,7 @@ JANELA_BOOT = timedelta(minutes=15)
 FOLGA_REINICIO = timedelta(minutes=2)
 
 
-def _psutil():
+def _psutil() -> Any:
     try:
         import psutil
     except ImportError:
@@ -39,7 +39,7 @@ def _psutil():
     return psutil if hasattr(psutil, "win_service_get") else None
 
 
-def _um(psutil, nome: str, papel: str, agora: datetime) -> dict[str, Any]:
+def _um(psutil: Any, nome: str, papel: str, agora: datetime) -> dict[str, Any]:
     item: dict[str, Any] = {
         "nome": nome, "papel": papel, "instalado": False, "estado": None,
         "inicio_automatico": None, "desde": None, "ha_minutos": None,
@@ -75,7 +75,7 @@ def _iso(texto: str | None) -> datetime | None:
         return None
 
 
-def _boot(psutil) -> datetime | None:
+def _boot(psutil: Any) -> datetime | None:
     try:
         return datetime.fromtimestamp(psutil.boot_time()).replace(microsecond=0)
     except Exception:  # the test double and odd platforms have no boot_time

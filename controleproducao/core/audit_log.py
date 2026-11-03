@@ -1,8 +1,8 @@
-"""Log de auditoria — equivalente ao UDO `INO_LOG` gravado por
-`ProcessDefault.preencheLog(oComp, OrcNum, tipo, status, op, mensagem)` no addon original.
+"""Audit log — equivalent to the `INO_LOG` UDO written by
+`ProcessDefault.preencheLog(oComp, OrcNum, tipo, status, op, mensagem)` in the original addon.
 
-Chamado profusamente nos `catch` de todo o C# legado. Na fase 1 (portar 1:1), mantemos o
-mesmo comportamento: nunca deixamos uma falha de log derrubar o fluxo principal.
+Called profusely in the `catch` blocks of all the legacy C#. In phase 1 (1:1 port) we keep the
+same behavior: a log failure never brings down the main flow.
 """
 from __future__ import annotations
 
@@ -23,9 +23,9 @@ async def preenche_log(
     op: str,
     mensagem: str,
 ) -> None:
-    """Grava uma linha no UDO INO_LOG.
+    """Write one row to the INO_LOG UDO.
 
-    Campos (mesmos nomes do addon C#):
+    Fields (same names as the C# addon):
         U_OrcNum, U_TipoDocumento, U_Status, U_Tipo, U_Mensagem
     """
     body = {

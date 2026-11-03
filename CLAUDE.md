@@ -12,7 +12,7 @@ Integração SAP B1 → Supabase **e** Integração WBC → SAP. Produção na `
 - **API HTTP** 8077 (`OrcaView-OS-API`) — gatilhos, consultas e Painel de Sincronização
   (`GET /sincronizar`); `GET /` leva ao painel WBC (`web/entrada.html`).
 - **Agendador** (`OrcaView-Scheduler`) — oportunidades, Vendas BI (15 min na janela, 1 h fora),
-  espelho de orçamentos e `arquivo_pedidos` (2 min, 24/7, só grava na .11).
+  espelho de orçamentos (1 h, só no expediente) e `arquivo_pedidos` (2 min, 24/7, só grava na .11).
 - **Fachada MCP** (`OrcaView-MCP`) — stdio (`mcp/mcp_server.py`) ou HTTP 8078 (`mcp/serve_http.py`).
 - **Painel WBC** 8079 (`OrcaView-WBC-Painel`, `python -m wbcpython dashboard`) — porta de entrada
   das telas 8077 e 8080.

@@ -1,7 +1,7 @@
 # Plano — docstrings e type hints em inglês (ServidorIntegracaoSAP)
 
-> **Status (03/11/2026):** **E1–E6 concluídas** (79 arquivos; 151 docstrings desatualizados
-> corrigidos + 2 regras do CLAUDE.md); E7–E8 abertas.
+> **Status (03/11/2026):** **E1–E7 concluídas** (111 arquivos; ~210 docstrings desatualizados
+> corrigidos + 3 regras do CLAUDE.md + 4 textos de tela errados); só a E8 (opcional) aberta.
 > Página: ver o artifact "Docstrings EN" (mesmo conteúdo).
 
 **Começo → Meio → Fim:** núcleo que tudo importa (E1) → regras que escrevem no SAP (E2–E5) → API,
@@ -28,8 +28,10 @@ tarefa; um em `dashboard/` vale só quando mexo na tela.
 - **Docstring que é TEXTO DE TELA fica em português.** Não traduzir:
   - ferramentas MCP (`@mcp.tool` em `mcp/mcp_server.py`): o docstring é a descrição que a Mira lê;
   - comandos Typer (`controleproducao/cli.py`, `wbcpython/cli.py`): o docstring vira o `--help`;
-  - rotas FastAPI (`router.py`, `api_router.py`): o docstring vira a descrição do OpenAPI que a
-    equipe do PCP lê.
+  - ~~rotas FastAPI: o docstring vira o OpenAPI~~ — **corrigido na E7**: o CP sobe com
+    `openapi_url=None` e o painel WBC com `docs_url=None`, então o docstring de rota não sai para
+    ninguém e foi traduzido. Só a 1ª linha dos módulos que alimentam `argparse(description=__doc__)`
+    fica como está.
   Nesses arquivos traduzo só as funções internas (`_*` e helpers).
 - **Type hint em rota FastAPI e comando Typer MUDA comportamento** (parâmetro anotado vira query/body
   ou opção de CLI; anotação de retorno vira `response_model`). Nesses arquivos: **nenhuma tipagem nova**.
@@ -60,7 +62,7 @@ tarefa; um em `dashboard/` vale só quando mexo na tela.
 | **E4** | Worker WBC — `domain/`, `application/`, `host/` | 19 | 125 | 0 | **concluída** |
 | **E5** | Worker WBC — `infrastructure/`, `tracking/` | 20 | 115 | 0 | **concluída** |
 | **E6** | API 8077 e extrações (`api.py`, `pipeline_core`, `situacao_pedidos_hana`, `extract_*`, `monitoring`) | 11 | 94 | 90 | **concluída** |
-| **E7** | Telas, CLI, MCP, `operacao/`, `seguranca/`, `casa/` (só o que não é texto de tela) | 45 | 170 | 95 | aberta |
+| **E7** | Telas, CLI, MCP, `operacao/`, `seguranca/`, `casa/` (só o que não é texto de tela) | 32 | 170 | 95 | **concluída** |
 | **E8** | Arquivos-irmãos, junto com SAP_RDP e web | 8 | 21 | 7 | aberta (opcional) |
 
 Cada etapa sai num commit próprio (`docs(en): E<n> …`).
@@ -194,6 +196,28 @@ Tipagem: 80 anotações no `api.py` (Flask ignora anotação), as 6 travas `@con
   o filtro de nota espelho (84534).
 - `faturamento_pedido.ler_faturamento`: "três consultas" (são até três, duas só com entrega futura).
 - `entrega_combinada`: "três chamadas" à tabela (são cinco).
+
+### O que a E7 achou de desatualizado (~60 + 3 textos de tela + o CLAUDE.md)
+
+Painel WBC (16), CLIs (8), routers e núcleo do CP (6), `operacao`/`seguranca`/`mcp`/agendador (6),
+mais traduções. Conferido por AST que **nenhuma** assinatura de rota, comando Typer ou ferramenta MCP
+mudou.
+
+- **Texto de tela errado, corrigido em PT:** o `--help` do `reprocessar-integrados` dizia "cancela as
+  OPs… antes de recriar" — **não recria**; a ferramenta `historico_pedido` da Mira dizia que não dá
+  para separar integração de pessoa pela tela (o `casar_tela` separa: `origem: "pessoa"`,
+  `pela_tela: true`); a `ultimo_deploy` listava um passo `fetch` que o deploy não grava; o `--porta`
+  do painel dizia "padrão 8501" (é 8079).
+- **CLAUDE.md**: dizia espelho de orçamentos a cada 2 min; é **1 h, só no expediente**
+  (`ORCAMENTOS_ESPELHO_INTERVALO_MIN = 60`). Só o `arquivo_pedidos` é 2 min, 24/7.
+- Painel WBC: o módulo dizia "o painel não escreve no SAP; a única ação é `_reprocessar`" — não
+  existe `_reprocessar`, e a aba Executar dispara comandos do CLI que escrevem (com a trava
+  `painel_pode_escrever`); `executar` dizia "o painel não tem autenticação" (tem, desde 01/10).
+- CP: o `deploy_update.bat` **aborta** com o CP ocupado (o docstring dizia "espera"); a
+  `ConfirmacaoInvalida` falava de "texto de confirmação", que não existe mais; `main.py` dizia
+  "4 módulos" (são 2; o Romaneio saiu em 23/10).
+- MCP: `serve_http` citava um `StaticBearerMiddleware` que não existe (é `PortaDoMcp`, um token por
+  cliente); `acoes_agente.pedidos_fechados_com_op` chama a 8080, não a 8077.
 
 <span class="warn">Fora do escopo, não mexido:</span> o log do `registrar_rotina` ainda diz
 "`ROTINAS_ESTADO_SUPABASE` desligada", mas a variável não existe mais (é texto de log).

@@ -11,7 +11,7 @@ It lives in THIS process, next to the screen, for the same reason as the Manuten
 API: the one-execution-per-module lock (`core.tarefas.TAREFAS`) and the single-use tokens
 (`core.confirmacao.PLANOS`) are process memory. An execution started here blocks the
 screen's (and vice versa), shows on Execuções and in its Supabase history, and makes
-``deploy_update.bat`` wait.
+``deploy_update.bat`` abort (it refuses to deploy while ``/health/ocupado`` = 1).
 
 Rules of the API alone:
 
@@ -268,7 +268,7 @@ def listar(modo: str = "novos", pagina: str = "1"):
     }
 
 
-async def _conferir(corpo: Any, integrados: bool):
+async def _conferir(corpo: Any, integrados: bool) -> JSONResponse | dict:
     try:
         selecao = _oportunidades(_objeto(corpo))
     except Recusa as recusa:
@@ -301,7 +301,7 @@ async def conferir_reprocessar(corpo: Any = Body(default=None)):
     return await _conferir(corpo, integrados=True)
 
 
-async def _consome_e_executa(request: Request, corpo: Any, tipo: str):
+async def _consome_e_executa(request: Request, corpo: Any, tipo: str) -> JSONResponse:
     """Write gate, then the token (`acoes.consome_plano`), then the background run."""
     try:
         dados = _objeto(corpo)

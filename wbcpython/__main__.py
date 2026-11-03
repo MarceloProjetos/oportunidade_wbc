@@ -1,4 +1,4 @@
-"""Permite executar o pacote com `python -m wbcpython`."""
+"""Lets the package run as `python -m wbcpython`."""
 
 from wbcpython.cli import main
 

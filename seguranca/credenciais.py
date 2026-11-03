@@ -12,7 +12,7 @@ needed). Revoking one client does not touch the others.
 The ``OS_API_KEY`` keeps working as the client "chave-mestra" with ``admin``: current clients
 move to their own key one at a time, and nothing breaks on the day this goes live.
 
-Managed on the .11 with ``python -m seguranca`` (create, list, revoke).
+Managed on the .11 with ``python -m seguranca`` (create, add scopes, list, revoke, agent switch, audit).
 """
 from __future__ import annotations
 

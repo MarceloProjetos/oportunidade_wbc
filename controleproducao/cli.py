@@ -1,17 +1,20 @@
-"""Interface de linha de comando — mesma lógica de negócio dos módulos web, sem depender
-do servidor FastAPI/navegador subir.
+"""Command-line interface: the same business logic as the web modules, without needing the
+FastAPI server or a browser to be up.
 
-Motivação (pedido do usuário, 14/09/2026): antes de terminar a UI web, ter uma forma de
-disparar cada tarefa direto do terminal — mais rápido para testar contra um ambiente de
-homologação real (Service Layer + HANA + SQL Server WBC) e para automatizar depois via
-cron/agendador do SO, se um dia fizer sentido (hoje a decisão é "botões manuais": a CLI
-não roda nada sozinha, só quando chamada).
+Origin (user request, 14/09/2026): before the web UI was finished, a way to trigger each task
+straight from the terminal — faster to test against a real homologation environment (Service
+Layer + HANA + WBC SQL Server) and to automate later through cron/the OS scheduler, if that ever
+makes sense (today the decision is "manual buttons": no command here runs by itself, only when
+called; `web` is the one that starts the long-running screen service).
 
-Cada comando aqui chama exatamente as mesmas funções de `controleproducao/modules/<modulo>/service.py`
-usadas pelas rotas web (`controleproducao/modules/<modulo>/router.py`) — não existe lógica de negócio
-duplicada, só uma camada de I/O diferente (terminal em vez de HTML).
+Every command calls exactly the same functions of `controleproducao/modules/<module>/service.py`
+used by the web routes (`controleproducao/modules/<module>/router.py`) — there is no duplicated
+business logic, only a different I/O layer (terminal instead of HTML).
 
-Uso:
+Production writes are unlocked only on the .11, by the machine IP (since 28/09/2026, see
+`core/guardas.py`); anywhere else the command exits with code 2 (`ProductionWriteBlocked`).
+
+Usage:
     python -m controleproducao --help
     python -m controleproducao pedidos-wbc buscar
     python -m controleproducao pedidos-wbc processar-novos 00125431
@@ -99,17 +102,21 @@ def web(
 
 
 def _run(coro):
-    """Roda uma corrotina a partir de um comando Typer (que é síncrono)."""
+    """Run a coroutine from a Typer command (which is synchronous)."""
     return asyncio.run(coro)
 
 
 def _grava_tambem_em_arquivo() -> None:
-    """The CLI's progress also goes to `CP_CLI_LOG_FILE` (30/09/2026), same format and rotation
+    """Also send the CLI's progress to `CP_CLI_LOG_FILE` (30/09/2026), same format and rotation
     as the service log, starting with the command line that was run.
 
-    The writes that are CLI-only — Replanejar, Reprocessar, `--force` — used to leave no trace
-    but the terminal that ran them. Its own file, not the service's: two processes rotating
-    one file on Windows collide. A file that cannot be opened never stops the command.
+    Writes done from the terminal used to leave no trace but the terminal that ran them. Its own
+    file, not the service's: two processes rotating one file on Windows collide. A file that cannot
+    be opened never stops the command.
+
+    Only the commands that call `_ativa_perfil_e_progresso` or `_ativa_perfil_e_progresso_silencioso`
+    get it (`processar-novos --perfil`, `cancelar-ops`, `liberar`, `replanejar`, `encerrar`);
+    `reprocessar-integrados` and `processar-novos` without `--perfil` do not.
     """
     from wbcpython.logs import ARQUIVOS_MANTIDOS, FORMATO_DA_DATA, FORMATO_DO_ARQUIVO, TAMANHO_MAXIMO
 
@@ -136,9 +143,11 @@ def _grava_tambem_em_arquivo() -> None:
 
 
 def _ativa_perfil_e_progresso() -> None:
-    """Liga a medição de tempo e joga o progresso (logger.info dos services) no console.
+    """Turn on the timing measurement and send the progress (the services' `logger.info`) to the
+    console and to the CLI log file.
 
-    Adicionado em 16/09/2026 para diagnosticar a lentidão na criação das OPs."""
+    Added 16/09/2026 to diagnose slowness when creating OPs.
+    """
     PERFIL.ativar()
     logging.basicConfig(
         level=logging.INFO,
@@ -150,8 +159,10 @@ def _ativa_perfil_e_progresso() -> None:
 
 
 def _ativa_perfil_e_progresso_silencioso() -> None:
-    """Só o progresso no console (sem o relatório de tempo) — para comandos onde interessa
-    acompanhar o que está sendo alterado, mas não medir performance."""
+    """Progress on the console only (no timing report) — for commands where what matters is
+    following what is being changed, not measuring performance. Also silences httpx's per-request
+    log and attaches the CLI log file.
+    """
     logging.basicConfig(
         level=logging.INFO,
         format="%(message)s",
@@ -165,11 +176,12 @@ def _ativa_perfil_e_progresso_silencioso() -> None:
 
 
 def _imprime_relatorio_perfil() -> None:
-    """Relatório de onde o tempo foi gasto.
+    """Report of where the time went.
 
-    A leitura que interessa: se "abrir conexão" pesa mais que "executar query", o gargalo é
-    o fato de cada consulta abrir uma conexão nova (autenticação, e TLS no SQL Server), e a
-    correção é reusar a conexão. Se for o contrário, o problema é o peso das queries."""
+    The reading that matters: if "abrir conexão" weighs more than "executar query", the bottleneck
+    is every query opening a new connection (authentication, and TLS on SQL Server) and the fix is
+    reusing the connection. If it is the other way round, the problem is the weight of the queries.
+    """
     if not PERFIL.por_categoria:
         console.print("\n[yellow]Nenhuma operação medida.[/yellow]")
         return
@@ -234,13 +246,12 @@ def _imprime_relatorio_perfil() -> None:
 # Aviso de ambiente (21/09/2026 · trava removida em 22/09/2026 — ver core/guardas.py)
 # ---------------------------------------------------------------------------
 def _avisa_ambiente(operacao: str) -> bool:
-    """Imprime o aviso quando o alvo é produção. Devolve True nesse caso.
+    """Print the notice when the target is production. Return True in that case.
 
-    A trava de duas chaves (`--producao` + `WBC_BLOCK_PRODUCTION_WRITES`) foi removida a
-    pedido do Anderson (22/09). Since 28/09 the gate is the machine's IP (``core/guardas``):
-    a production write from anywhere but the .11 exits with code 2 here, before any
-    confirmation prompt or network call. O valor de retorno segue existindo porque a
-    pergunta de confirmação continua mais enfática em produção.
+    The two-key lock (`--producao` + `WBC_BLOCK_PRODUCTION_WRITES`) was removed at Anderson's request
+    (22/09). Since 28/09 the gate is the machine's IP (``core/guardas``): a production write from
+    anywhere but the .11 exits with code 2 here, before any confirmation prompt or network call. The
+    return value is kept because the confirmation prompt is still more emphatic in production.
     """
     settings = get_settings()
     try:
@@ -254,12 +265,12 @@ def _avisa_ambiente(operacao: str) -> bool:
 
 
 def _confirma(pergunta: str, confirmar: bool, em_producao: bool) -> None:
-    """Confirmação final. `--sim` pula a pergunta — em produção também, desde 22/09/2026.
+    """Final confirmation. `--sim` skips the prompt — in production too, since 22/09/2026.
 
-    Antes, em produção, `--sim` não pulava: exigia digitar o nome da company DB. Isso saiu
-    junto com a trava. O que ficou é a ênfase: em produção a pergunta vem em vermelho,
-    dizendo o alvo — para quem está olhando a tela. Para um script com `--sim` não há mais
-    barreira nenhuma, e essa é a consequência aceita da remoção.
+    Before, in production, `--sim` did not skip it: it required typing the company DB name. That left
+    together with the lock. What remains is emphasis: in production the prompt comes in red, for
+    whoever is looking at the screen. A script with `--sim` has no barrier left, which is the
+    accepted consequence of the removal.
     """
     if not confirmar:
         if em_producao:
@@ -270,11 +281,11 @@ def _confirma(pergunta: str, confirmar: bool, em_producao: bool) -> None:
 
 
 def _imprime_ops_puladas(resultado: dict) -> None:
-    """Relata as OPs que não foram tentadas por dependerem de uma que falhou.
+    """Report the OPs that were not attempted because they depend on one that failed.
 
-    Eram doze linhas copiadas em três comandos (`cancelar-ops`, `liberar/replanejar`,
-    `encerrar`) — texto idêntico, incluindo a explicação em `[dim]`. Três cópias da mesma
-    frase é o tipo de coisa que diverge no dia em que alguém melhora uma delas.
+    These were twelve lines copied into three commands (`cancelar-ops`, `liberar/replanejar`,
+    `encerrar`) — identical text, including the `[dim]` explanation. Three copies of the same
+    sentence is the kind of thing that diverges the day someone improves one of them.
     """
     if not resultado.get("puladas"):
         return
@@ -292,7 +303,7 @@ def _imprime_ops_puladas(resultado: dict) -> None:
 
 
 def _imprime_ops_com_erro(resultado: dict) -> None:
-    """Relata as OPs que falharam, uma por linha, com o motivo devolvido pelo serviço."""
+    """Report the OPs that failed, one per line, with the reason returned by the service."""
     if not resultado.get("com_erro"):
         return
     console.print(f"[red]Falharam:[/red] {len(resultado['com_erro'])} OP(s)")
@@ -327,7 +338,7 @@ def pedidos_wbc_buscar(
     Comando adicionado em 15/09/2026 (a pedido do Anderson); não existia listagem para
     pedidos-wbc antes, só os comandos que já exigem o opp_id em mãos."""
 
-    async def _main():
+    async def _main() -> list:
         settings = get_settings()
         hana_reader = HanaDirectReader(settings)
         return await pedidos_wbc_service.buscar_pedidos_para_integrar(hana_reader, integrados)
@@ -422,7 +433,7 @@ def pedidos_wbc_cancelar_ops(
     # faria o usuário esperar para receber o mesmo "não".
     em_producao = _avisa_ambiente("pedidos-wbc cancelar-ops")
 
-    async def _levantar():
+    async def _levantar() -> dict:
         settings = get_settings()
         hana_reader = HanaDirectReader(settings)
         try:
@@ -512,7 +523,7 @@ def pedidos_wbc_cancelar_ops(
 
     _ativa_perfil_e_progresso_silencioso()
 
-    async def _executar():
+    async def _executar() -> dict:
         settings = get_settings()
         hana_reader = HanaDirectReader(settings)
         try:
@@ -626,7 +637,7 @@ def pedidos_wbc_comparar_ops(
         )
         raise typer.Exit(code=2)
 
-    async def _main():
+    async def _main() -> dict:
         hana_reader = HanaDirectReader(settings)
         with WbcSqlServerClient(settings) as wbc:
             return await pedidos_wbc_service.comparar_ops(
@@ -843,7 +854,7 @@ def pedidos_wbc_processar_novos(
     if perfil:
         _ativa_perfil_e_progresso()
 
-    async def _main():
+    async def _main() -> dict:
         settings = get_settings()
         hana_reader = HanaDirectReader(settings)
         with WbcSqlServerClient(settings) as wbc:
@@ -892,8 +903,10 @@ def pedidos_wbc_reprocessar_integrados(
 ):
     """Equivalente ao botão 'Atualizar' do Form2 no modo 'Pedidos Integrados'.
 
-    Grava de verdade: revincula o pedido à Oportunidade (marca "Ganha") e cancela as
-    Ordens de Produção antigas ainda planejadas antes de recriar.
+    Grava de verdade: reescreve a tabela do orçamento, atualiza o pedido com
+    U_INO_ProcessWBC='N', revincula o pedido à Oportunidade (marca "Ganha") e cancela
+    TODAS as Ordens de Produção ainda planejadas. NÃO recria as OPs: depois, rode
+    processar-novos (sem --force). OPs liberadas ou encerradas não são tocadas.
     """
     em_producao = _avisa_ambiente("pedidos-wbc reprocessar-integrados")
     _confirma(
@@ -902,7 +915,7 @@ def pedidos_wbc_reprocessar_integrados(
         confirmar, em_producao,
     )
 
-    async def _main():
+    async def _main() -> dict:
         settings = get_settings()
         hana_reader = HanaDirectReader(settings)
         with WbcSqlServerClient(settings) as wbc:
@@ -990,11 +1003,13 @@ def manutencao_op_buscar(
 def _muda_status_de_ops(
     op_docnums: list[str], pedido: str | None, status: str, confirmar: bool,
 ) -> None:
-    """Fluxo comum de Liberar e Replanejar (equivalente a `mudaStatus` do ManutencaoOp).
+    """Common flow of Liberar and Replanejar (equivalent to `mudaStatus` in ManutencaoOp).
 
-    Mostra as OPs com o status atual antes de agir — é o que a grade da tela original dava
-    ao usuário e o que permite decidir. Pula as que já estão no destino, em vez de gastar
-    uma chamada à Service Layer para não mudar nada.
+    Shows the OPs with their current status before acting — what the original screen's grid gave
+    the user and what lets them decide. Skips the ones already at the target (instead of spending a
+    Service Layer call to change nothing), the cancelled ones and, for Replanejar, the Liberada ones
+    with stock already posted (`impedimento_replanejar`). Replanejar reads the OPs again right
+    before writing.
     """
     if bool(op_docnums) == bool(pedido):
         console.print("[red]Informe OS NÚMEROS DAS OPs ou --pedido, não ambos (nem nenhum).[/red]")
@@ -1004,7 +1019,7 @@ def _muda_status_de_ops(
 
     destino = manutencao_op_service.TRANSICOES[status]
 
-    def _levantar():
+    def _levantar() -> list[dict]:
         settings = get_settings()
         hana_reader = HanaDirectReader(settings)
         try:
@@ -1014,7 +1029,7 @@ def _muda_status_de_ops(
         finally:
             hana_reader.close()
 
-    def _levantar_numeros(numeros: list[str]):
+    def _levantar_numeros(numeros: list[str]) -> list[dict]:
         settings = get_settings()
         hana_reader = HanaDirectReader(settings)
         try:
@@ -1091,7 +1106,7 @@ def _muda_status_de_ops(
         numeros = {str(op["doc_num"]) for op in a_alterar}
         alvos = [op for op in _levantar_numeros(sorted(numeros)) if str(op["doc_num"]) in numeros]
 
-    async def _aplicar():
+    async def _aplicar() -> dict:
         settings = get_settings()
         async with ServiceLayerClient(settings) as sl:
             return await manutencao_op_service.muda_status(sl, alvos, status)
@@ -1189,7 +1204,7 @@ def manutencao_op_encerrar(
 
     settings = get_settings()
 
-    def _levantar():
+    def _levantar() -> list[dict]:
         leitor = HanaDirectReader(settings)
         try:
             return manutencao_op_service.levanta_ops(
@@ -1206,7 +1221,7 @@ def manutencao_op_encerrar(
 
     # Ordem de encerramento: filha antes da mãe. A saída de insumo de uma OP pai consome o
     # item que a filha produz — encerrar de cima para baixo falharia por falta de estoque.
-    def _hierarquia():
+    def _hierarquia() -> tuple[list[dict], list[dict], dict[int, set[int]]]:
         leitor = HanaDirectReader(settings)
         try:
             componentes = manutencao_op_service._componentes_por_op(
@@ -1280,7 +1295,7 @@ def manutencao_op_encerrar(
 
     _ativa_perfil_e_progresso_silencioso()
 
-    async def _aplicar():
+    async def _aplicar() -> dict:
         leitor = HanaDirectReader(settings)
         try:
             async with ServiceLayerClient(settings) as sl:
@@ -1404,7 +1419,7 @@ def diag_entidade(
         python -m controleproducao diag entidade OrcDetalhe
     """
 
-    async def _main():
+    async def _main() -> dict:
         settings = get_settings()
         async with ServiceLayerClient(settings) as sl:
             return await sl.get(entidade, params={"$top": 1})
@@ -1600,7 +1615,7 @@ def diag_patch_parcial(
         )
         _confirma("Confirma?", False, em_producao)
 
-        async def _executar():
+        async def _executar() -> None:
             async with ServiceLayerClient(settings) as sl:
                 await pedidos_wbc_service.patch_parcial_de_prova(
                     sl, doc_entry, int(alvo["LineNum"]), int(alvo["U_INO_OP"] or 0)
@@ -1672,7 +1687,7 @@ def diag_chave_com_barra(
     console.print(f"Na URL.....: [cyan]{caminho}[/cyan]")
     console.print(f"Desvio pelo $batch: {'SIM' if _precisa_de_batch(caminho) else 'não (nada a provar aqui)'}\n")
 
-    async def _main():
+    async def _main() -> tuple[tuple[str, object], tuple[str, object]]:
         settings = get_settings()
         async with ServiceLayerClient(settings) as sl:
             direto = batch = None
@@ -1691,7 +1706,7 @@ def diag_chave_com_barra(
 
     direto, batch = _run(_main())
 
-    def _mostra(rotulo: str, resultado):
+    def _mostra(rotulo: str, resultado: tuple[str, object]) -> None:
         situacao, detalhe = resultado
         cor = "green" if situacao == "ok" else "red"
         console.print(f"[bold]{rotulo}[/bold]: [{cor}]{situacao}[/{cor}] — {str(detalhe)[:300]}")

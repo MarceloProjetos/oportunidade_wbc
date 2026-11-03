@@ -1,16 +1,16 @@
-"""Instância única do Jinja2, com o contexto de ambiente sempre disponível (22/09/2026).
+"""Single Jinja2 instance, with the environment context always available (22/09/2026).
 
-Antes cada router criava o seu `Jinja2Templates` e cabia à rota passar o ambiente no
-contexto. Resultado imediato: a faixa "gravando em PRODUÇÃO" apareceu numa tela e **não**
-nas demais, porque aquelas rotas não passavam nada.
+Before, each router created its own `Jinja2Templates` and it was up to the route to pass the
+environment in the context. Immediate result: the "writing to PRODUCTION" banner showed on one
+screen and **not** on the others, because those routes passed nothing.
 
-Um aviso de ambiente que depende de cada rota lembrar de incluí-lo não é um aviso — é uma
-armadilha, e falha exatamente na tela que ninguém revisou. Aqui ele vira global do Jinja:
-está em toda página por construção, e uma rota nova não tem como esquecer.
+An environment notice that depends on each route remembering to include it is not a notice —
+it is a trap, and it fails on exactly the screen nobody reviewed. Here it becomes a Jinja
+global: it is on every page by construction, and a new route cannot forget it.
 
-O ambiente é do processo, não do request (vem do `.env`), então ser global é correto e não
-só conveniente. A função é reavaliada a cada render para o `get_settings` em cache ainda
-poder ser trocado em teste.
+The environment belongs to the process, not to the request (it comes from the `.env`), so being
+global is correct and not just convenient. The function is re-evaluated on every render so the
+cached `get_settings` can still be swapped in tests.
 """
 from __future__ import annotations
 

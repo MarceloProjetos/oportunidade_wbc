@@ -1,23 +1,20 @@
-"""O log da integração — uma fonte, duas telas.
+"""The integration log — one source, two screens.
 
-O que o `pendentes`, o `ciclo` e o `worker` relatam vai para o `logging`, e daí
-para dois lugares ao mesmo tempo: a tela de quem rodou o comando e um arquivo
-que o painel lê. É o mesmo texto nos dois lugares, e não duas narrativas do
-mesmo evento que podem discordar.
+What `pendentes`, `ciclo` and `worker` report goes to `logging`, and from there to two places at once: the screen
+of whoever ran the command and a file the panel reads. It is the same text in both, not two narratives of the same
+event that can disagree.
 
-Por que arquivo, e não o banco de acompanhamento: o tracking registra o que
-**aconteceu** com cada orçamento (a decisão, o documento criado, o erro), e é
-consultado por orçamento. O log registra a **execução** — a ordem dos eventos, o
-que veio antes do erro, o que o worker estava fazendo às 3h da manhã. São
-perguntas diferentes, e responder as duas com a mesma tabela deixaria as duas
-piores.
+Why a file and not the tracking database: tracking records what **happened** to each quote (the decision, the
+document created, the error) and is queried per quote. The log records the **execution** — the order of events,
+what came before the error, what the worker was doing at 3 a.m. They are different questions, and answering both
+with the same table would make both worse.
 
-Formato do arquivo (uma linha por evento, campos separados por ` | `):
+File format (one line per event, fields separated by ` | `):
 
     2026-09-01 14:32:07 | INFO     | wbcpython.host.worker | ciclo concluído
 
-O separador é explícito para que a leitura no painel não precise adivinhar onde
-a mensagem começa — mensagens contêm ` ` e `:` o tempo todo.
+The separator is explicit so the panel's reader does not have to guess where the message starts — messages
+contain spaces and `:` all the time.
 """
 
 from __future__ import annotations
@@ -58,7 +55,7 @@ RUIDOSAS = ("httpx", "httpcore", "hdbcli", "urllib3")
 
 
 class _SoORelatorio(logging.Filter):
-    """Deixa passar as linhas da aplicação; das bibliotecas, só avisos e erros."""
+    """Lets application lines through; from libraries, only warnings and errors."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         if record.levelno >= logging.WARNING:
@@ -128,24 +125,20 @@ def configurar(
     tela: bool = True,
     rotacionar: bool = False,
 ) -> Path | None:
-    """Instala os handlers e devolve o arquivo em uso (ou `None`).
+    """Installs the handlers and returns the file in use (or `None`).
 
-    `tela` escreve em `sys.stdout` — e não no `stderr` padrão do `logging` — para
-    que a saída do comando seja uma coisa só: redirecionar `>` num terminal tem
-    de levar o relatório inteiro junto.
+    `tela` writes to `sys.stdout` — not the `stderr` default of `logging` — so the command output is a single thing:
+    a `>` redirect in a terminal must carry the whole report with it.
 
-    A tela recebe o relatório; o arquivo recebe **tudo**, inclusive o rastro HTTP
-    das bibliotecas (ver `RUIDOSAS`). É a assimetria certa: quem está no terminal
-    quer ler o resultado, e quem investiga um erro depois quer a chamada que veio
-    antes dele.
+    The screen gets the report; the file gets **everything**, including the libraries' HTTP trail (see `RUIDOSAS`).
+    That asymmetry is right: whoever is at the terminal wants to read the result, and whoever investigates an error
+    later wants the call that came before it.
 
-    Se o arquivo não puder ser aberto (diretório somente leitura, por exemplo), a
-    tela continua funcionando e um aviso é registrado. Um comando de leitura não
-    pode falhar por causa do log.
+    If the file cannot be opened (read-only directory, for instance) the screen keeps working and a warning is
+    logged. A read-only command must not fail because of the log.
 
-    ``rotacionar``: only the continuous worker rotates the file; everyone else appends
-    without holding it open (see `_ArquivoCompartilhado`). Several processes rotating one
-    file on Windows lose lines.
+    ``rotacionar``: only the continuous worker rotates the file; everyone else appends without holding it open (see
+    `_ArquivoCompartilhado`). Several processes rotating one file on Windows lose lines.
     """
     raiz = logging.getLogger()
     raiz.setLevel(getattr(logging, nivel.upper(), logging.INFO))
@@ -196,7 +189,7 @@ _TEMA = re.compile(r"^\[([a-z][a-z0-9-]{1,30})\] ")
 
 @dataclass(frozen=True, slots=True)
 class LinhaDeLog:
-    """Uma linha do arquivo, já separada em campos."""
+    """One line of the file, already split into fields."""
 
     momento: str = ""
     nivel: str = ""
@@ -209,13 +202,13 @@ class LinhaDeLog:
 
     @property
     def tema(self) -> str:
-        """`porta-paletes` em `[porta-paletes] ...`; vazio quando não há tema."""
+        """`porta-paletes` in `[porta-paletes] ...`; empty when there is no theme."""
         encontrado = _TEMA.match(self.mensagem)
         return encontrado.group(1) if encontrado else ""
 
     @property
     def texto(self) -> str:
-        """A mensagem sem o `[tema] ` da frente — o painel mostra o tema à parte."""
+        """The message without the leading `[tema] ` — the panel shows the theme separately."""
         return _TEMA.sub("", self.mensagem, count=1)
 
 
@@ -226,14 +219,14 @@ def ler(
     nivel: str | None = None,
     busca: str = "",
 ) -> list[LinhaDeLog]:
-    """Últimas linhas do log, mais novas primeiro.
+    """Last lines of the log, newest first.
 
-    Lê o arquivo inteiro e corta no fim: com rotação em 5 MB isso é barato, e
-    uma leitura por trás (`seek` a partir do fim) complicaria o código para
-    economizar milissegundos numa tela que ninguém recarrega em laço.
+    Reads the whole file and cuts at the end: with the 5 MB rotation that is cheap, and a backwards read (`seek` from
+    the end) would complicate the code to save milliseconds on a screen nobody reloads in a loop.
 
-    Linha que não casa com o formato vira mensagem pura — traceback de exceção
-    ocupa várias linhas e some se a leitura descartar o que não reconhece.
+    A line that does not match the format becomes a plain message — an exception traceback spans several lines and
+    would vanish if the reader dropped what it does not recognize. Note that with `nivel` set those unrecognized
+    lines are filtered out too (their level is empty).
     """
     origem = Path(arquivo)
     if not origem.exists():

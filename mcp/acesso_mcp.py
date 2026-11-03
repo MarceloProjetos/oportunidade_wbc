@@ -191,7 +191,7 @@ class PortaDoMcp:
         self.app = app
         self.legado = token_legado
 
-    async def __call__(self, scope, receive, send):
+    async def __call__(self, scope: dict, receive, send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
@@ -238,7 +238,7 @@ class PortaDoMcp:
                      + [(b"content-length", str(len(corpo)).encode("ascii"))]}
         entregue = False
 
-        async def reenvia():
+        async def reenvia() -> dict:
             nonlocal entregue
             if not entregue:
                 entregue = True

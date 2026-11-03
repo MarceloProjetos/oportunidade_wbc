@@ -1,12 +1,13 @@
-"""Ponto de entrada da aplicação FastAPI.
+"""FastAPI application entry point.
 
-Equivalente a `Program.cs` + `Menu.cs` no addon original: aqui é onde os 4 módulos são
-registrados (em vez de itens de menu do SAP B1, viram rotas/páginas web).
+Equivalent to `Program.cs` + `Menu.cs` in the original add-on: this is where the modules are
+registered (as routes/pages instead of SAP B1 menu items).
 
-O módulo 1 (Integração de Oportunidades) foi **removido do porte em 22/09/2026**, por
-decisão do Anderson: a tela existia no addon original mas não faz parte do fluxo que a
-aplicação nova precisa cobrir. Os módulos passam a ser três, e a numeração 2/3/4 foi
-mantida para continuar casando com a do addon legado e com o migration_guide.md.
+Module 1 (Opportunity Integration) was **removed from the port on 22/09/2026**, by Anderson's
+decision: the screen existed in the original add-on but is not part of the flow the new
+application has to cover. The numbering was kept to keep matching the legacy add-on and the
+migration_guide.md: modules 2 (Pedidos WBC) and 3 (Manutenção de OP) remain; module 4
+(Romaneio) was removed on 23/10/2026.
 """
 from __future__ import annotations
 

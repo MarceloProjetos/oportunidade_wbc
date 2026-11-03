@@ -1,17 +1,17 @@
-"""Os nomes que o cartão da janela oferece no campo "Seu nome".
+"""The names the window card offers in the "Seu nome" field.
 
-Duas fontes, nesta ordem:
+Two sources, in this order:
 
-1. os **perfis ativos do OrçaView**, pela API 8077 da própria máquina
-   (`GET /usuarios-ativos`), que é quem conhece o Supabase;
-2. o **histórico local** de quem já armou a janela, do banco de acompanhamento.
+1. the **active OrçaView profiles**, through the API 8077 of the same machine
+   (`GET /usuarios-ativos`), which is the one that knows the Supabase;
+2. the **local history** of who already armed the window, from the tracking database.
 
-O painel não fala com o Supabase, e não deve passar a falar — a regra está em
-`dashboard/__init__`. Por isso a lista vem por `localhost`, de um serviço que já
-tem a credencial: a dependência nova é a API ao lado, não um terceiro sistema.
+The panel does not talk to the Supabase and must not start to (rule in `dashboard/__init__`: pages
+read only the tracking database). So the list comes over `localhost` from a service that already holds
+the credential: the new dependency is the neighbouring API, not a third system.
 
-E por isso a fonte 2 existe: se a API estiver fora, o campo continua oferecendo
-nomes em vez de virar texto livre outra vez.
+That is also why source 2 exists: if the API is down the field still offers names instead of turning
+back into free text.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ _cache: tuple[float, list[str]] | None = None
 
 
 def _da_api(config: Settings) -> list[str]:
-    """Os perfis ativos, ou `[]` se a API não responder."""
+    """The active profiles, or `[]` if the API does not answer (the list is a convenience, never a requirement)."""
     import httpx
 
     chave = config.api_key.get_secret_value()
@@ -62,11 +62,11 @@ def _da_api(config: Settings) -> list[str]:
 
 
 def sugestoes(config: Settings, repo: RepositorioTracking) -> list[str]:
-    """Os nomes a oferecer, sem repetir, com os perfis do OrçaView na frente.
+    """The names to offer, without repeats, OrçaView profiles first.
 
-    O histórico entra **depois** e sem duplicar: quem está no OrçaView aparece
-    uma vez só, e quem armou a janela com um nome que não é perfil (um "TI", um
-    terceiro) continua aparecendo em vez de sumir da lista.
+    The history comes **after** and without duplicates: whoever is in the OrçaView shows up once, and whoever
+    armed the window under a name that is not a profile (a "TI", a third party) still shows up instead of
+    vanishing from the list. The API answer is cached for `VALIDADE_S`.
     """
     global _cache
     agora = time.time()

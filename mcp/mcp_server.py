@@ -1,25 +1,28 @@
-"""Fachada MCP (Fase 0) do ServidorIntegracaoSAP — camada FINA e READ-ONLY.
+"""MCP facade of the ServidorIntegracaoSAP -- a THIN layer over the 8077 API.
 
-O que é: um servidor MCP (stdio) que expõe, como *tools*, os endpoints que a API
-REST do servidor de integração (porta 8077) já oferece. Um cliente MCP (Claude
-Desktop, Claude Code, o assistente Mira) pode então consultar o servidor em
-linguagem natural: "o servidor de integração está saudável?", "últimas
-sincronizações?", "pedidos com OS disponíveis?", "o pedido 84260 está preso onde?".
+What it is: an MCP server (stdio here; HTTP through ``serve_http.py``) that exposes, as
+*tools*, the endpoints the integration server's REST API (port 8077) already offers. An MCP
+client (Claude Desktop, Claude Code, the Mira assistant) can then query the server in natural
+language: "is the integration server healthy?", "latest syncs?", "orders with an OS available?",
+"where is order 84260 stuck?".
 
-O que NÃO é: não reimplementa lógica, não fala com SAP/SQL/Supabase direto, não
-roda agendador. Cada tool apenas chama um endpoint HTTP existente. Quem fala com o
-banco continua sendo a API (service_role), exatamente como hoje.
+What it is NOT: it does not reimplement logic, does not talk to SAP/SQL/Supabase directly, does
+not run a scheduler. Each tool just calls an existing HTTP endpoint. The API (service_role)
+still talks to the database, exactly as before.
 
-Fase 0 = fundação + tools de LEITURA. As duas ações de escrita (sincronizar pedido,
-forçar carga de oportunidades) vieram depois, com confirmação humana (fim do arquivo).
+Most tools are READS. Writes come in two kinds (end of the file): the direct ones for PEOPLE
+(``sincronizar_pedido_os``, ``forcar_carga_oportunidades``, the delivery-date requests), which
+only run with ``confirmar=True`` after a human "yes", and the ``pedir_*`` requests for agents,
+which only create an approval request (``POST /aprovacoes``) that a person decides. Which scope
+each tool needs is in ``acesso_mcp.ESCOPO_DA_FERRAMENTA``.
 
-Config (via ambiente ou .env ao lado deste arquivo):
-    SIS_API_BASE   URL base da API. Default http://192.168.7.11:8077
-    SIS_API_KEY    A OS_API_KEY do servidor de integração (fica AQUI, no server MCP,
-                   nunca vai para o LLM). Sem ela, só o /status (aberto) funciona.
+Config (via environment or a .env next to this file):
+    SIS_API_BASE   API base URL. Default http://192.168.7.11:8077
+    SIS_API_KEY    The integration server's OS_API_KEY (stays HERE, in the MCP server,
+                   never reaches the LLM). Without it only the (open) /status works.
 
-Rodar: pip install -r requirements.txt && python mcp_server.py
-Registrar no cliente MCP: ver README.md.
+Run: pip install -r requirements.txt && python mcp_server.py
+Register in the MCP client: see README.md.
 """
 
 from __future__ import annotations
@@ -107,13 +110,13 @@ def _headers() -> dict[str, str]:
 
 
 def _tratar_resposta(path: str, resp: httpx.Response) -> dict[str, Any]:
-    """Traduz uma resposta HTTP da API num dict que o modelo consegue ler.
+    """Translate an API HTTP response into a dict the model can read.
 
-    Nunca estoura exceção. Em erro, prefere o JSON estruturado da própria API (ex.: 404
+    Never raises. On error it prefers the API's own structured JSON (e.g. 404
     ``{"ok": false, "error": "pedido sem OS sincronizada"}``, 409 ``{"tipo": "ocupado"}``),
-    para o modelo receber a mensagem real em vez de um "HTTP 404" genérico. Um 404 **sem**
-    JSON é o HTML do Flask para rota inexistente — servidor ainda sem o endpoint — e vem
-    com ``dica`` dizendo isso, senão o modelo conclui que "não há dado".
+    so the model gets the real message instead of a generic "HTTP 404". A 404 **without**
+    JSON is Flask's HTML for a missing route -- the server does not have the endpoint yet -- and
+    comes with a ``dica`` saying so, otherwise the model concludes "there is no data".
     """
     if resp.status_code == 401:
         return {"ok": False, "erro": "não autorizado (401) — SIS_API_KEY ausente ou incorreta"}
@@ -192,11 +195,11 @@ def _demorou(metodo: str, path: str, tempo: float) -> dict[str, Any]:
 
 
 def _get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    """GET num endpoint da API, injetando a X-API-Key server-side.
+    """GET an API endpoint, injecting the X-API-Key server-side.
 
-    Devolve o JSON decodificado. Em qualquer falha (rede, HTTP != 2xx, corpo não
-    JSON) devolve ``{"ok": False, "erro": "..."}`` — a tool nunca estoura exceção
-    para o cliente MCP, para o modelo receber um erro legível em vez de um crash.
+    Returns the decoded JSON. On any failure (network, HTTP != 2xx, non-JSON body) it
+    returns ``{"ok": False, "erro": "..."}`` -- the tool never raises to the MCP client,
+    so the model gets a readable error instead of a crash.
     """
     tempo = _tempo_limite("GET", path)
     try:
@@ -215,9 +218,9 @@ def _get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
 
 def _post(path: str, params: dict[str, Any] | None = None, *, json: Any = None,
           headers: dict[str, str] | None = None) -> dict[str, Any]:
-    """POST num endpoint da API (ESCRITA), injetando a X-API-Key server-side.
+    """POST an API endpoint (a WRITE), injecting the X-API-Key server-side.
 
-    Mesmo tratamento de erro do ``_get`` (``_tratar_resposta``). ``json``/``headers`` (the date
+    Same error handling as ``_get`` (``_tratar_resposta``). ``json``/``headers`` (the date
     request) go along; header values must be ASCII (httpx refuses "João").
     """
     tempo = _tempo_limite("POST", path)
@@ -588,8 +591,9 @@ def historico_pedido(pedido: int, versoes: int = 20, chave: str = "docnum") -> d
 
     Ao responder, deixe claro quem fez cada mudança e destaque as com ``quebra``.
     ATENÇÃO: o usuário ``orcaview`` é a integração E também a tela de Pedidos do OrçaView
-    (uma pessoa) — por enquanto não dá para separar; diga "integração ou alguém pela tela
-    do OrçaView".
+    (uma pessoa). Quando a gravação coincide com uma escrita feita pela tela, a entrada vem
+    com ``origem: "pessoa"``, ``pela_tela: true`` e ``pessoa``; se continuar ``integracao``,
+    diga "integração ou alguém pela tela do OrçaView".
 
     Args:
         pedido: número que aparece na tela (DocNum, ex.: 84453).
@@ -647,7 +651,7 @@ def ultimo_deploy() -> dict[str, Any]:
     Use para "o deploy deu certo?", "o que aconteceu no deploy?", "qual versão está no
     ar?". ``versao.reinicio_pendente`` = true quer dizer que o código no disco é mais novo
     que o processo da API (atualizado, mas não reiniciado). ``ultimo_deploy.etapas`` traz
-    cada passo (fetch, git, pip, health, fim); ``resultado`` diz como terminou. ``deploys``
+    cada passo (inicio, git, pip, health, fim); ``resultado`` diz como terminou. ``deploys``
     lista os últimos 10, do mais novo ao mais velho (início, versão de→para, resultado).
     Deploys anteriores a 02/10/2026 não deixaram registro.
     """
@@ -865,7 +869,7 @@ def pedidos_bloqueados(bloqueio: str = "qualquer", status: str = "aberto",
 
 
 def _norm(texto: Any) -> str:
-    """Minúsculas e sem acento — "producao" casa com "PRODUÇÃO"."""
+    """Lowercase and accent-free -- "producao" matches "PRODUÇÃO"."""
     bruto = unicodedata.normalize("NFD", str(texto or ""))
     return "".join(c for c in bruto if not unicodedata.combining(c)).casefold().strip()
 
@@ -894,8 +898,8 @@ def _panorama_bloqueios(p: dict[str, Any]) -> int:
 
 
 def _panorama_ordenar(pedidos: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Quem importa primeiro: atrasados, depois quem tem mais etapas bloqueadas, depois
-    o pedido mais antigo. Estável — empate mantém a ordem da API."""
+    """Most important first: late orders, then the ones with more blocked stages, then
+    the oldest order. Stable -- a tie keeps the API's order."""
     return sorted(pedidos, key=lambda p: (not bool(p.get("atrasado")),
                                           -_panorama_bloqueios(p),
                                           str(p.get("data_pedido") or "")))
@@ -903,7 +907,7 @@ def _panorama_ordenar(pedidos: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _panorama_filtrar(pedidos: list[dict[str, Any]], montador: str, vendedor: str,
                       so_atrasados: bool) -> list[dict[str, Any]]:
-    """Filtros de conversa (substring, sem acento nem caixa) sobre os campos do completo."""
+    """Conversation filters (substring, accent- and case-insensitive) over the ``completo`` fields."""
     m, v = _norm(montador), _norm(vendedor)
     saida = []
     for p in pedidos:
@@ -918,14 +922,14 @@ def _panorama_filtrar(pedidos: list[dict[str, Any]], montador: str, vendedor: st
 
 
 def _endereco_resumido(p: dict[str, Any]) -> dict[str, Any]:
-    """Os 3 campos de entrega do perfil ``resumo``, venha o pedido de qual perfil vier.
+    """The 3 delivery fields of the ``resumo`` profile, whichever profile the order came from.
 
-    A API entrega o endereço em duas formas: o ``resumo`` já traz ``entrega_linha`` /
-    ``entrega_cidade_uf`` / ``entrega_difere``; o ``completo`` traz o objeto
-    ``entrega_endereco``. O panorama busca ora um, ora outro (um filtro por
-    montador/vendedor obriga o completo, porque esses campos só existem lá) — **sem esta
-    função, pedir ``campos="resumo"`` COM filtro devolveria a lista sem endereço nenhum**,
-    e a mesma tool responderia coisas diferentes conforme o usuário tivesse filtrado.
+    The API gives the address in two shapes: ``resumo`` already carries ``entrega_linha`` /
+    ``entrega_cidade_uf`` / ``entrega_difere``; ``completo`` carries the ``entrega_endereco``
+    object. The panorama fetches one or the other (a montador/vendedor filter forces
+    ``completo``, because those fields only exist there) -- **without this function,
+    asking ``campos="resumo"`` WITH a filter would return the list with no address at all**,
+    and the same tool would answer differently depending on whether the user filtered.
     """
     if "entrega_linha" in p:
         return {k: p.get(k) for k in ("entrega_linha", "entrega_cidade_uf", "entrega_difere")}
@@ -936,10 +940,10 @@ def _endereco_resumido(p: dict[str, Any]) -> dict[str, Any]:
 
 
 def _panorama_projetar(pedidos: list[dict[str, Any]], extras: tuple) -> list[dict[str, Any]]:
-    """Reduz cada pedido do completo às colunas do resumo (+ os campos filtrados).
+    """Reduce each ``completo`` order to the ``resumo`` columns (+ the filtered fields).
 
-    O endereço vem por :func:`_endereco_resumido`, e não pela lista de chaves: no
-    ``completo`` ele é um objeto com outro nome, então copiar por nome o perderia.
+    The address comes through :func:`_endereco_resumido`, not the key list: in
+    ``completo`` it is an object with another name, so copying by name would lose it.
     """
     chaves = _PANORAMA_CAMPOS_RESUMO + extras
     return [{**{k: p.get(k) for k in chaves if k in p}, **_endereco_resumido(p)}
@@ -1039,10 +1043,10 @@ _COLAB_LIMITE_PADRAO = 200
 
 
 def _colab_dica_404(resposta: dict[str, Any]) -> dict[str, Any]:
-    """Traduz o 404 de rota inexistente: a .11 ainda não foi atualizada.
+    """Translate the 404 of a missing route: the .11 has not been updated yet.
 
-    Sem isto o modelo recebe "HTTP 404 em /rh/colaboradores" e conclui que não há
-    colaboradores — que é o contrário do que aconteceu.
+    Without this the model gets "HTTP 404 em /rh/colaboradores" and concludes there are no
+    employees -- the opposite of what happened.
     """
     if not resposta.get("ok", True) and "HTTP 404" in str(resposta.get("erro", "")):
         return {**resposta, "dica": (
@@ -1054,7 +1058,7 @@ def _colab_dica_404(resposta: dict[str, Any]) -> dict[str, Any]:
 
 
 def _colab_setores(payload: dict[str, Any]) -> list[str]:
-    """Todos os setores presentes na resposta, ordenados."""
+    """Every sector present in the response, sorted."""
     return sorted({
         s.get("setor") for e in payload.get("empresas", [])
         for s in e.get("setores", []) if s.get("setor")
@@ -1062,7 +1066,7 @@ def _colab_setores(payload: dict[str, Any]) -> list[str]:
 
 
 def _colab_filtrar_setor(payload: dict[str, Any], setor: str) -> dict[str, Any]:
-    """Mantém só os setores cujo nome CONTÉM ``setor`` (sem acento, sem caixa)."""
+    """Keep only the sectors whose name CONTAINS ``setor`` (accent- and case-insensitive)."""
     alvo = _norm(setor)
     empresas = []
     for emp in payload.get("empresas", []):
@@ -1082,7 +1086,7 @@ def _colab_filtrar_setor(payload: dict[str, Any], setor: str) -> dict[str, Any]:
 
 
 def _colab_buscar(empresa: str, somente_ativos: bool) -> dict[str, Any]:
-    """A única chamada HTTP das duas tools (e do resource) de colaboradores."""
+    """The single HTTP call behind the two employee tools (and the resource)."""
     params: dict[str, Any] = {}
     if str(empresa).strip():
         params["empresa"] = str(empresa).strip().lower()
@@ -1092,7 +1096,7 @@ def _colab_buscar(empresa: str, somente_ativos: bool) -> dict[str, Any]:
 
 
 def _colab_resumir(resposta: dict[str, Any]) -> dict[str, Any]:
-    """Troca as listas de pessoas por ``{setor: quantidade}``."""
+    """Replace the people lists with ``{sector: count}``."""
     if not resposta.get("ok", False):
         return resposta
     return {
@@ -1109,10 +1113,10 @@ def _colab_resumir(resposta: dict[str, Any]) -> dict[str, Any]:
 
 
 def _colab_aplicar_teto(payload: dict[str, Any], limite: int) -> dict[str, Any]:
-    """Corta a lista de PESSOAS no teto — dizendo que cortou e como ver o resto.
+    """Cut the PEOPLE list at the ceiling -- saying it was cut and how to see the rest.
 
-    As contagens (``total`` de cada empresa/setor) ficam intactas: o modelo continua
-    sabendo o tamanho real do quadro mesmo quando não recebe todos os nomes.
+    The counts (each company's/sector's ``total``) stay intact: the model still knows the
+    real size of the roster even when it does not receive every name.
     """
     total = payload.get("total", 0)
     if limite <= 0 or total <= limite:

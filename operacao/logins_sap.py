@@ -131,7 +131,7 @@ def agrupar(linhas: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return saida
 
 
-def _consultar(conn, consulta: tuple[str, list[Any]]) -> list[dict[str, Any]]:
+def _consultar(conn: Any, consulta: tuple[str, list[Any]]) -> list[dict[str, Any]]:
     """One ``sql(t"...")`` query on an open connection; a failing query is ``SAPIndisponivel``
     with the exception's type only (no driver text reaches the caller)."""
     texto, params = consulta
@@ -143,7 +143,7 @@ def _consultar(conn, consulta: tuple[str, list[Any]]) -> list[dict[str, Any]]:
         raise hana.SAPIndisponivel(f"Leitura do log de acesso do SAP falhou: {type(e).__name__}") from e
 
 
-def _numa_conexao(fazer):
+def _numa_conexao(fazer: Any) -> Any:
     """``fazer(conn, schema)`` inside ONE short HANA connection (review of F6a: ``escritas`` ran
     five queries in five connections)."""
     schema = hana._schema()
@@ -157,7 +157,7 @@ def _numa_conexao(fazer):
             pass
 
 
-def _em_cache(chave: tuple, ler) -> dict[str, Any]:
+def _em_cache(chave: tuple, ler: Any) -> dict[str, Any]:
     with _trava:
         achado = _cache.get(chave)
         if achado and time.monotonic() - achado[0] < CACHE_S:
@@ -177,7 +177,7 @@ def _usuario(usuario: str) -> str:
     return usuario
 
 
-def _do_sap(conn, schema: str, usuario: str) -> tuple[int, str]:
+def _do_sap(conn: Any, schema: str, usuario: str) -> tuple[int, str]:
     """``(USERID, USER_CODE as the SAP stores it)`` from OUSR -- a small table, so the LOWER() is
     cheap there; the big tables are then filtered by the exact code/id. Unknown -> 404."""
     ousr = f'"{schema}"."OUSR"'
@@ -193,7 +193,7 @@ def resumo(dia: date) -> dict[str, Any]:
     most :data:`RESUMO_MAX_LINHAS` rows come back (``truncado``): a login loop can write tens of
     thousands in a day."""
     def ler() -> dict[str, Any]:
-        def fazer(conn, schema: str) -> list[dict[str, Any]]:
+        def fazer(conn: Any, schema: str) -> list[dict[str, Any]]:
             usr5 = f'"{schema}"."USR5"'
             return _consultar(conn, sql(t'''SELECT "UserCode", "ProcName", "ClientIP", "ClientName", "WinUsrName",
                                  "Action", "Time" FROM {usr5:ident} WHERE "Date" = {dia}
@@ -214,7 +214,7 @@ def eventos(usuario: str, limite: int = EVENTOS_PADRAO, *, hoje: date | None = N
     desde = (hoje or date.today()) - timedelta(days=ESCRITAS_DIAS_MAX)
 
     def ler() -> dict[str, Any]:
-        def fazer(conn, schema: str) -> dict[str, Any]:
+        def fazer(conn: Any, schema: str) -> dict[str, Any]:
             _uid, codigo = _do_sap(conn, schema, usuario)
             usr5 = f'"{schema}"."USR5"'
             linhas = _consultar(conn, sql(t'''SELECT "Date", "Time", "Action", "ClientIP", "ClientName", "WinUsrName",
@@ -244,7 +244,7 @@ def escritas(usuario: str, desde: date, *, hoje: date | None = None) -> dict[str
         raise PedidoInvalido(f"'desde' tem de estar nos últimos {ESCRITAS_DIAS_MAX} dias")
 
     def ler() -> dict[str, Any]:
-        def fazer(conn, schema: str) -> dict[str, Any]:
+        def fazer(conn: Any, schema: str) -> dict[str, Any]:
             uid, codigo = _do_sap(conn, schema, usuario)
             tabelas = {}
             for tabela, rotulo in TABELAS_ESCRITA:

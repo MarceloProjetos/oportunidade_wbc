@@ -1,28 +1,29 @@
-"""Confirmação de operação irreversível na web (22/09/2026).
+"""Confirmation of an irreversible operation on the web (22/09/2026).
 
-Decisão do Anderson: operações irreversíveis exigem confirmação também na interface web.
+Decision of Anderson: irreversible operations require confirmation on the web interface too.
 
-**Por que não basta um `confirm()` no navegador.** Na CLI o usuário vê, antes de digitar
-a confirmação, a tabela do que vai acontecer. Um botão numa página é bem mais fácil de
-apertar sem pensar — e um POST pode ser repetido por F5, por duplo clique ou por um retry
-do navegador, o que na CLI simplesmente não acontece.
+**Why a browser `confirm()` is not enough.** On the CLI the user sees, before typing the
+confirmation, the table of what is going to happen. A button on a page is much easier to press
+without thinking — and a POST can be repeated by F5, by a double click or by a browser retry,
+which simply does not happen on the CLI.
 
-⚠️ Esta conferência **não é** a trava de produção removida em 22/09/2026: ela vale igual
-em homologação, e o motivo dela é a operação ser irreversível, não o ambiente ser
-arriscado.
+⚠️ This check **is not** the production gate removed on 22/09/2026: it applies equally in
+homologation, and its reason is that the operation is irreversible, not that the environment
+is risky.
 
-O mecanismo é de duas etapas, e resolve as duas coisas de uma vez:
+The mechanism has two steps and solves both things at once:
 
-1. O cliente pede um **plano**: o servidor levanta o que vai acontecer, devolve isso para
-   ser mostrado na tela e guarda um **token** ligado àquele plano exato.
-2. A execução só aceita o token. Token usado não vale de novo, token vencido não vale.
+1. The client asks for a **plan**: the server works out what will happen, returns it to be
+   shown on screen and keeps a **token** tied to that exact plan.
+2. The execution only accepts the token. A used token is not valid again, an expired token is
+   not valid, and (01/10/2026) a token is only valid for the operation it was issued for.
 
-Com isso, o usuário confirma sobre o que foi **calculado e mostrado** — não sobre o que ele
-imagina que vai acontecer — e um F5 na página de resultado não reexecuta nada.
+So the user confirms what was **calculated and shown** — not what they imagine will happen —
+and an F5 on the result page re-executes nothing.
 
-Guardado em memória, pelo mesmo motivo de `tarefas.py`: reiniciou, os tokens pendentes
-morrem, e o usuário refaz o passo 1. É o efeito desejado — nenhum token sobrevive a um
-reinício para ser executado depois, contra um estado que já pode ter mudado.
+Kept in memory, for the same reason as `tarefas.py`: on restart the pending tokens die and the
+user redoes step 1. That is the intended effect — no token survives a restart to be executed
+later against a state that may already have changed.
 """
 from __future__ import annotations
 
@@ -37,7 +38,7 @@ VALIDADE = timedelta(minutes=10)
 
 @dataclass
 class Plano:
-    """O que uma operação irreversível vai fazer, calculado e aguardando confirmação."""
+    """What an irreversible operation is going to do, calculated and awaiting confirmation."""
 
     token: str
     operacao: str
@@ -64,7 +65,7 @@ class Plano:
 
 
 class ConfirmacaoInvalida(RuntimeError):
-    """Token ausente, vencido, já usado ou com o texto de confirmação errado."""
+    """Token missing, expired, already used, or issued for another operation."""
 
 
 class RegistroDePlanos:
@@ -85,11 +86,11 @@ class RegistroDePlanos:
         return plano
 
     def consumir(self, token: str, tipo: str | None = None) -> Plano:
-        """Valida e **invalida** o token. Levanta `ConfirmacaoInvalida` em qualquer erro.
+        """Validate and **invalidate** the token. Raises `ConfirmacaoInvalida` on any error.
 
-        Invalidar antes de executar, e não depois, é deliberado: se a execução falhar no
-        meio, o token não pode ser reaproveitado para "tentar de novo" sobre um plano que
-        já não corresponde ao estado do SAP. Refazer o passo 1 é barato e recalcula tudo.
+        Invalidating before executing, not after, is deliberate: if the execution fails midway, the
+        token must not be reusable to "try again" on a plan that no longer matches the SAP state.
+        Redoing step 1 is cheap and recalculates everything.
         """
         plano = self._planos.get(token or "")
         if plano is None:
@@ -114,7 +115,7 @@ class RegistroDePlanos:
         return plano
 
     def obter(self, token: str) -> Plano | None:
-        """Consulta sem consumir — para a tela reexibir o plano."""
+        """Look up without consuming — so the screen can show the plan again."""
         plano = self._planos.get(token or "")
         return None if (plano and plano.vencido) else plano
 

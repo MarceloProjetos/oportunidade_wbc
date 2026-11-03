@@ -262,7 +262,8 @@ def _executar_fechados(p: dict, previa: dict, ctx: Contexto) -> tuple[bool, dict
 
 
 def pedidos_fechados_com_op(incluir_atrasados: bool = False) -> tuple[int, dict]:
-    """Read-only loopback for ``GET /manutencao-op/pedidos-fechados`` of the 8077 (the MCP's door)."""
+    """Read-only loopback to the CP (8080) ``GET /api/manutencao-op/pedidos-fechados``, which backs the 8077 route
+    ``GET /manutencao-op/pedidos-fechados`` (the MCP's door). Returns ``(http_status, body)``."""
     caminho = "/api/manutencao-op/pedidos-fechados" + ("?incluir_atrasados=true" if incluir_atrasados else "")
     return _chamar(_cp(), "GET", caminho, tempo=60)
 

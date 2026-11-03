@@ -1,31 +1,32 @@
-"""Painel de acompanhamento — HTML servido por FastAPI, atualizado com HTMX.
+"""Tracking panel — HTML served by FastAPI, updated with HTMX.
 
-Rodar com:
+Run with:
 
     python -m wbcpython dashboard
 
-Lê **apenas** o banco de acompanhamento e, na aba "Próximo ciclo", um retrato
-em disco gerado por `wbcpython pendentes --exportar`. Nunca consulta o SAP nem
-o WBC — ver `ai_spec/03_architecture.md` e `dashboard/__init__`.
+The pages **only read** the tracking database and, on the "Próximo ciclo" tab, a snapshot on disk written by
+`wbcpython pendentes --exportar`. They never query SAP or WBC — see `docs/wbc/README.md` and `dashboard/__init__`.
+It is also the entrance for the 8077 and 8080 screens: one key (`OS_API_KEY`), one cookie
+(`acesso.COOKIE_DE_ACESSO`); writes by cookie need a same-origin `Origin`/`Referer`.
 
-## Por que HTMX e não Streamlit
+## Why HTMX and not Streamlit
 
-O painel virou monitor: fica aberto numa tela enquanto o worker roda sozinho.
-O Streamlit reexecuta o script inteiro a cada interação e só atualiza a página
-inteira, o que faz o log "piscar" e perde a posição de rolagem justamente
-quando se está lendo. Aqui cada bloco se recarrega no seu próprio ritmo — o log
-a cada 5 s, os números a cada 30 s — trocando só o pedaço de HTML que mudou.
+The panel became a monitor: it stays open on a screen while the worker runs by itself. Streamlit reruns the whole
+script on every interaction and only refreshes the whole page, which makes the log "blink" and loses the scroll
+position exactly when one is reading. Here each block reloads at its own pace — the log every 5 s, the numbers
+every 30 s — swapping only the piece of HTML that changed.
 
-## Como as rotas estão organizadas
+## How the routes are organized
 
-`GET /` devolve a casca da página. Todo o resto vive em `/fragmentos/*` e
-devolve **um pedaço** de HTML, não uma página: é o que o HTMX troca no lugar.
-Cada fragmento é uma função pequena, sem estado, que lê os dados e renderiza um
-template — o que os torna testáveis com o `TestClient` sem navegador nenhum.
+`GET /` returns the page shell. Everything else lives under `/fragmentos/*` and returns **a piece** of HTML, not a
+page: that is what HTMX swaps in. Each fragment is a small stateless function that reads the data and renders a
+template — which makes them testable with `TestClient` without a browser.
 
-O painel **não escreve no SAP**. A única ação é registrar um pedido de
-reprocessamento no banco de acompanhamento, que o worker executa no próximo
-ciclo (ver `_reprocessar`).
+The panel **never writes to SAP itself**. Its actions are: arming the on-demand window in the tracking database
+(`/fragmentos/janela/*`, which the worker picks up on its next pass), and starting CLI commands in a subprocess
+(`/fragmentos/comandos/executar`, see `dashboard/comandos.py`). The commands that write need `PAINEL_SENHA` and a
+non-production target (`Settings.painel_pode_escrever`); arming the window is the only exception to the production
+block and still needs the password; one-quote `dirigido` commands need neither.
 """
 
 from __future__ import annotations
@@ -126,7 +127,7 @@ COLUNAS_MONO = ("Orçamento", "SitCode", "Rev.", "Cotação", "Pedido", "Aberta 
 COLUNAS_NUM = ("Valor do pedido",)
 
 
-def _chave_do_orcamento(registro) -> tuple[int, str]:
+def _chave_do_orcamento(registro: Any) -> tuple[int, str]:
     """Stable order of the list: quote number, newest first (length first, so "9" < "10").
 
     30/09/2026: the list used to follow `atualizado_em`, which the worker rewrites on EVERY
@@ -186,11 +187,10 @@ RITMO_DA_EXECUCAO = 1
 
 @dataclass(frozen=True, slots=True)
 class Barra:
-    """Uma linha do gráfico de barras.
+    """One row of the bar chart.
 
-    O painel desenha barras em CSS, sem biblioteca de gráfico: são sempre
-    categorias com uma contagem, o navegador da fábrica é antigo e um gráfico
-    que não carrega é pior do que uma barra simples que carrega sempre.
+    The panel draws bars in CSS, with no chart library: they are always categories with a count, the factory's browser
+    is old, and a chart that fails to load is worse than a plain bar that always loads.
     """
 
     rotulo: str
@@ -209,12 +209,11 @@ def criar_app(
     tracking: RepositorioTracking | None = None,
     executor: cmd.Executor | None = None,
 ) -> FastAPI:
-    """Monta o painel.
+    """Builds the panel.
 
-    `settings` e `tracking` entram por parâmetro para que o teste construa o
-    painel sobre um SQLite temporário sem `.env` nenhum — a mesma razão pela
-    qual a medição de riscos conseguiu rodar contra produção sem abrir conexão
-    de escrita.
+    `settings` and `tracking` come in as parameters so a test can build the panel over a temporary SQLite without any
+    `.env` — the same reason the risk measurement could run against production without opening a write connection.
+    Without `executor` it uses a `cmd.Executor` writing the snapshot to `prev.ARQUIVO_PADRAO`.
     """
     config = settings or get_settings()
     repo = tracking or RepositorioTracking.a_partir_da_url(
@@ -316,18 +315,18 @@ def criar_app(
 
     @app.post("/sair")
     def sair() -> RedirectResponse:
-        """Esquece a chave neste navegador. Não há sessão no servidor a encerrar."""
+        """Forgets the key in this browser. There is no server-side session to end."""
         resposta = RedirectResponse("/entrar", status_code=303)
         resposta.delete_cookie(COOKIE_DE_ACESSO)
         return resposta
 
     @app.get("/sincronizacao")
     def sincronizacao(request: Request) -> RedirectResponse:
-        """O botão para o Painel de Sincronização (OS e Oportunidades, API 8077).
+        """The button to the Painel de Sincronização (OS and Oportunidades, API 8077).
 
-        Redireciona em vez de embutir o endereço no HTML: quem decide onde a
-        outra tela mora é o `.env` (`SIS_PAINEL_URL`), e sem nada configurado é
-        o mesmo host da requisição, na porta da API — o caso da .11.
+        Redirects instead of embedding the address in the HTML: the `.env` (`SIS_PAINEL_URL`) decides where the other
+        screen lives, and with nothing configured it is the request's own host on the API port, at `/sincronizar` — the
+        .11 case.
         """
         return RedirectResponse(_url_da_sincronizacao(config, request), status_code=302)
 
@@ -367,11 +366,11 @@ def criar_app(
         recorte: str = "",
         orcamento: str = "",
     ) -> HTMLResponse:
-        """A página inteira. Daqui em diante o HTMX só troca pedaços.
+        """The whole page. From here on HTMX only swaps pieces.
 
-        `aba` no endereço, e não em estado de sessão: assim o painel pode ficar
-        aberto numa TV numa aba fixa, e um endereço colado no chat abre a mesma
-        tela para quem receber.
+        `aba` in the address, not in session state: the panel can stay open on a TV on a fixed tab, and an address
+        pasted in the chat opens the same screen for whoever receives it. `recorte`, `tudo` and `orcamento` travel the
+        same way.
         """
         corte = janela_padrao(meses=config.meses_de_janela)
         return render(
@@ -396,11 +395,10 @@ def criar_app(
 
     @app.get("/fragmentos/kpis", response_class=HTMLResponse)
     def fragmento_kpis(request: Request, tudo: int = 0, recorte: str = "") -> HTMLResponse:
-        """Os números do topo — que são também os botões de filtro da lista.
+        """The numbers at the top — which are also the list's filter buttons.
 
-        O recorte ativo entra aqui só para o indicador correspondente aparecer
-        marcado. Ele repinta a cada 30 s, e sem isso a marca sumiria sozinha
-        pouco depois do clique.
+        The active cut enters here only so the matching indicator shows as selected. It repaints every 30 s, and without
+        it the mark would vanish by itself shortly after the click.
         """
         kpis = calcular_kpis(
             repo.listar(
@@ -443,16 +441,14 @@ def criar_app(
         apos: str = "",
         inicio: int = 0,
     ) -> HTMLResponse:
-        """A lista, com o recorte que veio do indicador clicado.
+        """The list, with the cut that came from the clicked indicator.
 
-        `recorte` é a pergunta que o número do topo responde ("quais deram
-        erro?"); `status` continua sendo a escolha fina de uma situação. Os dois
-        se somam: dentro de "com ação" ainda dá para ver só as encerradas.
+        `recorte` is the question the number at the top answers ("which ones failed?"); `status` remains the fine choice
+        of one situation. The two add up: inside "com ação" one can still see only the closed ones.
 
-        Paged since 29/09/2026, by key since 30/09/2026: without `apos` it renders the
-        block with the first LINHAS_POR_PAGINA rows; `apos=<quote>` returns only the rows
-        AFTER that quote (plus the row that loads the page after), swapped in place of the
-        loading row. `inicio` is the offset form of 29/09, still honoured so a page left
+        Paged since 29/09/2026, by key since 30/09/2026: without `apos` it renders the block with the first
+        LINHAS_POR_PAGINA rows; `apos=<quote>` returns only the rows AFTER that quote (plus the row that loads the page
+        after), swapped in place of the loading row. `inicio` is the offset form of 29/09, still honoured so a page left
         open across the deploy keeps working.
         """
         corte = dados.recorte(recorte)
@@ -517,11 +513,10 @@ def criar_app(
         so_acao: int = 0,
         so_documento: int = 0,
     ) -> HTMLResponse:
-        """O que o worker faria na próxima passada.
+        """What the worker would do on the next pass.
 
-        Lê o retrato em disco; o painel não chama a simulação. Ver
-        `dashboard/previsao` para o porquê — em resumo, abrir a página passaria
-        a custar uma varredura no HANA e no SQL Server.
+        Reads the snapshot on disk (`prev.ARQUIVO_PADRAO`, never a path from the URL); the panel does not call the
+        simulation. See `dashboard/previsao` for why — in short, opening the page would cost a HANA and SQL Server scan.
         """
         # Never a path from the URL: `?arquivo=` used to be accepted here and in the log tab,
         # and the log tab printed ANY file of the server (the .env with every password) to
@@ -606,12 +601,11 @@ def criar_app(
         limite: int = 300,
         seguir: int = 1,
     ) -> HTMLResponse:
-        """O mesmo log que sai na tela do comando.
+        """The same log that goes to the command's screen.
 
-        É o que torna o painel um monitor: o worker roda sem ninguém no
-        terminal, e é aqui que se vê o que ele fez — na mesma ordem e com o
-        mesmo texto que apareceria para quem estivesse olhando. Ver
-        `wbcpython.logs`, "uma fonte, duas telas".
+        This is what makes the panel a monitor: the worker runs with nobody at the terminal, and here one sees what it
+        did — in the same order and with the same text that would appear to someone watching. See `wbcpython.logs`, "one
+        source, two screens". It reads `Settings.caminho_do_log`; `limite` is clamped to 10..5000 lines.
         """
         # Only the configured log — see `fragmento_ciclo` for why the URL no longer picks it.
         caminho = str(config.caminho_do_log or "")
@@ -646,11 +640,11 @@ def criar_app(
     def fragmento_comandos(
         request: Request, escolhido: str = "", orcamento: str = ""
     ) -> HTMLResponse:
-        """A aba "Executar": os comandos da CLI, com o que cada um faz.
+        """The "Executar" tab: the CLI commands, with what each one does.
 
-        Quem escreve no SAP aparece separado e com aviso. Misturar "testar a
-        conexão" com "criar pedidos de verdade" na mesma lista é convite a
-        clicar no errado.
+        Three groups, kept apart: read-only commands, one-quote (`dirigido`) commands, and the protected ones that
+        write. Mixing "test the connection" with "really create orders" in one list invites clicking the wrong one.
+        `escolhido` and `orcamento` pre-select a card and pre-fill the quote (from the Detalhe tab).
         """
         return render(
             request,
@@ -675,19 +669,18 @@ def criar_app(
         )
 
     def _meses_em_vigor() -> int:
-        """A janela que o próximo ciclo vai usar — padrão, ou a que foi armada."""
+        """The window the next cycle will use — the default, or the one that was armed."""
         pedido = repo.janela_pedida()
         if pedido.estado is EstadoDaJanela.ARMADO:
             return pedido.meses
         return config.meses_de_janela
 
     def _cartao_da_janela(request: Request, *, erro: str = "") -> HTMLResponse:
-        """Desenha o card da janela no estado em que ele está agora.
+        """Draws the window card in the state it is in now.
 
-        Todas as rotas da janela terminam aqui, inclusive as que recusam: é o
-        card inteiro que volta no `hx-swap`, então quem errou a senha continua
-        vendo o estado real, com a recusa ao lado — e não um aviso solto no
-        lugar onde estava o controle.
+        All the window routes end here, including the ones that refuse: the whole card comes back in the `hx-swap`, so
+        whoever got the password wrong keeps seeing the real state, with the refusal beside it — not a loose warning
+        where the control used to be.
         """
         return render(
             request,
@@ -708,12 +701,12 @@ def criar_app(
 
     @app.post("/fragmentos/janela/armar", response_class=HTMLResponse)
     async def armar_janela(request: Request) -> HTMLResponse:
-        """Arma a janela estendida para a próxima passada do ciclo.
+        """Arms the extended window for the cycle's next pass.
 
-        Pede senha (decisão 5 do plano): armar não escreve no SAP com as
-        próprias mãos, mas é a causa direta de centenas de escritas
-        irreversíveis — está do lado de lá da mesma linha que separa "ver" de
-        "mandar executar" no resto desta tela.
+        Asks for the password (decision 5 of the plan): arming does not write to SAP with its own hands, but it is the
+        direct cause of hundreds of irreversible writes — it sits on the far side of the same line that separates "see"
+        from "order to execute" in the rest of this screen. It works in production too (see
+        `Settings.painel_pode_armar_janela`) and records a `REPROCESSAMENTO` event with who armed it.
         """
         form = await request.form()
         negativa = _autorizar(config, form, "Armar a janela", e_janela=True)
@@ -746,10 +739,10 @@ def criar_app(
 
     @app.post("/fragmentos/janela/continuar", response_class=HTMLResponse)
     async def continuar_janela(request: Request) -> HTMLResponse:
-        """A resposta "sim" à pergunta: rearma a mesma janela por mais um ciclo.
+        """The "yes" answer to the question: rearms the same window for one more cycle.
 
-        Pede senha como o armar, e pela mesma razão — este é o botão que libera
-        a próxima leva de escritas no SAP.
+        Asks for the password like arming, for the same reason — this is the button that releases the next batch of
+        writes to SAP. Refused if the question is no longer pending (`EstadoDaJanela.AGUARDANDO`).
         """
         form = await request.form()
         negativa = _autorizar(config, form, "Rodar outro ciclo", e_janela=True)
@@ -779,24 +772,24 @@ def criar_app(
 
     @app.post("/fragmentos/janela/limpar", response_class=HTMLResponse)
     async def limpar_janela(request: Request) -> HTMLResponse:
-        """Volta ao padrão agora.
+        """Back to the default now.
 
-        **Não** pede senha, de propósito, e é a única rota da janela assim:
-        desarmar só reduz o que o próximo ciclo vai escrever. Exigir senha para
-        frear seria transformar a proteção em obstáculo justamente no botão que
-        alguém aperta quando se assustou com o número.
+        Does **not** ask for the password, on purpose, and is the only window route like that: disarming only reduces
+        what the next cycle will write. Demanding a password to brake would turn the protection into an obstacle exactly
+        on the button someone presses after being scared by the number.
         """
         repo.limpar_janela(motivo="Cancelada no painel.")
         return _cartao_da_janela(request)
 
     @app.post("/fragmentos/comandos/executar", response_class=HTMLResponse)
     async def executar(request: Request) -> HTMLResponse:
-        """Dispara um comando.
+        """Starts a command.
 
-        Duas guardas, para dois problemas diferentes: a **senha** autoriza (o
-        painel não tem autenticação, e quem alcança a porta não deveria poder
-        criar documento no SAP), e o **nome** audita (semanas depois alguém
-        pergunta quem mandou rodar). Senha sozinha não responde à segunda.
+        Two guards for two different problems: the **password** authorizes (anyone who reaches the port should not be
+        able to create a document in SAP), and the **name** audits (weeks later someone asks who ordered the run). A
+        password alone does not answer the second. Only `protegido` commands ask for the password; `dirigido` ones (one
+        quote) skip it but must carry the quote and the name. Who started a protected or directed run is also recorded
+        as a tracking event, because the in-memory history dies with the process.
         """
         form = await request.form()
         comando = cmd.POR_ID.get(str(form.get("comando") or ""))
@@ -902,11 +895,10 @@ FALTA_SENHA = (
 
 
 def _por_que_nao_escreve(config: Settings) -> str:
-    """A tela explica **qual** das duas guardas fechou a porta.
+    """The screen explains **which** of the two guards closed the door.
 
-    "Indisponível" sem motivo faz o operador procurar defeito onde há regra —
-    e as duas causas têm remédios opostos: uma se resolve preenchendo o `.env`,
-    a outra não deve ser resolvida.
+    "Unavailable" with no reason makes the operator look for a defect where there is a rule — and the two causes have
+    opposite remedies: one is solved by filling in the `.env`, the other must not be solved.
     """
     if config.targets_production:
         return (
@@ -920,11 +912,10 @@ def _por_que_nao_escreve(config: Settings) -> str:
 
 
 def _por_que_nao_arma(config: Settings) -> str:
-    """Vazio quando dá para armar a janela; o motivo quando não dá.
+    """Empty when the window can be armed; the reason when it cannot.
 
-    Uma condição só, e não duas: armar é exceção ao bloqueio de produção (ver
-    `Settings.painel_pode_armar_janela`). A senha continua, e aqui ela é a
-    **única** guarda.
+    One condition, not two: arming is an exception to the production block (see `Settings.painel_pode_armar_janela`).
+    The password still applies, and here it is the **only** guard.
     """
     return "" if config.painel_pode_armar_janela else FALTA_SENHA
 
@@ -932,15 +923,14 @@ def _por_que_nao_arma(config: Settings) -> str:
 def _autorizar(
     config: Settings, form: Any, rotulo: str, *, e_janela: bool = False
 ) -> str:
-    """Vazio quando pode seguir; o motivo da recusa quando não pode.
+    """Empty when it may proceed; the reason for the refusal when it may not.
 
-    Devolve texto, e não um fragmento pronto, para poder ser testada sem montar
-    requisição — e porque quem renderiza é a rota, que tem o `render`.
+    Returns text, not a ready fragment, so it can be tested without building a request — and because the route is the
+    one that renders, having `render`.
 
-    `e_janela` troca a pré-condição pela do armar, que não é barrado em
-    produção. O resto — nome para auditar, senha conferida com `compare_digest`
-    — é idêntico de propósito: a exceção é sobre **qual** porta se atravessa,
-    não sobre atravessar sem chave.
+    `e_janela` swaps the precondition for arming's, which is not blocked in production. The rest — a name to audit,
+    the password checked with `compare_digest` — is identical on purpose: the exception is about **which** door is
+    crossed, not about crossing without a key.
     """
     if e_janela:
         if not config.painel_pode_armar_janela:
@@ -982,10 +972,10 @@ def _conferir_dirigido(comando: cmd.Comando, valores: dict[str, str], form: Any)
 
 
 def _conferir_alvo_do_peso(valores: dict[str, str]) -> str:
-    """O `pesos` aceita pedido **ou** orçamento, nunca os dois.
+    """`pesos` takes an order **or** a quote, never both.
 
-    A CLI já recusa (grupo mutuamente exclusivo do argparse), mas a recusa dela
-    sairia como texto de uso no console — a tela consegue dizer melhor.
+    The CLI already refuses (argparse mutually exclusive group), but its refusal would come out as usage text in the
+    console — the screen can say it better.
     """
     pedido = valores.get("pedido", "").strip()
     orcamento = valores.get("orcamento", "").strip()
@@ -997,17 +987,15 @@ def _conferir_alvo_do_peso(valores: dict[str, str]) -> str:
 
 
 def _janela(config: Settings, tudo: int, meses: int | None = None) -> date | None:
-    """`None` = mostrar o histórico inteiro, inclusive o que o ciclo já não olha.
+    """`None` = show the whole history, including what the cycle no longer looks at.
 
-    O corte é o **mesmo** do worker (`OOPR.OpenDate`): quando a janela encolheu
-    de 6 para 3 meses, 167 orçamentos de maio continuaram no painel como se o
-    ciclo ainda os avaliasse. Duas telas sobre o mesmo assunto não podem dar
-    números diferentes.
+    The cut is the **same** as the worker's (`OOPR.OpenDate`): when the window shrank from 6 to 3 months, 167 May
+    quotes stayed on the panel as if the cycle still evaluated them. Two screens on the same subject cannot give
+    different numbers.
 
-    `meses` carrega a janela **em vigor**, que desde a janela sob demanda pode
-    ser maior que a do `.env`. Sem isto, armar 24 meses mudaria o que o ciclo
-    varre sem mudar o que a lista mostra — e a tela esconderia justamente as
-    oportunidades antigas que alguém acabou de pedir para alcançar.
+    `meses` carries the window **in force**, which since the on-demand window may be larger than the `.env`'s. Without
+    it, arming 24 months would change what the cycle scans without changing what the list shows — and the screen would
+    hide exactly the old opportunities someone just asked to reach.
     """
     return None if tudo else janela_padrao(meses=meses or config.meses_de_janela)
 
@@ -1017,12 +1005,11 @@ def _status(rotulo: str) -> StatusIntegracao | None:
 
 
 def _agora() -> str:
-    """A hora do relógio de quem opera, sem fuso.
+    """The operator's wall clock, without time zone.
 
-    O banco de acompanhamento grava horários locais ingênuos de propósito (ver
-    `pyproject.toml`), e este carimbo fica na tela ao lado deles. Um deles em
-    UTC e outro não seria uma diferença de três horas que ninguém percebe até
-    comparar com o horário de um documento no SAP.
+    The tracking database stores naive local times on purpose, and this stamp sits on the screen beside them. One of
+    them in UTC and the other not would be a three-hour difference nobody notices until comparing with the time of a
+    document in SAP.
     """
     return datetime.now().strftime("%H:%M:%S")  # noqa: DTZ005
 

@@ -1,12 +1,12 @@
-"""Rotas de acompanhamento das tarefas em segundo plano (22/09/2026).
+"""Routes to follow the background tasks (22/09/2026).
 
-Fica em `core/` e não num módulo porque é infraestrutura compartilhada: os módulos 2 e 3
-criam tarefas, esta é a tela única onde se acompanha qualquer uma delas. Uma página de
-acompanhamento por módulo seria três cópias da mesma coisa divergindo com o tempo.
+It lives in `core/` and not in a module because it is shared infrastructure: modules 2 and 3
+create tasks, this is the single screen where any of them is followed. One follow-up page per
+module would be three copies of the same thing drifting apart.
 
-O acompanhamento é por *polling* de um JSON, não por WebSocket. O estado da tarefa vive em
-memória no mesmo processo (ver `tarefas.py`); um GET a cada 2s custa nada numa aplicação
-interna e não acrescenta nem conexão persistente nem reconexão para manter.
+Following is by *polling* a JSON, not by WebSocket. The task state lives in memory in the same
+process (see `tarefas.py`); a GET every 2 s costs nothing in an internal application and adds
+neither a persistent connection nor a reconnection to maintain.
 
 Since 29/09/2026 the list and the detail also read the Supabase history on the .11
 (`core/historico.py`): a finished execution survives a restart, read-only.
@@ -87,7 +87,7 @@ async def acompanhar(request: Request, tarefa_id: str):
 
 @router.get("/{tarefa_id}/estado")
 async def estado(tarefa_id: str):
-    """Estado da tarefa em JSON — é o que a página consulta enquanto ela roda."""
+    """Task state as JSON — what the page polls while the task runs."""
     tarefa, status, mensagem = await procura(tarefa_id)
     if tarefa is None:
         return JSONResponse({"detail": mensagem}, status_code=status)
@@ -96,10 +96,10 @@ async def estado(tarefa_id: str):
 
 @router.post("/{tarefa_id}/cancelar")
 async def cancelar(request: Request, tarefa_id: str):
-    """Interrompe a tarefa entre passos.
+    """Stops the task between steps.
 
-    ⚠️ Não desfaz o que já foi gravado no SAP — documentos criados até aqui continuam lá.
-    A tela avisa isso antes de o usuário clicar.
+    ⚠️ Does not undo what was already written in the SAP — documents created so far stay there.
+    The screen warns about this before the user clicks.
     """
     cancelou = await TAREFAS.cancelar(tarefa_id)
     tarefa = TAREFAS.obter(tarefa_id)

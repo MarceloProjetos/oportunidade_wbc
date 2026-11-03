@@ -130,20 +130,19 @@ def job_execucao(*, ignorar_janela: bool = False) -> None:
 
 
 def job_vendas_bi(*, ignorar_janela: bool = False) -> None:
-    """Recalcula os agregados do dashboard Vendas do app.
+    """Recompute the app's Vendas dashboard aggregates.
 
-    ⚠️ **Roda também fora do expediente e no fim de semana**, ao contrário da
-    carga de oportunidades. O motivo é o cartão "Hoje": ele muda de significado
-    à meia-noite, não por um pedido novo. Preso à janela comercial, o app
-    mostrava a **sexta-feira** o sábado inteiro, o domingo inteiro e até as 7h de
-    segunda — dois dias por semana com o KPI mais olhado da tela errado por
-    construção, e o dia inteiro em feriado.
+    ⚠️ **Also runs outside business hours and on weekends**, unlike the opportunities
+    load (``ignorar_janela=True`` is the hourly 24/7 job). Reason: the "Hoje" card changes
+    meaning at midnight, not because of a new order. Tied to the commercial window, the app
+    showed **Friday** all Saturday, all Sunday and until 07:00 Monday -- two days a week with
+    the most-watched KPI wrong by construction, and the whole day on a holiday.
 
-    A frequência é que muda: de 15 em 15 min no expediente (é quando o número
-    anda), de hora em hora fora dele — o suficiente para a virada do dia.
+    Only the frequency changes: every 15 min in business hours (when the number moves),
+    hourly outside them -- enough for the day rollover.
 
-    Job próprio (e lock próprio) de propósito: se a carga de oportunidades
-    falhar, o dashboard de vendas não pode parar junto, e vice-versa.
+    Own job (and own lock) on purpose: if the opportunities load fails, the sales
+    dashboard must not stop with it, and vice versa.
     """
     if not ignorar_janela and not can_run_load():
         logger.debug('Vendas BI pulado: fora do dia útil/janela')
@@ -159,14 +158,13 @@ def job_vendas_bi(*, ignorar_janela: bool = False) -> None:
 
 
 def job_orcamentos_espelho() -> None:
-    """Reescreve o espelho de ``VW_EVOL_ORCAMENTO_ALT`` no Supabase.
+    """Rewrite the ``VW_EVOL_ORCAMENTO_ALT`` mirror in Supabase.
 
-    Só no expediente: ao contrário do cartão "Hoje" do dashboard, nada aqui muda
-    de significado à meia-noite — orçamento, montagem e nota fiscal só andam com
-    gente trabalhando.
+    Business hours only: unlike the dashboard's "Hoje" card, nothing here changes
+    meaning at midnight -- quotes, assembly and invoices only move while people work.
 
-    Job e lock próprios: se a carga de oportunidades falhar, o espelho não pode
-    parar junto, e vice-versa.
+    Own job and lock: if the opportunities load fails, the mirror must not stop
+    with it, and vice versa.
     """
     if not can_run_load():
         logger.debug('Espelho de orçamentos pulado: fora do dia útil/janela')
@@ -256,7 +254,7 @@ def main_scheduler() -> None:
 
     scheduler.start()
 
-    def _stop(signum, frame):
+    def _stop(signum: int, frame: object) -> None:
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGTERM, _stop)

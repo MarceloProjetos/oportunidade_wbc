@@ -2,7 +2,7 @@
 
 A separate card on the Manutenção de OP page (owner, 28/10/2026), in its own file so the
 page's existing routes stay exactly as they are: this file only adds routes and reuses the
-existing helpers (`router._erro`, `router._recusa`, `router._dispara`) and pages
+existing helpers (`router._recusa`, `router._dispara`) and pages
 (`manutencao_op.html`, `confirmar.html`). Same flow as "Encerrar todas as OPs de um
 pedido": consult (read) → check the plan (read, token) → Sim/Não → background run.
 """

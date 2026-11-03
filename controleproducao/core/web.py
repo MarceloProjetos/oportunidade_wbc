@@ -1,9 +1,9 @@
-"""Peças da camada web que dependem do FastAPI (22/09/2026).
+"""FastAPI-dependent pieces of the web layer (22/09/2026).
 
-Separado de `guardas.py` de propósito: lá mora a **regra** (para onde a escrita vai, e se
-esta máquina pode gravar lá), pura e testável sem servidor; aqui mora só a tradução dela
-para HTTP. A regra é a mesma para CLI e web — se ela vivesse dentro de um `Depends`, a CLI
-não poderia usá-la e as duas camadas divergiriam com o tempo.
+Kept apart from `guardas.py` on purpose: the **rule** (where the write goes, and whether this
+machine may write there) lives there, pure and testable without a server; here lives only its
+translation to HTTP. The rule is the same for CLI and web — if it lived inside a `Depends`, the
+CLI could not use it and the two layers would drift apart over time.
 """
 from __future__ import annotations
 
@@ -49,9 +49,9 @@ def avisa_escrita(operacao: str) -> str | None:
 
 
 def contexto_do_ambiente() -> dict:
-    """Dados do ambiente para os templates — o alvo tem que ficar visível na tela.
+    """Environment data for the templates — the target must be visible on screen.
 
-    Nunca inclui credenciais: só o nome da company DB e se é produção.
+    Never includes credentials: only the company DB name and whether it is production.
     """
     settings = get_settings()
     return {

@@ -6,7 +6,8 @@ It lives in THIS process, next to the screen, on purpose: the one-execution-per-
 (`core.tarefas.TAREFAS`) and the single-use tokens of the closing plan (`core.confirmacao.
 PLANOS`) are process memory. An API anywhere else would see neither. What that buys for
 free: an execution started here blocks the screen's (and vice versa), shows on the
-Execuções screen and in its Supabase history, and makes ``deploy_update.bat`` wait.
+Execuções screen and in its Supabase history, and makes ``deploy_update.bat``
+abort (it refuses to deploy while ``/health/ocupado`` = 1).
 
 Every decision comes from `acoes.py`/`service.py` — the same functions the screen calls —
 so a refusal carries the screen's own text. This file only translates: JSON in, JSON out,
@@ -16,8 +17,9 @@ that belong to the API alone:
 - ``X-API-Key`` only (``core/acesso.py``); no cookie, no ``?key=``.
 - ``solicitante`` is required on every write and on cancel: it goes to the log and to the
   history. It is what the caller declares, not a verified identity (the key is shared).
-- Replanejar (F6, 29/09/2026; on the screen too since D4, same day): it refuses the OP whose
-  material issue or product receipt was already posted, like the screen and the CLI.
+- Replanejar (F6, 29/09/2026; on the screen too since D4, same day): it refuses the WHOLE batch
+  when any OP already has its material issue or product receipt posted (409 ``saida_lancada`` /
+  ``entrada_lancada``), like the screen and the CLI.
 - Encerrar stops between OPs when interrupted (D5): the OP in progress finishes its chain.
 """
 from __future__ import annotations
@@ -315,8 +317,9 @@ async def liberar(request: Request, corpo: Any = Body(default=None)):
 async def replanejar(request: Request, corpo: Any = Body(default=None)):
     """Liberada → Planejada, written as soon as the execution starts (F6, 29/09/2026).
 
-    Refuses the WHOLE batch when an OP already has material issued: the issue must be
-    cancelled in the SAP first. Same rule as the screen (D4) and the CLI.
+    Refuses the WHOLE batch (409 ``saida_lancada`` / ``entrada_lancada``) when any OP already
+    has material issued or product received: the posting must be cancelled in the SAP first.
+    Same rule as the screen (D4) and the CLI.
     """
     try:
         dados = _objeto(corpo)

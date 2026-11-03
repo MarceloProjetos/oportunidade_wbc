@@ -1,11 +1,11 @@
-"""Camada de dados do dashboard.
+"""Data layer of the dashboard.
 
-Separada da interface de propósito: assim a lógica de apresentação
-(agregações, rótulos, formatação) é testável sem subir servidor nenhum.
+Kept apart from the interface on purpose, so the presentation logic (aggregations, labels, formatting)
+is testable without starting any server.
 
-**O dashboard nunca consulta SAP nem WBC** — só o banco de acompanhamento
-(`ai_spec/03_architecture.md`). Isso mantém a tela rápida e evita que abrir o
-painel vire carga nos sistemas de origem.
+**The dashboard never queries SAP or WBC** — only the tracking database (layer map in `docs/wbc/README.md`;
+the old `ai_spec/03_architecture.md` is gone). That keeps the screen fast and stops opening the panel from
+becoming load on the source systems.
 """
 
 from __future__ import annotations
@@ -37,12 +37,11 @@ STATUS_COM_ACAO = frozenset(
 
 @dataclass(frozen=True, slots=True)
 class Recorte:
-    """Um dos números do topo, visto como filtro da lista.
+    """One of the numbers at the top, seen as a filter of the list.
 
-    Cada indicador do painel é uma pergunta ("quais deram erro?"), e o número
-    sozinho não responde — só diz quantos são. O recorte é a mesma definição
-    usada para **contar**, reaproveitada para **listar**: é o que garante que o
-    indicador dizendo 8 abra uma lista de 8, e não de 9.
+    Each panel indicator is a question ("which ones failed?") and the number alone does not answer it — it only
+    says how many. The cut is the same definition used to **count**, reused to **list**: that is what guarantees
+    that an indicator saying 8 opens a list of 8, not 9.
     """
 
     id: str
@@ -119,23 +118,21 @@ RECORTE_PADRAO = _POR_ID["todos"]
 
 
 def recorte(identificador: str | None) -> Recorte:
-    """Um recorte desconhecido cai em "Avaliados", em vez de estourar.
+    """An unknown cut falls back to "Avaliados" instead of blowing up.
 
-    O identificador vem do endereço, que pode ter sido colado, editado à mão ou
-    guardado num favorito de uma versão anterior do painel. Mostrar tudo é o
-    pior caso aceitável; uma tela de erro por causa de um parâmetro não é.
+    The identifier comes from the address, which may have been pasted, hand-edited or bookmarked from an older
+    version of the panel. Showing everything is the worst acceptable case; an error page over a parameter is not.
     """
     return _POR_ID.get((identificador or "").strip(), RECORTE_PADRAO)
 
 
 def aplicar(registros: list[Acompanhamento], corte: Recorte) -> list[Acompanhamento]:
-    """Filtra em Python, e não no SQL, de propósito.
+    """Filters in Python, not in SQL, on purpose.
 
-    Os indicadores contam sobre **este mesmo conjunto** de linhas (o que a
-    janela trouxe, até o teto). Recortar aqui garante que o número no
-    indicador e a contagem da lista sejam o mesmo número. Uma consulta separada
-    com `WHERE` acertaria hoje e divergiria no dia em que o teto de linhas
-    entrasse em jogo — e a divergência apareceria como "o painel está mentindo".
+    The indicators count over **this same set** of rows (what the window brought, up to the cap). Cutting here
+    guarantees the number on the indicator and the list count are the same number. A separate `WHERE` query would
+    be right today and diverge the day the row cap came into play — and the divergence would read as "the panel is
+    lying".
     """
     if corte is RECORTE_PADRAO:
         return registros
@@ -144,12 +141,11 @@ def aplicar(registros: list[Acompanhamento], corte: Recorte) -> list[Acompanhame
 
 @dataclass(frozen=True, slots=True)
 class Kpis:
-    """Números do topo do painel.
+    """Numbers at the top of the panel.
 
-    `total` conta o que o ciclo **avaliou**; `com_acao`, o que ele tocou. A
-    distinção existe porque o worker lê a janela inteira de propósito — sem ela,
-    o painel anunciava centenas de orçamentos "integrados" quando o ciclo não
-    havia mexido em nenhum.
+    `total` counts what the cycle **evaluated**; `com_acao`, what it touched. The distinction exists because the
+    worker reads the whole window on purpose — without it the panel announced hundreds of "integrated" quotes when
+    the cycle had touched none.
     """
 
     total: int = 0
@@ -167,11 +163,10 @@ class Kpis:
 
     @property
     def saude(self) -> str:
-        """Semáforo simples, para leitura rápida.
+        """Simple traffic light for quick reading.
 
-        Os limites são deliberadamente conservadores: qualquer erro já tira do
-        verde, porque num fluxo que cria documentos financeiros um erro isolado
-        merece atenção — não é ruído estatístico.
+        The thresholds are deliberately conservative: any error already takes it out of green, because in a flow that
+        creates financial documents an isolated error deserves attention — it is not statistical noise.
         """
         if self.total == 0:
             return "sem_dados"
@@ -183,7 +178,7 @@ class Kpis:
 
 
 def calcular_kpis(registros: list[Acompanhamento]) -> Kpis:
-    """Agrega os indicadores a partir das linhas de acompanhamento."""
+    """Aggregates the indicators from the tracking rows."""
     com_pedido = [r for r in registros if r.pedido_docentry]
     return Kpis(
         total=len(registros),
@@ -198,7 +193,7 @@ def calcular_kpis(registros: list[Acompanhamento]) -> Kpis:
 
 
 def linha_para_tabela(registro: Acompanhamento) -> dict[str, Any]:
-    """Converte um registro na linha exibida na lista."""
+    """Converts a record into the row shown in the list."""
     return {
         "Orçamento": registro.orcnum,
         "Cliente": registro.cliente,
@@ -228,7 +223,7 @@ def _momento(valor: datetime | None) -> str:
 
 
 def _dia(valor: date | None) -> str:
-    """Linhas anteriores à coluna existir não têm data — e dizem isso."""
+    """Rows older than the column have no date — and say so."""
     return valor.strftime("%d/%m/%Y") if valor else "—"
 
 

@@ -1,14 +1,11 @@
-"""Camada de dados da aba "Próximo ciclo".
+"""Data layer of the "Próximo ciclo" tab.
 
-O painel **não** consulta o SAP nem o WBC (ver `dashboard/__init__`). Esta aba
-não é exceção: ela lê o retrato que `wbcpython pendentes --exportar` grava. A
-diferença entre ler um arquivo e chamar a simulação de dentro do painel não é
-cosmética — abrir o painel passaria a custar uma varredura no HANA e no SQL
-Server a cada recarga de página, e uma tela de leitura viraria carga nos
-sistemas de origem.
+The panel does **not** query SAP or WBC (see `dashboard/__init__`), and this tab is no exception: it reads the
+snapshot that `wbcpython pendentes --exportar` writes. Reading a file instead of calling the simulation from
+inside the panel is not cosmetic — opening the panel would cost a HANA and SQL Server scan on every page reload,
+and a read-only screen would become load on the source systems.
 
-Como as agregações moram aqui e não na interface, dá para testá-las sem subir
-servidor nenhum.
+Because the aggregations live here and not in the interface, they are testable without starting any server.
 """
 
 from __future__ import annotations
@@ -48,16 +45,15 @@ def rotulo_da_acao(acao: str) -> str:
 
 
 class RetratoAusente(FileNotFoundError):
-    """Não existe retrato para exibir — o painel explica como gerar um."""
+    """There is no snapshot to show — the panel explains how to generate one."""
 
 
 def carregar(caminho: Path | str | None = None) -> Previsao:
-    """Lê o retrato do disco.
+    """Reads the snapshot from disk (default `ARQUIVO_PADRAO`).
 
-    Erro explícito quando falta: o painel precisa distinguir "nada a fazer" de
-    "ninguém gerou o retrato ainda". Mostrar zero nos dois casos seria mentir
-    por omissão justamente na tela que existe para dar confiança antes de rodar
-    o ciclo.
+    Raises `RetratoAusente` when the file is missing: the panel must tell "nothing to do" from "nobody has
+    generated the snapshot yet". Showing zero in both cases would lie by omission on the very screen meant to give
+    confidence before running the cycle.
     """
     destino = Path(caminho) if caminho else ARQUIVO_PADRAO
     if not destino.exists():
@@ -67,7 +63,7 @@ def carregar(caminho: Path | str | None = None) -> Previsao:
 
 @dataclass(frozen=True, slots=True)
 class KpisDaPrevisao:
-    """Os números do topo da aba."""
+    """The numbers at the top of the tab."""
 
     total: int = 0
     escreve: int = 0
@@ -95,7 +91,7 @@ def calcular_kpis(linhas: list[LinhaDePrevisao]) -> KpisDaPrevisao:
 
 
 def contar_acoes(linhas: list[LinhaDePrevisao]) -> list[tuple[str, int]]:
-    """Quantas vezes cada ação sairia. Um orçamento pode gerar mais de uma."""
+    """How many times each action would go out. One quote can yield more than one."""
     contagem: Counter[str] = Counter()
     for linha in linhas:
         contagem.update(linha.acoes)
@@ -103,7 +99,7 @@ def contar_acoes(linhas: list[LinhaDePrevisao]) -> list[tuple[str, int]]:
 
 
 def contar(linhas: list[LinhaDePrevisao], campo: str) -> list[tuple[str, int]]:
-    """Distribuição de um campo simples (regra, status, SitCode…)."""
+    """Distribution of a simple field (rule, status, SitCode…); empty values count as “—”."""
     contagem: Counter[str] = Counter(str(getattr(linha, campo) or "—") for linha in linhas)
     return contagem.most_common()
 
@@ -118,7 +114,7 @@ def filtrar(
     apenas_com_acao: bool = False,
     apenas_documento: bool = False,
 ) -> list[LinhaDePrevisao]:
-    """Os filtros da tabela, num lugar só e testáveis sem interface."""
+    """The table filters, in one place and testable without the interface."""
     termo = busca.strip().lower()
     resultado = []
     for linha in linhas:
@@ -150,7 +146,7 @@ def filtrar(
 
 
 def linha_para_tabela(linha: LinhaDePrevisao) -> dict[str, Any]:
-    """Uma linha da tabela da aba."""
+    """One row of the tab's table."""
     return {
         "Orçamento": linha.orcnum,
         "Cliente": linha.cliente,
@@ -168,11 +164,10 @@ def linha_para_tabela(linha: LinhaDePrevisao) -> dict[str, Any]:
 
 
 def idade(previsao: Previsao, *, agora: datetime | None = None) -> str:
-    """Há quanto tempo o retrato foi tirado — em texto curto.
+    """How long ago the snapshot was taken — as short text.
 
-    Fica visível o tempo todo porque a aba mostra um instantâneo: um retrato de
-    ontem descreve um ciclo que já rodou, e quem olhar sem essa informação toma
-    decisão sobre um mundo que não existe mais.
+    Always visible because the tab shows a snapshot: yesterday's picture describes a cycle that already ran, and
+    whoever reads it without this decides about a world that no longer exists.
     """
     referencia = agora or datetime.now(previsao.gerado_em.tzinfo)
     minutos = int((referencia - previsao.gerado_em).total_seconds() // 60)

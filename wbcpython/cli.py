@@ -1,29 +1,32 @@
-"""Ponto de entrada de linha de comando do WBCPython.
+"""Command-line entry point of WBCPython.
 
-Comandos disponíveis:
+Available commands:
 
-    wbcpython env       Mostra para qual ambiente a aplicação está apontada.
-    wbcpython doctor    Diagnostica a instalação: configuração, dependências
-                        opcionais e prontidão para cada fase do projeto.
-    wbcpython check-sap Testa a conexão real com o Service Layer (usa a rede).
-    wbcpython check-hana Testa o HANA e diz em qual schema as views existem.
-    wbcpython pendentes Mostra o que um ciclo faria, sem executar nada.
-                        (--com-acao lista só os que resultariam em escrita;
-                        --exportar grava o retrato que o painel exibe.)
-    wbcpython worker    Inicia o worker de integração (agendado, contínuo).
-    wbcpython ciclo     Executa UM ciclo de integração e sai.
-    wbcpython dashboard Inicia o painel de acompanhamento (HTML + HTMX).
-    wbcpython pesos     Recalcula o peso (Weight1) das linhas de um pedido já
-                        criado, a partir da árvore de produtos do WBC.
+    wbcpython env       Show which environment the application points at.
+    wbcpython doctor    Diagnose the installation: configuration, optional
+                        dependencies and readiness for each project phase.
+    wbcpython check-sap Test the real connection to the Service Layer (uses the network).
+    wbcpython check-hana Test HANA and say in which schema the views exist.
+    wbcpython pendentes Show what a cycle would do, without executing anything.
+                        (--com-acao lists only those that would result in a write;
+                        --exportar writes the snapshot the painel shows.)
+    wbcpython worker    Start the integration worker (scheduled, continuous).
+    wbcpython ciclo     Run ONE integration cycle and exit.
+    wbcpython dashboard Start the tracking painel (HTML + HTMX).
+    wbcpython pesos     Recompute the weight (Weight1) of the lines of an already
+                        created order, from the WBC product tree.
     wbcpython pesos-reescalados
-                        Mostra os pesos que o SAP multiplicou quando uma pessoa
-                        mudou a quantidade da linha (só leitura).
+                        Show the weights the SAP multiplied when a person changed
+                        the line quantity (read only).
     wbcpython datas-de-abertura
-                        Preenche a data de abertura nas linhas antigas do
-                        acompanhamento, para o painel poder aplicar a janela.
+                        Fill in the opening date on old tracking rows, so the painel
+                        can apply the window.
+    wbcpython faxina    Delete decision events older than the retention (actions and
+                        errors stay).
+    wbcpython janela    Show, arm or clear the extended-window request of the next cycle.
 
-`env` e `doctor` são verificações locais, seguras de rodar a qualquer momento e
-em qualquer máquina. Só `check-sap` acessa a rede — e apenas para leitura.
+`env` and `doctor` are local checks, safe to run at any time on any machine. Of the checks,
+only `check-sap` and `check-hana` use the network — and only to read.
 """
 
 from __future__ import annotations
@@ -50,7 +53,10 @@ PENDENTE = "  [ ]  "
 
 
 def _cmd_env(settings: Settings) -> int:
-    """Mostra o ambiente atual, sem expor credenciais."""
+    """Show the current environment, without exposing credentials.
+
+    The write lock shown here is derived from the machine's IP (`Settings.block_production_writes`).
+    """
     print(f"WBCPython {__version__}")
     print(settings.describe_environment())
 
@@ -76,7 +82,7 @@ def _tem_modulo(nome: str) -> bool:
 
 
 def _cmd_doctor(settings: Settings) -> int:
-    """Diagnóstico local da instalação. Não acessa rede."""
+    """Local diagnosis of the installation. Does not touch the network."""
     problemas = 0
 
     print(f"WBCPython {__version__} — diagnóstico")
@@ -160,7 +166,7 @@ def _cmd_doctor(settings: Settings) -> int:
 
 
 def _cmd_check_sap(settings: Settings) -> int:
-    """Testa a conexão real com o Service Layer. Somente leitura."""
+    """Test the real connection to the Service Layer. Read only."""
     # Importado aqui para que `env`/`doctor` não dependam do cliente HTTP.
     from wbcpython.infrastructure.service_layer import ServiceLayerClient, ServiceLayerError
 
@@ -213,7 +219,7 @@ def _cmd_check_sap(settings: Settings) -> int:
 
 
 def _cmd_check_hana(settings: Settings) -> int:
-    """Testa a conexão com o HANA e diagnostica o schema. Somente leitura."""
+    """Test the HANA connection and diagnose the schema. Read only."""
     from wbcpython.infrastructure.hana import (
         IdentificadorInvalido,
         RepositorioViewsHanaSql,
@@ -279,7 +285,11 @@ def _cmd_worker(
     apenas_sitcode: int | None = None,
     somente_leitura: bool = False,
 ) -> int:
-    """Inicia o worker (contínuo) ou executa um único ciclo."""
+    """Start the worker (continuous) or run a single cycle.
+
+    With `somente_leitura` (`ciclo --simular`) the cycle decides and fills in the tracking, and
+    writes nothing to the SAP.
+    """
     from wbcpython.host.worker import WorkerIntegracao
 
     # Mesmo log da prévia: tela e arquivo, e o arquivo é o que o painel mostra.
@@ -345,16 +355,16 @@ def _cmd_worker(
 
 
 def _cmd_dashboard(settings: Settings, *, host: str | None, porta: int | None) -> int:
-    """Sobe o painel de acompanhamento (FastAPI + HTMX).
+    """Start the tracking painel (FastAPI + HTMX).
 
-    Escuta em `127.0.0.1` por padrão: o painel **não tem autenticação**, e
-    qualquer pessoa que o alcance pode registrar um pedido de reprocessamento
-    em nome de quem quiser, além de disparar os comandos de leitura e a
-    simulação de ciclo. Expor na rede é decisão consciente — `PAINEL_HOST` no
-    `.env` ou `--host` — e não o que acontece por descuido.
+    Listens on `127.0.0.1` by default. Without `OS_API_KEY` the painel has **no authentication**:
+    anyone who reaches it can register a reprocessing request in anyone's name, besides triggering
+    the read commands and the cycle simulation; with `OS_API_KEY` set it asks for the access key
+    (`Settings.painel_exige_chave`). Exposing it on the network is a conscious decision —
+    `PAINEL_HOST` in the `.env` or `--host` — not something that happens by oversight.
 
-    A linha de comando ganha da configuração: `--host` serve para um teste
-    pontual sem editar o `.env`.
+    The command line wins over the configuration: `--host` serves a one-off test without editing
+    the `.env`.
     """
     host = host or settings.painel_host
     porta = porta or settings.painel_porta
@@ -399,32 +409,29 @@ def _cmd_pendentes(
     exportar: str | None = None,
     meses_pedidos: int | None = None,
 ) -> int:
-    """Mostra o que um ciclo faria — **sem executar nada**.
+    """Show what a cycle would do — **without executing anything**.
 
-    É a rede de segurança que faltava para testar em homologação: antes de
-    rodar `ciclo`, dá para ver orçamento a orçamento qual regra o domínio
-    aplicaria e quais ações sairiam dela. Usa apenas leituras (GET no Service
-    Layer e SELECT no WBC), não abre transação de tracking e não chama o
-    processador — que é quem escreve.
+    The safety net that was missing to test in homologation: before running `ciclo`, you can see,
+    quote by quote, which rule the domain would apply and which actions would come out of it. Uses
+    only reads (GET on the Service Layer, SELECT on HANA and on the WBC), does not open a tracking
+    transaction and does not call the processor — the one that writes.
 
-    A simulação mora aqui, no comando, e não numa camada compartilhada: é uma
-    ferramenta de linha de comando, e quem a lê espera encontrá-la no comando
-    que a executa. O que viaja para fora é o **retrato** (`application.previsao`
-    define só o formato), não o caminho de decisão.
+    The simulation lives here, in the command, and not in a shared layer: it is a command-line tool,
+    and whoever reads it expects to find it in the command that runs it. What travels outside is the
+    **snapshot** (`application.previsao` defines only the format), not the decision path.
 
-    O relatório sai pelo `logging`, não por `print`: assim a mesma execução
-    aparece na tela de quem rodou e no arquivo que o painel lê. Ver
-    `wbcpython.logs`.
+    The report goes through `logging`, not `print`: the same run shows on the screen of whoever ran
+    it and in the file the painel reads. See `wbcpython.logs`.
 
-    `apenas_com_acao` esconde as linhas sem ação. Numa janela de ~950
-    oportunidades, as com ação são algumas dezenas: a listagem completa passa de
-    2.900 linhas e enterra justamente o que se quer conferir antes de rodar o
-    ciclo. O resumo do rodapé continua contando **todas** as avaliadas, para que
-    filtrar a exibição nunca dê a impressão de uma janela menor do que é.
+    `apenas_com_acao` hides the rows without action. In a window of ~950 opportunities, those with
+    action are a few dozen: the full listing exceeds 2,900 lines and buries exactly what you want to
+    check before running the cycle. The footer summary still counts **all** the evaluated rows, so
+    filtering the display never gives the impression of a smaller window than it is.
 
-    `exportar` grava o retrato em JSON — é o que a aba "Próximo ciclo" do painel
-    lê. O painel não consulta SAP nem WBC por decisão de arquitetura (ver
-    `dashboard/__init__`).
+    `exportar` writes the snapshot as JSON — what the painel's "Próximo ciclo" tab reads. The painel
+    queries neither SAP nor WBC, by architecture decision (see `dashboard/__init__`).
+
+    `meses_pedidos` rehearses another window without arming anything.
     """
     import json
     from datetime import UTC, datetime
@@ -754,17 +761,16 @@ def _cmd_pendentes(
 
 
 def _cmd_datas_de_abertura(settings: Settings) -> int:
-    """Preenche `data_abertura` nas linhas antigas do acompanhamento.
+    """Fill in `data_abertura` on the old tracking rows.
 
-    Sem isto, o corte de janela do painel não tem efeito sobre o histórico: as
-    linhas gravadas antes da coluna existir têm data nula, e uma data nula passa
-    pelo filtro de propósito (sumir por falta de um dado que nunca foi gravado
-    seria pior do que aparecer). As que já saíram da janela nunca mais serão
-    verificadas pelo ciclo, então ficariam nulas para sempre.
+    Without this, the painel's window cut has no effect on the history: rows saved before the column
+    existed have a null date, and a null date passes the filter on purpose (disappearing for lack of
+    data that was never recorded would be worse than showing up). The ones that already left the
+    window will never be checked by the cycle again, so they would stay null forever.
 
-    Lê o `OpenDate` no HANA — sem filtro de janela, porque o alvo é justamente
-    quem está fora dela — e escreve **só** no banco de acompanhamento. Nada é
-    tocado no SAP nem no WBC. Rodar duas vezes não faz diferença.
+    Reads `OpenDate` from HANA — with no window filter, because the target is exactly whoever is
+    outside it — and writes **only** to the tracking database. Nothing is touched in the SAP or the
+    WBC. Running it twice makes no difference.
     """
     from wbcpython.infrastructure.hana.oportunidades import RepositorioOportunidadesHana
     from wbcpython.tracking import RepositorioTracking
@@ -809,11 +815,11 @@ def _cmd_datas_de_abertura(settings: Settings) -> int:
 
 
 def _cmd_faxina(settings: Settings, *, dias: int | None) -> int:
-    """Apaga os eventos de decisão mais velhos que a retenção. Ações e erros ficam.
+    """Delete the decision events older than the retention. Actions and errors stay.
 
-    O worker faz isto sozinho uma vez por dia; o comando existe para rodar à mão
-    (depois de importar um banco antigo, por exemplo) e para quem desligou a
-    retenção no `.env` e quer apagar num momento escolhido.
+    The worker does this by itself once a day; the command exists to run by hand (after importing an
+    old database, for example) and for whoever turned the retention off in the `.env` and wants to
+    delete at a chosen moment.
     """
     from wbcpython.tracking import RepositorioTracking
 
@@ -839,11 +845,10 @@ def _cmd_janela(
     limpar: bool,
     por: str,
 ) -> int:
-    """Mostra, arma ou limpa o pedido de janela estendida.
+    """Show, arm or clear the extended-window request.
 
-    O painel é o caminho normal — este comando existe para operar a .11 quando a
-    tela não está de pé (durante um deploy, por exemplo) e para conferir o
-    estado sem abrir o navegador.
+    The painel is the normal way — this command exists to operate the .11 when the screen is down
+    (during a deploy, for example) and to check the state without opening the browser.
     """
     from wbcpython.domain import janela as jn
     from wbcpython.tracking import RepositorioTracking
@@ -906,17 +911,17 @@ def _cmd_janela(
 def _cmd_pesos(
     settings: Settings, *, pedido: int | None, orcamento: str | None, simular: bool
 ) -> int:
-    """Recalcula o `Weight1` das linhas de um pedido já criado.
+    """Recompute the `Weight1` of the lines of an already created order.
 
-    Serve os pedidos que nasceram antes da regra de peso existir, e o caso em
-    que a árvore do WBC foi corrigida depois de o pedido ter sido criado.
+    Serves the orders that were born before the weight rule existed, and the case where the WBC tree
+    was corrected after the order was created.
 
-    Não refaz o pedido: grava **só** o peso, linha a linha, casando pelo
-    `U_INO_ORCITM` que a integração já gravou em cada uma. Preço, item, texto e
-    depósito ficam exatamente como estavam — ver `atualizar_pesos`.
+    It does not redo the order: it writes **only** the weight, line by line, matching by the
+    `U_INO_ORCITM` the integration already recorded on each one. Price, item, text and warehouse stay
+    exactly as they were — see `atualizar_pesos`.
 
-    `--simular` mostra o que mudaria sem escrever nada, e é a forma recomendada
-    de olhar antes de aplicar.
+    `--simular` shows what would change without writing anything, and is the recommended way to look
+    before applying.
     """
     from wbcpython.infrastructure.service_layer.client import ServiceLayerClient
     from wbcpython.infrastructure.service_layer.documentos import (
@@ -1013,17 +1018,17 @@ def _pesos_das_linhas(
     relatar: Any,
     alertar: Any,
 ) -> tuple[dict[int, float], int, int]:
-    """Compara o peso de cada linha do SAP com o que a regra produziria.
+    """Compare the weight of each SAP line with what the rule would produce.
 
-    Devolve `(mudanças por LineNum, linhas já corretas, linhas sem peso)`.
+    Returns `(changes by LineNum, lines already correct, lines without weight)`.
 
-    O casamento é pelo `U_INO_ORCITM` gravado na linha — não pela ordem. Uma
-    linha a mais ou a menos no documento não pode deslocar o peso de todas as
-    outras, que é o que aconteceria comparando por posição.
+    Matching is by the `U_INO_ORCITM` recorded on the line — not by order. One line more or less in
+    the document must not shift the weight of all the others, which is what comparing by position
+    would do.
 
-    A conta é a da criação (`domain.linhas.peso_da_linha`, a mesma função),
-    e não pode divergir dela: se divergisse, rodar este comando logo depois de
-    criar o pedido acusaria mudança em toda linha.
+    The calculation is the creation one (`domain.linhas.peso_da_linha`, the same function) and cannot
+    diverge from it: if it did, running this command right after creating the order would report a
+    change on every line.
     """
     from wbcpython.domain.linhas import peso_da_linha
 
@@ -1137,10 +1142,10 @@ def _cmd_pesos_reescalados(settings: Settings, *, dias: int, pedido: int | None)
 
 
 def _preparar_log(settings: Settings, *, rotacionar: bool = False) -> Path | None:
-    """Liga a tela e o arquivo para este comando.
+    """Turn on the screen and the file for this command.
 
-    Vive aqui, e não em cada comando, para que "o que aparece na tela" e "o que
-    o painel lê" nunca sejam configurados de dois jeitos diferentes.
+    It lives here, and not in each command, so that "what shows on screen" and "what the painel
+    reads" are never configured in two different ways.
 
     ``rotacionar`` only for the continuous worker — see `logs.configurar`.
     """
@@ -1231,7 +1236,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     p_painel.add_argument(
-        "--porta", type=int, default=None, help="porta (padrão: PAINEL_PORTA, ou 8501)"
+        "--porta", type=int, default=None, help="porta (padrão: PAINEL_PORTA, ou 8079)"
     )
     p_pesos = sub.add_parser(
         "pesos",

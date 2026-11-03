@@ -1,17 +1,17 @@
-"""Formatação numérica pt-BR para as telas (22/09/2026).
+"""pt-BR number formatting for the screens (22/09/2026).
 
-`457578.12` na tela não é um número que alguém confere — é uma sequência de dígitos. Com
-separador de milhar (`457.578,12`) a ordem de grandeza se lê de relance, que é o ponto de
-uma coluna de valor num painel operacional.
+`457578.12` on screen is not a number anyone can check — it is a string of digits. With a
+thousands separator (`457.578,12`) the order of magnitude reads at a glance, which is the point
+of a value column in an operational panel.
 
-**Formatação mora na apresentação, nunca no dado.** O serviço continua devolvendo `float`;
-quem converte para texto é o template (ou o router, ao montar a tabela do plano). Formatar
-na origem transformaria um número em string e a primeira conta feita sobre ele quebraria —
-é a mesma lição do `Decimal` que entrou na aritmética em 21/09, na direção contrária.
+**Formatting lives in presentation, never in the data.** The service keeps returning `float`;
+the template (or the router, when building the plan table) converts to text. Formatting at the
+source would turn a number into a string and the first calculation done on it would break —
+the same lesson as the `Decimal` that entered the arithmetic on 21/09, in the opposite direction.
 
-Não usamos `locale`: ele é estado global do processo, depende de o locale pt_BR estar
-gerado no sistema (num contêiner enxuto, não está) e falha silenciosamente voltando ao C.
-A troca de separadores é de duas linhas e não tem nenhuma dessas armadilhas.
+We do not use `locale`: it is global process state, depends on the pt_BR locale being generated
+on the system (in a lean container it is not) and fails silently by falling back to C. Swapping
+the separators takes two lines and has none of those traps.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from decimal import Decimal
 
 
 def numero_br(valor: object, casas: int = 2) -> str:
-    """`457578.12` → `457.578,12`. Devolve o valor original se não for número."""
+    """`457578.12` → `457.578,12`. Empty for `None`/`""`; the value as text if it is not a number."""
     if valor is None or valor == "":
         return ""
     try:
@@ -32,12 +32,11 @@ def numero_br(valor: object, casas: int = 2) -> str:
 
 
 def quantidade_br(valor: object) -> str:
-    """Quantidade sem casas decimais inúteis: `640`, `10,09`, `9.106,08`.
+    """Quantity without useless decimals: `640`, `10,09`, `9.106,08`.
 
-    Quantidade de OP costuma ser inteira; exibir `640,00` acrescenta ruído a uma coluna
-    que o operador percorre de cima a baixo. Mas `10,09` precisa das duas casas — é uma
-    quantidade real de insumo, e arredondar na tela esconderia justamente a divergência
-    de um centavo que já nos custou uma investigação.
+    OP quantities are usually whole; showing `640,00` adds noise to a column the operator scans top
+    to bottom. But `10,09` needs both places — it is a real input quantity, and rounding on screen
+    would hide exactly the one-cent divergence that already cost us an investigation.
     """
     if valor is None or valor == "":
         return ""

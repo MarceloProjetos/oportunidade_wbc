@@ -187,7 +187,7 @@ def _sem_chave(mudancas: list[dict]) -> list[dict]:
 
 
 def classificar(mudancas: list[dict], codigo: str, pela_integracao: bool | None) -> dict[str, Any]:
-    """Who kind of save this was and what it touched (plan §5).
+    """What kind of save this was and what it touched (plan §5).
 
     ``origem``: "criacao_op" (only OP-processing fields, whoever saved), "integracao",
     "pessoa", or None when the integration users are unknown here. ``quebra`` = a person

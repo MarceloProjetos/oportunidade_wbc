@@ -1,9 +1,14 @@
-"""Camada: dashboard — painel de acompanhamento (HTML + HTMX).
+"""Layer: dashboard — the tracking panel (HTML + HTMX).
 
-Lê **apenas** o banco de tracking e, na aba "Próximo ciclo", um retrato em
-disco gerado por `wbcpython pendentes --exportar`. Nunca o SAP nem o WBC: uma
-tela de leitura não pode virar carga nos sistemas de origem, e abrir o painel
-não pode custar uma varredura no HANA a cada recarga de página.
+The pages **only read** the tracking database and, on the "Próximo ciclo" tab, a snapshot on disk
+written by `wbcpython pendentes --exportar`. They never query SAP or WBC: a read-only screen must not
+become load on the source systems, and opening the panel must not cost a HANA scan on every page
+reload. Two things sit beside that rule: the operator-name list comes from the API 8077 on localhost
+(`dashboard/usuarios.py`), and the "Executar" tab starts CLI commands in a subprocess
+(`dashboard/comandos.py`) — those, not the page, may touch SAP.
+
+Layer map: `docs/wbc/README.md` ("Estrutura"); the old `ai_spec/03_architecture.md` is gone (see
+`docs/wbc/ai_spec/00_index.md`).
 """
 
 from wbcpython.dashboard.dados import (

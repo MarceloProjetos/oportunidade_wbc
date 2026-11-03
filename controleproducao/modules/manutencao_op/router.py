@@ -1,12 +1,12 @@
-"""Rotas web do módulo Manutenção de OP — equivalente à tela `ManutencaoOp.b1f.cs`.
+"""Web routes of the Manutenção de OP module — equivalent to the legacy screen `ManutencaoOp.b1f.cs`.
 
-A tela original tinha uma grade com as OPs de um pedido e quatro botões: Liberar, Planejar,
-Cancelar e Encerrar. O desenho aqui é o mesmo; o que muda é o que a migração aprendeu:
+The original screen had a grid with the OPs of an order and four buttons: Liberar, Planejar,
+Cancelar and Encerrar. The design here is the same; what changes is what the migration learned:
 
-- **Encerrar passa por plano conferido** (`core/confirmacao.py`) e roda em segundo plano
-  (`core/tarefas.py`): 68 OPs são ~270 chamadas à Service Layer, na casa de minutos.
-- **A ordem é calculada, não escolhida**: filha antes da mãe, porque a saída de insumo de
-  uma OP pai consome o item que a filha produz. Um ciclo recusa a operação inteira.
+- **Encerrar goes through a checked plan** (`core/confirmacao.py`) and runs in the background
+  (`core/tarefas.py`): 68 OPs are ~270 Service Layer calls, on the order of minutes.
+- **The order is computed, not chosen**: child before parent, because the material issue of a
+  parent OP consumes the item the child produces. A cycle refuses the whole operation.
 - **Liberar and Replanejar change the status only and write on the first click** (no token
   plan). Replanejar left the screen on 28/09/2026 (D9: next to a half-failed `encerrar` it
   would leave stock on a planned OP) and came back on 29/09/2026 (D4 of
@@ -16,9 +16,9 @@ Cancelar e Encerrar. O desenho aqui é o mesmo; o que muda é o que a migração
   runs them in its threadpool, so a slow HANA query no longer freezes the event loop — and
   with it /health, the task polling and a task running in the other module.
 
-A regra de negócio de 22/09: uma OP só pode ser apontada estando Liberada, então o
-encerramento libera antes a que estiver Planejada. Isso aparece na coluna "Ação" do plano,
-em vez de ficar escondido dentro do `corrige_op` — é o estado que sobra se a cadeia falhar.
+Business rule of 22/09: an OP can only be reported (apontada) while Liberada, so closing first
+releases the one that is Planejada. This shows in the plan's "Ação" column instead of hiding
+inside `corrige_op` — it is the state left behind if the chain fails.
 
 Since 29/09/2026 (F1 of PLANO_API_MANUTENCAO_OP.md (removed 2026-10-06)) the decisions of these routes live
 in `acoes.py`, shared with the JSON API (`api_router.py`): this file reads the form, calls
@@ -48,7 +48,7 @@ MODULO = acoes.MODULO
 COLUNAS_PLANO = ["#", "OP", "Item", "Planejada", "Apontada", "Status atual", "Ação"]
 
 
-def _erro(request: Request, mensagem: str, **extra):
+def _erro(request: Request, mensagem: str, **extra: object) -> HTMLResponse:
     return templates.TemplateResponse(
         request, "erro.html",
         {"mensagem": mensagem, "voltar": "/manutencao-op", **extra},
@@ -56,7 +56,7 @@ def _erro(request: Request, mensagem: str, **extra):
     )
 
 
-def _leitor():
+def _leitor() -> HanaDirectReader:
     return HanaDirectReader(get_settings())
 
 
@@ -203,7 +203,7 @@ async def executar_encerrar(request: Request, token: str = Form(default="")):
     )
 
 
-def _recusa(request: Request, recusa: acoes.Recusa):
+def _recusa(request: Request, recusa: acoes.Recusa) -> HTMLResponse:
     """The screen's rendering of a refusal: the error page, always 400 (as before)."""
     extra: dict = {}
     if recusa.titulo:
@@ -217,7 +217,9 @@ def _recusa(request: Request, recusa: acoes.Recusa):
     return _erro(request, recusa.mensagem, **extra)
 
 
-def _dispara(request: Request, nome: str, descricao: str, corrotina, *, parada_combinada: bool = False):
+def _dispara(
+    request: Request, nome: str, descricao: str, corrotina, *, parada_combinada: bool = False
+) -> HTMLResponse | RedirectResponse:
     try:
         tarefa = acoes.dispara(
             nome, descricao, corrotina, ip=request.client.host if request.client else None,
