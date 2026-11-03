@@ -479,15 +479,15 @@ def test_conferir_devolve_o_plano_com_token_sem_gravar(c, ambiente):
     assert resposta.status_code == 200, resposta.text
     plano = resposta.json()["plano"]
     assert plano["operacao"] == "Encerrar OPs do pedido 84245"
-    assert plano["resumo"] == {"a_encerrar": 2, "a_liberar_antes": 1, "listadas": 4}
+    assert plano["resumo"] == {"a_encerrar": 3, "a_liberar_antes": 1, "listadas": 4}
     assert [i["op"] for i in plano["itens"]] == [9001, 9002, 9003, 9004]   # ordena_por_dependencia
     assert plano["itens"][0] == {
         "ordem": 1, "op": 9001, "doc_entry": 11, "item": "PAR000PADRA000000000", "planejada": 10,
         "apontada": 0, "status": "P", "status_atual": "Planejada",
         "acao": "LIBERAR + saída + entrada + encerrar", "processar": True,
     }
-    assert [i["processar"] for i in plano["itens"]] == [True, True, False, False]
-    assert plano["itens"][3]["acao"] == "ignorada (apontada = planejada)"
+    assert [i["processar"] for i in plano["itens"]] == [True, True, False, True]
+    assert plano["itens"][3]["acao"] == "só encerrar (já toda apontada)"
     assert datetime.fromisoformat(plano["valido_ate"]) > datetime.now()
     assert PLANOS.obter(plano["token"]) is not None
     finalizar.assert_not_called()
@@ -528,7 +528,8 @@ def test_executar_roda_so_o_que_o_plano_marcou_e_o_token_nao_vale_de_novo(c, amb
 
     assert estado["terminada"] and estado["nome"] == "Encerrar OPs do pedido 84245"
     assert (estado["origem"], estado["solicitante"]) == ("api", "pcp.ana")
-    assert [o["doc_num"] for o in finalizar.await_args.args[2]] == [9001, 9002]
+    # 9004 is Liberada and fully posted: only closed since 2026-11-03.
+    assert [o["doc_num"] for o in finalizar.await_args.args[2]] == [9001, 9002, 9004]
     assert de_novo.status_code == 409 and de_novo.json()["tipo"] == "confirmacao_invalida"
     assert "já utilizada" in de_novo.json()["motivo"]
 

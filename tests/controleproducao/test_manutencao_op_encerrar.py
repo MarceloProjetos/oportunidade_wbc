@@ -248,12 +248,22 @@ def test_op_nao_e_encerrada_se_a_movimentacao_falhar():
     assert resultado["com_erro"][0]["etapa"] == "saída de insumo"
 
 
-def test_op_ja_apontada_e_ignorada_sem_movimentar_estoque():
+def test_op_planejada_sem_nada_a_apontar_e_ignorada():
     """`if (qtdAD < qtdPD)` do original."""
-    resultado, chamadas = _finaliza([_op(planejada=10, apontada=10)])
+    resultado, chamadas = _finaliza([_op(planejada=0, apontada=0)])
 
     assert chamadas == []
     assert resultado["ignoradas"] and resultado["finalizadas"] == []
+
+
+def test_op_liberada_ja_toda_apontada_so_e_encerrada():
+    """2026-11-03: the close PATCH that dropped after the receipt left the OP Liberada with
+    apontada = planejada, and Encerrar skipped it for good. Now it is closed, with no stock."""
+    resultado, chamadas = _finaliza([_op(status="R", planejada=10, apontada=10)])
+
+    assert chamadas == ["ProductionOrders:boposClosed"]
+    assert resultado["finalizadas"][0]["so_encerrada"] is True
+    assert resultado["ignoradas"] == [] and resultado["com_erro"] == []
 
 
 def test_erro_numa_op_nao_impede_as_demais():

@@ -19,6 +19,10 @@ Achados da revisão de código de 03/11 (comparação com uma revisão isolada).
 - As mensagens de pedido já processado e de OP prévia não mandam mais "usar --force" (que duplica OPs).
 - **Encerrar pedidos fechados**: `resultado.com_erro` traz os erros de todos os pedidos (a tela deixa de pintar
   "concluída" um lote que falhou), e o erro da 1ª tentativa que a 2ª não resolveu continua no resultado.
+- **Encerrar** (decisão do Marcelo): OP **Liberada já toda apontada** passa a ser só encerrada, sem movimentar
+  estoque (`só encerrar (já toda apontada)` no plano), como o `mudaStatus("f")` final do addon antigo. Antes era
+  ignorada, e a OP cujo PATCH de encerrar caiu depois da entrada ficava aberta para sempre. Planejada sem nada a
+  apontar continua ignorada.
 - **Worker WBC**: pedido não criado porque o PN corrigido não existe não conta mais como `criar_pedido`
   executado (o acompanhamento dizia `pedido_criado` sem pedido).
 

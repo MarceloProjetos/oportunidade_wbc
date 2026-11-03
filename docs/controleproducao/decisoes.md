@@ -78,7 +78,7 @@
   1. `BaseLine` da saída de insumo usa o `LineNum` real da linha da OP, não o índice da linha no recordset (o original dependia de uma ordenação que a query nem pedia).
   2. Linhas de componente já totalmente baixadas são puladas em vez de irem para o SAP recusar.
   3. **Uma OP só é encerrada se a sua própria movimentação tiver ido até o fim.** O legado chamava `mudaStatus("f")` no final sobre todas as linhas marcadas, inclusive as que haviam falhado antes — fechando OPs sem a saída/entrada correspondente. É o bug mais sério encontrado no módulo 3.
-- **Precondição do legado mantida**: só são processadas OPs com quantidade apontada menor que a planejada (`if (qtdAD < qtdPD)`).
+- **Precondição do legado mantida**: só movimentam estoque as OPs com quantidade apontada menor que a planejada (`if (qtdAD < qtdPD)`). Desde 03/11/2026 a OP Liberada já toda apontada é só encerrada, como o `mudaStatus("f")` final do legado fazia (decisão do Marcelo: senão a OP cujo PATCH de encerrar caiu ficava aberta para sempre).
 - **Nada disso foi executado contra ambiente real.** Diferente do módulo 2, o `encerrar` gera lançamentos de estoque irreversíveis e ainda não rodou nem em homologação. Registrado como pendência de validação, não como entrega pronta para produção.
 
 ## Trava de escrita em produção (21/09/2026)

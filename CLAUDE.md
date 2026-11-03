@@ -159,8 +159,8 @@ Regra com teste = 1 linha + o teste que a protege; sem teste = o porquê junto.
 - Processar recusa (`409 nota_espelho`, também na execução e com "forçar") pedido com
   `ORDR.U_U_INO_NotaEspelho = 'Y'`: não confirmado, não vai para a produção. Reprocessar passa. — `tests/controleproducao/test_nota_espelho_bloqueio.py`
 - Só **Replanejar** recusa OP com saída ou entrada lançada (o lote inteiro, 409; baixada desconhecida
-  também recusa). Encerrar **pula** OP já apontada e dá saída só no insumo pendente; Liberar não confere.
-  Interromper para entre OPs; `encerrar` (OIGE+OIGN) é o único caminho de encerrar. —
+  também recusa). Encerrar dá saída só no insumo pendente e, na OP Liberada já toda apontada, só encerra (sem estoque, 03/11); Liberar não confere.
+  Interromper para entre OPs; `encerrar` é o único caminho de encerrar. —
   `tests/controleproducao/test_manutencao_op.py`, `test_manutencao_op_encerrar.py`, `test_tarefas.py`
 - `hana_schema` = `SL_COMPANY_DB`; `HANA_SCHEMA` não é lido. — `tests/controleproducao/test_config.py`
 - SQL só por `core/sql_ligado` (nunca `.format` com valor); leitores só SELECT/WITH. — `tests/controleproducao/test_sql_ligado.py`

@@ -642,7 +642,8 @@ Como ler o plano:
   | --- | --- | --- |
   | Planejada, com produção a fazer | `LIBERAR + saída + entrada + encerrar` | `true` |
   | Liberada, com produção a fazer | `saída + entrada + encerrar` | `true` |
-  | Já toda apontada | `ignorada (apontada = planejada)` | `false` |
+  | Liberada e já toda apontada (só falta encerrar) | `só encerrar (já toda apontada)` | `true` |
+  | Planejada sem nada a apontar | `ignorada (apontada = planejada)` | `false` |
   | Encerrada | `já encerrada — ignorada` | `false` |
   | Cancelada | `cancelada — não pode ser encerrada` | `false` |
 

@@ -351,9 +351,8 @@ async def encerra_pedido_com_ajustes(
                            else f"ATENÇÃO: inative à mão no SAP: {', '.join(presos)}")
     # The first attempt's closed OPs stay closed: report both attempts' successes.
     resultado2["finalizadas"] = resultado["finalizadas"] + resultado2["finalizadas"]
-    # A first-attempt failure the retry did not touch stays a failure: an OP whose close
-    # PATCH dropped after its receipt has apontada = planejada, so the retry skips it and the
-    # order used to come back "sem erro" with that OP still open (2026-11-03 review).
+    # A first-attempt failure the retry did not touch stays a failure: the order used to come
+    # back "sem erro" while one of its OPs was still open (2026-11-03 review).
     tocadas = {str(o.get("doc_entry")) for chave in ("finalizadas", "com_erro") for o in resultado2[chave]}
     resultado2["com_erro"] = resultado2["com_erro"] + [
         {**e, "motivo": f"1ª tentativa: {e.get('motivo')}"}

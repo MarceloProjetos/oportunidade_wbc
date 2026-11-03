@@ -1190,7 +1190,7 @@ def manutencao_op_encerrar(
     causa real. OPs independentes seguem normalmente.
 
     ⚠️ IRREVERSÍVEL: gera lançamentos de estoque que não podem ser desfeitos pelo comando.
-    OPs cuja quantidade apontada já atingiu a planejada são ignoradas, como no legado.
+    OP Liberada já toda apontada é só encerrada, sem movimentar estoque.
 
     Exemplos:
         python -m controleproducao manutencao-op encerrar 9001 9002

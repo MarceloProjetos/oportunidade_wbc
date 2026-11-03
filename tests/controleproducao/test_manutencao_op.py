@@ -158,7 +158,7 @@ def test_replanejar_so_aparece_sem_saida_lancada(baixada, acoes):
 
 def test_replanejar_nao_aparece_com_produto_apontado():
     assert svc.acoes_possiveis("R", 10, 3, 0) == ["encerrar"]
-    assert svc.acoes_possiveis("R", 10, 10, 0) == []
+    assert svc.acoes_possiveis("R", 10, 10, 0) == ["encerrar"]   # only closed (2026-11-03)
 
 
 @pytest.mark.parametrize("apontada,trecho", [
@@ -296,7 +296,8 @@ def test_fechar_uma_op_liberada_continua_mandando_o_patch():
 @pytest.mark.parametrize("status,planejada,apontada,acao,processa", [
     ("P", 10, 0, "LIBERAR + saída + entrada + encerrar", True),
     ("R", 10, 3, "saída + entrada + encerrar", True),
-    ("R", 10, 10, "ignorada (apontada = planejada)", False),
+    ("R", 10, 10, "só encerrar (já toda apontada)", True),    # 2026-11-03: closed, no movement
+    ("P", 0, 0, "ignorada (apontada = planejada)", False),
     ("L", 10, 0, "já encerrada — ignorada", False),
     ("C", 10, 0, "cancelada — não pode ser encerrada", False),
     ("p", 10, 0, "LIBERAR + saída + entrada + encerrar", True),   # lower case from a caller
@@ -308,7 +309,7 @@ def test_classifica_encerramento(status, planejada, apontada, acao, processa):
 @pytest.mark.parametrize("status,planejada,apontada,esperado", [
     ("P", 10, 0, ["liberar", "encerrar"]),
     ("R", 10, 0, ["encerrar"]),        # Liberar on a Liberada would be ignored: not offered
-    ("R", 10, 10, []),
+    ("R", 10, 10, ["encerrar"]),       # fully posted: only closed (2026-11-03)
     ("L", 10, 0, []),
     ("C", 10, 0, []),
 ])

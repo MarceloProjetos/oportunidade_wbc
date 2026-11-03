@@ -305,7 +305,12 @@ def classifica_encerramento(status: str, planejada: float, apontada: float) -> t
         # número e merece saber por que não entra, em vez de vê-la sumir.
         return "cancelada — não pode ser encerrada", False
     if float(apontada or 0) >= float(planejada or 0):
-        # `if (qtdAD < qtdPD)` do original: nada a apontar, nada a movimentar.
+        # `if (qtdAD < qtdPD)` do original: nothing to post. A Liberada OP is still closed, as
+        # the legacy did (its final `mudaStatus("f")` covered every marked row) — otherwise an
+        # OP whose close PATCH dropped after the receipt stayed open for good (2026-11-03,
+        # decision of Marcelo). Planejada cannot have production posted, so it stays skipped.
+        if status == "R":
+            return "só encerrar (já toda apontada)", True
         return "ignorada (apontada = planejada)", False
     if status == "R":
         return "saída + entrada + encerrar", True
@@ -791,9 +796,10 @@ async def finalizar_ops(
     """`ManutencaoOp.Button4_ClickAfter` (line ~399): closing with stock movement.
 
     Per OP, in the original order: `corrige_op` -> `saida_insumo` -> `entrada_produto` -> status
-    Encerrada. Only OPs with `apontada < planejada` are processed (legacy precondition); the others
-    go to ``ignoradas``. If the chain fails after the release and before the issue is posted, the OP
-    goes back to Planejada.
+    Encerrada. Only OPs with `apontada < planejada` get the stock movement (legacy precondition); a
+    Liberada OP already fully posted is only closed (``so_encerrada``, 2026-11-03), and a Planejada
+    one goes to ``ignoradas``. If the chain fails after the release and before the issue is posted,
+    the OP goes back to Planejada.
 
     IRREVERSIBLE: the goods issue and receipt are stock postings with no undo. The caller must
     confirm with the user first (the single-use `PLANOS` token).
@@ -884,8 +890,23 @@ async def finalizar_ops(
             continue
 
         if float(op["apontada"]) >= float(op["planejada"]):
-            # `if (qtdAD < qtdPD)` do original: nada a apontar, nada a movimentar.
-            ignoradas.append({**op, "motivo": "quantidade apontada já atingiu a planejada"})
+            # Nothing to post (`if (qtdAD < qtdPD)` of the legacy); a Liberada OP is only
+            # closed — see `classifica_encerramento`.
+            if str(op.get("status") or "").upper() != "R":
+                ignoradas.append({**op, "motivo": "quantidade apontada já atingiu a planejada"})
+                continue
+            try:
+                fechamento = await muda_status(sl, [op], "f")
+                if fechamento["com_erro"]:
+                    raise RuntimeError(fechamento["com_erro"][0]["motivo"])
+            except Exception as exc:  # noqa: BLE001 - uma OP com erro não impede as demais
+                com_erro.append({**op, "etapa": "encerrar OP", "motivo": str(exc)})
+                logger.error("  OP %s falhou em 'encerrar OP': %s", op["doc_num"], exc)
+                for dependente in dependentes.get(int(op["doc_entry"]), set()):
+                    bloqueadas.setdefault(int(dependente), int(op["doc_entry"]))
+                continue
+            finalizadas.append({**op, "saida_docentry": None, "entrada_docentry": None, "so_encerrada": True})
+            logger.info("  OP %s encerrada (já toda apontada, sem movimentar estoque).", op["doc_num"])
             continue
 
         doc_entry = int(op["doc_entry"])
