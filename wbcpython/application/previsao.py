@@ -1,13 +1,12 @@
-"""O **formato** do retrato da prévia — não a prévia.
+"""The **format** of the preview snapshot, not the preview itself.
 
-A simulação em si mora no comando que a executa (`cli._cmd_pendentes`): é uma
-ferramenta de linha de comando, e quem a procura espera achá-la lá. O que
-precisa ser compartilhado é só o formato do que ela produz, porque o retrato
-atravessa um arquivo JSON até a aba "Próximo ciclo" do painel.
+The simulation lives in the command that runs it (`cli._cmd_pendentes`): it is a command-line
+tool, and that is where people look for it. Only the format of what it produces must be
+shared, because the snapshot crosses a JSON file into the panel's "Próximo ciclo" tab.
 
-Manter o formato num lugar só evita a falha silenciosa clássica desse tipo de
-ponte: o comando grava um campo com um nome, a tela lê outro, e a coluna aparece
-vazia sem erro nenhum.
+Keeping the format in one place avoids the classic silent failure of this kind of bridge: the
+command writes a field under one name, the screen reads another, and the column shows up empty
+with no error.
 """
 
 from __future__ import annotations
@@ -59,11 +58,11 @@ ACOES_DE_DOCUMENTO = frozenset(
 
 @dataclass(frozen=True, slots=True)
 class LinhaDePrevisao:
-    """O que o ciclo faria com **um** orçamento.
+    """What the cycle would do with **one** quote.
 
-    `problema` é preenchido quando a linha não chega a ser decidida (sem
-    `U_ORCNUM_WBC`, ou ausente no WBC). Ela continua na lista de propósito:
-    esconder problema de dado é o oposto do que a prévia serve para fazer.
+    ``problema`` is filled when the line never gets decided (no ``U_ORCNUM_WBC``, or missing in
+    the WBC). The line stays in the list on purpose: hiding data problems is the opposite of what
+    the preview is for.
     """
 
     orcnum: str = ""
@@ -99,7 +98,7 @@ class LinhaDePrevisao:
 
     @property
     def sem_valor(self) -> bool:
-        """Documento que o SAP recusaria (`-5002`) por não ter valor."""
+        """A document the SAP would refuse (`-5002`) for having no value."""
         return (
             self.toca_documento
             and self.valor_do_documento is not None
@@ -113,7 +112,7 @@ STATUS_OPORTUNIDADE = {"O": "Aberta", "W": "Vendida", "L": "Perdida"}
 
 @dataclass(frozen=True, slots=True)
 class Previsao:
-    """A janela inteira, mais a procedência do retrato."""
+    """The whole window, plus the snapshot's provenance."""
 
     gerado_em: datetime
     company_db: str
@@ -142,11 +141,11 @@ def _docnum(documento: Any) -> int | None:
 
 
 def para_json(previsao: Previsao) -> dict[str, Any]:
-    """Serializa o retrato — é isto que o painel lê.
+    """Serializes the snapshot; this is what the panel reads.
 
-    O formato é um instantâneo com procedência embutida (`meta`): quem abre o
-    painel precisa saber de qual company e de que momento o retrato veio, senão
-    olha para produção achando que é homologação.
+    The format is a snapshot with embedded provenance (``meta``): whoever opens the panel must
+    know which company and which moment it came from, or they would look at production thinking it
+    is homologation.
     """
     return {
         "meta": {
@@ -194,7 +193,7 @@ def _linha_para_json(linha: LinhaDePrevisao) -> dict[str, Any]:
 
 
 def de_json(dados: dict[str, Any]) -> Previsao:
-    """Reconstrói o retrato lido de um arquivo."""
+    """Rebuilds the snapshot read from a file."""
     meta = dados.get("meta") or {}
     linhas = tuple(_linha_de_json(item) for item in dados.get("linhas") or ())
     return Previsao(

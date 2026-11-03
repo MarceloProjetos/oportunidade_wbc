@@ -1,38 +1,35 @@
-"""Tudo sobre o **pedido de venda**: criação e manutenção.
+"""Everything about the **sales order** (`pedido`): creation and maintenance.
 
-Módulo espelho de `domain.cotacao`. O que está aqui vale para o pedido e só para
-o pedido — e a lista do que difere não é pequena.
+Mirror module of `domain.cotacao`. What is here holds for the order and only for the order, and the list
+of differences is not small.
 
-**Cabeçalho** (`ServiceProcess.cs:294-344`):
+**Header** (`ServiceProcess.cs:294-344`):
 
-| Campo | Origem no WBC |
+| Field | WBC source |
 |---|---|
-| `DocDueDate` | hoje + `PRZENT` |
-| `Comments` | `PGTCOD` cru, cortado em 150 |
+| `DocDueDate` | today + `PRZENT` |
+| `Comments` | raw `PGTCOD`, cut at 150 |
 | `U_INO_TIPO_MT` | `TIPMONCOD` |
 | `U_INO_VL_MT` | **`ORCBAS3`** |
 | `U_INO_COM` | `ORCPERCOM` |
 | `U_INO_VL_COM` | `ORCVALCOM` |
-| `TaxExtension.MainUsage` + `Usage` das linhas | `9` fixo, **só na criação** (`com_uso_principal`) |
+| `TaxExtension.MainUsage` + line `Usage` | fixed `9`, **on creation only** (`com_uso_principal`) |
 
-**Linhas**: além de `U_INO_ORCITM` e `U_INO_D_Adicionais`, o pedido leva
-`U_INO_Composicao` e `U_INO_Id_IntWBC` (`:378-395`, `:653-667`) — e **não** leva
-`U_INO_ACAB`. Das 16.242 linhas de pedido do WBC em produção, apenas 6 têm
-`U_INO_ACAB` e 16.088 têm `U_INO_Composicao`.
+**Lines**: besides `U_INO_ORCITM` and `U_INO_D_Adicionais`, the order carries `U_INO_Composicao` and
+`U_INO_Id_IntWBC` (`:378-395`, `:653-667`) and does **not** carry `U_INO_ACAB`. Of the 16,242 WBC order
+lines in production, only 6 have `U_INO_ACAB` and 16,088 have `U_INO_Composicao`.
 
-**O que o pedido não leva** e a cotação leva: `U_INO_PrazoEntrega`,
-`U_INO_ValorTransp`, `U_INO_ValorEmbalagem`, `U_INO_PessoaContato`,
-`U_INO_CondPag` e `U_INO_Montagem`. Conferido: em 4.431 dos 4.432 pedidos do
-WBC em produção esses campos estão vazios.
+**What the order lacks** and the quotation has: `U_INO_PrazoEntrega`, `U_INO_ValorTransp`,
+`U_INO_ValorEmbalagem`, `U_INO_PessoaContato`, `U_INO_CondPag` and `U_INO_Montagem`. Checked: in 4,431 of
+the 4,432 WBC orders in production these fields are empty.
 
-**Duas armadilhas** que a separação torna visíveis:
+**Two traps** that the split makes visible:
 
-1. `U_INO_VL_MT` sai de `ORCBAS3` aqui e de `ORCVALMON` na cotação
-   (`:281` contra `:1180`). Colunas diferentes do mesmo registro. Não há como
-   saber se é intenção; os dois comportamentos foram preservados e a pergunta
-   está em `RETOMADA.md`.
-2. A condição de pagamento vai **crua** para o `Comments` — sem a troca de `|`
-   e `;` por quebra de linha que a cotação faz no `U_INO_CondPag`.
+1. `U_INO_VL_MT` comes from `ORCBAS3` here and from `ORCVALMON` on the quotation (`:281` against
+   `:1180`). Different columns of the same record. There is no way to know whether it is intentional; both
+   behaviors were preserved and the question is in `RETOMADA.md`.
+2. The payment condition goes **raw** into `Comments`, without the swap of `|` and `;` for line breaks
+   that the quotation applies to `U_INO_CondPag`.
 """
 
 from __future__ import annotations
@@ -57,36 +54,31 @@ from wbcpython.domain.venda_comum import (
 
 
 def comentario(texto: str) -> str:
-    """`Comments` do pedido: o `PGTCOD` cru, cortado em 150 caracteres.
+    """`Comments` of the order: the raw `PGTCOD`, cut at 150 characters.
 
-    O código-fonte que temos faz mais do que isso — depois de cortar, ele quebra
-    o texto em palavras e aplica `Distinct()` (`ServiceProcess.cs:332-334`), o
-    que apagaria palavras repetidas no meio da frase. **Produção não faz isso.**
+    The source code we have does more: after cutting, it splits the text into words and applies `Distinct()`
+    (`ServiceProcess.cs:332-334`), which would delete repeated words mid-sentence. **Production does not do
+    that.**
 
-    O pedido 19500 (orçamento `00125401`) tem `Comments` idêntico, caractere por
-    caractere, ao `PGTCOD` do WBC — inclusive com o "da" repetido em "da
-    mercadoria" e "da emissão", que o `Distinct()` teria comido. O mesmo vale
-    para os outros pedidos conferidos.
+    Order 19500 (quote `00125401`) has `Comments` identical, character by character, to the WBC `PGTCOD`,
+    including the repeated "da" in "da mercadoria" and "da emissão" that `Distinct()` would have eaten. The
+    same holds for the other orders checked.
 
-    Ou seja: o binário que roda em produção **não é** este código-fonte. Entre
-    reproduzir o fonte e reproduzir o comportamento observado, vale o
-    comportamento observado — é ele que o comercial lê hoje na impressão. A
-    divergência está registrada em `RETOMADA.md`.
+    So the binary running in production **is not** this source. Between reproducing the source and reproducing
+    the observed behavior, the observed behavior wins: it is what the sales team reads on the printout today.
+    The divergence is recorded in `RETOMADA.md`.
     """
     return texto[:LIMITE_COMENTARIO]
 
 
 def cabecalho(impressao: Any, *, hoje: date | None = None) -> dict[str, Any]:
-    """Cabeçalho do pedido — o conjunto de `ServiceProcess.cs:294-344`.
+    """Order header: the `ServiceProcess.cs:294-344` set.
 
-    Dois dos campos não são UDF, e é por isso que escaparam das varreduras que
-    procuravam por `U_INO_`:
+    Two of the fields are not UDFs, which is why they escaped the sweeps that searched for `U_INO_`:
 
-    * `DocDueDate` = data de hoje + `PRZENT` (`:294`). Conferido em produção:
-      nos 4.432 pedidos do WBC, `DocDueDate - DocDate` é exatamente o prazo de
-      entrega, sempre.
-    * `Comments` = a condição de pagamento (`:327-331`), preenchida em 4.328
-      deles.
+    * `DocDueDate` = today + `PRZENT` (`:294`). Checked in production: on the 4,432 WBC orders,
+      `DocDueDate - DocDate` is exactly the delivery term, always.
+    * `Comments` = the payment condition (`:327-331`), filled in 4,328 of them.
     """
     vencimento = (hoje or date.today()) + timedelta(  # noqa: DTZ011
         days=impressao.prazo_entrega
@@ -103,7 +95,7 @@ def cabecalho(impressao: Any, *, hoje: date | None = None) -> dict[str, Any]:
 
 
 def _udfs_da_linha(item: Any, orcamento: Any) -> dict[str, Any]:
-    """`U_INO_Composicao` e `U_INO_Id_IntWBC` — os dois UDFs de linha do pedido."""
+    """`U_INO_Composicao` and `U_INO_Id_IntWBC`: the order's two line UDFs."""
     del orcamento  # tudo vem da própria linha
     return {
         "U_INO_Composicao": composicao(item.texto),
@@ -118,15 +110,14 @@ def linhas(
     deposito: str = DEPOSITO_PADRAO,
     pesos: Mapping[int, Decimal] | None = None,
 ) -> ResultadoLinhas:
-    """`DocumentLines` do pedido.
+    """`DocumentLines` of the order.
 
-    `pesos` (`ORCITM` → peso líquido do nível 1 da árvore) vira `Weight1` na
-    linha (o peso líquido — ver `domain.linhas.peso_da_linha`). É o que distingue esta função da
-    equivalente em `domain.cotacao`, que não tem o parâmetro: o legado grava o
-    peso no pedido e deixa a linha da cotação comentada (`ServiceProcess.cs:640`
-    contra `:377`).
+    `pesos` (`ORCITM` -> level-1 net weight of the tree) becomes `Weight1` on the line, already through
+    `domain.linhas.peso_da_linha` (net weight + 10%, rounded to 2 decimals). This is what distinguishes this
+    function from its `domain.cotacao` counterpart, which has no such parameter: the legacy writes the weight
+    on the order and leaves the quotation's line commented out (`ServiceProcess.cs:640` against `:377`).
 
-    Sem `pesos`, o pedido sai como antes — com o peso do cadastro do item.
+    Without `pesos`, the order goes out as before, with the item master's weight.
     """
     return resolver_linhas(
         orcamento,
@@ -174,7 +165,7 @@ def montar_payload(
     trocando_de_parceiro: bool = False,
     hoje: date | None = None,
 ) -> dict[str, Any]:
-    """Corpo do pedido, sem as linhas — ver a nota em `domain.cotacao`."""
+    """Order body, without the lines. See the note in `domain.cotacao.montar_payload`."""
     payload = campos_comuns(
         orcamento,
         parceiro=parceiro,

@@ -1,19 +1,18 @@
-"""O que cotação e pedido têm de fato em comum.
+"""What quotation and order really have in common.
 
-Este módulo existe para conter **só** o que é igual nos dois documentos. Tudo o
-que difere mora em `domain.cotacao` e `domain.pedido`, separados de propósito:
-no legado são dois blocos de código distintos, com conjuntos de campos
-diferentes, e tratá-los como "um documento com um parâmetro de tipo" foi
-justamente o que fez a solução mandar campos de cotação no pedido e vice-versa.
+This module holds **only** what is identical in both documents. Everything that differs lives in
+`domain.cotacao` and `domain.pedido`, kept apart on purpose: in the legacy they are two distinct code
+blocks with different field sets, and treating them as "one document with a type parameter" is exactly
+what made the solution send quotation fields on the order and vice versa.
 
-Aqui ficam três coisas:
+Three things live here:
 
-1. **Formatação e limites de campo** — os UDFs de valor têm tamanhos apertados
-   no SAP e formatos que não são todos iguais entre si.
-2. **`campos_comuns`** — o punhado de campos que os dois documentos levam
-   idênticos (parceiro, filial, vínculo com o orçamento, vendedor, contato).
-3. **Nada além disso.** Se um campo vale para um documento só, ele não entra
-   aqui, mesmo que "quase" sirva para os dois.
+1. **Formatting and field limits**: the value UDFs have tight sizes in the SAP and formats that are not
+   all alike.
+2. **`campos_comuns`**: the handful of fields both documents carry identically (partner, branch, link to
+   the quote snapshot, salesperson, contact).
+3. **Nothing else.** A field that applies to one document only does not belong here, even if it "almost"
+   fits both.
 """
 
 from __future__ import annotations
@@ -47,29 +46,26 @@ LIMITE_VALOR_EMBALAGEM = 10
 
 
 def numero_curto(valor: Any) -> str:
-    """Número sem casas decimais sobrando — `4`, `4.5`, `3`.
+    """Number without spare decimals: `4`, `4.5`, `3`.
 
-    É o formato em que `U_INO_COM` está gravado em produção (amostra de pedidos
-    reais: `'3'`, `'4'`, `'4.5'`), e não o de quatro casas usado nos campos de
-    valor. São UDFs diferentes, com formatos diferentes; unificá-los deixaria o
-    campo diferente do que o comercial está acostumado a ver.
+    It is the format `U_INO_COM` is stored in on production (sample of real orders: `'3'`, `'4'`, `'4.5'`),
+    not the four-decimal one used by the value fields. They are different UDFs with different formats;
+    unifying them would make the field differ from what the sales team is used to seeing.
     """
     numero = Decimal(str(valor)).normalize()
     return f"{numero:f}"
 
 
 def valor_texto(valor: Any, limite: int) -> str:
-    """Valor como texto, com quatro casas, encurtado até caber no campo.
+    """Value as text with four decimals, shortened until it fits the field.
 
-    O padrão é o mesmo `formatar_para_sap` do resto da solução, que é o formato
-    em que as cotações do legado estão gravadas (`'0.0000'`, `'113026.8800'`).
+    The base format is the same as `formatar_para_sap`, which is how the legacy quotations are stored
+    (`'0.0000'`, `'113026.8800'`).
 
-    O ajuste existe porque `U_INO_ValorEmbalagem` tem apenas 10 caracteres: uma
-    embalagem de R$ 100.000,00 daria `'100000.0000'`, com 11, e o SAP recusaria
-    o documento inteiro por causa de um campo informativo. Nesse caso as casas
-    decimais vão sendo cortadas — perde-se precisão de exibição, nunca o
-    documento. Se nem o inteiro couber, aí sim o valor vai truncado, porque a
-    alternativa é não gravar documento nenhum.
+    The adjustment exists because `U_INO_ValorEmbalagem` has only 10 characters: a R$ 100,000.00 packaging
+    would give `'100000.0000'` (11), and the SAP would refuse the whole document over an informational field.
+    Decimals are then dropped (4, then 2, then 0): display precision is lost, never the document. If even the
+    integer does not fit, the value is truncated, because the alternative is no document at all.
     """
     for casas in (4, 2, 0):
         texto = f"{Decimal(str(valor)):.{casas}f}"
@@ -87,25 +83,24 @@ def campos_comuns(
     oportunidade: dict[str, Any] | None = None,
     trocando_de_parceiro: bool = False,
 ) -> dict[str, Any]:
-    """Os campos que cotação e pedido levam iguais.
+    """The fields quotation and order carry identically.
 
-    `CardCode` é **obrigatório** — sem ele o SAP recusa com
-    `-2028 Customer record not found` (verificado contra o ambiente real).
+    `CardCode` is **mandatory**: without it the SAP refuses with `-2028 Customer record not found` (verified
+    against the real environment).
 
-    `BPL_IDAssignedToInvoice` (a filial) também é exigido: sem ele o SAP recusa
-    com `-5002 Specify an active branch [OQUT.BPLId]`. O legado o fixava em `1`
-    no código (`ServiceProcess.cs:298` e `:1149`); aqui é configurável, mas o
-    padrão é o mesmo `1`, a única filial ativa em homologação.
+    `BPL_IDAssignedToInvoice` (the branch) is also required: without it the SAP refuses with `-5002 Specify
+    an active branch [OQUT.BPLId]`. The legacy hardcoded it as `1` (`ServiceProcess.cs:298` and `:1149`);
+    here it is a parameter, whose default in the application is the same `1`, the only active branch in
+    homologation.
 
-    `U_INO_ORCAMENTO` recebe o `DocEntry` do snapshot do OrcDetalhe gravado
-    momentos antes — é o vínculo do documento de volta para o retrato do
-    orçamento que o originou. É campo **numérico** no SAP (mandar `''` devolve
-    `SAP 205 — the given value('') of property 'U_INO_ORCAMENTO' is not a
-    NUMBER`), então só é enviado quando há valor: omitir é diferente de mandar
-    vazio.
+    `U_INO_ORCAMENTO` receives the `DocEntry` of the OrcDetalhe snapshot written moments before: the link
+    from the document back to the quote snapshot that originated it. It is a **numeric** field in the SAP
+    (sending `''` returns `SAP 205 - the given value('') of property 'U_INO_ORCAMENTO' is not a NUMBER`), so
+    it is sent only when there is a value: omitting differs from sending empty.
 
-    Vendedor e contato vêm da própria oportunidade, como no legado — que os lia
-    com `oport.GetByKey`. Aqui já vieram na consulta, sem ida extra ao SAP.
+    Salesperson and contact come from the opportunity itself, as in the legacy (which read them with
+    `oport.GetByKey`); here they already came in the query, with no extra SAP round trip. On a partner swap
+    (`trocando_de_parceiro`) the contact is omitted, because it belongs to the old partner.
     """
     payload: dict[str, Any] = {
         "U_INO_COTWBC": orcamento.orcnum,
@@ -133,10 +128,10 @@ def campos_comuns(
 
 
 def _codigo_ou_none(valor: Any) -> int | None:
-    """Código do SAP ou `None`: o SAP devolve `0`, `''` e `None` para "não tem".
+    """SAP code or `None`: the SAP returns `0`, `''` and `None` for "has none".
 
-    Não é o `_inteiro` dos outros módulos (processar, cli, previsao, hana): aqui **0 vira
-    None**, lá não. O nome diferente é para ninguém trocar um pelo outro.
+    Not the `_inteiro` of the other modules (processar, cli, previsao, hana): here **0 becomes None**, there
+    it does not. The different name is so nobody swaps one for the other.
     """
     try:
         numero = int(valor)

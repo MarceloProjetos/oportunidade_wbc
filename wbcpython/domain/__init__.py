@@ -1,6 +1,7 @@
-"""Camada: domain — regras de negócio puras, sem I/O.
+"""Domain layer: pure business rules, no I/O.
 
-Ver ai_spec/01_business_rules.md.
+The original `ai_spec/01_business_rules.md` no longer exists; `docs/wbc/ai_spec/00_index.md` says where
+each of its subjects lives now.
 """
 
 from wbcpython.domain.mapeamento import montar_payload_orcdetalhe

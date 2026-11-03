@@ -1,16 +1,16 @@
-"""Worker de integração — o processo que roda periodicamente.
+"""Integration worker: the process that runs periodically.
 
-Substitui o `Main` do console legado, com quatro diferenças que importam:
+Replaces the legacy console `Main`, with four differences that matter:
 
-1. **Execução única garantida.** Uma trava no banco impede duas execuções
-   sobrepostas. O legado não tinha nada disso: se uma execução demorasse mais
-   que o intervalo do agendador, duas rodavam juntas sobre os mesmos orçamentos.
-2. **Falha isolada por registro.** Um orçamento problemático vira erro
-   registrado e o laço segue. No legado, um registro sem número encerrava o
-   processo e deixava todo o resto sem processar, em silêncio.
-3. **Agendamento dentro do processo** (APScheduler), em vez de depender do
-   Agendador de Tarefas do Windows.
-4. **Histórico de execuções**, para se saber se o processo rodou e o que fez.
+1. **Guaranteed single execution.** A database lock prevents two overlapping executions. The
+   legacy had nothing like it: if one run outlasted the scheduler interval, two ran together
+   over the same quotes.
+2. **Failure isolated per record.** A problematic quote becomes a recorded error and the loop
+   goes on. In the legacy, a record without a number ended the process and silently left
+   everything else unprocessed.
+3. **Scheduling inside the process** (APScheduler), instead of depending on the Windows Task
+   Scheduler.
+4. **Execution history**, to know whether the process ran and what it did.
 """
 
 from __future__ import annotations
@@ -66,12 +66,12 @@ from wbcpython.tracking import (
 
 logger = logging.getLogger(__name__)
 
-#: Janela padrão, usada quando ninguém informa outra — o valor real vem da
-#: configuração (`WBC_MESES_DE_JANELA`). Mantido aqui porque `janela_padrao` é
-#: função de módulo, chamada também por quem não tem `Settings` em mãos.
+#: Default window when nobody passes one; the real value comes from the config
+#: (`MESES_DE_JANELA`). Kept here because `janela_padrao` is a module function, also
+#: called by code that has no `Settings` at hand.
 #:
-#: O legado montava esta data misturando -6 meses para o ano e -9 para o mês, o
-#: que dava um corte imprevisível. Aqui é um número só, explícito e ajustável.
+#: The legacy built this date mixing -6 months for the year and -9 for the month, an
+#: unpredictable cut-off. Here it is one explicit, adjustable number.
 MESES_DE_JANELA = 6
 
 #: Quantos ciclos estendidos seguidos podem falhar antes de o pedido ser
@@ -82,13 +82,12 @@ TENTATIVAS_ANTES_DE_DEVOLVER = 3
 
 @dataclass(frozen=True, slots=True)
 class ResultadoExecucao:
-    """O que o ciclo olhou e o que ele de fato fez — são coisas diferentes.
+    """What the cycle looked at and what it actually did are different things.
 
-    `processados` conta tudo que foi **avaliado**: o ciclo lê a janela inteira
-    de propósito, porque avaliar é barato. Chamar isso de "processado com
-    sucesso" dava um resumo que anunciava centenas de orçamentos tratados
-    quando o ciclo não havia tocado em nenhum — e essa é justamente a linha que
-    alguém lê para saber se precisa agir.
+    `processados` counts everything **evaluated**: the cycle reads the whole window on purpose,
+    because evaluating is cheap. Calling that "successfully processed" produced a summary that
+    announced hundreds of quotes handled when the cycle had touched none, and that is the line
+    people read to know whether they must act.
     """
 
     processados: int = 0
@@ -116,24 +115,25 @@ class ResultadoExecucao:
 
 
 # A per-quote cycle comes from someone waiting on the painel. The scheduled cycle holds
-# the lock for ~20 s every 3 min, so losing the race is common; wait it out instead of
-# giving up. The scheduled cycle itself never waits: the next tick is minutes away.
+# the lock for ~20 s every cycle (`WORKER_INTERVAL_SECONDS`, 300 s by default), so losing
+# the race is common; wait it out instead of giving up. The scheduled cycle itself never
+# waits: the next tick is minutes away.
 ESPERA_PELA_TRAVA_DIRIGIDA = timedelta(minutes=3)
 INTERVALO_DE_TENTATIVA_DA_TRAVA = 5.0
 
 
 def _agora() -> datetime:
-    """Relógio local ingênuo, como o resto do projeto.
+    """Naive local clock, like the rest of the project.
 
-    O agendador roda em `America/Sao_Paulo` e o log grava horário local; o
-    horário de trabalho é o do escritório, então comparar em UTC daria três
-    horas de diferença — o worker pararia às 16:00 e voltaria às 03:30.
+    The scheduler runs in `America/Sao_Paulo` and the log writes local time; working hours are the
+    office's, so comparing in UTC would be off by three hours: the worker would stop at 16:00 and
+    come back at 03:30.
     """
     return datetime.now()
 
 
 def janela_padrao(*, meses: int = MESES_DE_JANELA, hoje: date | None = None) -> date:
-    """Primeiro dia do mês, `meses` meses atrás."""
+    """First day of the month, ``meses`` months ago."""
     referencia = hoje or datetime.now().date()
     ano, mes = referencia.year, referencia.month - meses
     while mes <= 0:
@@ -143,7 +143,7 @@ def janela_padrao(*, meses: int = MESES_DE_JANELA, hoje: date | None = None) -> 
 
 
 class WorkerIntegracao:
-    """Executa um ciclo de integração e, opcionalmente, agenda repetições."""
+    """Runs one integration cycle and, optionally, schedules repetitions."""
 
     def __init__(
         self,
@@ -200,22 +200,22 @@ class WorkerIntegracao:
         apenas_sitcode: int | None = None,
         somente_leitura: bool = False,
     ) -> ResultadoExecucao:
-        """Executa um ciclo completo, sob a trava de execução única.
+        """Runs one full cycle under the single-execution lock.
 
-        `orcamento` permite reprocessar um caso específico — o que no legado só
-        era possível editando a consulta no código-fonte.
+        ``orcamento`` reprocesses one specific case (in the legacy this meant editing the query in the
+        source). A per-quote run waits up to `ESPERA_PELA_TRAVA_DIRIGIDA` for the lock; the scheduled
+        cycle never waits and returns ``ResultadoExecucao(ignorado=...)``.
 
-        `apenas_sitcode` restringe o ciclo a um SitCode do WBC. Serve para
-        separar uma leva do resto: rodar só os cancelados (99) confina o efeito
-        de uma execução a um tipo de mudança, o que importa quando a leva é
-        grande e a ação é destrutiva — cancelar cotação não se desfaz.
+        ``apenas_sitcode`` restricts the cycle to one WBC SitCode. It separates one batch from the
+        rest: running only the cancelled ones (99) confines the effect of a run to one kind of change,
+        which matters when the batch is big and the action is destructive (cancelling a quotation
+        cannot be undone).
 
-        `somente_leitura` é o ensaio: lê tudo, decide tudo, grava o
-        acompanhamento e **não escreve nada no SAP**. Serve para o painel
-        mostrar a janela real antes de qualquer documento ser tocado. Continua
-        sob a trava de execução única de propósito — o ensaio não escreve no
-        SAP, mas escreve no acompanhamento, e dois processos mexendo nas mesmas
-        linhas é justamente o que a trava existe para impedir.
+        ``somente_leitura`` is the rehearsal: reads everything, decides everything, writes the
+        tracking and **writes nothing to the SAP**. It lets the panel show the real window before any
+        document is touched. It still runs under the lock on purpose: the rehearsal does not write to
+        the SAP but does write to the tracking, and two processes touching the same rows is what the
+        lock exists to prevent.
         """
         limite = time.monotonic() + (
             ESPERA_PELA_TRAVA_DIRIGIDA.total_seconds() if orcamento else 0.0
@@ -249,18 +249,18 @@ class WorkerIntegracao:
                 time.sleep(INTERVALO_DE_TENTATIVA_DA_TRAVA)
 
     def _janela_do_ciclo(self) -> jn.Janela:
-        """Resolve a janela **deste** ciclo — e é por isso que ela não é lida no arranque.
+        """Resolves **this** cycle's window; that is why it is not read at startup.
 
-        Antes da janela sob demanda, `self._meses` era decidido uma vez, na
-        construção do worker, e o processo carregava esse número até reiniciar.
-        Agora o pedido pode ser armado pela tela a qualquer momento, e um valor
-        congelado significaria "o painel aceitou, mas só vale depois do próximo
-        restart" — exatamente o que este trabalho existe para eliminar.
+        Before the on-demand window, `self._meses` was decided once, when the worker was built, and
+        the process carried that number until restart. Now the request can be armed from the screen at
+        any time, and a frozen value would mean "the panel accepted it, but it only counts after the
+        next restart", exactly what this feature exists to eliminate.
 
-        Só `ARMADO` estende a janela. Em `AGUARDANDO` o ciclo volta ao padrão de
-        propósito: a pergunta está de pé, e continuar varrendo a janela larga a
-        cada intervalo seria o ciclo pesado rodando sozinho, sem ninguém ter
-        respondido.
+        A worker built with an explicit window (``meses_de_janela``) ignores the request.
+
+        Only ``ARMADO`` extends the window. In ``AGUARDANDO`` the cycle goes back to the default on
+        purpose: the question is open, and keeping the wide scan every interval would be the heavy
+        cycle running by itself with nobody having answered.
         """
         config = self._settings
         padrao = self._meses
@@ -291,15 +291,16 @@ class WorkerIntegracao:
         erro: str = "",
         onde_parou: str = "",
     ) -> None:
-        """Fecha o pedido segundo o que o ciclo estendido conseguiu fazer.
+        """Closes the request according to what the extended cycle managed to do.
 
-        As três saídas do plano, nesta ordem de precedência:
+        The plan's three outcomes, in this order of precedence:
 
-        * **erro** — não consome o pedido; conta a tentativa. No limite, devolve.
-        * **bateu no teto** — guarda o ponto de parada e pergunta se quer outro
-          ciclo. Os automáticos voltam ao padrão enquanto a pergunta espera.
-        * **cumpriu** — volta ao padrão sozinho, que é o comportamento que o
-          pedido promete a quem o armou.
+        * **error**: does not consume the request; counts the attempt. At the limit
+          (`TENTATIVAS_ANTES_DE_DEVOLVER`), it gives the window back.
+        * **hit the cap**: stores the stopping point and asks whether to run another cycle. The
+          automatic cycles go back to the default while the question waits.
+        * **fulfilled**: goes back to the default by itself, which is what the request promises to
+          whoever armed it.
         """
         if not janela.estendida:
             return
@@ -338,19 +339,16 @@ class WorkerIntegracao:
         )
 
     def _ler_pendentes(self, *, orcamento: str | None, meses: int) -> list[dict[str, Any]]:
-        """Lê a janela no HANA — e falha o ciclo se o HANA não responder.
+        """Reads the window from HANA, and fails the cycle if HANA does not answer.
 
-        Não há queda para o Service Layer de propósito. Um fallback silencioso
-        traria de volta o corte em 20 registros por página, com a integração
-        parecendo saudável enquanto deixasse de processar a maior parte da
-        janela. Falhar em voz alta é o comportamento seguro: o dashboard mostra
-        o erro e alguém age.
+        There is no fallback to the Service Layer on purpose. A silent fallback would bring back the
+        20-records-per-page cut, with the integration looking healthy while skipping most of the
+        window. Failing loudly is the safe behavior: the dashboard shows the error and someone acts.
 
-        Com `--orcamento`, a janela é a **dirigida** (24 meses por padrão), e
-        não a do ciclo. A janela limita o que é varrido sem ninguém pedir;
-        pedir um orçamento pelo número é o oposto — alguém sabe qual quer.
-        Antes, um orçamento fora da janela do ciclo apenas não era encontrado,
-        e o comando terminava com "0 avaliado(s)" e código 0.
+        With ``orcamento``, the window is the **directed** one (``meses_de_janela_dirigida``, 24 months
+        by default), not the cycle's. The window limits what is scanned unasked; asking for a quote by
+        number is the opposite, since someone knows which one they want. Before, a quote outside the
+        cycle's window was simply not found and the command ended with "0 avaliado(s)" and exit code 0.
         """
         repositorio = RepositorioOportunidadesHana(
             self._settings.hana,
@@ -575,15 +573,17 @@ class WorkerIntegracao:
     # -------------------------------------------------------------- execução
 
     def _ciclo_agendado(self) -> ResultadoExecucao:
-        """O ciclo do agendador, sujeito ao horário de trabalho.
+        """The scheduler's cycle, subject to working hours.
 
-        A guarda vive **aqui**, e não em `executar_ciclo`, porque
-        `wbcpython ciclo` é alguém pedindo: recusar um pedido explícito por
-        causa do relógio seria obstrução, não proteção.
+        The guard lives **here**, not in `executar_ciclo`, because `wbcpython ciclo` is someone asking:
+        refusing an explicit request because of the clock would be obstruction, not protection.
 
-        O aviso sai uma vez por transição, e não a cada volta. Com ciclo de 3
-        minutos, avisar sempre encheria a noite com ~230 linhas iguais — e log
-        que se repete assim deixa de ser lido justamente quando importa.
+        A stop request (file or signal) prevents a new cycle from starting. After a cycle that ran, it
+        also runs the rescaled-weights step and the daily cleanup.
+
+        The warning is logged once per transition, not on every poll. With a 300 s interval (the
+        default) that would be ~140 identical lines overnight, and a log that repeats itself stops
+        being read exactly when it matters.
         """
         agora = _agora()
         if self.parada_solicitada():
@@ -665,11 +665,11 @@ class WorkerIntegracao:
             yield RepositorioDocumentosVendaServiceLayer(cliente)
 
     def _faxina_diaria(self, hoje: date) -> None:
-        """Apaga as decisões mais velhas que a retenção, uma vez por dia, depois do ciclo.
+        """Deletes decisions older than the retention, once a day, after the cycle.
 
-        Depois, e não antes: o ciclo é o que importa, e a faxina nunca pode
-        atrasá-lo. Falha aqui vira aviso no log, não erro do ciclo — o banco
-        crescer um dia a mais não é motivo para parar a integração.
+        After, not before: the cycle is what matters and the cleanup must never delay it. A failure
+        here becomes a log warning, not a cycle error: the database growing one more day is no reason
+        to stop the integration.
         """
         dias = self._settings.eventos_retencao_dias
         if dias <= 0 or self._faxina_em == hoje:
@@ -687,11 +687,11 @@ class WorkerIntegracao:
         )
 
     def _motivo_para_nao_rodar(self, agora: datetime) -> str | None:
-        """`None` quando pode rodar; a frase do log quando não pode.
+        """``None`` when the cycle may run; the log sentence when it may not.
 
-        O dia é verificado antes da hora porque é a resposta mais útil: num
-        sábado às 10h, "fora do horário" estaria tecnicamente errado e mandaria
-        quem lê procurar no lugar errado.
+        The day is checked before the hour because it is the most useful answer: on a Saturday at
+        10:00, "outside working hours" would be technically wrong and would send the reader looking in
+        the wrong place.
         """
         config = self._settings
         if not config.e_dia_de_trabalho(agora.date()):
@@ -708,7 +708,11 @@ class WorkerIntegracao:
         return None
 
     def rodar_continuamente(self) -> None:
-        """Agenda o ciclo e mantém o processo vivo até receber sinal de parada."""
+        """Schedules the cycle and keeps the process alive until a stop request (signal or file).
+
+        On start it removes a stale stop file and returns any leftover extended-window request to the
+        default. The first cycle is immediate but goes through the same working-hours guard.
+        """
         intervalo = self._settings.worker_interval_seconds
         agendador = BackgroundScheduler(timezone="America/Sao_Paulo")
         agendador.add_job(
@@ -769,11 +773,10 @@ class WorkerIntegracao:
         self._parar.set()
 
     def parada_solicitada(self) -> bool:
-        """Sinal recebido **ou** arquivo de parada presente.
+        """Signal received **or** stop file present.
 
-        O arquivo promove a si mesmo a sinal: assim o laço principal acorda,
-        `rodar_continuamente` chega ao `shutdown` e o processo termina — o que o
-        `deploy_update.bat` está esperando do outro lado.
+        The file promotes itself to a signal: the main loop wakes up, `rodar_continuamente` reaches
+        `shutdown` and the process ends, which is what `deploy_update.bat` waits for on the other side.
         """
         if not self._parar.is_set() and self._pedido_de_parada.pendente():
             self._parar.set()

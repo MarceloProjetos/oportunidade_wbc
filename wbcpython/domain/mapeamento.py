@@ -1,46 +1,41 @@
-"""Mapeamento do orçamento do WBC para o payload do UDO `OrcDetalhe`.
+"""Mapping of the WBC quote to the payload of the `OrcDetalhe` UDO.
 
-Transformação pura: entra um `OrcamentoWbc` (lido do SQL Server), sai o
-dicionário que o Service Layer espera num `POST /b1s/v1/OrcDetalhe`.
+Pure transformation: an `OrcamentoWbc` (read from SQL Server) goes in, the dict the Service Layer expects
+in a `POST /b1s/v1/OrcDetalhe` comes out.
 
-O `OrcDetalhe` é o **retrato histórico** do orçamento no momento em que a
-integração agiu: é append-only, nunca atualizado, e é para ele que o UDF
-`U_INO_ORCAMENTO` da cotação aponta. Um retrato com metade dos campos vazios
-não serve ao propósito — daí o cuidado abaixo.
-
---------------------------------------------------------------------------
-As linhas têm dois caminhos, e o legado escolhe entre eles
---------------------------------------------------------------------------
-1. **Com árvore de produtos** (`INTEGRACAO_ORCPRDARV` tem linhas): cada linha
-   do snapshot é um componente — código, cor, nível, descrição, quantidade,
-   peso, preço unitário e total. É o detalhamento de engenharia, e pode ter
-   dezenas de linhas para um orçamento de dois itens.
-2. **Sem árvore**: sobram as linhas de `INTEGRACAO_ORCIMP`, e o legado grava
-   apenas **sequência e texto** (`U_INO_ORCITM`, `U_INO_ORCTXT`).
-
-**Quando cada caminho vale, e por quê.** A árvore só é preenchida no WBC quando
-o orçamento vira **pedido**: medido sobre os orçamentos alterados em 2026,
-os 600 com `SitCode 60` têm árvore — **100%** —, contra **1 em 1.255** dos que
-estão em `SitCode 40` (cotação emitida). Enquanto é só cotação, não existe
-detalhamento de engenharia para gravar.
-
-Repare que a escolha aqui **não olha o SitCode**: olha se a árvore existe. É de
-propósito. A regra de negócio ("árvore aparece no pedido") é do WBC, não nossa;
-codificá-la aqui criaria uma segunda fonte de verdade que sairia do ar no dia
-em que o WBC mudasse. O legado faz igual (`if ret.Count > 0`).
-
-Reproduzir os dois caminhos importa: gravar preço e quantidade no caminho 2 —
-como esta implementação chegou a fazer — inventa `Qtde = 1` e um "preço" que é
-o valor total da linha, ficando *parecido* com o caminho 1 sem ser. Melhor
-gravar menos e verdadeiro.
+`OrcDetalhe` is the **historical snapshot** of the quote at the moment the integration acted: append-only,
+never updated, and the target of the quotation's `U_INO_ORCAMENTO` UDF. A snapshot with half its fields
+empty defeats its purpose, hence the care below.
 
 --------------------------------------------------------------------------
-Campo que continua sem origem
+The lines have two paths, and the legacy chooses between them
 --------------------------------------------------------------------------
-`U_INO_LINHA` guarda o número da linha do **pedido** no SAP correspondente ao
-item, e o legado o preenche consultando `RDR1` (`GetLinha`) — só faz sentido
-quando já existe pedido, e vem nulo nos registros de referência. Fica de fora
-até haver um caso real que o exija.
+1. **With a product tree** (`INTEGRACAO_ORCPRDARV` has rows): each snapshot line is a component: code,
+   colour, level, description, quantity, weight, unit price and total. It is the engineering breakdown,
+   and can have dozens of lines for a two-item quote.
+2. **Without a tree**: what is left is the `INTEGRACAO_ORCIMP` rows, and the legacy writes only
+   **sequence and text** (`U_INO_ORCITM`, `U_INO_ORCTXT`).
+
+**When each path applies, and why.** The tree is only filled in WBC when the quote becomes an **order**:
+measured over the quotes changed in 2026, the 600 at `SitCode 60` all have a tree (**100%**), against
+**1 in 1,255** of those at `SitCode 40` (quotation issued). While it is only a quotation there is no
+engineering breakdown to record.
+
+Note that the choice here **does not look at the SitCode**: it looks at whether the tree exists. That is
+on purpose. The business rule ("the tree appears on the order") belongs to WBC, not to us; encoding it
+here would create a second source of truth that would break the day WBC changed. The legacy does the same
+(`if ret.Count > 0`).
+
+Reproducing both paths matters: writing price and quantity on path 2, as this implementation once did,
+invents `Qtde = 1` and a "price" that is the line total, looking *like* path 1 without being it. Better to
+write less and true.
+
+--------------------------------------------------------------------------
+Field that still has no source
+--------------------------------------------------------------------------
+`U_INO_LINHA` holds the number of the **order** line in the matching SAP document, and the legacy fills it
+by querying `RDR1` (`GetLinha`). That only makes sense once an order exists, and it is null in the
+reference records. It stays out until a real case requires it.
 """
 
 from __future__ import annotations
@@ -70,12 +65,11 @@ def _texto(valor: str) -> str:
 
 
 def _com_continuacao(payload: dict[str, Any], campo: str, valor: str, *, continuacao: str) -> None:
-    """Grava um texto longo, transbordando o excedente para o campo `_2`.
+    """Write a long text, spilling the excess into the `_2` continuation field.
 
-    O legado faz isso com `PGTCOD` e simplesmente **corta** `ORCPGT` e
-    `ORCIMP_MONTAGEM`. Aqui todo campo que tem par de continuação no UDO usa o
-    par: o campo existe justamente para isso, e um acabamento cortado no meio
-    de uma frase é um retrato histórico errado.
+    The legacy does this with `PGTCOD` and simply **cuts** `ORCPGT` and `ORCIMP_MONTAGEM`. Here every field
+    that has a continuation pair in the UDO uses the pair: the field exists exactly for that, and a finish
+    text cut mid-sentence is a wrong historical snapshot.
     """
     valor = _texto(valor)
     if not valor:
@@ -88,12 +82,12 @@ def _com_continuacao(payload: dict[str, Any], campo: str, valor: str, *, continu
 def montar_payload_orcdetalhe(
     orcamento: OrcamentoWbc, *, capturado_em: date | None = None
 ) -> dict[str, Any]:
-    """Monta o corpo do `POST /b1s/v1/OrcDetalhe` a partir do orçamento do WBC.
+    """Build the body of `POST /b1s/v1/OrcDetalhe` from the WBC quote.
 
-    Campos sem origem no WBC são **omitidos**, não zerados: omitir deixa o SAP
-    aplicar o padrão dele, enquanto zerar afirmaria um valor que não temos.
+    Fields with no source in WBC are **omitted**, not zeroed: omitting lets the SAP apply its default, while
+    zeroing would assert a value we do not have.
 
-    `capturado_em` existe para o teste fixar a data; em produção é hoje.
+    `capturado_em` exists so the test can pin the date; in production it is today.
     """
     imp = orcamento.impressao
 
@@ -171,17 +165,17 @@ def montar_payload_orcdetalhe(
 
 
 def montar_linhas_snapshot(orcamento: OrcamentoWbc) -> list[dict[str, Any]]:
-    """Escolhe entre os dois caminhos de linha e monta a coleção."""
+    """Choose between the two line paths and build the collection."""
     if orcamento.arvore:
         return [_linha_da_arvore(item) for item in orcamento.arvore]
     return [_linha_de_texto(item) for item in orcamento.itens]
 
 
 def _linha_da_arvore(item: ItemArvoreWbc) -> dict[str, Any]:
-    """Linha vinda da árvore de produtos — o detalhamento de engenharia.
+    """Line from the product tree: the engineering breakdown.
 
-    `U_INO_CODIGO` sai em maiúscula, como no legado: é código, e código com
-    caixa variável cria duplicata onde não há.
+    `U_INO_CODIGO` goes out in upper case, as in the legacy: it is a code, and a code with variable case
+    creates duplicates where there are none.
     """
     return {
         "U_INO_ORCITM": str(item.orcitm),
@@ -197,11 +191,10 @@ def _linha_da_arvore(item: ItemArvoreWbc) -> dict[str, Any]:
 
 
 def _linha_de_texto(item: ItemOrcamentoWbc) -> dict[str, Any]:
-    """Linha do caminho sem árvore: só sequência e texto, como no legado.
+    """Line of the no-tree path: only sequence and text, as in the legacy.
 
-    Nada de quantidade ou preço aqui. `ORCPRDQTD` é nula em todas as linhas do
-    WBC e `ORCVAL` é o total, não o unitário — gravá-los produziria um retrato
-    que parece detalhado e não é.
+    No quantity or price here. `ORCPRDQTD` is null on every WBC line and `ORCVAL` is the total, not the unit
+    price; writing them would produce a snapshot that looks detailed and is not.
     """
     return {
         "U_INO_ORCITM": str(item.orcitm),

@@ -1,60 +1,52 @@
-"""Motor comum das linhas de documento de venda (`DocumentLines`).
+"""Common engine for the lines (`DocumentLines`) of a sales document.
 
-Este módulo resolve **o que toda linha tem**: qual item do SAP, quanto, por
-quanto, em que depósito. Os UDFs que variam entre cotação e pedido não estão
-aqui — cada documento tem o seu módulo (`domain.cotacao`, `domain.pedido`) e
-passa os próprios campos por `udfs_da_linha`.
+This module resolves **what every line has**: which SAP item, how many, for how much, in which warehouse.
+The UDFs that differ between quotation and order are not here: each document has its own module
+(`domain.cotacao`, `domain.pedido`) and passes its own fields through `udfs_da_linha`.
 
-A separação é deliberada. Enquanto os dois documentos dividiam uma função com
-um parâmetro de tipo, foi fácil mandar `U_INO_Composicao` na cotação (onde
-produção nunca o grava, e onde ele **aparece na impressão do cliente**).
+The split is deliberate. While both documents shared one function with a type parameter, it was easy to
+send `U_INO_Composicao` on the quotation, where production never writes it and where it **appears on the
+customer's printout**.
 
-Domínio puro: recebe o orçamento e o de-para já carregado, devolve as linhas e
-os avisos. Não conhece Service Layer, HTTP nem banco — o que permite testar
-cada regra de negócio sem nenhum sistema externo.
+Pure domain: takes the quote and the already-loaded `de_para` and returns the lines and the warnings. It
+knows nothing of Service Layer, HTTP or database, so each business rule is testable with no external
+system.
 
-As três decisões que esta regra materializa foram tomadas pelo negócio:
+The three decisions this rule embodies were taken by the business:
 
-1. **Quantidade 1** quando `ORCPRDQTD` for vazia, nula, inconsistente ou zero —
-   exceto na linha de **porta-paletes**, onde a quantidade é lida do texto
-   (ver `quantidade_no_texto`). `ORCPRDQTD` é nula nas 20.997 linhas do WBC, e
-   o item PORTA-PALETES nascia no SAP como 1 unidade quando o texto dizia
-   "14 Módulos" (relato de 15/09/2026).
-2. **Fallback para Porta-Paletes** (grupo `2`) quando o grupo não estiver no
-   de-para — **com aviso em log**, nunca em silêncio.
-3. **Depósito `08`** em toda linha.
+1. **Quantity 1** when `ORCPRDQTD` is empty, null, inconsistent or zero, except on a **porta-paletes**
+   (pallet rack) line, where the quantity is read from the text (see `quantidade_no_texto`). `ORCPRDQTD`
+   is null on all 20,997 WBC lines, and the PORTA-PALETES item used to be born in the SAP as 1 unit when
+   the text said "14 Módulos" (report of 15/09/2026).
+2. **Fallback to Porta-Paletes** (group `2`) when the group is not in the `de_para`, **with a log
+   warning**, never silently.
+3. **Warehouse `08`** on every line.
 
-**O valor da linha vai como `LineTotal`, não como `Price`.** `ORCVAL` é o total
-da linha. Com quantidade 1, mandar `Price = ORCVAL` dava no mesmo; com 272
-módulos, `Price = ORCVAL ÷ 272` tem 4 casas no SAP e o total recalculado
-diverge 1 centavo (`272 × 2600,0071 = 707.201,93` contra `707.201,92` — 3 das
-18 linhas do ensaio de homologação). Enviando o total, o SAP deriva o preço e o
-total bate por construção. `MeasureUnit` **não** é enviado: a unidade é a do
-cadastro do item — a linha com "CJ" foi implementada e desfeita a pedido do
-negócio.
+**The line value goes as `LineTotal`, not `Price`.** `ORCVAL` is the line total. With quantity 1,
+sending `Price = ORCVAL` was the same; with 272 modules, `Price = ORCVAL / 272` has 4 decimals in the SAP
+and the recomputed total diverges by 1 cent (`272 x 2600.0071 = 707,201.93` against `707,201.92`; 3 of
+the 18 lines of the homologation rehearsal). Sending the total, the SAP derives the price and the total
+matches by construction. `MeasureUnit` is **not** sent: the unit is the item master's; the "CJ" line was
+implemented and undone at the business's request.
 
-**O peso é enviado no pedido e não na cotação** — e isso é do legado, não
-descuido. `ServiceProcess.cs:640` grava `Weight1` no pedido; na cotação a
-mesma linha existe **comentada** (`:377`). A cotação continua saindo com o peso
-do cadastro do item (`SalesUnitWeight`, que vale `1.0` nos itens `I00000x`).
+**The weight is sent on the order and not on the quotation**, and that is from the legacy, not an
+oversight. `ServiceProcess.cs:640` writes `Weight1` on the order; on the quotation the same line exists
+**commented out** (`:377`). The quotation keeps going out with the item master's weight
+(`SalesUnitWeight`, which is `1.0` on the `I00000x` items).
 
-Por isso o peso entra por `pesos`, um parâmetro opcional: `domain.pedido` o
-passa, `domain.cotacao` não. A decisão fica legível na assinatura das duas
-funções, em vez de escondida atrás de um `if tipo == PEDIDO`.
+So the weight enters through `pesos`, an optional parameter: `domain.pedido` passes it, `domain.cotacao`
+does not. The decision is readable in the signature of the two functions instead of hidden behind an
+`if tipo == PEDIDO`. `Weight1` is the WBC tree's level-1 net weight plus 10% (see `peso_da_linha`).
 
-Uma nota anterior deste módulo dizia que o peso não vinha do WBC e que o lugar
-de corrigir seria o cadastro do item no SAP. Estava errada: vem de
-`INTEGRACAO_ORCPRDARV`, somando o **nível 1** por `ORCITM` — ver
-`queries.PESOS_NIVEL_1_POR_ITEM`. O que a nota antiga olhou foi o `ORCPES` de
-`INTEGRACAO_ORCPRD`, que é outra tabela e de fato só existe para uma fração dos
-orçamentos.
+An earlier note in this module said the weight did not come from WBC and that the fix belonged in the
+item master in the SAP. It was wrong: the weight comes from `INTEGRACAO_ORCPRDARV`, summing **level 1**
+per `ORCITM` (see `queries.PESOS_NIVEL_1_POR_ITEM`). What the old note looked at was the `ORCPES` of
+`INTEGRACAO_ORCPRD`, a different table that really exists for only a fraction of the quotes.
 
-O ponto 2 merece um comentário. O legado tratava o grupo desconhecido de duas
-formas incompatíveis: em `ServiceProcess.cs:1223` e `:1256` caía no grupo `2`
-sem registrar nada; em `:356` e `:626` **descartava a linha inteira**, também
-sem registrar. A segunda é a pior das duas — um orçamento chegava ao SAP com
-valor menor que o do WBC e ninguém ficava sabendo. Aqui há um caminho só, e ele
-é ruidoso.
+On point 2: the legacy treated an unknown group in two incompatible ways. At `ServiceProcess.cs:1223`
+and `:1256` it fell back to group `2` without recording anything; at `:356` and `:626` it **dropped the
+whole line**, also without recording. The second is the worse one: a quote reached the SAP with a lower
+value than in WBC and nobody knew. Here there is a single path, and it is noisy.
 """
 
 from __future__ import annotations
@@ -106,13 +98,12 @@ MARCADOR_COMPOSICAO = "Valor"
 
 @dataclass(frozen=True, slots=True)
 class Nota:
-    """Uma linha de log sobre o que o motor fez com uma linha do orçamento.
+    """A log line about what the engine did with a quote line.
 
-    Não é aviso de integração: não vai para o acompanhamento e não marca o
-    orçamento. Vai para o log, com tema, para quem acompanha o ciclo ver o que
-    o SAP vai receber. `atencao` sobe o nível para WARNING — é o caso da
-    porta-paletes sem "N Módulos" no texto, onde a quantidade 1 é o fallback e
-    não uma leitura.
+    Not an integration warning: it does not go to the tracking and does not flag the quote. It goes to the log,
+    with a theme, so whoever follows the cycle sees what the SAP will receive. `atencao` raises the level to
+    WARNING, for a porta-paletes without "N Módulos" in the text, where quantity 1 is a fallback and not a
+    reading.
     """
 
     texto: str
@@ -121,12 +112,12 @@ class Nota:
 
 @dataclass(frozen=True, slots=True)
 class ResultadoLinhas:
-    """Linhas prontas para o SAP, mais o que precisou ser contornado.
+    """Lines ready for the SAP, plus what had to be worked around.
 
-    `avisos` é o que alguém precisa conferir e fica registrado no
-    acompanhamento do orçamento (grupo fora do de-para). `notas` é o que o
-    motor decidiu de propósito e merece ficar visível no log — a quantidade
-    lida do texto, ou a falta dela — sem virar erro do orçamento.
+    `avisos` is what someone must check and stays recorded in the quote's tracking (group missing from the
+    `de_para`, including the case where the fallback group is missing too and the line is not sent). `notas`
+    is what the engine decided on purpose and deserves to stay visible in the log (the quantity read from the
+    text, or its absence), without becoming a quote error.
     """
 
     linhas: tuple[dict[str, Any], ...] = ()
@@ -145,21 +136,20 @@ def _sem_acento(texto: str) -> str:
 
 
 def _inicio_de_porta_paletes(texto_normalizado: str) -> int | None:
-    """Posição em que a estrutura porta-paletes começa no texto, ou `None`.
+    """Position where the porta-paletes structure ends in the text, or `None`.
 
-    Três coisas dizem que a linha **não** é de porta-paletes, mesmo citando o
-    nome:
+    Despite the name, it returns the end of the matched name (`encontrado.end()`), where the search for
+    "N Módulos" starts. Three things say the line is **not** porta-paletes even though it cites the name:
 
-    * a palavra vem depois de "de/para/tipo" — é acessório ("STOPS TRASEIROS
-      PARA PORTA-PALETES", "COLUNAS DE PORTA-PALETES");
-    * a descrição já começou antes dela ("PLANOS METÁLICOS 60 Planos ... do
-      tipo porta-paletes") — um "N palavra" antes do nome é o sinal;
-    * o nome não aparece.
+    * the name follows a preposition such as "de/para/tipo" (see `_ACESSORIO_DE_PORTA_PALETES`): it is an
+      accessory ("STOPS TRASEIROS PARA PORTA-PALETES", "COLUNAS DE PORTA-PALETES");
+    * the description already started before it ("PLANOS METÁLICOS 60 Planos ... do tipo porta-paletes"): an
+      "N word" before the name is the signal;
+    * the name does not appear.
 
-    O que **pode** vir antes é um rótulo: "ÁREA: SECA PORTA-PALETES 226
-    Módulos", "ITEM 02 - PORTA-PALETES 04 Módulos", "OPÇÃO 02 PORTA-PALETES".
-    Medido na base inteira (15/09/2026): o rótulo antes do nome existe em 355
-    das 6.299 linhas lidas; exigir o nome no início as deixaria em 1, caladas.
+    What **may** come before is a label: "ÁREA: SECA PORTA-PALETES 226 Módulos", "ITEM 02 - PORTA-PALETES 04
+    Módulos", "OPÇÃO 02 PORTA-PALETES". Measured on the whole base (15/09/2026): the label before the name
+    exists in 355 of the 6,299 lines read; requiring the name at the start would leave them at 1, silently.
     """
     encontrado = _PORTA_PALETES.search(texto_normalizado)
     if encontrado is None:
@@ -175,40 +165,37 @@ def _inicio_de_porta_paletes(texto_normalizado: str) -> int | None:
 
 
 def eh_porta_paletes(texto: str) -> bool:
-    """O texto da linha descreve a estrutura porta-paletes, em qualquer grafia.
+    """Whether the line text describes the porta-paletes structure, in any spelling.
 
-    `PORTA-PALETES`, `Porta palete`, `porta paletes`, `PORTAPALETE`: hífen,
-    espaço ou nada, singular ou plural, com ou sem caixa. É a identificação
-    que importa para a quantidade — **pelo texto, não pelo grupo**: há
-    porta-paletes com `GRPCOD` 16, que vão para outro item do SAP. Acessório
-    que cita porta-paletes não conta (ver `_inicio_de_porta_paletes`).
+    `PORTA-PALETES`, `Porta palete`, `porta paletes`, `PORTAPALETE`: hyphen, space or nothing, singular or
+    plural, any case. This is the identification that matters for the quantity, **by text, not by group**:
+    there are porta-paletes with `GRPCOD` 16, which go to another SAP item. An accessory that cites
+    porta-paletes does not count (see `_inicio_de_porta_paletes`).
     """
     return _inicio_de_porta_paletes(_sem_acento(texto)) is not None
 
 
 def quantidade_no_texto(texto: str) -> int | None:
-    """Quantidade de módulos escrita no texto de uma linha de porta-paletes.
+    """Number of modules written in the text of a porta-paletes line.
 
-    É o **inteiro imediatamente anterior à primeira ocorrência de "Módulo(s)"**
-    depois de "porta-paletes", comparando sem acento e sem caixa. Devolve
-    `None` quando o texto não é de porta-paletes, não traz "Módulo" ou o
-    número é zero — o chamador decide o que fazer (quantidade 1, com nota).
+    It is the **integer immediately before the first occurrence of "Módulo(s)"** after "porta-paletes",
+    compared without accents and case. Returns `None` when the text is not porta-paletes, has no "Módulo", or
+    the number is zero; the caller decides what to do (quantity 1, with a note).
 
-    A regra chegou como "a primeira palavra PORTA-PALETES seguida de um
-    número", e teria lido 1 nestes dois textos reais:
+    The rule arrived as "the first PORTA-PALETES word followed by a number", and would have read 1 in these
+    two real texts:
 
-        PORTA-PALETES ÁREA 1 10 Módulos...     → 10, e não 1 (o 1 é da área)
-        PORTA-PALETES - OPÇÃO 1 14 Módulos...  → 14, e não 1 (o 1 é da opção)
+        PORTA-PALETES ÁREA 1 10 Módulos...     -> 10, not 1 (the 1 is the area)
+        PORTA-PALETES - OPÇÃO 1 14 Módulos...  -> 14, not 1 (the 1 is the option)
 
-    Ancorar no "Módulo" resolve os dois. Só vale para porta-paletes: uma
-    estante com "12 Módulos" continua em quantidade 1, sem nota — foi a
-    decisão de 15/09/2026, para não mudar o que nunca foi pedido.
+    Anchoring on "Módulo" solves both. It only applies to porta-paletes: a shelving unit with "12 Módulos"
+    stays at quantity 1, with no note; that was the 15/09/2026 decision, so as not to change what was never
+    asked.
 
-    Medido na base inteira do WBC (21.447 linhas, 15/09/2026): 6.442 linhas de
-    porta-paletes, **6.299 lidas (97,8%)**, 143 sem número — junções, colunas,
-    protetores e material avulso, onde 1 está certo. Limite conhecido: quatro
-    linhas "01 conjunto ... composto por N montantes ... para M módulos" leem
-    M. O total da linha não depende disso (`LineTotal`).
+    Measured on the whole WBC base (21,447 lines, 15/09/2026): 6,442 porta-paletes lines, **6,299 read
+    (97.8%)**, 143 without a number (joints, columns, protectors and loose material, where 1 is right). Known
+    limit: four lines "01 conjunto ... composto por N montantes ... para M módulos" read M. The line total
+    does not depend on it (`LineTotal`).
     """
     normalizado = _sem_acento(texto)
     inicio = _inicio_de_porta_paletes(normalizado)
@@ -221,18 +208,18 @@ def quantidade_no_texto(texto: str) -> int | None:
 
 
 def composicao(texto: str) -> str:
-    """Trecho do texto da linha que vai para `U_INO_Composicao`.
+    """Part of the line text that goes to `U_INO_Composicao`.
 
-    O legado corta no primeiro "Valor" — a descrição da composição vem antes,
-    os valores vêm depois. Se o marcador não aparecer, o texto vai inteiro.
+    The legacy cuts at the first "Valor": the composition description comes before it, the values after. If
+    the marker does not appear, the whole text goes.
 
-    Reproduz também um detalhe do original: o corte só acontece se o marcador
-    estiver **depois** do início (`IndexOf(...) > 0`). Um texto que *comece*
-    com "Valor" não é cortado, porque cortar deixaria a composição vazia.
+    It also reproduces a detail of the original: the cut only happens if the marker is **after** the start
+    (`IndexOf(...) > 0`). A text that *begins* with "Valor" is not cut, because cutting would leave the
+    composition empty.
 
-    O `rstrip` no fim é o que a gravação do legado faz por conta do DI-API — o
-    corte antes de "Valor" deixa espaços, e os documentos de produção não os
-    têm. Pelo Service Layer eles passariam direto para a impressão do cliente.
+    The trailing `rstrip` is what the legacy write does through the DI-API: the cut before "Valor" leaves
+    spaces, and the production documents do not have them. Through the Service Layer they would pass straight
+    to the customer's printout.
     """
     posicao = texto.find(MARCADOR_COMPOSICAO)
     return (texto[:posicao] if posicao > 0 else texto).rstrip()
@@ -246,19 +233,18 @@ def resolver_linhas(
     deposito: str = DEPOSITO_PADRAO,
     pesos: Mapping[int, Decimal] | None = None,
 ) -> ResultadoLinhas:
-    """Monta `DocumentLines` a partir dos itens do orçamento.
+    """Build `DocumentLines` from the quote's items.
 
-    `de_para` mapeia código de grupo (texto) para algo com `.item_sap`.
+    `de_para` maps group code (text) to something with `.item_sap`. A group missing from it falls back to
+    `GRUPO_FALLBACK`, with a warning; if that is missing too, the line is skipped and a warning says so.
 
-    `udfs_da_linha(item, orcamento)` devolve os UDFs específicos do documento
-    que está sendo montado. É o ponto onde cotação e pedido divergem — e o
-    único.
+    `udfs_da_linha(item, orcamento)` returns the UDFs specific to the document being built. It is the point
+    where quotation and order diverge, and the only one.
 
-    `pesos` mapeia `ORCITM` → peso **líquido** do item (nível 1 da árvore). Só o
-    pedido o passa. Item ausente do dicionário **não recebe o campo**: o SAP
-    mantém o peso do cadastro, que é o comportamento de hoje. Enviar zero
-    trocaria um número errado por outro, e um relatório de expedição não teria
-    como distinguir "não sei" de "não pesa nada". A conta está em `peso_da_linha`.
+    `pesos` maps `ORCITM` to the item's **net** weight (tree level 1). Only the order passes it. An item
+    missing from the dict **does not receive the field**: the SAP keeps the item master's weight, which is
+    today's behavior. Sending zero would swap one wrong number for another, and a shipping report could not
+    tell "unknown" from "weighs nothing". The computation is in `peso_da_linha`.
     """
     linhas: list[dict[str, Any]] = []
     avisos: list[str] = []
@@ -347,18 +333,16 @@ def resolver_linhas(
 
 
 def _anotar_quantidade(item: Any, quantidade: Decimal, notas: list[Nota]) -> None:
-    """Registra de onde veio a quantidade de uma linha de porta-paletes.
+    """Record where the quantity of a porta-paletes line came from.
 
-    Três saídas, e só para porta-paletes — as outras linhas seguem caladas,
-    como sempre seguiram:
+    Three outcomes, only for porta-paletes (other lines stay silent, as they always did):
 
-    * `ORCPRDQTD` preenchida: nada a dizer, a coluna venceu (precedência).
-    * Número lido do texto: nota, com o unitário derivado, para que quem
-      acompanha o log veja o que o SAP vai receber.
-    * Sem número: nota **com atenção** (WARNING no log). A leitura das 143
-      linhas assim na base mostrou junções, colunas, protetores e material
-      avulso — quantidade 1 está certa, mas quem confere precisa saber que
-      foi o fallback, e não uma leitura. Não vira erro do orçamento.
+    * `ORCPRDQTD` filled in: nothing to say, the column won (precedence).
+    * Number read from the text: a note, with the derived unit price, so whoever follows the log sees what
+      the SAP will receive.
+    * No number: a note **with attention** (WARNING in the log). Reading the 143 such lines in the base
+      showed joints, columns, protectors and loose material; quantity 1 is right, but whoever checks needs to
+      know it was the fallback and not a reading. It does not become a quote error.
     """
     if not eh_porta_paletes(item.texto):
         return
@@ -385,12 +369,12 @@ def _anotar_quantidade(item: Any, quantidade: Decimal, notas: list[Nota]) -> Non
 
 
 def _reais(valor: Decimal, *, casas: int = 2) -> str:
-    """`707201.92` → `707.201,92`, como a pessoa lê na tela do SAP."""
+    """`707201.92` -> `707.201,92`, as a person reads it on the SAP screen."""
     return f"{valor:,.{casas}f}".replace(",", "\0").replace(".", ",").replace("\0", ".")
 
 
 def _peso_da_linha(item: Any, pesos: Mapping[int, Decimal] | None) -> Decimal | None:
-    """Peso da linha do item, ou `None` quando não se sabe."""
+    """Weight of the item's line, or `None` when unknown."""
     if not pesos:
         return None
     return peso_da_linha(pesos.get(item.orcitm))

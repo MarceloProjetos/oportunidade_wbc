@@ -1,20 +1,17 @@
-"""Documentos já resolvidos na leitura — sem ida extra ao SAP.
+"""Documents already resolved by the read, with no extra SAP round trip.
 
-`montar_estado` precisa saber, para cada orçamento, se já existe cotação e
-pedido, qual revisão está aplicada neles, em que parceiro o pedido está e se ele
-está fechado. Perguntar isso ao Service Layer custa **seis** requisições por
-orçamento: cada um desses métodos chama `buscar`, e `existe` e `revisao_aplicada`
-o fazem para os dois tipos de documento.
+`montar_estado` needs, per quote, whether a quotation and an order exist, which revision is
+applied to them, which partner the order sits on and whether it is closed. Asking the Service
+Layer costs **six** requests per quote: each of those methods calls `buscar`, and `existe` and
+`revisao_aplicada` do so for both document types.
 
-A consulta do HANA já traz essa resposta junto com a oportunidade. Esta classe
-é o que permite entregá-la a `montar_estado` sem mexer na máquina de estados:
-implementa a mesma interface mínima que o repositório do Service Layer expõe,
-respondendo do que já está em memória.
+The HANA query already returns that answer with the opportunity. This class hands it to
+`montar_estado` without touching the state machine: it implements the same minimal interface as
+the Service Layer repository, answering from memory.
 
-O ganho é grande, mas o motivo de existir é outro: manter `montar_estado` e
-`decidir` ignorantes quanto à origem do dado. A decisão não pode mudar porque a
-leitura mudou de lugar — e, como a interface é a mesma, os testes da máquina de
-estados continuam valendo sem uma linha alterada.
+The saving is large, but the reason to exist is keeping `montar_estado` and `decidir` ignorant
+of where the data comes from: the decision cannot change because the read moved, and the
+state-machine tests stay valid unchanged.
 """
 
 from __future__ import annotations
@@ -36,14 +33,14 @@ UDF_REVISAO = "U_INO_VERSAOWBC"
 
 
 class DocumentosJaLidos:
-    """Responde sobre os documentos a partir do que a consulta já trouxe."""
+    """Answers about the documents from what the query already returned."""
 
     def __init__(self, documentos: dict[str, Any] | None = None) -> None:
         self._documentos = documentos or {}
 
     @classmethod
     def da_oportunidade(cls, oportunidade: dict[str, Any]) -> DocumentosJaLidos:
-        """Extrai o bloco `documentos` que o repositório do HANA anexa."""
+        """Extracts the ``documentos`` block the HANA repository attaches."""
         return cls(oportunidade.get("documentos"))
 
     def buscar(self, tipo: TipoDocumento, orcamento: str) -> dict[str, Any] | None:
@@ -54,10 +51,10 @@ class DocumentosJaLidos:
         return self.buscar(tipo, orcamento) is not None
 
     def revisao_aplicada(self, tipo: TipoDocumento, orcamento: str) -> str:
-        """Revisão gravada no documento, ou `''` quando não há documento.
+        """Revision stored on the document, or ``''`` when there is no document.
 
-        String vazia é como a máquina de estados representa "sem revisão" — o
-        mesmo contrato do repositório do Service Layer.
+        Empty string is how the state machine represents "no revision" (same contract as the
+        Service Layer repository).
         """
         documento = self.buscar(tipo, orcamento)
         if not documento:
@@ -65,17 +62,16 @@ class DocumentosJaLidos:
         return str(documento.get(UDF_REVISAO) or "")
 
     def parceiro_aplicado(self, tipo: TipoDocumento, orcamento: str) -> str:
-        """`CardCode` do documento vigente — vazio quando não há documento."""
+        """`CardCode` of the current document, empty when there is none."""
         documento = self.buscar(tipo, orcamento)
         return str(documento.get("CardCode") or "") if documento else ""
 
     def esta_fechado(self, tipo: TipoDocumento, orcamento: str) -> bool:
-        """`DocStatus = 'C'`: o SAP não aceita alteração nem cancelamento.
+        """`DocStatus = 'C'`: the SAP accepts neither changes nor cancellation.
 
-        `False` quando não há documento — "não existe" não é "está fechado", e
-        confundir os dois impediria a **criação** do primeiro pedido. Já um
-        status **desconhecido** trata o documento como fechado: ver
-        `esta_fechado_pelo_status`, que é onde a política mora.
+        `False` when there is no document: "does not exist" is not "is closed", and mixing them up
+        would block **creating** the first order. An **unknown** status, however, is treated as
+        closed: see `esta_fechado_pelo_status`, where the policy lives.
         """
         documento = self.buscar(tipo, orcamento)
         if not documento:
@@ -85,11 +81,10 @@ class DocumentosJaLidos:
         )
 
     def esta_congelado(self, tipo: TipoDocumento, orcamento: str) -> bool:
-        """`U_INO_Congelado = 'Y'`: as linhas do pedido não podem ser refeitas.
+        """`U_INO_Congelado = 'Y'`: the order lines must not be rebuilt.
 
-        Mesma pergunta que o Service Layer responde por `buscar`, aqui a partir
-        do que a consulta do HANA já trouxe — a política de tradução mora em
-        `esta_congelado_pelo_campo`.
+        Same question the Service Layer answers through `buscar`, here from what the HANA query
+        already returned; the translation policy lives in `esta_congelado_pelo_campo`.
         """
         documento = self.buscar(tipo, orcamento)
         if not documento:

@@ -1,21 +1,18 @@
-"""Pedido de parada por arquivo — o canal que não depende de console nem de sinal.
+"""Stop request by file: the channel that depends on neither a console nor a signal.
 
-Por que existe (09/09/2026): o segundo `deploy_update.bat` do dia pegou o
-worker 3 s dentro do ciclo #133 e o processo sumiu em menos de 20 s sem passar
-pelo tratador de Ctrl+C — sem "sinal recebido", sem "ciclo interrompido", sem
-"worker encerrado". A trava ficou em nome de um PID morto por 30 minutos e a
-execução #133 ficou "em andamento" para sempre. Duas causas prováveis, que se
-somam: o `python.exe` direto no serviço NSSM não tem console, então o
-`GenerateConsoleCtrlEvent` falha e o NSSM cai no `TerminateProcess`; e o
-`Event.wait()` sem timeout não é interrompido por sinal no Windows.
+Why it exists (09/09/2026): the day's second `deploy_update.bat` caught the worker 3 s into
+cycle #133 and the process vanished in under 20 s without passing through the Ctrl+C handler:
+no "signal received", no "cycle interrupted", no "worker stopped". The lock stayed under a
+dead PID for 30 minutes and execution #133 stayed "in progress" forever. Two probable causes,
+which add up: the `python.exe` run directly by the NSSM service has no console, so
+`GenerateConsoleCtrlEvent` fails and NSSM falls back to `TerminateProcess`; and `Event.wait()`
+without a timeout is not interrupted by a signal on Windows.
 
-O arquivo resolve as duas: o deploy grava `state/wbc_worker.stop` **antes** do
-`nssm stop`, o worker o vê entre orçamentos e entre ciclos, termina o que está
-fazendo (libera a trava, fecha a execução, faz `Logout`) e sai — e o NSSM
-encontra o processo já encerrado. Sem console, sem sinal, sem corrida.
+The file fixes both: the deploy writes `state/wbc_worker.stop` **before** `nssm stop`, the
+worker sees it between quotes and between cycles, finishes what it is doing (releases the
+lock, closes the execution, logs out) and exits, so NSSM finds the process already gone.
 
-Este módulo é puro de propósito: não importa o `apscheduler`, e por isso é
-testável em qualquer máquina.
+Pure on purpose: it does not import `apscheduler`, so it is testable on any machine.
 """
 
 from __future__ import annotations
@@ -27,7 +24,7 @@ logger = logging.getLogger("wbcpython.host.parada")
 
 
 class PedidoDeParada:
-    """Observa um arquivo cuja existência significa "pare quando puder"."""
+    """Watches a file whose existence means "stop when you can"."""
 
     def __init__(self, arquivo: Path) -> None:
         self._arquivo = Path(arquivo)
@@ -38,7 +35,7 @@ class PedidoDeParada:
         return self._arquivo
 
     def pendente(self) -> bool:
-        """`True` enquanto o arquivo existir. Loga uma vez por pedido, não por volta."""
+        """`True` while the file exists. Logs once per request, not once per poll."""
         if not self._arquivo.exists():
             self._anunciado = False
             return False
@@ -51,12 +48,11 @@ class PedidoDeParada:
         return True
 
     def limpar(self, *, motivo: str) -> bool:
-        """Remove o arquivo. `True` se havia um.
+        """Removes the file. Returns ``True`` if there was one.
 
-        Chamado na **partida** do worker: o deploy grava o arquivo, para o serviço
-        e o religa; sem esta limpeza o processo novo leria o pedido antigo e
-        sairia na primeira volta. Também vale para um arquivo esquecido por
-        alguém que parou o worker à mão.
+        Called at worker **start**: the deploy writes the file, stops the service and starts it
+        again; without this cleanup the new process would read the old request and exit on its first
+        poll. It also covers a file left behind by someone who stopped the worker by hand.
         """
         try:
             self._arquivo.unlink()
@@ -69,6 +65,6 @@ class PedidoDeParada:
         return True
 
     def pedir(self, *, motivo: str = "") -> None:
-        """Grava o pedido — o que o deploy faz em `.bat`; aqui serve a testes e à CLI."""
+        """Writes the request: what the deploy does in `.bat`; here it serves tests and the CLI."""
         self._arquivo.parent.mkdir(parents=True, exist_ok=True)
         self._arquivo.write_text(motivo or "parada solicitada", encoding="utf-8")

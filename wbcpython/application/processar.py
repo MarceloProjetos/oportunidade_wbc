@@ -1,13 +1,12 @@
-"""Caso de uso central: processar um orçamento.
+"""Central use case: process one quote.
 
-É aqui que as peças se encontram — lê o estado (WBC + SAP), pede a decisão ao
-domínio, executa as ações no SAP e registra tudo no acompanhamento.
+Where the pieces meet: reads the state (WBC + SAP), asks the domain for the decision,
+executes the actions in the SAP and records everything in the tracking store.
 
-A decisão de negócio **não mora aqui**: `domain.sitcode.decidir()` é quem
-decide, e esta camada só executa. Essa separação é o que permite testar toda a
-regra sem nenhum sistema externo, e é a diferença mais visível em relação ao
-legado, onde regra e chamadas de API estavam entrelaçadas num `Main` de 380
-linhas.
+The business decision does **not** live here: `domain.sitcode.decidir()` decides and this
+layer only executes. That split lets the whole rule be tested with no external system, and is
+the visible difference from the legacy, where rule and API calls were tangled in a 380-line
+`Main`.
 """
 
 from __future__ import annotations
@@ -137,10 +136,10 @@ TOLERANCIA_DE_TOTAL = Decimal("0.01")
 
 
 class DocumentoSemValor(Exception):
-    """O documento montado não tem valor — não há o que enviar ao SAP.
+    """The built document has no value, so there is nothing to send to the SAP.
 
-    Não é erro de integração: é um orçamento que ainda não tem o que virar
-    documento. Ver `_exigir_valor`.
+    Not an integration error: the quote does not yet have anything to turn into a document.
+    See `_exigir_valor`.
     """
 
 
@@ -167,18 +166,16 @@ class _SnapshotSobDemanda:
 
 
 def total_do_payload(dados: dict[str, Any]) -> Decimal:
-    """Soma `LineTotal` das linhas do payload.
+    """Sum of `LineTotal` over the payload lines.
 
-    É o total antes do imposto, feito antes de enviar — a mesma grandeza que
-    `total_das_linhas` relê do SAP depois. Em `Decimal` de propósito: as
-    linhas carregam `float` (é o que o JSON do Service Layer aceita), e somar
-    floats para depois comparar com zero é justamente onde um total legítimo
-    de centavos poderia virar zero.
+    The pre-tax total computed before sending, the same quantity `total_das_linhas` re-reads from
+    the SAP afterwards. `Decimal` on purpose: lines carry `float` (what the Service Layer JSON
+    accepts), and summing floats to compare with zero is exactly where a legitimate total of a few
+    cents could become zero.
 
-    Até 15/09/2026 somava `Quantity * Price`; a linha passou a levar
-    `LineTotal` (ver `domain.linhas`), e os dois lados da conferência mudaram
-    juntos — comparar um total enviado com um produto relido seria comparar
-    grandezas diferentes.
+    Until 15/09/2026 it summed `Quantity * Price`; the line now carries `LineTotal` (see
+    `domain.linhas`) and both sides of the check changed together — comparing a sent total with a
+    re-read product would compare different quantities.
     """
     total = Decimal(0)
     for linha in dados.get("DocumentLines") or ():
@@ -199,12 +196,12 @@ class ResultadoProcessamento:
 
 
 def _kg(peso: Decimal) -> str:
-    """`226.43` → `226,43`, como a pessoa lê na tela do SAP."""
+    """`226.43` → `226,43`, as people read it on the SAP screen."""
     return f"{peso:.2f}".replace(".", ",")
 
 
 class ProcessadorDeOrcamento:
-    """Orquestra o processamento de um orçamento, do WBC ao SAP."""
+    """Orchestrates the processing of one quote, from the WBC to the SAP."""
 
     def __init__(
         self,
@@ -254,11 +251,10 @@ class ProcessadorDeOrcamento:
         oportunidade: dict[str, Any],
         situacao: tuple[int, str] | None = None,
     ) -> ResultadoProcessamento:
-        """Processa uma oportunidade do SAP contra o orçamento no WBC.
+        """Process one SAP opportunity against its quote in the WBC.
 
-        Nunca propaga exceção: uma falha num orçamento vira erro registrado, e o
-        laço do worker segue para o próximo. É a correção direta do defeito do
-        legado, em que um registro problemático abortava a execução inteira.
+        Never raises: a failure on one quote becomes a recorded error and the worker loop moves on to
+        the next. Direct fix for the legacy defect where one bad record aborted the whole run.
         """
         orcnum = str(oportunidade.get("U_ORCNUM_WBC") or "").strip()
         if not orcnum:
@@ -286,18 +282,17 @@ class ProcessadorDeOrcamento:
         oportunidade: dict[str, Any],
         situacao: tuple[int, str] | None = None,
     ) -> ResultadoProcessamento:
-        """Decide primeiro; só carrega o orçamento inteiro se houver ação.
+        """Decide first; load the whole quote only if there is an action.
 
-        `situacao` é `(sitcode, revisao)` lido em lote pelo worker. Com ela, a
-        decisão sai sem tocar nas linhas do orçamento — e carregar as linhas é
-        caro: 279 ms contra 29 ms da situação, medido no ambiente real. Como a
-        grande maioria dos orçamentos da janela não tem ação, evitar essa carga
-        é a diferença entre um ciclo de oito minutos e um de um minuto.
+        `situacao` is `(sitcode, revisao)` read in batch by the worker. With it the decision comes out
+        without touching the quote lines, and loading lines is expensive: 279 ms against 29 ms for the
+        situation, measured in the real environment. Most quotes in the window have no action, so
+        skipping that load is the difference between an eight-minute cycle and a one-minute one.
 
-        Quem tem ação carrega o orçamento completo e **refaz** estado e decisão
-        sobre ele. Parece redundante, mas não é: garante que o documento seja
-        montado a partir do mesmo retrato que autorizou a ação, e não de uma
-        versão que mudou entre as duas leituras.
+        A quote with an action loads the full quote and **redoes** state and decision on it. Not
+        redundant: the document is built from the same snapshot that authorised the action, not from a
+        version that changed between the two reads. In the ensaio (`somente_leitura`) it stops after
+        recording.
         """
         if situacao is not None:
             decisao_previa = self._decidir_com_situacao(orcnum, oportunidade, situacao)
@@ -350,16 +345,14 @@ class ProcessadorDeOrcamento:
         return ResultadoProcessamento(orcnum=orcnum, decisao=decisao, acoes_executadas=executadas)
 
     def _registrar_ensaio(self, orcnum: str, decisao: Decisao) -> ResultadoProcessamento:
-        """Fecha o orçamento no ensaio: registrado, decidido, não executado.
+        """Close the quote in the ensaio: recorded, decided, not executed.
 
-        O status **não** é tocado. Uma linha nova nasce `PENDENTE`, que é a
-        verdade: avaliada, com ação identificada, ainda não feita. E uma linha
-        que já traz o resultado de um ciclo real não pode ser rebaixada por um
-        ensaio — o ensaio não desfez nada no SAP.
+        The status is **not** touched. A new row is born `PENDENTE`, which is the truth: evaluated,
+        action identified, not done. A row already carrying the result of a real cycle must not be
+        downgraded by an ensaio, which undid nothing in the SAP.
 
-        O evento diz em voz alta que foi ensaio. Sem ele, semanas depois, a
-        linha parada em "Pendente" seria indistinguível de uma que falhou em
-        silêncio.
+        The event says out loud that it was an ensaio; without it, weeks later, a row stuck on
+        "Pendente" would be indistinguishable from one that failed silently.
         """
         acoes = ", ".join(a.value for a in decisao.acoes)
         self._tracking.registrar_evento(
@@ -379,12 +372,11 @@ class ProcessadorDeOrcamento:
         oportunidade: dict[str, Any],
         situacao: tuple[int, str],
     ) -> ResultadoProcessamento | None:
-        """Decide pela situação lida em lote. `None` significa "tem ação, siga".
+        """Decide from the batch-read situation. `None` means "has an action, carry on".
 
-        O registro do orçamento sem ação é parcial de propósito: cliente,
-        vendedor e município moram nas linhas, que não foram carregadas. O
-        acompanhamento preserva o que já sabia desses campos — e gravar `''`
-        por cima seria pior do que não gravar.
+        The record written for a quote with no action is partial on purpose: client, salesperson and
+        city live in the lines, which were not loaded. The tracking store keeps what it already knew
+        for those fields, and writing `''` over it would be worse than not writing.
         """
         sitcode, revisao = situacao
         estado, decisao = decidir_pela_situacao(
@@ -427,10 +419,9 @@ class ProcessadorDeOrcamento:
         ultimo_documento: dict[str, Any] | None = None
         tipo_ultimo: TipoDocumento | None = None
 
-        # O snapshot vem **antes** dos documentos porque o seu `DocEntry` é o
-        # que alimenta o UDF `U_INO_ORCAMENTO` da cotação/pedido. Ver
-        # `_gravar_snapshot_orcdetalhe`. Lazily, once, right before the first document
-        # write (01/10/2026 review): it used to be written before ANY action — a quote with
+        # The snapshot's `DocEntry` feeds the quote/order UDF `U_INO_ORCAMENTO` (see
+        # `_gravar_snapshot_orcdetalhe`), so it is written lazily, once, right before the first
+        # document write (01/10/2026 review): it used to be written before ANY action — a quote with
         # no items (DocumentoSemValor), a status-only change or a missing partner wrote a
         # new @INO_ORCAM row every 3-minute cycle with no document to point at it.
         snapshot = _SnapshotSobDemanda(
@@ -510,7 +501,7 @@ class ProcessadorDeOrcamento:
             executadas.append(acao)
 
         if adiada and not executadas:
-            # Nothing was written: an empty "Ações executadas" event every 3 minutes
+            # Nothing was written: an empty "Ações executadas" event every cycle
             # while the swap waits would bury the history (ACAO events are not deduped).
             return ()
 
@@ -725,13 +716,14 @@ class ProcessadorDeOrcamento:
         orcnum: str,
         oportunidade: dict[str, Any],
     ) -> bool:
-        """Cancela a cotação do orçamento encerrado; falha não derruba o ciclo.
+        """Cancel the quote of the closed budget; a failure does not break the cycle.
 
-        A recusa do SAP é um resultado esperado, não um defeito: a cotação pode
-        já ter sido convertida, fechada manualmente ou cancelada por alguém
-        entre a leitura e a escrita. Nesses casos registra-se o aviso e o
-        encerramento da oportunidade segue — que é o efeito que o legado já
-        produzia.
+        The SAP refusing is an expected outcome, not a defect: the quote may have been converted,
+        closed by hand or cancelled by someone between the read and the write. The warning is recorded
+        and the closing of the opportunity goes on, which is the effect the legacy already had.
+
+        Returns:
+            True if the quote was cancelled; False if none was found or the SAP refused.
         """
         doc_entry = fonte_de_documentos(oportunidade, self._documentos).doc_entry(
             TipoDocumento.COTACAO, orcnum
@@ -754,25 +746,21 @@ class ProcessadorDeOrcamento:
         orcamento: OrcamentoWbc,
         executadas: list[Acao],
     ) -> None:
-        """Mexeu em documento, o `U_INO_StatusWBC` da oportunidade acompanha.
+        """Touched a document: the opportunity's `U_INO_StatusWBC` follows.
 
-        Sem isto, uma oportunidade recém-integrada ficava com o status antigo
-        (tipicamente `"0"`): as regras que criam ou atualizam documento —
-        `sem_cotacao_cria`, `emitido_sem_cotacao`, `revisao_sobre_cotacao_emitida`
-        — não trazem `atualizar_status_oportunidade` entre as ações, porque no
-        legado o espelhamento vinha embutido na própria gravação da
-        oportunidade (`AddCotacaoOportunidade` grava `U_INO_StatusWBC` junto com
-        o vínculo).
+        Without this a freshly integrated opportunity kept the old status (typically `"0"`): the rules
+        that create or update a document (`sem_cotacao_cria`, `emitido_sem_cotacao`,
+        `revisao_sobre_cotacao_emitida`) do not carry `atualizar_status_oportunidade` among their
+        actions, because in the legacy the mirroring was built into saving the opportunity
+        (`AddCotacaoOportunidade` writes `U_INO_StatusWBC` together with the link).
 
-        A consequência de esquecer é silenciosa e cara: na execução seguinte o
-        SAP ainda diz `"0"`, a decisão volta a ser "criar", e a integração
-        recria o documento — de novo, e de novo.
+        Forgetting it is silent and expensive: next run the SAP still says `"0"`, the decision is
+        "create" again, and the integration recreates the document, again and again.
 
-        Aqui é um passo explícito, aplicado depois de qualquer ação de
-        documento. Três guardas evitam chamadas inúteis ou nocivas:
-        não repetir o que `ATUALIZAR_STATUS_OPORTUNIDADE` já fez; não escrever
-        se o SAP já reflete o SitCode; e não reabrir status numa oportunidade
-        que acabou de ser encerrada.
+        An explicit step after any document action. It skips (no useless or harmful call) when:
+        nothing was executed or there is no `oppr_id`; `ATUALIZAR_STATUS_OPORTUNIDADE` already did it;
+        the opportunity was just closed (`MARCAR_OPORTUNIDADE_PERDIDA`) — never reopen it; no document
+        action ran; or the SAP already reflects the SitCode.
         """
         if oppr_id is None or not executadas:
             return
@@ -800,13 +788,15 @@ class ProcessadorDeOrcamento:
         oportunidade: dict[str, Any],
         snapshot: _SnapshotSobDemanda | None = None,
     ) -> tuple[dict[str, Any] | None, TipoDocumento | None]:
-        """Encaminha a ação para o procedimento do documento correspondente.
+        """Route the action to the procedure of the matching document.
 
-        Cotação e pedido têm procedimentos **separados** — `_executar_cotacao` e
-        `_executar_pedido` — porque os dois documentos não levam os mesmos
-        campos. Enquanto dividiam um caminho só com um parâmetro de tipo, foi
-        fácil mandar campo de um no outro; o `U_INO_Composicao` chegou a sair em
-        cotação, onde aparece na impressão do cliente.
+        Quote and order have **separate** procedures (`_executar_cotacao`, `_executar_pedido`) because
+        the two documents do not carry the same fields. While they shared one path with a type
+        parameter, it was easy to send a field of one into the other: `U_INO_Composicao` once went out
+        on a quote, where it shows on the customer's printout.
+
+        Returns:
+            `(document, type)`, or `(None, None)` when the action produced no document to link.
         """
         snapshot = snapshot or _SnapshotSobDemanda(lambda: None)
         if acao in ACOES_DE_COTACAO:
@@ -816,16 +806,16 @@ class ProcessadorDeOrcamento:
         return None, None
 
     def _parceiro_existe(self, estado: EstadoIntegracao, orcnum: str) -> bool:
-        """O parceiro corrigido existe no SAP? (`ChecaPN` do legado.)
+        """Does the corrected partner exist in the SAP? (The legacy `ChecaPN`.)
 
-        Vale para os dois caminhos que gravam o pedido no `PN_Correc`: a troca
-        (cancela e recria) e a criação já corrigida. Criar no parceiro da
-        oportunidade "enquanto isso" seria pior do que não criar: o vínculo
-        baixa o `U_INO_Update`, e o pedido ficaria no parceiro errado para
-        sempre — ver `EstadoIntegracao.nasce_no_parceiro_corrigido`.
+        Covers both paths that write the order on `PN_Correc`: the swap (cancel and recreate) and
+        creation already corrected. Creating on the opportunity's partner "meanwhile" would be worse
+        than not creating: the link clears `U_INO_Update` and the order would stay on the wrong partner
+        forever — see `EstadoIntegracao.nasce_no_parceiro_corrigido`.
 
-        Sem repositório de parceiros injetado, segue em frente: é o
-        comportamento de antes, e vale para os testes que não exercitam troca.
+        Returns True without a lookup when the order is not on the corrected partner, or when no
+        partners repository was injected (the pre-existing behaviour, relied on by tests that do not
+        exercise the swap). On False it records an ERRO event.
         """
         if not estado.pedido_no_parceiro_corrigido or self._parceiros is None:
             return True
@@ -846,18 +836,19 @@ class ProcessadorDeOrcamento:
         return False
 
     def _exigir_valor(self, tipo: TipoDocumento, orcnum: str, dados: dict[str, Any]) -> None:
-        """Recusa, antes de enviar, um documento que o SAP rejeitaria.
+        """Refuse, before sending, a document the SAP would reject.
 
-        O SAP responde `HTTP 400 | SAP -5002 | "Document total value must be
-        zero or greater than zero"` a um documento sem valor. Chegar lá vira
-        erro de ciclo, entra no dashboard como falha e some no meio do ruído —
-        quando a causa é banal: o orçamento ainda não tem item no WBC (caso do
-        00125275, com zero itens), ou os itens que tem não chegaram a preço.
+        The SAP answers `HTTP 400 | SAP -5002 | "Document total value must be zero or greater than
+        zero"` to a document with no value. Reaching that turns into a cycle error, shows on the
+        dashboard as a failure and drowns in noise — when the cause is mundane: the quote has no items
+        yet in the WBC (case 00125275, zero items) or its items did not get a price.
 
-        Isso não é falha da integração e não deve ser tratada como tal. Fica no
-        log e no acompanhamento, e o ciclo segue; quando o orçamento ganhar
-        itens, a execução seguinte cria o documento normalmente — a decisão
-        depende de existir cotação, não de já termos tentado.
+        That is not an integration failure. It goes to the log and the tracking store and the cycle
+        goes on; once the quote gains items, the next run creates the document normally — the decision
+        depends on a quote existing, not on having tried already.
+
+        Raises:
+            DocumentoSemValor: the payload total is not greater than zero.
         """
         total = total_do_payload(dados)
         if total > 0:
@@ -882,7 +873,7 @@ class ProcessadorDeOrcamento:
         oportunidade: dict[str, Any],
         snapshot: _SnapshotSobDemanda,
     ) -> tuple[dict[str, Any] | None, TipoDocumento | None]:
-        """Criação e manutenção da **cotação**."""
+        """Creation and maintenance of the **quote**."""
         # Built without the snapshot first: the value check needs no SAP write.
         dados = self._payload_cotacao(orcamento, estado, oportunidade, None)
         tipo = TipoDocumento.COTACAO
@@ -909,19 +900,21 @@ class ProcessadorDeOrcamento:
     def _conferir_cotacao(
         self, orcnum: str, doc_entry: int, dados: dict[str, Any]
     ) -> tuple[dict[str, Any] | None, TipoDocumento | None]:
-        """Relê a cotação atualizada e, se divergir do orçamento, refaz.
+        """Re-read the updated quote and, if it diverges from the budget, redo it.
 
-        **Um `204 No Content` não prova que as linhas mudaram.** Nas cotações
-        `00125616` e `00125577` o `PATCH` foi aceito, o cabeçalho gravou, e as
-        linhas continuaram como estavam — uma delas a preço zero, deixando o
-        documento R$ 1.604,38 e R$ 39.802,60 abaixo do orçamento. A integração
-        registrou sucesso e o erro chegou ao usuário pelo documento, não pelo
-        painel. Ver `DECISOES.md`.
+        **A `204 No Content` does not prove the lines changed.** On quotes `00125616` and `00125577`
+        the `PATCH` was accepted, the header saved, and the lines stayed as they were — one at price
+        zero, leaving the document R$ 1.604,38 and R$ 39.802,60 below the budget. The integration
+        recorded success and the error reached the user through the document, not the panel. See
+        `DECISOES.md`.
 
-        Cancelar e recriar é o caminho que **comprovadamente** funciona: foi o
-        que o usuário fez à mão no `00125616`, e a cotação nova saiu com os dois
-        valores certos. Só vale para a cotação: o pedido tem guardas próprias
-        (`U_INO_Congelado`, `DocStatus`) e recriá-lo tem outro peso.
+        Cancel-and-recreate is the path that **provably** works: it is what the user did by hand on
+        `00125616`, and the new quote came out with both values right. Quotes only: the order has its
+        own guards (`U_INO_Congelado`, `DocStatus`) and recreating it weighs differently.
+
+        Returns:
+            `(document, type)` of the recreated quote; `(None, None)` when the totals match or the
+            re-read failed (the update is kept as is).
         """
         esperado = total_do_payload(dados)
         try:
@@ -978,7 +971,7 @@ class ProcessadorDeOrcamento:
         oportunidade: dict[str, Any] | None = None,
         snapshot_id: int | None = None,
     ) -> dict[str, Any]:
-        """Corpo da cotação: cabeçalho de `domain.cotacao` mais as linhas."""
+        """Quote body: `domain.cotacao` header plus the lines."""
         payload = regras_cotacao.montar_payload(
             orcamento,
             # A cotação nunca muda de parceiro: no legado, `CriaCotacao` recebe
@@ -1003,7 +996,7 @@ class ProcessadorDeOrcamento:
         oportunidade: dict[str, Any],
         snapshot: _SnapshotSobDemanda,
     ) -> tuple[dict[str, Any] | None, TipoDocumento | None]:
-        """Criação e manutenção do **pedido de venda**."""
+        """Creation and maintenance of the **sales order**."""
         # Built without the snapshot first: the value and partner checks need no SAP write.
         dados = self._payload_pedido(orcamento, estado, oportunidade, None)
         tipo = TipoDocumento.PEDIDO
@@ -1046,26 +1039,21 @@ class ProcessadorDeOrcamento:
         return None, None
 
     def _respeitar_congelamento(self, orcnum: str, dados: dict[str, Any]) -> dict[str, Any]:
-        """`U_INO_Congelado = 'Y'` no pedido: manda o cabeçalho, não as linhas.
+        """`U_INO_Congelado = 'Y'` on the order: send the header, not the lines.
 
-        Atualizar um pedido, aqui como no legado, **refaz as linhas**: elas são
-        apagadas e reconstruídas a partir do orçamento do WBC
-        (`ServiceProcess.cs:600-672`). Qualquer edição manual — item trocado,
-        quantidade ajustada, texto adicional — some junto. O campo existe para
-        impedir exatamente isso.
+        Updating an order, here as in the legacy, **rebuilds the lines**: they are deleted and rebuilt
+        from the WBC quote (`ServiceProcess.cs:600-672`). Any manual edit — swapped item, adjusted
+        quantity, extra text — goes with them. The field exists to prevent exactly that.
 
-        Protege **só as linhas**, e essa parte importa: no legado o cabeçalho é
-        atribuído antes do `if (Congelado != "Y")` e o `Update()` vem depois
-        dele, então um pedido congelado continua recebendo o
-        `U_INO_VERSAOWBC` novo. Não é detalhe cosmético — é o que impede o
-        orçamento de ser escolhido de novo a cada ciclo: sem o carimbo, a
-        revisão do WBC seguiria eternamente mais nova que a do pedido, e o
-        ciclo tentaria atualizar para sempre, consumindo o teto de escrita.
+        Protects **only the lines**, and that matters: in the legacy the header is assigned before the
+        `if (Congelado != "Y")` and `Update()` comes after it, so a frozen order still receives the new
+        `U_INO_VERSAOWBC`. That stamp is what stops the quote from being picked again every cycle:
+        without it the WBC revision would stay forever newer than the order's and the cycle would try
+        to update forever, burning the write cap.
 
-        Em produção **os 2.581 pedidos vigentes estão em `'Y'`** — 2.461
-        fechados e 120 abertos. Ou seja: na prática, atualização de pedido
-        nunca refaz linha. Sem esta guarda, a integração destruiria a edição
-        manual dos 120 abertos no primeiro ciclo que os alcançasse.
+        In production **all 2,581 current orders were `'Y'`** — 2,461 closed and 120 open — so in
+        practice an order update never rebuilds lines. Without this guard the integration would destroy
+        the manual edits on the 120 open ones in the first cycle that reached them.
         """
         if not self._documentos.esta_congelado(TipoDocumento.PEDIDO, orcnum):
             return dados
@@ -1085,7 +1073,7 @@ class ProcessadorDeOrcamento:
         oportunidade: dict[str, Any] | None = None,
         snapshot_id: int | None = None,
     ) -> dict[str, Any]:
-        """Corpo do pedido: cabeçalho de `domain.pedido` mais as linhas."""
+        """Order body: `domain.pedido` header plus the lines."""
         payload = regras_pedido.montar_payload(
             orcamento,
             parceiro=estado.parceiro_do_pedido,
@@ -1110,12 +1098,11 @@ class ProcessadorDeOrcamento:
         return payload
 
     def _pesos_do_orcamento(self, orcamento: OrcamentoWbc) -> dict[int, Decimal]:
-        """Peso por `ORCITM`, e um aviso para cada item que ficou sem.
+        """Weight per `ORCITM`, plus a warning for each item left without one.
 
-        A falta de peso não impede o pedido — o SAP mantém o do cadastro do item
-        — mas precisa aparecer. Entre os orçamentos que chegam a virar pedido a
-        árvore cobre 314 de 316 linhas; quando um item cai nas duas restantes, é
-        melhor que alguém saiba disso pelo log do que descubra pela expedição.
+        A missing weight does not block the order — the SAP keeps the item master's — but it must be
+        visible. Among the quotes that become orders the tree covers 314 of 316 lines; when an item
+        falls in the other two, better the log says so than the shipping dock finds out.
         """
         pesos = self._wbc.pesos_por_item(orcamento.orcnum)
         # The weight is the one field that went wrong without a trace (quote 00125817,
@@ -1142,12 +1129,12 @@ class ProcessadorDeOrcamento:
         orcamento: OrcamentoWbc,
         resolver: Callable[[OrcamentoWbc, dict[str, Any]], ResultadoLinhas],
     ) -> list[dict[str, Any]]:
-        """Resolve as linhas do documento e registra o que precisou ser suprido.
+        """Resolve the document lines and record what had to be supplied.
 
-        Os avisos **não** ficam só no log: vão para o acompanhamento, porque um
-        grupo fora do de-para significa que o documento foi criado com um item
-        que ninguém escolheu conscientemente. Quem olha o dashboard precisa ver
-        isso sem ter de abrir o log do servidor.
+        Warnings are **not** left only in the log: they go to the tracking store, because a group
+        outside the mapping (de-para) means the document was created with an item nobody consciously
+        chose, and whoever looks at the dashboard must see it without opening the server log. Returns
+        `[]` (so no `DocumentLines`) when the group mapping is unavailable.
         """
         if self._grupo_produtos is None:
             logger.warning(
@@ -1185,24 +1172,21 @@ class ProcessadorDeOrcamento:
         return list(resultado.linhas)
 
     def _gravar_snapshot_orcdetalhe(self, orcamento: OrcamentoWbc) -> int | None:
-        """Grava o snapshot do OrcDetalhe e devolve o `DocEntry` criado.
+        """Write the OrcDetalhe snapshot and return the `DocEntry` created.
 
-        **É gravado antes dos documentos, não depois** — e a ordem não é
-        indiferente: o `DocEntry` deste snapshot é o que vai no UDF
-        `U_INO_ORCAMENTO` da cotação/pedido, criando o vínculo do documento de
-        volta para o retrato do orçamento que o originou. Sem o snapshot em
-        mãos, não há o que gravar nesse campo.
+        Called lazily through `_SnapshotSobDemanda`, once per quote, right before the first document
+        write (not before every action). The order relative to the document matters: this snapshot's
+        `DocEntry` goes into the `U_INO_ORCAMENTO` UDF of the quote/order, linking the document back to
+        the picture of the quote that originated it.
 
-        O legado faz o mesmo, na mesma ordem (`ServiceProcess.cs:~967`), só que
-        recupera o `DocEntry` com `SELECT max("DocEntry") FROM "@INO_ORCAM"` —
-        sujeito a devolver o registro de outra execução concorrente. Aqui o
-        `DocEntry` vem da própria resposta do POST, que é o único valor que
-        certamente corresponde ao que acabou de ser criado.
+        The legacy does the same, in the same order (`ServiceProcess.cs:~967`), but recovers the
+        `DocEntry` with `SELECT max("DocEntry") FROM "@INO_ORCAM"`, which can return another concurrent
+        run's record. Here the `DocEntry` comes from the POST response itself, the only value that
+        certainly matches what was just created.
 
-        Continua sendo **auxiliar**: se falhar, o documento é criado assim
-        mesmo, com `U_INO_ORCAMENTO` vazio — que é exatamente o que o legado
-        faz quando não tem o valor (`DocEntryValdixonTable == "" ? "" : ...`).
-        Perder o histórico é ruim; perder a cotação é pior.
+        Still **auxiliary**: on failure it returns `None` and the document is created anyway with
+        `U_INO_ORCAMENTO` empty — exactly what the legacy does without the value
+        (`DocEntryValdixonTable == "" ? "" : ...`). Losing the history is bad; losing the quote is worse.
         """
         try:
             criado = self._orcdetalhe.criar_snapshot(montar_payload_orcdetalhe(orcamento))
@@ -1235,11 +1219,10 @@ class ProcessadorDeOrcamento:
 
     @staticmethod
     def _status_final(executadas: list[Acao]) -> StatusIntegracao | None:
-        """Status a exibir, considerando a ação mais significativa executada.
+        """Status to show, given the most significant action executed.
 
-        A ordem da tabela importa: encerramento vence pedido, que vence cotação
-        — senão um orçamento encerrado apareceria no dashboard como "cotação
-        atualizada", que é o que aconteceu por último mas não é o que importa.
+        Table order matters: closing beats order, which beats quote — otherwise a closed quote would
+        show on the dashboard as "quote updated", which happened last but is not what matters.
         """
         for acao in (
             Acao.MARCAR_OPORTUNIDADE_PERDIDA,
@@ -1275,9 +1258,9 @@ def _alertar_se_pede_gente(orcnum: str, decisao: Decisao) -> None:
 
 
 def _data(valor: Any) -> date | None:
-    """`OOPR.OpenDate` vem do HANA como `datetime`; o acompanhamento guarda data.
+    """`OOPR.OpenDate` comes from HANA as `datetime`; the tracking store keeps a date.
 
-    É a data que define a janela do worker — ver `Acompanhamento.data_abertura`.
+    It is the date that defines the worker's window — see `Acompanhamento.data_abertura`.
     """
     if isinstance(valor, datetime):
         return valor.date()
@@ -1294,11 +1277,11 @@ def _inteiro(valor: Any) -> int | None:
 
 
 def _tema_na_frente(orcnum: str, texto: str) -> str:
-    """`[tema] resto` + orçamento → `[tema] orçamento: resto`.
+    """`[theme] rest` + quote → `[theme] quote: rest`.
 
-    O painel reconhece o tema pelo colchete que **abre** a mensagem
-    (`logs.LinhaDeLog.tema`); o número do orçamento entra logo depois, para a
-    linha continuar legível por orçamento. Texto sem tema fica `orçamento: texto`.
+    The panel recognises the theme by the bracket that **opens** the message
+    (`logs.LinhaDeLog.tema`); the quote number follows right after so the line stays readable per
+    quote. Text without a theme becomes `quote: text`.
     """
     if texto.startswith("[") and "] " in texto:
         tema, resto = texto.split("] ", 1)
@@ -1315,12 +1298,11 @@ def _decimal(valor: Any) -> Decimal | None:
 
 @dataclass(frozen=True, slots=True)
 class _OrcamentoResumido:
-    """O mínimo que `montar_estado` precisa do WBC: número, situação e revisão.
+    """The minimum `montar_estado` needs from the WBC: number, situation and revision.
 
-    Existe para que a decisão possa ser tomada sem carregar as linhas do
-    orçamento. Não é um `OrcamentoWbc` incompleto disfarçado: quem precisa das
-    linhas carrega o objeto de verdade, e o tipo diferente impede que alguém
-    passe este adiante por engano.
+    Exists so the decision can be taken without loading the quote lines. Not an incomplete
+    `OrcamentoWbc` in disguise: whoever needs the lines loads the real object, and the distinct
+    type keeps this one from being passed along by mistake.
     """
 
     orcnum: str
@@ -1329,15 +1311,13 @@ class _OrcamentoResumido:
 
 
 def fonte_de_documentos(oportunidade: dict[str, Any], repositorio: Any) -> Any:
-    """De onde vêm cotação e pedido: da própria leitura ou do Service Layer.
+    """Where quote and order come from: the opportunity's own read, or the Service Layer.
 
-    Quando a oportunidade chega do HANA, ela já traz os documentos resolvidos —
-    e perguntar de novo ao SAP seriam quatro requisições por orçamento, para
-    obter a mesma resposta. Quando chega do Service Layer (ou de um teste), o
-    bloco não existe e vale o repositório de sempre.
+    When the opportunity arrives from HANA it already carries the resolved documents, and asking
+    the SAP again would be four requests per quote for the same answer. When it comes from the
+    Service Layer (or a test) the block is absent and the usual repository applies.
 
-    A escolha é por **presença de dado**, não por configuração: não há um
-    interruptor que possa ficar no estado errado.
+    The choice is by **presence of data**, not configuration: no switch can sit in the wrong state.
     """
     if oportunidade.get("documentos") is not None:
         return DocumentosJaLidos.da_oportunidade(oportunidade)
@@ -1363,13 +1343,12 @@ def montar_estado(
     *,
     corte_de_pedido: date | None = None,
 ) -> EstadoIntegracao:
-    """Reúne, num único retrato, o que o WBC diz e o que o SAP já tem.
+    """Gather, in one snapshot, what the WBC says and what the SAP already has.
 
-    É função de módulo, e não método, de propósito: montar esse retrato é
-    **somente leitura**, e a prévia (`wbcpython pendentes`) precisa dele sem
-    instanciar o processador — que exige tracking e é capaz de escrever. Assim
-    a prévia e o ciclo real enxergam exatamente o mesmo estado, sem risco de
-    as duas versões divergirem com o tempo.
+    A module function, not a method, on purpose: building this snapshot is **read-only**, and the
+    preview (`wbcpython pendentes`) needs it without instantiating the processor, which requires
+    tracking and can write. That way the preview and the real cycle see exactly the same state and
+    cannot drift apart.
     """
     orcnum = orcamento.orcnum
     ops_planejadas, ops_em_producao = _ops_do_pedido(documentos, orcnum)
@@ -1414,12 +1393,12 @@ def decidir_pela_situacao(
     *,
     corte_de_pedido: date | None = None,
 ) -> tuple[EstadoIntegracao, Decisao]:
-    """1º passo da decisão: só com `(sitcode, revisao)` lidos em lote, sem as linhas.
+    """Step 1 of the decision: only from `(sitcode, revisao)` read in batch, without the lines.
 
-    O worker (`ProcessadorDeOrcamento`) e a prévia (`wbcpython pendentes`) chamam ESTA
-    função — antes cada um montava o próprio `_OrcamentoResumido`, e a prévia importava o
-    privado daqui. Uma cópia que derivasse faria a prévia mentir sobre o que o ciclo grava,
-    sem erro nenhum.
+    The worker (`ProcessadorDeOrcamento`) and the preview (`wbcpython pendentes`) both call THIS
+    function — each used to build its own `_OrcamentoResumido`, and the preview imported the private
+    one from here. A diverging copy would make the preview lie about what the cycle writes, with no
+    error.
     """
     sitcode, revisao = situacao
     estado = montar_estado(
@@ -1432,10 +1411,10 @@ def decidir_pela_situacao(
 
 
 def precisa_do_orcamento(decisao: Decisao) -> bool:
-    """A porta entre os dois passos: com ação, carrega o orçamento inteiro e decide de novo.
+    """The gate between the two steps: with an action, load the whole quote and decide again.
 
-    Um lugar só para a regra. A prévia usava `ACOES_QUE_ESCREVEM`, o worker `tem_acao`: hoje
-    dão no mesmo, mas uma ação nova fora daquele conjunto separaria os dois em silêncio.
+    One place for the rule. The preview used `ACOES_QUE_ESCREVEM`, the worker `tem_acao`: today they
+    agree, but a new action outside that set would split them silently.
     """
     return decisao.tem_acao
 
@@ -1447,7 +1426,7 @@ def decidir_pelo_orcamento(
     *,
     corte_de_pedido: date | None = None,
 ) -> tuple[EstadoIntegracao, Decisao]:
-    """2º passo: a decisão sobre o orçamento inteiro (é ela que autoriza escrever)."""
+    """2nd step: the decision on the whole quote (the one that authorises writing)."""
     estado = montar_estado(
         orcamento,
         oportunidade,
@@ -1458,11 +1437,10 @@ def decidir_pelo_orcamento(
 
 
 def _fora_da_janela(oportunidade: dict[str, Any], corte: date | None) -> bool:
-    """A oportunidade abriu antes do corte da janela padrão.
+    """The opportunity opened before the cutoff of the standard window.
 
-    Sem `OpenDate` a resposta é **não**: na dúvida, o comportamento é o de
-    sempre. Uma data ausente não pode virar um bloqueio silencioso de pedido
-    num ciclo normal.
+    With no `OpenDate` the answer is **no**: when in doubt, behave as usual. A missing date must not
+    turn into a silent order block in a normal cycle.
     """
     if corte is None:
         return False

@@ -48,7 +48,7 @@ DIAS_OLHADOS = 3
 
 @dataclass(slots=True)
 class Memoria:
-    """What the worker already said and wrote, kept across its 3-minute cycles.
+    """What the worker already said and wrote, kept across its cycles (`WORKER_INTERVAL_SECONDS`, 300 s by default).
 
     ``relatadas``: log lines already given (line version, or order + failure text), so a cycle
     does not repeat them. ``gravadas``: rescales already undone (order, line, first rescale's

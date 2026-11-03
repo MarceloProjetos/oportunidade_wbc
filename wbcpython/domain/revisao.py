@@ -1,27 +1,24 @@
-"""Comparação de revisões ("versão") de orçamento.
+"""Comparison of quotation revisions ("version").
 
-O WBC identifica a revisão de um orçamento por um caractere: `"0"` para a
-versão inicial e depois `"A"`, `"B"`, `"C"`… A integração precisa comparar a
-revisão que está no WBC com a que já foi gravada no documento do SAP
-(`U_INO_VERSAOWBC`) para decidir se há algo novo a aplicar.
+WBC identifies a quotation's revision by one character: `"0"` for the initial version, then `"A"`, `"B"`,
+`"C"`... The integration must compare the revision in WBC with the one already stored on the SAP document
+(`U_INO_VERSAOWBC`) to decide whether there is anything new to apply.
 
-O sistema legado faz essa comparação com a fórmula::
+The legacy system compares with the formula::
 
     ((int)char.ToUpper(char.Parse(v))) - 64
 
-Ou seja: o código ASCII do caractere menos 64. Isso dá `A`=1, `B`=2, `C`=3 —
-e, para dígitos, valores negativos (`0`=-16, `9`=-7). À primeira vista parece
-um acidente, mas o resultado é uma ordem total coerente com a semântica real:
+That is, the ASCII code of the character minus 64. It gives `A`=1, `B`=2, `C`=3 and, for digits, negative
+values (`0`=-16, `9`=-7). It looks like an accident, but the result is a total order consistent with the
+real semantics:
 
-    "0" < "1" < … < "9" < "A" < "B" < "C" …
+    "0" < "1" < ... < "9" < "A" < "B" < "C" ...
 
-isto é, versão inicial antes das revisões. Por isso a fórmula é **preservada**
-aqui, em vez de "corrigida" — mudá-la alteraria silenciosamente o comportamento
-de comparação de milhares de registros históricos.
+that is, initial version before the revisions. So the formula is **preserved** here instead of being
+"fixed": changing it would silently change the comparison outcome for thousands of historical records.
 
-O que foi corrigido em relação ao legado: `char.Parse` lança exceção se a
-string tiver mais de um caractere, o que derrubaria a execução inteira. Aqui,
-um valor inesperado é tratado de forma explícita e previsível.
+What was fixed relative to the legacy: `char.Parse` throws if the string has more than one character,
+which would bring down the whole run. Here an unexpected value is handled explicitly and predictably.
 """
 
 from __future__ import annotations
@@ -42,20 +39,20 @@ SEM_REVISAO = -1000
 
 
 class RevisaoInvalida(ValueError):
-    """Revisão com formato inesperado (mais de um caractere)."""
+    """Revision with an unexpected format (more than one character)."""
 
 
 def ordem_revisao(revisao: str | None, *, estrito: bool = False) -> int:
-    """Converte a revisão num inteiro comparável.
+    """Convert the revision into a comparable integer.
 
     Args:
-        revisao: caractere da revisão (`""`, `"0"`, `"A"`, `"b"`…).
-        estrito: se True, levanta `RevisaoInvalida` diante de um valor com mais
-            de um caractere. Se False (padrão), usa apenas o primeiro caractere,
-            evitando derrubar o processamento por causa de um dado sujo.
+        revisao: revision character (`""`, `"0"`, `"A"`, `"b"`...).
+        estrito: if True, raise `RevisaoInvalida` for a value with more than one character. If False
+            (default), use only the first character, so dirty data does not bring down processing.
 
     Returns:
-        Inteiro que preserva a ordem "versão inicial < revisões posteriores".
+        Integer preserving the order "initial version < later revisions". `None` or blank gives
+        `SEM_REVISAO`.
     """
     if revisao is None:
         return SEM_REVISAO
@@ -76,9 +73,9 @@ def ordem_revisao(revisao: str | None, *, estrito: bool = False) -> int:
 
 
 def revisao_wbc_e_mais_nova(revisao_wbc: str | None, revisao_sap: str | None) -> bool:
-    """Diz se o WBC tem uma revisão mais nova do que a já gravada no SAP.
+    """Whether WBC has a newer revision than the one already stored in the SAP.
 
-    É a condição que o legado usa para decidir entre "há trabalho a fazer" e
-    "documento congelado, não mexer". Empate significa **não** reprocessar.
+    It is the condition the legacy uses to choose between "there is work to do" and "frozen document, do not
+    touch". A tie means **do not** reprocess.
     """
     return ordem_revisao(revisao_wbc) > ordem_revisao(revisao_sap)

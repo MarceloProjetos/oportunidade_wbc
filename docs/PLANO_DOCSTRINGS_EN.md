@@ -1,7 +1,7 @@
 # Plano — docstrings e type hints em inglês (ServidorIntegracaoSAP)
 
-> **Status (03/11/2026):** **E1, E2 e E3 concluídas** (29 arquivos; 44 docstrings desatualizados
-> corrigidos + 1 regra errada no CLAUDE.md); E4–E8 abertas.
+> **Status (03/11/2026):** **E1–E4 concluídas** (48 arquivos; 77 docstrings desatualizados
+> corrigidos + 1 regra errada no CLAUDE.md); E5–E8 abertas.
 > Página: ver o artifact "Docstrings EN" (mesmo conteúdo).
 
 **Começo → Meio → Fim:** núcleo que tudo importa (E1) → regras que escrevem no SAP (E2–E5) → API,
@@ -57,7 +57,7 @@ tarefa; um em `dashboard/` vale só quando mexo na tela.
 | **E1** | Núcleo: `safety`, configs, `padroes`, clientes do Service Layer, HANA e SQL Server, `tarefas`, `acesso`, `guardas`, `sql_seguro` | 20 | 79 | 3 | **concluída** |
 | **E2** | Regra do CP — Pedidos WBC (`service.py`, `acoes.py`, `queries.py`, `listas_fixas.py`) | 5 | 69 | 11 | **concluída** |
 | **E3** | Regra do CP — Manutenção de OP | 4 | 17 | 8 | **concluída** |
-| **E4** | Worker WBC — `domain/`, `application/`, `host/` | 19 | 125 | 0 | aberta |
+| **E4** | Worker WBC — `domain/`, `application/`, `host/` | 19 | 125 | 0 | **concluída** |
 | **E5** | Worker WBC — `infrastructure/`, `tracking/` | 24 | 115 | 0 | aberta |
 | **E6** | API 8077 e extrações (`api.py`, `pipeline_core`, `situacao_pedidos_hana`, `extract_*`, `monitoring`) | 14 | 94 | 90 | aberta |
 | **E7** | Telas, CLI, MCP, `operacao/`, `seguranca/`, `casa/` (só o que não é texto de tela) | 45 | 170 | 95 | aberta |
@@ -126,6 +126,31 @@ o `--help` do `--force` e do `processar-novos` avisa que ele duplica e diz como 
 - `_valida_status` dizia "impede injeção": o status já vai como parâmetro `?`; ela só dá erro legível.
 - `levanta_ops`: por pedido exclui OP Cancelada, por número não.
 - `encerra_pedido_com_ajustes`: item inativo sem "ativar inativos" **não** tenta de novo.
+
+### O que a E4 achou de desatualizado (33)
+
+`domain/` (15), `application/processar.py` (10), resto de `application/` + `host/` (8).
+
+- `numeros.normalizar_decimal` descrevia errado a leitura de "3 dígitos depois do separador": só o
+  **ponto** vira milhar; a vírgula sozinha é sempre decimal (`"1,234"` → 1,234; `"1.234"` → 1234).
+- `pedido.linhas()` dizia que `Weight1` é o peso líquido: é líquido × 1,10 (embalagem).
+- `sitcode`: a tabela do legado mapeava `OpprId` para um campo que o estado não tem; o encerramento
+  **pula** a marcação se a oportunidade já está fechada; `_decidir_pedido` (SitCode 60 = venda ganha
+  no WBC, não "pedido fechado no SAP").
+- `processar._gravar_snapshot_orcdetalhe` dizia "antes dos documentos": é **sob demanda**, logo antes
+  da 1ª escrita (desde 01/10). Um comentário PT ao lado dizia o mesmo e foi corrigido.
+- `_espelhar_status_apos_documento` dizia "três guardas": são quatro + um quinto pulo.
+- Intervalo do worker citado como "3 min"/"180 s" em 4 lugares: o padrão é **300 s**
+  (`WORKER_INTERVAL_SECONDS`); `MESES_DE_JANELA` citado como `WBC_MESES_DE_JANELA`.
+- `rodar_continuamente` não citava a parada por arquivo; `executar_ciclo` não dizia que o ciclo por
+  orçamento **espera** a trava e o agendado não.
+- `__init__.py`/`numeros.py` citavam `ai_spec/01` e `/02`, que não existem.
+
+<span class="warn">Risco latente achado (não corrigido, é lógica):</span> `normalizar_decimal` lê
+`"0.250"` como **250** e `"0.001"` como **1** (ponto + 3 dígitos com parte inteira ≤ 3 = milhar).
+Hoje só os campos de texto `Retorno`/`Indice`/`Negociacao` da view do HANA passam texto por ela, e
+esses **não** são gravados no SAP (o mapeamento usa os do SQL Server do WBC, que chegam numéricos).
+Se um dia um desses campos for gravado, o bug vira real.
 
 ## Decisões
 

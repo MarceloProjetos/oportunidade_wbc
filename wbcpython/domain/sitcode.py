@@ -1,48 +1,43 @@
-"""Máquina de estados da integração — decisão a partir do SitCode.
+"""Integration state machine: decision from the SitCode.
 
-Este módulo é o coração da regra de negócio. Ele é **puro**: recebe um retrato
-do estado (o que o WBC diz, o que o SAP já tem) e devolve a lista de ações a
-executar. Não faz I/O, não conhece Service Layer nem banco — e por isso é
-inteiramente testável sem ambiente.
+This module is the heart of the business rule. It is **pure**: it takes a snapshot of the state (what WBC
+says, what the SAP already has) and returns the list of actions to run. No I/O, no Service Layer, no
+database, so it is fully testable without an environment.
 
-Toda a lógica foi extraída do encadeamento de `if/else` do `Main` do
-`WBCServConsole` legado (`Program.cs`), com as consultas de apoio
-(`Querys.resx`) usadas para descobrir o significado real de cada campo.
+All the logic was extracted from the `if/else` chain in the `Main` of the legacy `WBCServConsole`
+(`Program.cs`), with the support queries (`Querys.resx`) used to discover the real meaning of each field.
 
 --------------------------------------------------------------------------
-Campos do legado e seus equivalentes aqui
+Legacy fields and their equivalents here
 --------------------------------------------------------------------------
-| Legado                                   | Aqui                          |
+| Legacy                                   | Here                          |
 |------------------------------------------|-------------------------------|
 | `oRs.Fields.Item(0)` = `U_ORCNUM_WBC`     | `EstadoIntegracao.orcamento`  |
 | `oRs.Fields.Item(1)` = `CardCode`         | `parceiro_atual`              |
-| `oRs.Fields.Item(2)` = `OpprId`           | `oportunidade`                |
+| `oRs.Fields.Item(2)` = `OpprId`           | not in the state (the application carries it) |
 | `oRs.Fields.Item(3)` = `U_INO_StatusWBC`  | `sitcode_sap`                 |
-| `oRs.Fields.Item(4)` = `U_INO_Update`     | `alterado` (desvio p/ troca)  |
+| `oRs.Fields.Item(4)` = `U_INO_Update`     | `alterado` (swap detour)      |
 | `oRs.Fields.Item(5)` = `U_INO_PN_Correc`  | `parceiro_novo`               |
-| `GetIntIdWBCOrcamentos` (COUNT em OQUT)   | `tem_cotacao`                 |
-| `GetIdOrcamentosPedido` (COUNT em ORDR)   | `tem_pedido`                  |
+| `GetIntIdWBCOrcamentos` (COUNT on OQUT)   | `tem_cotacao`                 |
+| `GetIdOrcamentosPedido` (COUNT on ORDR)   | `tem_pedido`                  |
 | `GetStatusAtualCot` (`U_INO_VERSAOWBC`)   | `revisao_cotacao_sap`         |
 | `item.SitCode` (WBC `SITCOD`)             | `sitcode_wbc`                 |
 | `item.versao` (WBC `REVISAO`)             | `revisao_wbc`                 |
 
-Atenção a duas leituras que eram fáceis de errar: `GetIntIdWBCOrcamentos` e
-`GetIdOrcamentosPedido` são `SELECT COUNT(*)` — o `"0"` comparado no legado
-significa "não existe cotação/pedido não-cancelado", e **não** um DocEntry.
+Two readings that were easy to get wrong: `GetIntIdWBCOrcamentos` and `GetIdOrcamentosPedido` are
+`SELECT COUNT(*)`, so the `"0"` compared in the legacy means "no quotation / no non-cancelled order
+exists", and **not** a DocEntry.
 
 --------------------------------------------------------------------------
-Defeitos do legado tratados aqui (ver DEFEITOS_LEGADO.md)
+Legacy defects handled here (see DEFEITOS_LEGADO.md)
 --------------------------------------------------------------------------
-1. Duas condições do legado são tautologias — `(x != 30 || x != 60 || ...)` é
-   sempre verdadeiro, porque um número não pode ser diferente de todos e igual
-   a algum ao mesmo tempo. Aqui está implementado o comportamento **efetivo**
-   (o que a tautologia de fato produz), com o ramo nomeado e documentado.
-2. Exclusões de oportunidades específicas por número, escritas no código
-   (`OportunidadeId != "00118376"`), **não foram portadas**: são exceções
-   pontuais de dados, não regra de negócio.
-3. No legado, as ações dentro do ramo final se acumulam (são `if` sequenciais,
-   não `else if`). Por isso a decisão aqui devolve uma **lista ordenada** de
-   ações, não uma ação única.
+1. Two legacy conditions are tautologies: `(x != 30 || x != 60 || ...)` is always true, because a number
+   cannot differ from all of them and equal one of them at the same time. The **effective** behavior (what
+   the tautology actually produces) is implemented here, with the branch named and documented.
+2. Exclusions of specific opportunities by number hardcoded in the code (`OportunidadeId != "00118376"`)
+   were **not ported**: they are one-off data exceptions, not business rules.
+3. In the legacy, the actions inside the final branch accumulate (sequential `if`s, not `else if`). That is
+   why the decision here returns an **ordered list** of actions, not a single action.
 """
 
 from __future__ import annotations
@@ -67,7 +62,7 @@ STATUS_OPORTUNIDADE_FECHADA = frozenset({"L", "W"})
 
 
 class Acao(Enum):
-    """Ação de integração a executar no SAP."""
+    """Integration action to run in the SAP."""
 
     CRIAR_COTACAO = "criar_cotacao"
     ATUALIZAR_COTACAO = "atualizar_cotacao"
@@ -125,7 +120,7 @@ _ACOES_DE_DOCUMENTO = _ACOES_DE_COTACAO | ACOES_DE_PEDIDO
 
 @dataclass(frozen=True, slots=True)
 class EstadoIntegracao:
-    """Retrato do que o WBC diz e do que o SAP já tem, para um orçamento."""
+    """Snapshot of what WBC says and what the SAP already has, for one quote."""
 
     orcamento: str
     sitcode_wbc: int
@@ -226,88 +221,71 @@ class EstadoIntegracao:
 
     @property
     def pedido_fechado_no_sap(self) -> bool:
-        """Pedido fechado: nada a escrever nele, e nada a cancelar.
+        """Closed order: nothing to write to it, nothing to cancel.
 
-        Um pedido fechado (`DocStatus = 'C'`) já foi entregue ou faturado. O SAP
-        recusa alteração e recusa cancelamento — tentar não é só inútil, é um
-        erro por ciclo, para sempre, no histórico de cada orçamento nessa
-        situação.
+        A closed order (`DocStatus = 'C'`) was already delivered or invoiced. The SAP refuses both changes and
+        cancellation, so trying is not just useless but one error per cycle, forever, in the history of every quote
+        in that situation.
 
-        Reportado pelo usuário no orçamento `00124268`: pedido `83988`, fechado,
-        com revisão `'A'` no SAP e revisão mais nova no WBC. A regra caía em
-        `atualiza_pedido` e o SAP recusava a gravação.
+        Reported by the user on quote `00124268`: order `83988`, closed, with revision `'A'` in the SAP and a newer
+        revision in WBC. The rule fell into `atualiza_pedido` and the SAP refused the write.
 
-        O tamanho disso surpreende: em produção, **2.452 dos 2.568** pedidos
-        vigentes estão fechados. É o estado normal de um pedido que seguiu seu
-        curso, não a exceção — e a integração não tinha como saber, porque
-        `DocStatus` não era lido.
+        The scale is surprising: in production, **2,452 of the 2,568** current orders are closed. It is the normal
+        state of an order that ran its course, not the exception, and the integration could not know because
+        `DocStatus` was not read.
 
-        `tem_pedido` continua valendo: existe pedido, então não se cria outro.
-        "Fechado" não é "inexistente".
+        `tem_pedido` still holds: an order exists, so another is not created. "Closed" is not "nonexistent".
         """
         return self.tem_pedido and self.pedido_fechado
 
     @property
     def pedido_corrigido_a_mao(self) -> bool:
-        """`U_INO_PN_Correc` preenchido com `U_INO_Update = 'N'`: não mexer.
+        """`U_INO_PN_Correc` filled with `U_INO_Update = 'N'`: hands off.
 
-        Segundo o negócio, essa combinação significa que **o pedido já está
-        correto, em nome de outro PN**, e que ninguém pediu alteração de
-        valores. A integração não tem o que fazer ali — nem trocar o parceiro,
-        nem atualizar o pedido.
+        Per the business, that combination means **the order is already correct, under another PN**, and nobody
+        asked for value changes. The integration has nothing to do there: neither swap the partner nor update the
+        order.
 
-        A segunda metade é a que mordeu de verdade. O orçamento `00124045` tem
-        o pedido vigente `84022` no `PN_Correc` (`C011608`), com o pedido antigo
-        `83949` já cancelado no PN da oportunidade: a correção **está feita**.
-        Como `troca_de_parceiro_pendente` é falsa nesse ponto,
-        `parceiro_do_pedido` devolvia o `CardCode` da *oportunidade*
-        (`C008483`), e `campos_comuns` envia `CardCode` **sempre** — então
-        `atualizar_pedido` desfazia a correção, devolvendo o pedido ao parceiro
-        errado.
+        The second half is what really bit. Quote `00124045` has the current order `84022` on the `PN_Correc`
+        (`C011608`), with the old order `83949` already cancelled on the opportunity's PN: the correction **is
+        done**. As `troca_de_parceiro_pendente` is false at that point, `parceiro_do_pedido` returned the
+        *opportunity's* `CardCode` (`C008483`), and `campos_comuns` sends `CardCode` **always**, so
+        `atualizar_pedido` undid the correction, returning the order to the wrong partner.
 
-        Medido em produção: 592 oportunidades têm essa combinação. Das que a
-        regra antiga ainda consideraria com troca pendente, **todas as 4** são
-        casos antigos resolvidos à mão, com o pedido vivo num terceiro parceiro
-        — nenhuma é trabalho legítimo. Ver `DECISOES.md`.
+        Measured in production: 592 opportunities have this combination. Of those the old rule would still have
+        considered pending a swap, **all 4** are old cases settled by hand, with the live order on a third
+        partner; none is legitimate work. See `DECISOES.md`.
 
-        Consequência que precisa ficar dita: com esta guarda, a troca de PN só
-        acontece com `U_INO_Update = 'Y'`. Se o `PN_Correc` for preenchido na
-        oportunidade sem que `Update` vá a `'Y'`, a troca não acontece — os dois
-        são UDFs da oportunidade no SAP, e quem os preenche é de fora desta
-        integração. Pergunta em aberto (`RETOMADA.md`).
+        A consequence that must be stated: with this guard, the PN swap only happens with `U_INO_Update = 'Y'`. If
+        `PN_Correc` is filled on the opportunity without `Update` going to `'Y'`, no swap happens: both are UDFs of
+        the opportunity in the SAP, and who fills them is outside this integration. Open question (`RETOMADA.md`).
 
-        `tem_pedido` faz parte da pergunta, como nas duas propriedades irmãs:
-        sem pedido não há nada corrigido à mão para preservar. A primeira versão
-        não o verificava e devolvia `True` com pedido nenhum. Não chegou a
-        causar defeito porque o `_decidir_pedido` já tinha saído antes, na
-        criação — mas isso é ordem de statement, não invariante da propriedade,
-        e quem reusasse a propriedade fora dali receberia a resposta errada.
+        `tem_pedido` is part of the question, as in the two sibling properties: with no order there is nothing
+        corrected by hand to preserve. The first version did not check it and returned `True` with no order. It
+        caused no defect because `_decidir_pedido` had already returned earlier, on creation, but that is
+        statement order, not a property invariant, and anyone reusing the property elsewhere would get the wrong
+        answer.
         """
         return self.tem_pedido and bool(self.parceiro_novo) and not self.alterado
 
     @property
     def troca_de_parceiro_pendente(self) -> bool:
-        """`U_INO_PN_Correc` preenchido e o pedido ainda não está nele.
+        """`U_INO_PN_Correc` filled and the order is not on it yet.
 
-        **A guarda é o pedido, não uma marca.** É o `ChecaPNPedido` do legado
-        (`SELECT count(*) FROM ORDR WHERE CardCode = PNNew AND U_INO_COTWBC =
-        orçamento AND CANCELED = 'N'`): havendo pedido não cancelado já no
-        parceiro novo, não há o que fazer.
+        **The guard is the order, not a flag.** It is the legacy `ChecaPNPedido` (`SELECT count(*) FROM ORDR WHERE
+        CardCode = PNNew AND U_INO_COTWBC = quote AND CANCELED = 'N'`): with a non-cancelled order already on the
+        new partner, there is nothing to do.
 
-        Isso torna a regra idempotente por construção, e é o que permite agir
-        **sempre** que o `PN_Correc` está preenchido, sem depender de ninguém
-        baixar uma marca depois. O campo fica preenchido para sempre — 578
-        oportunidades em homologação o têm — e isso é inofensivo: o pedido
-        dessas já está no parceiro novo.
+        That makes the rule idempotent by construction, and is what allows acting **whenever** `PN_Correc` is
+        filled, without anyone clearing a flag afterwards. The field stays filled forever (578 opportunities in
+        homologation have it) and that is harmless: their order is already on the new partner.
 
-        `U_INO_Update` **não** entra nesta propriedade: aqui a pergunta é só
-        "o pedido já está no parceiro novo?". Quem usa o campo é
-        `pedido_corrigido_a_mao`, uma guarda que roda **antes** desta no
-        `_decidir_pedido` — e a diferença entre as duas importa. Exigir
-        `alterado` *para trocar* foi um engano meu, corrigido depois de reler
-        `Program.cs:280-300`; o que o negócio esclareceu depois é o contrário
-        disso: `Update = 'N'` com `PN_Correc` preenchido é sinal positivo de que
-        alguém **já resolveu** o caso à mão.
+        `U_INO_Update` does **not** enter this property: the question here is only "is the order already on the
+        new partner?". The field is used by `pedido_corrigido_a_mao`, a guard that runs **before** this one in
+        `_decidir_pedido`, and the difference between the two matters. Requiring `alterado` *to swap* was a
+        mistake, corrected after rereading `Program.cs:280-300`; what the business clarified later is the
+        opposite: `Update = 'N'` with `PN_Correc` filled is a positive sign that someone **already settled** the
+        case by hand.
         """
         if not self.parceiro_novo or not self.tem_pedido:
             return False
@@ -315,73 +293,68 @@ class EstadoIntegracao:
 
     @property
     def nasce_no_parceiro_corrigido(self) -> bool:
-        """Pedido ainda não existe, e o operador já pediu o parceiro novo.
+        """The order does not exist yet and the operator already asked for the new partner.
 
-        `U_INO_Update = 'Y'` com `U_INO_PN_Correc` preenchido **antes** de o
-        pedido existir. O legado criava o pedido no `CardCode` da oportunidade
-        (`CriaPedido(oRs.Fields.Item(1))`) e só olhava o `PNNew` no ramo da
-        troca, que exige pedido existente — e o vínculo do pedido novo baixa o
-        `Update` para `'N'`. Resultado: na passada seguinte a combinação
-        `PN_Correc` + `'N'` é lida como "já corrigido à mão" e o pedido fica
-        para sempre no parceiro errado, sem erro nenhum.
+        `U_INO_Update = 'Y'` with `U_INO_PN_Correc` filled **before** the order exists. The legacy created the
+        order on the opportunity's `CardCode` (`CriaPedido(oRs.Fields.Item(1))`) and only looked at `PNNew` in the
+        swap branch, which requires an existing order, and linking the new order resets `Update` to `'N'`. Result:
+        on the next pass the `PN_Correc` + `'N'` combination is read as "already corrected by hand" and the order
+        stays on the wrong partner forever, with no error.
 
-        A regra pedida pelo negócio (Marcelo, 09/09/2026) é a mesma dos dois
-        caminhos: **`Update = 'Y'` manda o pedido para o `PN_Correc`.** Havendo
-        pedido, é a troca (cancela e recria); não havendo, é aqui — o pedido
-        nasce no parceiro certo, sem cancelar nada. Mesma guarda de existência
-        do parceiro (`ChecaPN`) nos dois casos, no `processar.py`.
+        The rule asked by the business (Marcelo, 09/09/2026) is the same on both paths: **`Update = 'Y'` sends the
+        order to `PN_Correc`.** With an order, it is the swap (cancel and recreate); without one, it is here: the
+        order is born on the right partner, cancelling nothing. Same partner-existence guard (`ChecaPN`) in both
+        cases, in `processar.py`.
         """
         return not self.tem_pedido and self.alterado and bool(self.parceiro_novo)
 
     @property
     def pedido_no_parceiro_corrigido(self) -> bool:
-        """O pedido a gravar (novo ou refeito) leva o `PN_Correc`, não o da oportunidade."""
+        """The order to write (new or redone) carries `PN_Correc`, not the opportunity's partner."""
         return self.troca_de_parceiro_pendente or self.nasce_no_parceiro_corrigido
 
     @property
     def parceiro_do_pedido(self) -> str:
-        """O parceiro que o **pedido** deve levar.
+        """The partner the **order** must carry.
 
-        O `PN_Correc` quando a troca está pendente **ou** quando o pedido vai
-        nascer já corrigido (`nasce_no_parceiro_corrigido`); fora disso, o da
-        oportunidade — como no legado, em que `CriaPedido` recebe
-        `oRs.Fields.Item(1)` (o `CardCode` da oportunidade) no caminho normal e
-        `PNNew` apenas no ramo da troca.
+        `PN_Correc` when the swap is pending **or** when the order will be born already corrected
+        (`nasce_no_parceiro_corrigido`); otherwise the opportunity's, as in the legacy, where `CriaPedido`
+        receives `oRs.Fields.Item(1)` (the opportunity's `CardCode`) on the normal path and `PNNew` only in the
+        swap branch.
         """
         return self.parceiro_novo if self.pedido_no_parceiro_corrigido else self.parceiro_atual
 
     @property
     def status_ja_espelhado(self) -> bool:
-        """O SAP já registra o SitCode corrente do WBC.
+        """The SAP already records the WBC's current SitCode.
 
-        `U_INO_StatusWBC` é uma cópia do SitCode. Quando as duas pontas já
-        concordam, regravar o mesmo valor é uma escrita sem efeito — e não é
-        barata: consome o teto de escrita do ciclo, gera evento no histórico de
-        cada oportunidade e faz o resumo anunciar trabalho que não existiu. Em
-        homologação eram 154 das 160 ações de espelhamento.
+        `U_INO_StatusWBC` is a copy of the SitCode. When both ends already agree, rewriting the same value is a
+        write with no effect, and not a cheap one: it consumes the cycle's write ceiling, creates an event in the
+        history of every opportunity and makes the summary announce work that did not happen. In homologation
+        they were 154 of the 160 mirroring actions.
 
-        A comparação é textual porque o campo é texto no SAP — ver
-        `atualizar_status`, que grava `str(sitcode)` de propósito.
+        The comparison is textual because the field is text in the SAP; see `atualizar_status`, which writes
+        `str(sitcode)` on purpose.
         """
         return self.sitcode_sap.strip() == str(self.sitcode_wbc)
 
     @property
     def oportunidade_encerrada(self) -> bool:
-        """A oportunidade já está fechada no SAP (perdida ou vendida)."""
+        """The opportunity is already closed in the SAP (lost or won)."""
         return self.status_oportunidade.strip().upper() in STATUS_OPORTUNIDADE_FECHADA
 
     @property
     def processavel(self) -> bool:
-        """A integração só considera orçamentos acima do SitCode mínimo."""
+        """The integration only considers quotes above the minimum SitCode."""
         return self.sitcode_wbc > SITCODE_MINIMO
 
 
 @dataclass(frozen=True, slots=True)
 class Decisao:
-    """Resultado da máquina de estados.
+    """Result of the state machine.
 
-    `motivos` acompanha `acoes` para que o dashboard e o log expliquem *por que*
-    cada ação foi decidida — algo que o sistema legado não registrava.
+    `motivos` accompanies `acoes` so the dashboard and the log explain *why* each action was decided, which
+    the legacy system did not record. `regra` names the branch taken (joined with `+` when several apply).
     """
 
     acoes: tuple[Acao, ...] = ()
@@ -404,43 +377,39 @@ class _Acumulador:
 
 
 def decidir(estado: EstadoIntegracao) -> Decisao:
-    """Decide as ações de integração para um orçamento.
+    """Decide the integration actions for a quote.
 
-    Reproduz a ordem de avaliação do `Main` legado, que é significativa: os
-    ramos são mutuamente exclusivos até o último, e dentro dele as ações se
-    acumulam.
+    Reproduces the evaluation order of the legacy `Main`, which is significant: the branches are mutually
+    exclusive up to the last one, and inside it the actions accumulate.
 
-    Fora da janela padrão, a decisão sai sem as ações de **pedido** — ver
-    `_sem_pedido`. O corte é aplicado aqui, e não no processador, para que a
-    prévia (`wbcpython pendentes`) mostre exatamente o que o ciclo faria: as
-    duas chamam esta função, e um filtro na execução deixaria o ensaio
-    prometendo pedidos que o ciclo não criaria.
+    Outside the default window the decision comes out without the **order** actions (see `_sem_pedido`). The
+    cut is applied here, not in the processor, so the preview (`wbcpython pendentes`) shows exactly what the
+    cycle would do: both call this function, and a filter at execution time would leave the rehearsal
+    promising orders the cycle would not create.
 
-    Orçamento sem item sai sem as ações de documento — ver `_sem_itens`. O
-    filtro vem por último porque vale para qualquer ramo: não existe ramo em
-    que mandar ao SAP um documento sem linha faça sentido.
+    A quote with no items comes out without the document actions (see `_sem_itens`). That filter comes last
+    because it holds for any branch: there is no branch in which sending a document without lines to the SAP
+    makes sense.
     """
     return _sem_itens(estado, _sem_pedido(estado, _decidir(estado)))
 
 
 def _sem_itens(estado: EstadoIntegracao, decisao: Decisao) -> Decisao:
-    """Tira as ações de documento quando o orçamento não tem item no WBC.
+    """Drop the document actions when the quote has no item in WBC.
 
-    O SAP recusa documento sem valor, então a ação nunca teria efeito: o
-    executor já a barrava em `_exigir_valor`, mas só depois de montar o payload
-    e gravar um evento no acompanhamento — **a cada ciclo**, para sempre. Com a
-    janela de 24 meses (`PLANO_JANELA_SOB_DEMANDA`), todo orçamento velho e
-    vazio entrou nessa roda: o 00125188 (SitCode 20, zero item) somou 100
-    eventos em 17/09/2026, um a cada 3 minutos.
+    The SAP refuses a document with no value, so the action would never take effect: the executor already
+    blocked it in `_exigir_valor`, but only after building the payload and writing an event in the tracking,
+    **every cycle**, forever. With the 24-month window (`PLANO_JANELA_SOB_DEMANDA`) every old empty quote
+    entered that loop: 00125188 (SitCode 20, zero items) accumulated 100 events on 17/09/2026, one every 3
+    minutes.
 
-    Cortar aqui, e não no executor, é o que faz o ciclo **parar de tentar**: a
-    prévia (`wbcpython pendentes`) passa a dizer a mesma coisa que o ciclo faz,
-    e nada é escrito no acompanhamento enquanto o orçamento estiver vazio.
+    Cutting here, not in the executor, is what makes the cycle **stop trying**: the preview (`wbcpython
+    pendentes`) now says the same thing the cycle does, and nothing is written to the tracking while the quote
+    is empty.
 
-    O que NÃO sai: cancelar a cotação no encerramento, marcar a oportunidade
-    perdida e espelhar o status — nenhuma precisa de linha. E `_exigir_valor`
-    continua no executor, porque item a preço zero também some no SAP e essa
-    checagem depende do payload montado.
+    What does NOT go: cancelling the quotation on closure, marking the opportunity lost and mirroring the
+    status, since none needs a line. And `_exigir_valor` stays in the executor, because a zero-price item also
+    vanishes in the SAP and that check depends on the built payload.
     """
     if not estado.orcamento_sem_itens:
         return decisao
@@ -467,26 +436,23 @@ def _sem_itens(estado: EstadoIntegracao, decisao: Decisao) -> Decisao:
 
 
 def _sem_pedido(estado: EstadoIntegracao, decisao: Decisao) -> Decisao:
-    """Tira as ações de pedido quando a oportunidade está fora da janela padrão.
+    """Drop the order actions when the opportunity is outside the default window.
 
-    Filtrar depois, e não espalhar a condição pelos ramos, é deliberado: a
-    máquina de estados continua sendo a leitura do legado, ramo a ramo, e a
-    regra nova fica num lugar só — onde dá para lê-la inteira.
+    Filtering afterwards, instead of spreading the condition through the branches, is deliberate: the state
+    machine stays a branch-by-branch reading of the legacy, and the new rule sits in one place where it can be
+    read whole.
 
-    `VINCULAR_DOCUMENTO_A_OPORTUNIDADE` fica enquanto sobrar ação de documento:
-    ele só age se alguma ação anterior produziu documento (ver `processar.py`),
-    então sem pedido ele vincula a cotação — que é o que um ciclo de cotação
-    faz de qualquer forma. Sem nenhuma ação de documento ele sai também, senão a
-    decisão "tem ação" sem ter o que fazer, e o ciclo carrega o orçamento
-    inteiro e grava "Ações executadas:" vazio a cada passada.
+    `VINCULAR_DOCUMENTO_A_OPORTUNIDADE` stays while a quotation action remains: it only acts if an earlier
+    action produced a document (see `processar.py`), so without the order it links the quotation, which is what
+    a quotation cycle does anyway. With no quotation action left it goes too; otherwise the decision "has an
+    action" with nothing to do, and the cycle loads the whole quote and writes an empty "Ações executadas:" on
+    every pass.
 
-    **O `ATUALIZAR_COTACAO` de `cria_pedido` só fica se a revisão do WBC for
-    mais nova.** Na regra original ele é incondicional — e é idempotente
-    porque o pedido nasce em seguida e o ramo nunca repete. Tirando o pedido, a
-    condição de parada some: cada ciclo estendido (e cada `ciclo --orcamento`
-    dirigido) reescrevia as linhas da cotação de todo SitCode 60 sem pedido,
-    contava uma escrita no teto e gravava "cotação atualizada" sem nada ter
-    mudado no WBC (17/09/2026).
+    **The `ATUALIZAR_COTACAO` of `cria_pedido` stays only if the WBC revision is newer.** In the original rule
+    it is unconditional, and idempotent because the order is born right after and the branch never repeats.
+    Without the order the stop condition vanishes: every extended cycle (and every directed `ciclo --orcamento`)
+    rewrote the quotation lines of every SitCode 60 without an order, counted a write against the ceiling and
+    logged "quotation updated" with nothing changed in WBC (17/09/2026).
     """
     if not estado.fora_da_janela_padrao:
         return decisao
@@ -525,7 +491,7 @@ def _sem_pedido(estado: EstadoIntegracao, decisao: Decisao) -> Decisao:
 
 
 def _decidir(estado: EstadoIntegracao) -> Decisao:
-    """A máquina de estados propriamente dita — ver `decidir`."""
+    """The state machine proper; see `decidir`."""
     if not estado.processavel:
         return Decisao(
             regra="sitcode_abaixo_do_minimo",
@@ -597,7 +563,7 @@ def _decidir(estado: EstadoIntegracao) -> Decisao:
 
 
 def _ramo_orcamento_emitido(estado: EstadoIntegracao) -> Decisao:
-    """SitCode 30 — orçamento emitido para o cliente."""
+    """SitCode 30: quote issued to the customer."""
     if not estado.tem_cotacao:
         return Decisao(
             regra="emitido_sem_cotacao",
@@ -626,7 +592,7 @@ def _ramo_orcamento_emitido(estado: EstadoIntegracao) -> Decisao:
 
 
 def _ramo_revisao_ja_registrada(estado: EstadoIntegracao) -> Decisao:
-    """SitCode 40/55 com o SAP já em 40 ou 55 — decide pela comparação de revisão."""
+    """SitCode 40/55 with the SAP already at 40 or 55: decides by comparing revisions."""
     if revisao_wbc_e_mais_nova(estado.revisao_wbc, estado.revisao_cotacao_sap):
         return Decisao(
             regra="revisao_mais_nova_recria_cotacao",
@@ -650,7 +616,7 @@ def _ramo_revisao_ja_registrada(estado: EstadoIntegracao) -> Decisao:
 
 
 def _ramo_pedido_e_encerramento(estado: EstadoIntegracao) -> Decisao:
-    """Ramo final do legado, onde as ações se acumulam."""
+    """Final branch of the legacy, where the actions accumulate."""
     acumulador = _Acumulador()
     regras: list[str] = []
 
@@ -696,33 +662,28 @@ def _decidir_encerramento(
     acumulador: _Acumulador,
     regras: list[str],
 ) -> None:
-    """SitCode 70/90/99 — o orçamento foi perdido/cancelado no WBC.
+    """SitCode 70/90/99: the quote was lost/cancelled in WBC.
 
-    O que acontece com a **oportunidade**: ela é marcada como perdida
-    (`Status = 'sos_Missed'`) e recebe o SitCode em `U_INO_StatusWBC`. Ela
-    **não** é cancelada — no SAP não existe cancelar oportunidade, só mudar o
-    status —, e isso é igual ao legado (`cancelaFechaOportunidade`,
-    `ServiceProcess.cs:91-122`). Confirmado com o usuário.
+    What happens to the **opportunity**: it is marked lost (`Status = 'sos_Missed'`) and receives the SitCode
+    in `U_INO_StatusWBC`, unless it is already closed in the SAP (`oportunidade_encerrada`), in which case
+    marking is skipped. It is **not** cancelled: the SAP has no opportunity cancellation, only a status
+    change, and this equals the legacy (`cancelaFechaOportunidade`, `ServiceProcess.cs:91-122`). Confirmed
+    with the user.
 
-    O que acontece com a **cotação** é a divergência, e está abaixo.
+    What happens to the **quotation** is the divergence, below.
 
-    **Divergência deliberada do legado.** O `cancelaFechaOportunidade` do
-    `WBCServConsole` (`ServiceProcess.cs:91-122`) só gravava o
-    `U_INO_StatusWBC` e punha a oportunidade em `sos_Missed`; nunca tocava nos
-    documentos. O efeito em produção é mensurável: de 714 oportunidades
-    encerradas, **686 (96%) continuam com a cotação aberta** — cotações que
-    ninguém vai honrar, poluindo o pipeline de vendas do SAP.
+    **Deliberate divergence from the legacy.** The `WBCServConsole` `cancelaFechaOportunidade`
+    (`ServiceProcess.cs:91-122`) only wrote `U_INO_StatusWBC` and set the opportunity to `sos_Missed`; it never
+    touched the documents. The production effect is measurable: of 714 closed opportunities, **686 (96%) still
+    have an open quotation**, quotations nobody will honour, polluting the SAP sales pipeline.
 
-    Aqui a cotação é cancelada junto com o encerramento, e **antes** dele: se o
-    cancelamento falhar, a oportunidade não fica encerrada com um documento
-    aberto pendurado, e o ciclo seguinte tenta de novo.
+    Here the quotation is cancelled together with the closure, and **before** it: if the cancellation fails,
+    the opportunity is not left closed with an open document hanging off it, and the next cycle tries again.
 
-    Só a cotação. O pedido não é cancelado por dois motivos: encerramento com
-    pedido existente é um estado que o WBC não deveria produzir (o pedido nasce
-    no SitCode 60), e um pedido já pode ter movimentado estoque ou faturamento —
-    cancelá-lo automaticamente é irreversível e caro. Havendo pedido, a cotação
-    também é preservada, porque nesse caso ela foi convertida e o SAP recusaria
-    o cancelamento.
+    Only the quotation. The order is not cancelled for two reasons: closure with an existing order is a state
+    WBC should not produce (the order is born at SitCode 60), and an order may already have moved stock or
+    billing, so cancelling it automatically is irreversible and costly. With an order, the quotation is also
+    preserved, because in that case it was converted and the SAP would refuse the cancellation.
     """
     if estado.tem_cotacao and not estado.tem_pedido:
         acumulador.registrar(
@@ -766,11 +727,10 @@ def _decidir_troca_de_parceiro(
 ) -> None:
     """Partner swap on an open order: cancel and recreate, never leaving OPs behind.
 
-    The swap used to cancel the order without looking at production. On 20/10/2026 that
-    left 110 planned OPs on the cancelled 84505 and 84506 while their replacements got
-    their own — the same items planned twice (`docs/PLANO_TROCA_PN_COM_OP.md`). Decision
-    of the owner (option B): planned OPs are cancelled first, by the worker; a released or
-    closed OP stops the swap until a person deals with it; unknown counts stop it too.
+    The swap used to cancel the order without looking at production. On 20/10/2026 that left 110 planned OPs on
+    the cancelled 84505 and 84506 while their replacements got their own, the same items planned twice
+    (`docs/PLANO_TROCA_PN_COM_OP.md`). Decision of the owner (option B): planned OPs are cancelled first, by the
+    worker; a released or closed OP stops the swap until a person deals with it; unknown counts stop it too.
     """
     de_para = f"{estado.parceiro_pedido_sap or '-'} → {estado.parceiro_novo}"
     planejadas, em_producao = estado.ops_planejadas_pedido, estado.ops_em_producao_pedido
@@ -819,7 +779,13 @@ def _decidir_pedido(
     acumulador: _Acumulador,
     regras: list[str],
 ) -> None:
-    """SitCode 60 — pedido fechado."""
+    """SitCode 60 (sale won in WBC; not to be confused with a closed order in the SAP).
+
+    Checks, in order: no order yet (create, possibly already on the corrected partner); order closed in the SAP
+    (`pedido_fechado_no_sap`, nothing is written); order corrected by hand (`pedido_corrigido_a_mao`); pending
+    partner swap (`_decidir_troca_de_parceiro`); finally the revision stamped on the order, which updates it
+    if WBC is newer and otherwise freezes it.
+    """
     if not estado.tem_pedido:
         if estado.nasce_no_parceiro_corrigido:
             acumulador.registrar(
