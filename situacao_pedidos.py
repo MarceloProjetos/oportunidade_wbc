@@ -1,32 +1,35 @@
-"""situacao_pedidos -- Situacao dos Pedidos (view DDP) para a API 8077 e o MCP.
+"""situacao_pedidos -- Orders Status (DDP view) for the 8077 API and the MCP.
 
-**PORTE do nucleo puro de** ``web_orcaview_V118/backend/services/situacao_pedidos_service.py``.
-Decisao D1 do plano ``PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29; historico no git)``
-(2026-08-24): as duas maquinas
-leem o MESMO HANA e rodam a MESMA logica; a copia e' mantida honesta por
-``tests/test_situacao_pedidos_diffavel.py``, que compara funcao por funcao com o original
-quando o repo do V117 esta ao lado (maquina de dev) e faz ``skip`` na .11.
+**PORT of the pure core of** ``web_orcaview_V118/backend/services/situacao_pedidos_service.py``.
+Decision D1 of plan ``PLANO_SITUACAO_PEDIDOS_MCP.md (removed 2026-09-29; history in git)``
+(2026-08-24): both machines read the SAME HANA and run the SAME logic; the copy is kept
+honest by ``tests/test_situacao_pedidos_diffavel.py``, which compares function by function
+with the original when the web repo sits next to this one (dev machine) and ``skip``s on
+the .11.
 
-**Nao "melhore" nada do trecho portado.** Cada esquisitice dele e' decisao de negocio com
-teste atras no V117 -- o genero do status por coluna, o ``Atrasado`` historico, o ano
-ausente no ``Prazo_Entrega``. Refatorar aqui reabre bug fechado e faz o teste falhar.
+**Do not "improve" the ported block.** Each of its oddities is a business decision with a
+test behind it in the web repo -- the per-column status gender, the historical
+``Atrasado``, the missing year in ``Prazo_Entrega``. Refactoring here reopens a closed bug
+and fails the test.
 
-Pipeline (tudo puro, sem I/O -- testavel sem HANA)::
+Pipeline (all pure, no I/O -- testable without HANA)::
 
-    linhas cruas -> normalizar() -> montar_dashboard()  (5 KPIs + lista + conferencia)
-                                 -> filtrar()           (card/chip/busca/montador)
+    raw rows -> normalizar() -> montar_dashboard()  (5 KPIs + list + conferencia)
+                             -> filtrar()           (card/chip/search/montador)
 
-O que este modulo NAO faz: nao fala com HANA (F2), nao serve HTTP (F3), nao e' tool MCP
-(F4). Ele so transforma linha crua em contrato.
+What this module does NOT do: talk to HANA (``situacao_pedidos_hana.py``), serve HTTP
+(``api.py``) or define MCP tools (``mcp/mcp_server.py``). It only turns raw rows into the
+contract.
 
-**O que e' exclusivo da .11** (secao no fim do arquivo, fora do trecho portado de
-proposito -- e' o que mantem o nucleo diffavel):
+**What is exclusive to the .11** (section at the end of the file, outside the ported
+block on purpose -- that is what keeps the core diffable):
 
-- ``alerta_liberacao`` / :func:`com_alerta` -- o texto legivel da regra dos 10 dias (D2);
-- :func:`filtrar_bloqueio` -- o corte "bloqueado em QUALQUER etapa", que o ``filtrar``
-  do V117 nao tem (a tela filtra uma etapa por vez, pelo card clicado);
-- :func:`resumir` -- o perfil ``campos=resumo``, para a resposta caber no contexto de um
-  cliente MCP (D4).
+- ``alerta_liberacao`` / :func:`com_alerta` -- the readable text of the 10-day rule (D2);
+- :func:`filtrar_bloqueio` -- the "blocked in ANY stage" cut, which the web ``filtrar``
+  does not have (the screen filters one stage at a time, by the clicked card);
+- :func:`filtrar_liberacao_atrasada` -- only orders past the 10-day finance limit;
+- :func:`resumir` -- the ``campos=resumo`` profile, so the answer fits in an MCP
+  client's context (D4).
 """
 from __future__ import annotations
 
@@ -60,20 +63,21 @@ __all__ = [
 
 
 class ValidationError(ValueError):
-    """Parametro fora do dominio (``kpi``, ``status``, ``bloqueio``).
+    """Parameter outside its domain (``kpi``, ``status``, ``bloqueio``).
 
-    No V117 esta classe vem de ``exceptions`` e o handler do FastAPI a transforma em
-    422. Aqui e' local -- a `api.py` traduz para 422 na F3. Herda de ``ValueError``
-    para que quem esquecer de tratar ainda pegue o erro certo.
+    In the web repo this class comes from ``exceptions`` and the FastAPI handler turns
+    it into a 422. Here it is local -- the ``api.py`` routes catch it and answer 422.
+    It subclasses ``ValueError`` so a caller that forgets to handle it still catches
+    the right error.
     """
 
 
 def now_br() -> datetime:
-    """Agora em America/Sao_Paulo, tz-aware -- equivalente ao ``utils.now_br`` do V117.
+    """Now in America/Sao_Paulo, tz-aware -- equivalent to the web ``utils.now_br``.
 
-    O ``zoneinfo`` no Windows depende do pacote ``tzdata`` (chega por transitividade do
-    pandas). Se faltar, cai no fuso da propria maquina, que na .11 e' o de Sao Paulo --
-    e o valor so alimenta ``gerado_em`` e a data de referencia do aging.
+    ``zoneinfo`` on Windows needs the ``tzdata`` package (it arrives transitively via
+    pandas). When missing, it falls back to the machine's own zone, which on the .11 is
+    Sao Paulo -- and the value only feeds ``gerado_em`` and the aging reference date.
     """
     try:
         from zoneinfo import ZoneInfo
@@ -223,6 +227,9 @@ def normalizar(rows: list[dict[str, Any]], *, hoje: date | None = None) -> list[
     ``data_entrega``). Each order carries the ``montagem`` block
     (:func:`_montagem`) from ``ORDR`` in the same snapshot — the modal makes no
     extra request.
+
+    Orders on the hardcoded blocklist (``pedidos_bloqueados``, matched by ``DocNum``)
+    are dropped here: they never reach the KPIs, the table or the MCP.
 
     Args:
         rows: Raw view rows.
@@ -533,15 +540,15 @@ CAMPOS_RESUMO = (
 
 
 def alerta_liberacao(pedido: dict[str, Any]) -> str | None:
-    """Texto legivel da regra dos 10 dias -- ou ``None`` quando nao ha alerta.
+    """Readable text of the 10-day rule -- or ``None`` when there is no alert.
 
-    A REGRA nao e' desta camada: quem decide e' o ``fin_liberacao_atrasada`` do nucleo
-    portado (``Financeiro = Bloqueado``, pedido em aberto, mais de
-    :data:`FIN_LIBERACAO_LIMITE_DIAS` dias desde a ``Data_Pedido``). Aqui so se escreve
-    a frase -- uma regra, uma implementacao (D2 do plano).
+    The RULE is not decided in this layer: ``fin_liberacao_atrasada`` from the ported
+    core does it (``Financeiro = Bloqueado``, order open, more than
+    :data:`FIN_LIBERACAO_LIMITE_DIAS` days since ``Data_Pedido``). Only the sentence is
+    written here -- one rule, one implementation (plan D2).
 
-    ``None`` em vez de ``False``: para o modelo que le isto, ausencia de texto e' sinal
-    mais claro que um booleano negativo no meio de 10 campos.
+    ``None`` instead of ``False``: for the model reading this, a missing text is a
+    clearer signal than a negative boolean among 10 fields.
     """
     if not pedido.get("fin_liberacao_atrasada"):
         return None
@@ -554,10 +561,10 @@ def alerta_liberacao(pedido: dict[str, Any]) -> str | None:
 
 
 def com_alerta(pedidos: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Acrescenta ``alerta_liberacao`` a cada pedido, **no lugar**.
+    """Add ``alerta_liberacao`` to each order, **in place** (the same list is returned).
 
-    Passada separada, e nao um campo dentro do ``_pedido`` portado, de proposito: e' o
-    que mantem o nucleo byte-identico ao V117.
+    A separate pass, not a field inside the ported ``_pedido``, on purpose: that is what
+    keeps the core source-identical to the web repo.
     """
     for p in pedidos:
         p["alerta_liberacao"] = alerta_liberacao(p)
@@ -567,14 +574,16 @@ def com_alerta(pedidos: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def filtrar_bloqueio(
     pedidos: list[dict[str, Any]], bloqueio: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Corte por etapa travada -- a consulta 2 do plano.
+    """Cut by blocked stage -- query 2 of the plan.
 
     Args:
-        pedidos: lista ja normalizada.
-        bloqueio: :data:`BLOQUEIO_FILTROS` ou ``None``/``""`` = sem filtro.
+        pedidos: Already normalized list.
+        bloqueio: One of :data:`BLOQUEIO_FILTROS`, or ``None``/``""`` = no filter
+            (a copy of the list is returned). ``qualquer`` = blocked in at least one of
+            financeiro/producao/entrega; ``nenhum`` = all three released.
 
     Raises:
-        ValidationError: valor fora do dominio.
+        ValidationError: value outside the domain.
     """
     if not bloqueio:
         return list(pedidos)
@@ -595,20 +604,19 @@ def filtrar_bloqueio(
 
 
 def filtrar_liberacao_atrasada(pedidos: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """So os pedidos que estouraram o limite dos 10 dias no financeiro.
+    """Only the orders past the 10-day finance-release limit.
 
-    A REGRA continua no nucleo portado (``fin_liberacao_atrasada``); aqui e' so o corte,
-    para a rota nao precisar saber o nome do campo. Um pedido de cada vez nao interessa a
-    quem pergunta "o que esta parado ha tempo demais?" -- essa e' a pergunta que este
-    filtro responde.
+    The RULE stays in the ported core (``fin_liberacao_atrasada``); this is just the cut,
+    so the route does not need to know the field name. It answers "what has been stuck
+    for too long?".
     """
     return [p for p in pedidos if p.get("fin_liberacao_atrasada")]
 
 
 def resumir(pedidos: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Recorta cada pedido em :data:`CAMPOS_RESUMO` (D4).
+    """Trim each order to :data:`CAMPOS_RESUMO` (D4).
 
-    Campo ausente vira ``None`` em vez de desaparecer: quem consome uma lista de dicts
-    heterogeneos nao consegue distinguir "nao tem" de "nao veio".
+    A missing field becomes ``None`` instead of vanishing: whoever consumes a list of
+    heterogeneous dicts cannot tell "does not have" from "did not come".
     """
     return [{c: p.get(c) for c in CAMPOS_RESUMO} for p in pedidos]

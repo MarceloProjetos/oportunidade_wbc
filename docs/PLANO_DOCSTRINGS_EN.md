@@ -1,7 +1,8 @@
 # Plano — docstrings e type hints em inglês (ServidorIntegracaoSAP)
 
-> **Status (03/11/2026):** **E1–E7 concluídas** (111 arquivos; ~210 docstrings desatualizados
-> corrigidos + 3 regras do CLAUDE.md + 4 textos de tela errados); só a E8 (opcional) aberta.
+> **Status (03/11/2026):** ✅ **PLANO CONCLUÍDO — E1 a E8.** 116 arquivos da .11 (+ 3 no web e 1 no
+> SAP_RDP); ~225 docstrings desatualizados corrigidos, 3 regras do CLAUDE.md da .11 + 1 do CLAUDE.md
+> da raiz, 4 textos de tela errados. Entra na .11 no próximo deploy normal (sem restart extra).
 > Página: ver o artifact "Docstrings EN" (mesmo conteúdo).
 
 **Começo → Meio → Fim:** núcleo que tudo importa (E1) → regras que escrevem no SAP (E2–E5) → API,
@@ -63,7 +64,7 @@ tarefa; um em `dashboard/` vale só quando mexo na tela.
 | **E5** | Worker WBC — `infrastructure/`, `tracking/` | 20 | 115 | 0 | **concluída** |
 | **E6** | API 8077 e extrações (`api.py`, `pipeline_core`, `situacao_pedidos_hana`, `extract_*`, `monitoring`) | 11 | 94 | 90 | **concluída** |
 | **E7** | Telas, CLI, MCP, `operacao/`, `seguranca/`, `casa/` (só o que não é texto de tela) | 32 | 170 | 95 | **concluída** |
-| **E8** | Arquivos-irmãos, junto com SAP_RDP e web | 8 | 21 | 7 | aberta (opcional) |
+| **E8** | Arquivos-irmãos, junto com SAP_RDP e web | 8 | 21 | 7 | **concluída** |
 
 Cada etapa sai num commit próprio (`docs(en): E<n> …`).
 
@@ -218,6 +219,26 @@ mudou.
   "4 módulos" (são 2; o Romaneio saiu em 23/10).
 - MCP: `serve_http` citava um `StaticBearerMiddleware` que não existe (é `PortaDoMcp`, um token por
   cliente); `acoes_agente.pedidos_fechados_com_op` chama a 8080, não a 8077.
+
+### O que a E8 achou de desatualizado (arquivos-irmãos, ~15)
+
+Cada par seguiu a regra de igualdade dele: `wake_altservidor_ia.py` (web) e `operacao/travamentos.py`
+(SAP_RDP) continuam **idênticos byte a byte** (hash conferido); nas 12 funções do núcleo do
+`situacao_pedidos`, o fonte continua idêntico ao do web (`test_situacao_pedidos_diffavel`: 23 passam,
+nenhum pulado); `windows_update.py` e `pedidos_bloqueados.py` ficaram com o mesmo texto nos dois
+lados onde o código é o mesmo. `ordens_producao_sl.py` e `boots.py` já estavam em inglês.
+
+- `pedidos_bloqueados._como_int` (.11 **e** web) prometia aceitar `84337.0`: o código recusa float
+  (devolve `None`).
+- `situacao_pedidos.normalizar` (.11 **e** web) não dizia que tira os pedidos da lista de bloqueio.
+- `sap_montagem_labels`: dizia que a fonte do SAP "será ligada na F2"; já é ligada na subida da API.
+- `windows_update` (.11 e SAP_RDP): apontava para `PLANO_WINDOWS_UPDATE.md`, que não existe; o
+  SAP_RDP dizia "a prod roda 3.13.14" (roda **3.14.8 desde 07/10**); `estado_updates` não citava o
+  estado `indisponivel`.
+- **CLAUDE.md da raiz**: a tabela de máquinas dizia Python 3.13.14 na .12; corrigido para 3.14.8.
+- `wake_altservidor_ia.py`: só tipagem, conferida com `feature_version=(3, 8)` (o arquivo tem que
+  rodar em Python 3.8+). O gate "só comentário" do web acusa a anotação como código, o que é
+  esperado; o `check_docs_only_diff` aceita.
 
 <span class="warn">Fora do escopo, não mexido:</span> o log do `registrar_rotina` ainda diz
 "`ROTINAS_ESTADO_SUPABASE` desligada", mas a variável não existe mais (é texto de log).

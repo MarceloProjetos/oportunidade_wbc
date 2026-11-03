@@ -1,20 +1,21 @@
-"""sap_montagem_labels -- fonte unica do rotulo "Tipo de Montagem".
+"""sap_montagem_labels -- single source of the "Tipo de Montagem" label.
 
-**PORTE de** ``web_orcaview_V118/backend/services/sap_montagem_labels.py`` (D1 do plano
-``PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29; historico no git)``). O pedido guarda so o codigo em
-``ORDR.U_INO_TPO_MONTAGEM`` (``1``, ``2``, ``3``, ``5``, ``6``, ``EXP``); o rotulo legivel
-e' o da lista de valores validos da UDF, que mora em ``UFD1``.
+**PORT of** ``web_orcaview_V118/backend/services/sap_montagem_labels.py`` (D1 of plan
+``PLANO_SITUACAO_PEDIDOS_MCP.md (removed 2026-09-29; history in git)``). The order stores
+only the code in ``ORDR.U_INO_TPO_MONTAGEM`` (``1``, ``2``, ``3``, ``5``, ``6``, ``EXP``);
+the readable label is the one in the UDF's valid-values list, which lives in ``UFD1``.
 
-**Uma diferenca deliberada em relacao ao V117:** la o :func:`get_labels` importa o cliente
-HANA direto. Aqui a busca no SAP e' um **gancho** (:func:`registrar_fonte`) que a F2 liga
-quando a leitura HANA existir; ate la vale o :data:`FALLBACK_LABELS`. Por isso
-:func:`get_labels` fica **fora** do teste de diffabilidade -- e' I/O, como o
-``fetch_pedidos``. :func:`rotulo` e :data:`FALLBACK_LABELS`, esses sim, sao comparados.
+**One deliberate difference from the web repo:** there :func:`get_labels` imports the HANA
+client directly. Here the SAP lookup is a **hook** (:func:`registrar_fonte`) that
+``situacao_pedidos_hana`` plugs in at API startup; while no source is registered (tests,
+other processes) :data:`FALLBACK_LABELS` applies. That is why :func:`get_labels` stays
+**outside** the diffability test -- it is I/O, like ``fetch_pedidos``. :func:`rotulo` and
+:data:`FALLBACK_LABELS` are compared.
 
-**Nao criar um mapa local de rotulos.** Ate 2026-07-27 o mapa estava chumbado em dois
-lugares no V117, so conhecia dois codigos e divergia do SAP -- 26 pedidos com o codigo
-``2`` cairam em texto livre inconsistente (as vezes literalmente ``"."``). Uma terceira
-copia aqui e' regressao.
+**Do not create a local label map.** Until 2026-07-27 the map was hardcoded in two places
+in the web repo, knew only two codes and diverged from SAP -- 26 orders with code ``2``
+fell into inconsistent free text (sometimes literally ``"."``). A third copy here is a
+regression.
 """
 from __future__ import annotations
 
@@ -73,9 +74,10 @@ _fonte: Callable[[str, str], list[dict[str, str]]] | None = None
 
 
 def registrar_fonte(fn: Callable[[str, str], list[dict[str, str]]] | None) -> None:
-    """Liga a busca real no SAP (F2). ``fn(tabela, alias) -> [{'value','descr'}, ...]``.
+    """Plug in the real SAP lookup. ``fn(table, alias) -> [{'value','descr'}, ...]``.
 
-    Passar ``None`` desliga e volta ao fallback -- e' o que os testes usam.
+    Passing ``None`` unplugs it and goes back to the fallback -- what the tests use.
+    Either way the label cache is cleared.
     """
     global _fonte
     _fonte = fn
@@ -83,20 +85,21 @@ def registrar_fonte(fn: Callable[[str, str], list[dict[str, str]]] | None) -> No
 
 
 def limpar_cache() -> None:
-    """Esvazia o cache de rotulos (testes e apos mudanca no SAP)."""
+    """Empty the label cache (tests, and after a change in SAP)."""
     global _cache
     with _cache_lock:
         _cache = None
 
 
 def get_labels() -> dict[str, str]:
-    """Mapa ``codigo -> rotulo`` do tipo de montagem, do SAP (ou do fallback).
+    """Map ``code -> label`` of the assembly type, from SAP (or the fallback).
 
-    Nunca levanta: qualquer falha vira log + :data:`FALLBACK_LABELS`. Quem chama esta
-    montando uma resposta; ficar sem rotulo e' pior que o rotulo de ontem.
+    Never raises: a failing lookup becomes a log line + :data:`FALLBACK_LABELS`. The
+    caller is building a response; having no label is worse than yesterday's label.
+    Only a real SAP answer is cached (6 h); the fallback never is.
 
     Returns:
-        Uma copia do mapa (quem chama nao envenena o cache).
+        A copy of the map (the caller cannot poison the cache).
     """
     global _cache
 

@@ -1,30 +1,33 @@
-"""Estado do Windows Update: reboot pendente + updates pendentes + último patch.
+"""Windows Update state: pending reboot + pending updates + last patch.
 
-Módulo separado do ``monitoring.py`` de propósito: concern próprio, testável isolado. O
-``monitoring.py`` só o consulta no check ``windows_update`` do ``/status``.
+Separate from ``monitoring.py`` on purpose: its own concern, testable in isolation.
+``monitoring.py`` only queries it in the ``windows_update`` check of ``/status``.
 
-**Este arquivo é um PORTE do ``windows_update.py`` do repo SAP_RDP (a .12) e deve ser
-mantido diffável com ele** — a lógica é a mesma nos dois servidores, e a invariante que ela
-protege também. Ao corrigir um bug aqui, leve para lá (e vice-versa); só o cabeçalho e os
-consumidores mudam. Plano completo: ``../SAP_RDP/docs/PLANO_WINDOWS_UPDATE.md``.
+**This file is a PORT of ``windows_update.py`` in the SAP_RDP repo (the .12) and must stay
+diffable against it** -- the logic is the same on both servers, and so is the invariant it
+protects. Fix a bug here, carry it over there (and vice versa); only the header, the
+consumers and SAP_RDP's periodic recollection (``WU_REFRESH_H``, collection ETA) differ. The
+full plan (``PLANO_WINDOWS_UPDATE.md``) was removed from SAP_RDP on 2026-09-29; history is in git.
 
-O DESENHO INTEIRO VEM DE MEDIÇÃO NAS MÁQUINAS REAIS (fase F0 do plano):
+THE WHOLE DESIGN COMES FROM MEASUREMENTS ON THE REAL MACHINES (phase F0 of the plan):
 
-  reboot pendente (winreg)            0,18 ms  -> síncrono, sempre fresco
-  última varredura (COM AutoUpdate)   7-17 ms  -> síncrono
-  último patch (Get-HotFix)           ~1,0 s   -> cache
-  updates pendentes (COM Search)      3,1 s (.11) · 22,5 s (.12) · 30 s a frio -> BACKGROUND
+  pending reboot (winreg)             0.18 ms  -> synchronous, always fresh
+  last scan (COM AutoUpdate)          7-17 ms  -> synchronous
+  last patch (Get-HotFix)             ~1.0 s   -> cache
+  pending updates (COM Search)        3.1 s (.11) · 22.5 s (.12) · 30 s cold -> BACKGROUND
 
-A busca varia 10× entre as máquinas e estoura o timeout de 15 s de quem consulta: por isso
-a coleta cara roda numa thread daemon disparada no start da API (~5 min depois), e o
-``/status`` só LÊ o cache. O boot é o agendamento — as duas máquinas rebootam todo dia de
-manhã (.11 06:12 / .12 06:17), então não há agendador nem JSON em disco.
+The search varies 10x between the machines and blows the 15 s timeout of whoever queries:
+hence the expensive collection runs on a daemon thread fired at API start (~5 min later,
+``WU_DELAY_START_S``), and ``/status`` only READS the cache. The boot is the schedule -- both
+machines reboot every morning (.11 06:12 / .12 06:17), so there is no scheduler and no JSON
+on disk.
 
-A ARMADILHA QUE ESTE MÓDULO EXISTE PARA EVITAR: com o agente sem varrer, a busca
-``IsInstalled=0`` RESPONDE — cara e confiante — e devolve **0**. Não é erro tratável. Na
-.12 isso faria a Mira exibir "0 updates pendentes ✅" num servidor com 611 dias de atraso.
-Por isso ``pendentes`` só é publicado quando ``LastSearchSuccessDate`` é recente; senão é
-``None`` com o motivo à vista. Nunca "0" quando é "não sei".
+THE TRAP THIS MODULE EXISTS TO AVOID: with the agent not scanning, the
+``IsInstalled=0`` search ANSWERS -- expensive and confident -- and returns **0**. It is not
+a handleable error. On the .12 that would make Mira show "0 updates pendentes ✅" on a server
+611 days behind. So ``pendentes`` is only published when ``LastSearchSuccessDate`` is recent
+(``WU_VARREDURA_MAX_D``, default 7 days); otherwise it is ``None`` with the reason in view.
+Never "0" when it means "I don't know".
 """
 
 from __future__ import annotations
@@ -120,16 +123,16 @@ $out | ConvertTo-Json -Compress
 """
 
 
-def _abrir(caminho: str):
+def _abrir(caminho: str) -> object:
     return winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, caminho)  # type: ignore[union-attr]
 
 
 def _chave_existe(caminho: str) -> bool | None:
-    """True/False = fato; None = não deu para saber (permissão, winreg ausente).
+    """True/False = fact; None = could not tell (permission, winreg missing).
 
-    O tri-estado é obrigatório: qualquer teste booleano que colapse erro em ``False``
-    faz a API AFIRMAR "sem reboot pendente" num acesso negado — falso negativo silencioso
-    no dado mais crítico.
+    The tri-state is mandatory: any boolean test that collapses an error into ``False``
+    makes the API ASSERT "no pending reboot" on an access denied -- a silent false negative
+    on the most critical datum.
     """
     if winreg is None:
         return None
@@ -142,7 +145,7 @@ def _chave_existe(caminho: str) -> bool | None:
         return None
 
 
-def _valor(caminho: str, nome: str):
+def _valor(caminho: str, nome: str) -> object:
     chave = _abrir(caminho)
     try:
         return winreg.QueryValueEx(chave, nome)[0]  # type: ignore[union-attr]
@@ -151,11 +154,12 @@ def _valor(caminho: str, nome: str):
 
 
 def reboot_pendente() -> dict:
-    """Reboot pendente + motivos. ~0,2 ms — cabe no caminho síncrono, sempre fresco.
+    """Pending reboot + reasons. ~0.2 ms -- fits the synchronous path, always fresh.
 
     Returns:
         ``{"pendente": True|False|None, "motivos": [...], "erro": str|None}``.
-        ``None`` = não sei (nunca vira ``False`` por engano — ver ``_chave_existe``).
+        ``True`` as soon as one reason is confirmed, even if another probe failed.
+        ``None`` = unknown (never turns into ``False`` by mistake -- see ``_chave_existe``).
     """
     if winreg is None:
         return {"pendente": None, "motivos": [], "erro": "winreg indisponível (não-Windows)"}
@@ -189,11 +193,11 @@ def reboot_pendente() -> dict:
 
 
 def patching_automatico() -> bool | None:
-    """O Windows Update pode agir nesta máquina? ``False`` = ``wuauserv`` DESABILITADO.
+    """Can Windows Update act on this machine? ``False`` = ``wuauserv`` DISABLED; ``None`` = unknown.
 
-    Vale reportar: ``Stopped/Manual`` é o default (trigger-start) e NÃO é problema, mas
-    ``Disabled`` significa que a máquina não se atualiza — foi o caso da .12, que ficou
-    610 dias sem patch. É o contexto sem o qual "0 pendentes" engana.
+    Worth reporting: ``Stopped/Manual`` is the default (trigger-start) and is NOT a problem,
+    but ``Disabled`` means the machine never updates itself -- that was the .12, which went
+    610 days without a patch. It is the context without which "0 pending" misleads.
     """
     if winreg is None:
         return None
@@ -204,7 +208,10 @@ def patching_automatico() -> bool | None:
 
 
 def _rodar_ps(script: str, timeout_s: float) -> tuple[dict | None, str | None]:
-    """PowerShell → JSON. Devolve ``(dados, erro)``; nunca levanta."""
+    """Run PowerShell and parse its stdout as a JSON object: ``(data, error)``; never raises.
+
+    Exactly one of the two is ``None``; any output that is not a JSON object is an error.
+    """
     try:
         resultado = subprocess.run(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
@@ -233,12 +240,15 @@ def _rodar_ps(script: str, timeout_s: float) -> tuple[dict | None, str | None]:
 
 
 def _agora_utc() -> datetime:
-    """UTC ingênuo. (`utcnow()` é deprecado no 3.12+.)"""
+    """Naive UTC. (`utcnow()` is deprecated since 3.12.)"""
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _iso_para_dt(valor) -> datetime | None:
-    """ISO do PowerShell → datetime UTC ingênuo (o PS já manda `.ToUniversalTime()`)."""
+def _iso_para_dt(valor: object) -> datetime | None:
+    """PowerShell ISO string -> naive UTC datetime (PS already sends `.ToUniversalTime()`).
+
+    ``None`` if empty or unparseable.
+    """
     if not valor:
         return None
     try:
@@ -252,7 +262,11 @@ def _iso_para_dt(valor) -> datetime | None:
 
 
 def coletar_updates(settings: Settings | None = None) -> dict:
-    """A parte CARA (3-30s). Só a thread de background chama isto — nunca um request."""
+    """The EXPENSIVE part (3-30 s). Only the background thread calls this -- never a request.
+
+    Never raises: a failed PowerShell run returns the same keys with ``pendentes=None`` and
+    ``erro``/``pendentes_motivo`` set. The run is capped by ``wu_coleta_timeout_s``.
+    """
     s = settings or get_settings()
     # `float()` (não `int()`): truncar fazia o PS usar 7 quando o .env pedia 7,9 — o limite
     # do PS divergiria do daqui em silêncio. E é o que torna o `replace` seguro: o valor
@@ -300,13 +314,18 @@ def coletar_updates(settings: Settings | None = None) -> dict:
     }
 
 
-def _filtrar_contagem(pendentes, motivo, dias_varredura, s: Settings):
-    """Reaplica a invariante nº 1 AQUI, mesmo que o PowerShell já a tenha aplicado.
+def _filtrar_contagem(
+    pendentes: object, motivo: str | None, dias_varredura: float | None, s: Settings
+) -> tuple[int | None, str | None]:
+    """Reapply invariant #1 HERE, even though PowerShell already applied it.
 
-    Defesa em profundidade de propósito: a regra "nunca publicar 0 quando é não sei" é a
-    razão de este módulo existir, e ela não pode ter ponto único de decisão do outro lado
-    de um subprocess. Se alguém mexer no `_PS_COLETA` e quebrar a checagem de frescor lá,
-    a contagem morre aqui do mesmo jeito — e esta camada é a que tem testes.
+    Defence in depth on purpose: the rule "never publish 0 when it means unknown" is the
+    reason this module exists, and it cannot have a single decision point on the far side of
+    a subprocess. If someone edits `_PS_COLETA` and breaks the freshness check there, the
+    count dies here all the same -- and this layer is the one with tests.
+
+    Returns:
+        ``(count|None, reason|None)``.
     """
     # A mensagem DAQUI vence a do PowerShell nestes dois ramos, de propósito: a do PS é
     # genérica e ASCII ("o agente nao varre ha tempo demais"), enquanto aqui sabemos o
@@ -331,7 +350,10 @@ def _filtrar_contagem(pendentes, motivo, dias_varredura, s: Settings):
 
 
 def _delay_valido(delay_s: float) -> float:
-    """Sanitiza o delay do .env. `_env_float` aceita -1/nan/inf — `time.sleep` não."""
+    """Sanitize the .env delay. `_env_float` accepts -1/nan/inf -- `time.sleep` does not.
+
+    Garbage, NaN and infinity fall back to ``WU_DELAY_START_S_DEFAULT``; negatives clamp to 0.
+    """
     try:
         valor = float(delay_s)
     except (TypeError, ValueError):
@@ -347,7 +369,7 @@ _coletando = False
 
 
 def reset_cache() -> None:
-    """Descarta o cache (testes)."""
+    """Drop the cache (tests)."""
     global _cache, _coletando
     with _lock:
         _cache = None
@@ -362,11 +384,13 @@ def _guardar(valor: dict) -> None:
 
 
 def estado_updates() -> dict:
-    """O que vai no bloco ``windows_update`` do ``/status``. Só LÊ o cache — nunca coleta.
+    """What goes in the ``windows_update`` block of ``/status``. Only READS the cache -- never collects.
 
-    Antes da 1ª coleta devolve ``estado='coletando'`` (a thread nasce no start da API e
-    dorme ~5 min). A janela cai às ~06:1x, logo depois do boot diário — sem ninguém no
-    sistema. É por isso que o cache é em memória e não precisa de arquivo.
+    Before the 1st collection it returns ``estado='coletando'`` (the thread is born at API
+    start and sleeps ~5 min), or ``'indisponivel'`` if no collection was ever scheduled
+    (``WU_ENABLED=false``); afterwards ``'ok'``, or ``'erro'`` when the cache carries ``erro``.
+    The window falls at ~06:1x, right after the daily boot -- with nobody on the system. That
+    is why the cache is in memory and needs no file.
     """
     with _lock:
         atual = dict(_cache) if _cache else None
@@ -427,11 +451,12 @@ def _worker(delay_s: float, settings: Settings) -> None:
 
 
 def iniciar_coletor(settings: Settings | None = None) -> threading.Thread | None:
-    """Dispara a coleta UMA vez, em background, ``wu_delay_start_s`` depois.
+    """Fire the collection ONCE, in the background, ``wu_delay_start_s`` later.
 
-    Chamado do ENTRYPOINT (``api.main()``), nunca do import — senão a suíte de testes
-    dispararia PowerShell. Uma vez por processo: como o servidor reboota todo dia, o boot
-    é o agendamento e um restart de deploy no meio do dia simplesmente recoleta.
+    Returns the thread, or ``None`` when ``WU_ENABLED=false``. Called from the ENTRYPOINT
+    (``api.main()``), never from import -- otherwise the test suite would fire PowerShell. Once
+    per process: since the server reboots every day, the boot is the schedule and a deploy
+    restart mid-day simply recollects.
     """
     global _coletando
     s = settings or get_settings()

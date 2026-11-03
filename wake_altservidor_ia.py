@@ -203,7 +203,7 @@ def ping(host: str) -> bool:
     return proc.returncode == 0 and ("ttl=" in saida or "ttl =" in saida)
 
 
-def burst(packet: bytes, broadcasts) -> int:
+def burst(packet: bytes, broadcasts: list[str]) -> int:
     """One round: the packet to each broadcast × port × REPEATS."""
     enviados = 0
     for broadcast in broadcasts:
@@ -218,7 +218,7 @@ def burst(packet: bytes, broadcasts) -> int:
     return enviados
 
 
-def acordar(mac: str, ip: str, broadcasts, wait: int, reenviar: int) -> bool:
+def acordar(mac: str, ip: str, broadcasts: list[str], wait: int, reenviar: int) -> bool:
     """Send magic-packet rounds until the host replies or the window ends.
 
     Resending exists because of the .11 boot: when it comes up after a power
@@ -251,7 +251,7 @@ def acordar(mac: str, ip: str, broadcasts, wait: int, reenviar: int) -> bool:
         time.sleep(min(POLL, max(restante, 0.1)))
 
 
-def main(argv=None) -> int:
+def main(argv: list[str] | None = None) -> int:
     global _LOG_PATH
 
     parser = argparse.ArgumentParser(

@@ -1,32 +1,32 @@
-"""pedidos_bloqueados -- a lista fixa de pedidos de venda que não contam.
+"""pedidos_bloqueados -- the hardcoded blocklist of sales orders that do not count.
 
-Pedido que está aqui é tratado como se não existisse: não aparece em tela, não
-entra em soma nenhuma e não se propaga para os agregados do Supabase nem para o
-app. A regra é **hardcode de propósito** (decisão do Marcelo, 21/09/2026), e não
-uma flag no ``.env``: é correção de documentos específicos da produção, não um
-recurso que se liga e desliga.
+An order listed here is treated as if it did not exist: it does not show up on a
+screen, it is not added to any total, and it does not propagate to the Supabase
+aggregates or to the app. The rule is deliberately **hardcoded** (Marcelo's call,
+2026-09-21) and not a flag in the ``.env``: it is a correction of specific
+documents in production, not a feature that gets switched on and off.
 
-Por que o ``84337`` (NAVARRO, DocEntry 19696, R$ 93.531,74, 02/09/2026) está
-aqui: o pedido está FECHADO no SAP (``DocStatus='C'``) **sem entrega e sem nota**
-(``RDR1.TargetType = -1``, nada em ``DLN1``/``INV1``) — foi fechado na mão. Mesmo
-assim pesava no total de Pedidos do mês, no cartão "Mês atual" e no ranking de
-clientes do celular, lido como uma venda que não aconteceu.
+Why ``84337`` (NAVARRO, DocEntry 19696, R$ 93.531,74, 2026-09-02) is here: the order
+is CLOSED in SAP (``DocStatus='C'``) with **no delivery and no invoice**
+(``RDR1.TargetType = -1``, nothing in ``DLN1``/``INV1``) -- it was closed by hand. It
+still weighed in the month's Orders total, in the "Mês atual" card and in the
+customer ranking on the phone, where it read as a sale that never happened.
 
-**Onde é aplicado nesta máquina:**
+**Where this is applied on this machine:**
 
-* ``extract_vendas_bi.py`` — as duas consultas da ``VW_PEDIDO_ALTA`` (série
-  mensal e detalhe recente), que é o que alimenta ``bi_vendas_kpi``,
-  ``bi_vendas_ranking`` e ``bi_vendas_serie_mensal``. Como a carga **poda** o que
-  ela mesma não reescreveu, a linha antiga do ranking sai sozinha na corrida
-  seguinte;
-* ``maintenance/conferir_vendas_bi.py`` — o conferidor lê a MESMA view; sem o
-  mesmo corte ele acusaria divergência contra um Supabase que está certo;
-* ``situacao_pedidos.normalizar`` — o gêmeo do web (ver o aviso lá).
+* ``extract_vendas_bi.py`` -- both ``VW_PEDIDO_ALTA`` queries (monthly series and
+  recent detail), which feed ``bi_vendas_kpi``, ``bi_vendas_ranking`` and
+  ``bi_vendas_serie_mensal``. Since the load **prunes** whatever it did not rewrite
+  itself, the old ranking row disappears on the next run;
+* ``maintenance/conferir_vendas_bi.py`` -- the checker reads the SAME view; without
+  the same cut it would report a divergence against a Supabase that is right;
+* ``situacao_pedidos.normalizar`` -- the twin of the web (see the warning there).
 
-⚠️ **Há uma cópia desta lista no web** (``web_orcaview_V118/backend/services/
-pedidos_bloqueados.py``) e outra no app (``mobile_orcaview_V4/lib/pedidos/
-bloqueados.ts``). São repositórios diferentes lendo fontes diferentes (HANA
-direto aqui, Supabase no celular); acrescentar um pedido exige mexer nos três.
+⚠️ **There is a copy of this list in the web repo**
+(``web_orcaview_V118/backend/services/pedidos_bloqueados.py``) and another in the app
+(``mobile_orcaview_V4/lib/pedidos/bloqueados.ts``). Different repos reading different
+sources (HANA directly here, Supabase on the phone); adding an order means touching
+all three.
 """
 from __future__ import annotations
 
@@ -44,7 +44,12 @@ PEDIDOS_BLOQUEADOS_DOCNUM: frozenset[int] = frozenset({84337})
 
 
 def _como_int(valor: Any) -> int | None:
-    """``'84337'``/``84337``/``84337.0`` -> ``84337``; o resto vira ``None``."""
+    """``'84337'``/``84337`` -> ``84337``; anything else -> ``None``.
+
+    The comparison tolerates the int and the text spelling (HANA hands a UDF declared
+    as text back as a number, and the mirror turns ``doc_num`` into TEXT). A float is
+    NOT accepted: ``84337.0`` -> ``None``, because ``int('84337.0')`` raises.
+    """
     if valor is None or isinstance(valor, bool):
         return None
     try:
@@ -54,7 +59,7 @@ def _como_int(valor: Any) -> int | None:
 
 
 def docnum_bloqueado(valor: Any) -> bool:
-    """``True`` quando esse número de pedido está na lista."""
+    """``True`` when this ``DocNum`` is on the blocklist."""
     return _como_int(valor) in PEDIDOS_BLOQUEADOS_DOCNUM
 
 
@@ -63,12 +68,12 @@ def _lista(valores: Iterable[int]) -> str:
 
 
 def sql_nao_bloqueado(coluna: str, *, prefixo: str = " AND ") -> str:
-    """Pedaço de SQL que corta os pedidos da lista, já com o ``AND`` na frente.
+    """SQL fragment that drops the blocked orders, with ``prefixo`` (default ``AND``) in front.
 
-    Interpolar é seguro aqui e só aqui: os valores são inteiros de uma constante
-    do módulo, nunca entrada de usuário. ``coluna`` vem citada pronta pelo
-    chamador (``"DOC"`` na view, ``p."DOC"`` quando há alias). Devolve ``''`` com
-    a lista vazia, para esvaziá-la não deixar um ``WHERE`` quebrado para trás.
+    Interpolating is safe here and only here: the values are ints from a module-level
+    constant, never user input. ``coluna`` arrives already quoted from the caller
+    (``"DOC"`` on the view, ``p."DOC"`` with an alias). Returns ``''`` with an empty
+    list, so emptying the blocklist does not leave a broken ``WHERE`` behind.
     """
     if not PEDIDOS_BLOQUEADOS_DOCNUM:
         return ""
