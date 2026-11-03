@@ -12,8 +12,14 @@ checkpoints, cada disco de VM (diferencial ou não, tamanho da cadeia, tamanho),
 virtuais e o VMQ, os erros da última hora (System + logs de admin do Hyper-V, agrupados) e o IPv6 do host. Cada bloco
 tem o próprio try/catch: o que não deu para ler vai em `erros` e o resto segue.
 
-O mesmo script serve ao ALTHOST (192.168.7.250), se um dia quiser: a .11 sabe qual host mandou pelo **IP de origem**
-(`operacao/hyperv.ORIGENS`), nunca pelo nome que vem no corpo.
+O mesmo script serve ao ALTHOST (192.168.7.250), se um dia quiser, e ao **ALTHOSTBKP02** (192.168.7.252, desde
+03/11/2026: as réplicas do Veeam, desligadas por desenho, e a VM **ALTDC02**, o segundo controlador de domínio): a .11
+sabe qual host mandou pelo **IP de origem** (`operacao/hyperv.ORIGENS`), nunca pelo nome que vem no corpo.
+
+**No ALTHOSTBKP02** os passos são os mesmos, com a credencial `bkp02-hyperv` (passo 1) e o 1º teste conferindo
+`ALTDC02` Running com Heartbeat `Ok...` e as `*_replica` Off. Os passos 2 a 6 estão juntos em
+`maintenance/instalar_estado_hyperv.ps1 -Chave <a chave do passo 1>` (rodar no próprio host, PowerShell como
+administrador, com o `estado_hyperv.ps1` na mesma pasta); `-Desfazer` tira a tarefa, a chave e o script.
 
 ## Instalação no ALTSAP (passos de uma pessoa — 1 vez)
 

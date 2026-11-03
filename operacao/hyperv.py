@@ -19,9 +19,10 @@ from typing import Any
 from operacao import backup
 from operacao.backup import MENSAGEM_MAX, RelatoInvalido, _data, _lista, _numero, _texto
 
-#: Origin address -> host id (and file). The ALTSAP first; the ALTHOST may run the same script later.
-ORIGENS: dict[str, str] = {"192.168.7.253": "altsap", "192.168.7.250": "althost"}
-NOMES = {"altsap": "ALTSAP", "althost": "ALTHOST"}
+#: Origin address -> host id (and file). The ALTSAP first; the ALTHOST may run the same script later. The
+#: ALTHOSTBKP02 (across the street) holds the Veeam replicas and the second DC, ALTDC02 (03/11/2026).
+ORIGENS: dict[str, str] = {"192.168.7.253": "altsap", "192.168.7.250": "althost", "192.168.7.252": "althostbkp02"}
+NOMES = {"altsap": "ALTSAP", "althost": "ALTHOST", "althostbkp02": "ALTHOSTBKP02"}
 PASTA = backup.RAIZ / "state"
 CORPO_MAX = backup.CORPO_MAX
 

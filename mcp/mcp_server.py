@@ -728,8 +728,10 @@ def estado_backup() -> dict[str, Any]:
 
 @mcp.tool(annotations=_ANOTACAO_LEITURA)
 def estado_hyperv() -> dict[str, Any]:
-    """OS HOSTS HYPER-V (ALTSAP, que roda a .11, a .12 e o HANA; e o ALTHOST se tiver a tarefa), pelo relato
-    que cada host manda à .11 de hora em hora. Só leitura.
+    """OS HOSTS HYPER-V (ALTSAP, que roda a .11, a .12 e o HANA; ALTHOSTBKP02, do outro lado da rua, com as
+    réplicas do Veeam e o segundo controlador de domínio ALTDC02; e o ALTHOST se tiver a tarefa), pelo relato
+    que cada host manda à .11 de hora em hora. Só leitura. No ALTHOSTBKP02 as ``*_replica`` desligadas são o
+    normal: só a ALTDC02 roda.
 
     ``hosts.<id>.relato``: ``vms`` (estado, ``heartbeat`` -- "LostCommunication" = o Windows da VM parou de
     responder ao host --, uptime, CPU, memória), ``checkpoints`` (com a data; um "Veeam Recovery Checkpoint"

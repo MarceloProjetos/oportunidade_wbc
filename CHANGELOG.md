@@ -6,6 +6,16 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-03] — O ALTHOSTBKP02 entra no relato Hyper-V
+
+**Pede ação**: deploy na .11 (`deploy_update.bat`), depois a credencial `bkp02-hyperv` e o instalador no host
+(`docs/HYPERV_HOSTS.md`).
+
+- `operacao/hyperv.ORIGENS` aceita `192.168.7.252` = **ALTHOSTBKP02** (do outro lado da rua: réplicas do Veeam,
+  desligadas por desenho, e a VM ALTDC02, o segundo controlador de domínio). `estado_hyperv` passa a mostrá-lo.
+- `maintenance/instalar_estado_hyperv.ps1`: os passos 2 a 6 do `HYPERV_HOSTS.md` num arquivo só (pasta só de
+  SYSTEM/Administradores, leitura de teste, chave pedida sem eco, 1º envio, tarefa de hora em hora); `-Desfazer`.
+
 ## [2026-11-03] — O .90 liga às 06:45, não mais junto com a .11
 
 Pedido do Marcelo de 29/10, que tinha ficado só no web. **Pede ação na .11**: `git pull --ff-only` e rodar de

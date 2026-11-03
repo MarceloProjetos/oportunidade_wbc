@@ -78,6 +78,8 @@ def test_gravar_por_origem_e_ler_todos(tmp_path):
     lido = hyperv.ler(datetime(2026, 10, 9, 15, 30, 9), pasta=tmp_path)["hosts"]
     assert lido["altsap"]["idade_min"] == 30 and lido["altsap"]["relato"]["vms"][0]["nome"] == "RDS"
     assert lido["althost"]["relato"] is None and "ALTHOST ainda não mandou" in lido["althost"]["motivo"]
+    assert lido["althostbkp02"]["nome"] == "ALTHOSTBKP02" and lido["althostbkp02"]["relato"] is None
+    assert hyperv.gravar(hyperv.validar(RELATO), "192.168.7.252", pasta=tmp_path) == "althostbkp02"
     with pytest.raises(KeyError):
         hyperv.gravar(hyperv.validar(RELATO), "192.168.0.47", pasta=tmp_path)
 
