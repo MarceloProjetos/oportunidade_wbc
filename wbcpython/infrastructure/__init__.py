@@ -1,1 +1,1 @@
-"""Camada: infrastructure (ver ai_spec/03_architecture.md)."""
+"""Infrastructure layer: adapters to HANA, Service Layer, WBC SQL Server, tracking and Controle de Produção."""

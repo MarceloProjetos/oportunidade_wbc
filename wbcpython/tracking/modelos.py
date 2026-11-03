@@ -1,20 +1,17 @@
-"""Modelo de dados do banco de acompanhamento.
+"""Data model of the tracking database.
 
-Este banco é **da própria integração** — separado do WBC e do SAP. É ele que
-alimenta o dashboard, e é aqui que mora todo estado de processamento.
+This database belongs to the integration itself, separate from the WBC and SAP, and holds all processing state.
+The separation is required: the WBC is read-only (Rule 5), so "this quote was already processed" cannot be
+stored there; and the dashboard never queries SAP or the WBC directly (see `docs/wbc/ai_spec/00_index.md`), so
+that opening a screen does not load the source systems.
 
-Isso não é organização por gosto: o WBC é somente leitura (Regra 5), então
-"este orçamento já foi processado" **não pode** ser gravado lá. E o dashboard
-nunca consulta SAP nem WBC diretamente (`ai_spec/03_architecture.md`), para não
-transformar cada abertura de tela em carga nos sistemas de origem.
+Tables:
 
-Três tabelas, com papéis distintos:
-
-* `acompanhamento` — uma linha por orçamento, o estado corrente;
-* `eventos` — o histórico do que aconteceu com cada orçamento (o legado não
-  guardava nada disso);
-* `execucoes` — o histórico de execuções do worker, para auditoria e para
-  saber se o processo está de pé.
+* `acompanhamento`: one row per quote, the current state;
+* `eventos`: history of what happened to each quote (the legacy kept none of it);
+* `execucoes`: history of worker runs, for audit and to tell whether the process is alive;
+* `pedido_de_janela`: the single-row request for the extended window (`PedidoDeJanela`);
+* `travas`: the worker's single-execution lock (`Trava`).
 """
 
 from __future__ import annotations
@@ -40,12 +37,11 @@ from wbcpython.domain.janela import EstadoDaJanela
 
 
 def _enum(tipo: type[enum.StrEnum], nome: str) -> Enum:
-    """Coluna de enumeração que devolve o próprio enum na leitura.
+    """Enum column that returns the enum itself on read.
 
-    Guardar como `String` faria o valor voltar do banco como `str` — comparações
-    com o enum passariam por igualdade mas falhariam por identidade, e o tipo
-    declarado (`Mapped[StatusIntegracao]`) seria mentira. `values_callable`
-    grava o *valor* legível ('cotacao_criada') em vez do nome do membro.
+    Storing a plain `String` would bring the value back as `str`: comparisons with the enum would pass by equality
+    but fail by identity, and the declared type (`Mapped[StatusIntegracao]`) would lie. `values_callable` stores the
+    readable *value* ('cotacao_criada') instead of the member name.
     """
     return Enum(
         tipo,
@@ -61,7 +57,7 @@ class Base(DeclarativeBase):
 
 
 class StatusIntegracao(enum.StrEnum):
-    """Situação da integração de um orçamento, para exibição no dashboard."""
+    """Integration status of a quote, for display on the dashboard."""
 
     PENDENTE = "pendente"
     SEM_ACAO = "sem_acao"
@@ -99,7 +95,7 @@ class StatusExecucao(enum.StrEnum):
 
 
 class Acompanhamento(Base):
-    """Estado corrente da integração de um orçamento."""
+    """Current integration state of a quote."""
 
     __tablename__ = "acompanhamento"
 
@@ -162,11 +158,10 @@ class Acompanhamento(Base):
 
 
 class Evento(Base):
-    """Uma coisa que aconteceu com um orçamento.
+    """Something that happened to a quote.
 
-    O sistema legado não registrava nada disso — o `AddLog` estava com o corpo
-    comentado. Sem histórico, não há como responder "por que este orçamento não
-    virou pedido?", que é a pergunta que motiva o dashboard.
+    The legacy recorded none of this (`AddLog` had its body commented out). Without history there is no way to
+    answer "why did this quote not become an order?", the question that motivates the dashboard.
     """
 
     __tablename__ = "eventos"
@@ -189,10 +184,9 @@ class Evento(Base):
 
 
 class Execucao(Base):
-    """Uma execução do worker.
+    """One worker run.
 
-    Existe para responder duas perguntas que o legado deixava sem resposta: "o
-    processo rodou?" e "o que ele fez?".
+    Answers two questions the legacy left open: "did the process run?" and "what did it do?".
     """
 
     __tablename__ = "execucoes"
@@ -229,22 +223,19 @@ class Execucao(Base):
 
 
 class PedidoDeJanela(Base):
-    """O pedido de janela estendida — uma linha só, sempre a de `id=1`.
+    """The extended-window request: a single row, always `id=1` (`LINHA_UNICA`).
 
-    Por que no banco, e não numa variável: o painel e o worker são **processos
-    separados** (serviços NSSM distintos na .11). Não há memória compartilhada
-    entre eles, e o acompanhamento é o único lugar que os dois já tocam — a
-    tabela `travas` ao lado já coordena os dois pelo mesmo caminho.
+    Why in the database and not in a variable: the panel and the worker are **separate processes** (distinct NSSM
+    services on the .11) with no shared memory, and the tracking database is the only place both already touch;
+    the `travas` table next to it coordinates the two the same way.
 
-    Por que não no `state/wbc_worker.stop`, que é o precedente de sinal
-    painel→worker: aquele arquivo carrega um bit ("pare"). Aqui é preciso um
-    valor com dono, data, contador de tentativas e prazo de resposta — e ele
-    precisa aparecer na tela, que lê o banco e não o disco.
+    Why not a file like `state/wbc_worker.stop`, the panel-to-worker signal precedent: that file carries one bit
+    ("stop"). This needs a value with an owner, a date, an attempt counter and an answer deadline, and it must show
+    on the screen, which reads the database, not the disk.
 
-    Uma linha só porque o pedido é um estado global do worker, não uma fila:
-    dois pedidos simultâneos não teriam significado (a próxima passada é uma).
-    O `id` fixo deixa a chave primária impedir a segunda linha, em vez de uma
-    regra em código que alguém pode esquecer de aplicar.
+    A single row because the request is a global worker state, not a queue: two simultaneous requests would mean
+    nothing (the next pass is one). The fixed `id` lets the primary key forbid a second row, instead of a code rule
+    someone may forget to apply.
     """
 
     __tablename__ = "pedido_de_janela"
@@ -268,9 +259,9 @@ class PedidoDeJanela(Base):
     #: número que a pergunta na tela mostra.
     faltaram: Mapped[int] = mapped_column(Integer, default=0)
 
-    #: Ciclos estendidos que terminaram com erro. Três consecutivos devolvem o
-    #: pedido: erro de rede não pode custar o pedido, mas erro persistente não
-    #: pode virar ciclo pesado a cada 180 s.
+    #: Extended cycles that ended in error. Three in a row give the request back: a
+    #: network error must not cost the request, but a persistent one must not become a
+    #: heavy cycle every interval (`WORKER_INTERVAL_SECONDS`, 300 s by default).
     tentativas: Mapped[int] = mapped_column(Integer, default=0)
 
     #: Prazo da resposta, só em `AGUARDANDO`. `ARMADO` não expira de propósito:
@@ -286,12 +277,11 @@ class PedidoDeJanela(Base):
 
 
 class Trava(Base):
-    """Trava de execução única do worker.
+    """Single-execution lock of the worker.
 
-    O sistema legado não tem nada disso: duas execuções sobrepostas processariam
-    o mesmo orçamento ao mesmo tempo e poderiam criar documentos duplicados no
-    SAP. A trava vive no banco (e não em memória) para funcionar mesmo se o
-    worker rodar em mais de uma máquina.
+    The legacy had none: overlapping runs would process the same quote at once and could create duplicate documents
+    in SAP. The lock lives in the database (not in memory) so it works even if the worker runs on more than one
+    machine.
     """
 
     __tablename__ = "travas"

@@ -1,7 +1,7 @@
-"""Camada: tracking — banco próprio de acompanhamento da integração.
+"""Layer `tracking`: the integration's own tracking database.
 
-É o único banco em que a solução **escreve**, e é a única fonte que o dashboard
-consulta. Ver ai_spec/03_architecture.md.
+The only database the solution **writes** to, and the only source the dashboard queries
+(see `docs/wbc/ai_spec/00_index.md`).
 """
 
 from wbcpython.tracking.modelos import (

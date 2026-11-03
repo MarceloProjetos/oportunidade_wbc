@@ -1,14 +1,14 @@
-"""Parceiros de negócio (`BusinessPartners`) — só o que a integração precisa.
+"""Business partners (`BusinessPartners`) — only what the integration needs.
 
-Existe por um motivo específico: a troca de parceiro **cancela o pedido antes
-de criar o novo** (ver `cancelar_e_recriar`, onde a ordem é deliberada). Se o
-parceiro corrigido não existir no SAP, a criação falha e o orçamento fica sem
-pedido nenhum — um estado pior que o inicial, e destrutivo.
+Exists for one reason: a partner swap **cancels the order before creating the new one** (see
+`cancelar_e_recriar`, where the order is deliberate). If the corrected partner does not exist
+in SAP, creation fails and the quotation is left with no order at all — worse than the starting
+state, and destructive.
 
-O legado tinha a mesma proteção, e vinha antes de tudo:
+The legacy had the same guard, ahead of everything::
 
     if (ServiceProcess.ChecaPN(oComp, PNNew))          // SELECT count(*) FROM OCRD
-        if (!ServiceProcess.ChecaPNPedido(...))        // pedido já está no PN novo?
+        if (!ServiceProcess.ChecaPNPedido(...))        // order already on the new PN?
             CancelaPedido(...) → CriaPedido(..., PNNew, ...)
 """
 
@@ -25,17 +25,17 @@ ENTIDADE = "BusinessPartners"
 
 
 class RepositorioParceirosServiceLayer:
-    """Consulta de existência de parceiro. Somente leitura."""
+    """Partner existence check. Read-only."""
 
     def __init__(self, cliente: ServiceLayerClient) -> None:
         self._cliente = cliente
         self._cache: dict[str, bool] = {}
 
     def existe(self, card_code: str) -> bool:
-        """O parceiro existe no SAP?
+        """Does the partner exist in SAP?
 
-        O resultado é memorizado no ciclo: numa leva de correções de parceiro,
-        o mesmo `CardCode` costuma repetir, e cada consulta é uma ida à rede.
+        Memoized for the lifetime of the repository (one cycle): in a batch of partner corrections the
+        same `CardCode` tends to repeat, and each lookup is a network round trip.
         """
         if not card_code:
             return False

@@ -1,7 +1,7 @@
 # Plano — docstrings e type hints em inglês (ServidorIntegracaoSAP)
 
-> **Status (03/11/2026):** **E1–E4 concluídas** (48 arquivos; 77 docstrings desatualizados
-> corrigidos + 1 regra errada no CLAUDE.md); E5–E8 abertas.
+> **Status (03/11/2026):** **E1–E5 concluídas** (68 arquivos; 107 docstrings desatualizados
+> corrigidos + 1 regra errada no CLAUDE.md); E6–E8 abertas.
 > Página: ver o artifact "Docstrings EN" (mesmo conteúdo).
 
 **Começo → Meio → Fim:** núcleo que tudo importa (E1) → regras que escrevem no SAP (E2–E5) → API,
@@ -58,7 +58,7 @@ tarefa; um em `dashboard/` vale só quando mexo na tela.
 | **E2** | Regra do CP — Pedidos WBC (`service.py`, `acoes.py`, `queries.py`, `listas_fixas.py`) | 5 | 69 | 11 | **concluída** |
 | **E3** | Regra do CP — Manutenção de OP | 4 | 17 | 8 | **concluída** |
 | **E4** | Worker WBC — `domain/`, `application/`, `host/` | 19 | 125 | 0 | **concluída** |
-| **E5** | Worker WBC — `infrastructure/`, `tracking/` | 24 | 115 | 0 | aberta |
+| **E5** | Worker WBC — `infrastructure/`, `tracking/` | 20 | 115 | 0 | **concluída** |
 | **E6** | API 8077 e extrações (`api.py`, `pipeline_core`, `situacao_pedidos_hana`, `extract_*`, `monitoring`) | 14 | 94 | 90 | aberta |
 | **E7** | Telas, CLI, MCP, `operacao/`, `seguranca/`, `casa/` (só o que não é texto de tela) | 45 | 170 | 95 | aberta |
 | **E8** | Arquivos-irmãos, junto com SAP_RDP e web | 8 | 21 | 7 | aberta (opcional) |
@@ -150,7 +150,27 @@ o `--help` do `--force` e do `processar-novos` avisa que ele duplica e diz como 
 `"0.250"` como **250** e `"0.001"` como **1** (ponto + 3 dígitos com parte inteira ≤ 3 = milhar).
 Hoje só os campos de texto `Retorno`/`Indice`/`Negociacao` da view do HANA passam texto por ela, e
 esses **não** são gravados no SAP (o mapeamento usa os do SQL Server do WBC, que chegam numéricos).
-Se um dia um desses campos for gravado, o bug vira real.
+Se um dia um desses campos for gravado, o bug vira real. (E5: o único caminho que lê esses 3
+campos, `evolucao_do_orcamento`, **não tem chamador fora dos testes** — o risco hoje é zero.)
+
+### O que a E5 achou de desatualizado (30)
+
+`hana/` (12), `service_layer/` (6; `client.py` já era da E1), `wbc_sql/` + `tracking/` (12).
+
+- `service_layer/documentos.atualizar` vendia o `B1S-ReplaceCollectionsOnPatch` como garantia de troca
+  das linhas: o `DECISOES.md` ("204 No Content não prova que as linhas mudaram") registra que foi
+  mandado e as linhas **não** mudaram (cotações 00125616 e 00125577). Agora aponta para
+  `total_das_linhas`.
+- `hana/repository`: citava a Regra 1 (revogada); dizia que `hdbcli` é opcional (está fixado no
+  `requirements.txt`); `evolucao_do_orcamento` prometia "a primeira é a mais recente" por uma coluna
+  `rn` que o SELECT não lê — e não há `ORDER BY` (sem efeito: a função não é usada).
+- `wbc_sql/models`: dizia que os itens vêm de `INTEGRACAO_ORCITM`; vêm de `ORCIMP` (a ORCITM parou de
+  receber dados). `a_partir_de` dizia "modo somente leitura" no engine: quem garante é o
+  `assert_read_only_sql`.
+- `tracking/modelos`: "três tabelas" — são cinco. `limpar_janela`: "quatro chamadores" — são três +
+  a saída por `registrar_erro_da_janela`. Citava `janela_do_ciclo` (é `_janela_do_ciclo`).
+- `orcdetalhe.historico` dizia "útil para o dashboard": **ninguém chama**.
+- 9 docstrings apontavam para `ai_spec/02`, `/03`, `/04`, que não existem.
 
 ## Decisões
 

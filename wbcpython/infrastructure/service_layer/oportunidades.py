@@ -1,20 +1,19 @@
-"""Oportunidades de Venda (`SalesOpportunities`) via Service Layer.
+"""Sales opportunities (`SalesOpportunities`) over the Service Layer.
 
-Substitui, no legado: `UpdateStatusDoc` (espelhar o SitCode do WBC no SAP),
-`cancelaFechaOportunidade` (encerrar) e `AddCotacaoOportunidade` /
-`AddPedidoOportunidade` (vincular o documento gerado à oportunidade).
+Replaces, from the legacy: `UpdateStatusDoc` (mirror the WBC SitCode into SAP),
+`cancelaFechaOportunidade` (close) and `AddCotacaoOportunidade` / `AddPedidoOportunidade`
+(link the generated document to the opportunity).
 
-Campos relevantes, extraídos da consulta `GetDocNumOportunidades` do legado:
+Relevant fields, taken from the legacy query `GetDocNumOportunidades`:
 
-* `SequentialNo` — chave da oportunidade (no banco: `OpprId`)
-* `StartDate` — data de abertura. **Atenção:** no banco a coluna é `OpenDate`,
-  mas a entidade do Service Layer expõe `StartDate`; usar o nome da coluna
-  devolve `HTTP 400 — Property OpenDate is invalid`. Foi um erro real, pego
-  só ao consultar o ambiente de verdade.
-* `U_ORCNUM_WBC` — número do orçamento no WBC
-* `U_INO_StatusWBC` — SitCode espelhado no SAP (texto)
-* `U_INO_Update` / `U_INO_PN_Correc` — sinalizam troca de parceiro de negócios
-* `U_INO_IntegrouWBC` — marca a oportunidade como participante da integração
+* `SequentialNo` — opportunity key (in the database: `OpprId`)
+* `StartDate` — opening date. **Beware:** the database column is `OpenDate`, but the SL entity
+  exposes `StartDate`; using the column name returns `HTTP 400 — Property OpenDate is invalid`.
+  A real mistake, caught only by querying the real environment.
+* `U_ORCNUM_WBC` — quotation number in the WBC
+* `U_INO_StatusWBC` — SitCode mirrored into SAP (text)
+* `U_INO_Update` / `U_INO_PN_Correc` — flag a business-partner swap
+* `U_INO_IntegrouWBC` — marks the opportunity as part of the integration
 """
 
 from __future__ import annotations
@@ -73,7 +72,7 @@ class RepositorioOportunidades(Protocol):
 
 
 class RepositorioOportunidadesServiceLayer:
-    """Implementação sobre o Service Layer."""
+    """Service Layer implementation."""
 
     def __init__(self, cliente: ServiceLayerClient) -> None:
         self._cliente = cliente
@@ -88,25 +87,22 @@ class RepositorioOportunidadesServiceLayer:
     # -------------------------------------------------------------- escrita
 
     def atualizar_status(self, oppr_id: int, sitcode: int) -> None:
-        """Espelha o SitCode do WBC no campo `U_INO_StatusWBC` da oportunidade.
+        """Mirrors the WBC SitCode into the opportunity's `U_INO_StatusWBC`.
 
-        O SitCode é gravado como **texto**: é assim que o legado o lê de volta
-        (compara com `"30"`, `"40"`, `"55"`), e gravar como número faria a
-        comparação da próxima execução falhar silenciosamente.
+        The SitCode is written as **text**: that is how the legacy reads it back (compares with `"30"`,
+        `"40"`, `"55"`), and writing a number would make the next run's comparison fail silently.
         """
         self._cliente.patch(f"{ENTIDADE}({oppr_id})", json={UDF_STATUS_WBC: str(sitcode)})
         logger.info("Oportunidade %s: status WBC atualizado para %s.", oppr_id, sitcode)
 
     def encerrar(self, oppr_id: int, sitcode: int) -> None:
-        """Encerra/cancela a oportunidade (SitCode 70, 90 ou 99).
+        """Closes/cancels the opportunity (SitCode 70, 90 or 99).
 
-        Grava o status junto com o encerramento, para que o motivo do
-        fechamento continue legível no SAP.
+        Writes the status together with the closing so the reason stays readable in SAP.
 
-        `STATUS_PERDIDA` não é escolha de nomenclatura: o enum `BoSoOsStatus`
-        do Service Layer só aceita `sos_Open`, `sos_Missed` e `sos_Sold`. O
-        valor plausível `sos_Lost` **não existe**, e o SAP responde
-        `HTTP 400 | SAP -1013`. É o mesmo valor que o legado usa
+        `STATUS_PERDIDA` is not a naming choice: the SL enum `BoSoOsStatus` only accepts `sos_Open`,
+        `sos_Missed` and `sos_Sold`. The plausible `sos_Lost` does **not** exist and SAP answers
+        `HTTP 400 | SAP -1013`. It is the same value the legacy uses
         (`oport.Status = BoSoOsStatus.sos_Missed`, `ServiceProcess.cs:91-122`).
         """
         self._cliente.patch(
@@ -122,54 +118,42 @@ class RepositorioOportunidadesServiceLayer:
         doc_entry: int,
         total: float | None = None,
     ) -> None:
-        """Vincula a cotação/pedido gerado à oportunidade.
+        """Links the generated quotation/order to the opportunity.
 
-        Equivale a `AddCotacaoOportunidade`/`AddPedidoOportunidade`. O vínculo
-        vive na coleção de estágios da oportunidade, e o Service Layer substitui
-        a coleção inteira num PATCH — por isso a coleção existente é lida e o
-        novo estágio é **acrescentado**, nunca enviado sozinho.
+        Equivalent to `AddCotacaoOportunidade`/`AddPedidoOportunidade`. The link lives in the
+        opportunity's stages collection (`SalesOpportunitiesLines`), and the SL replaces the whole
+        collection on PATCH — so the existing collection is read and the new stage is **appended**,
+        never sent alone.
 
-        Três detalhes que o SAP exige e que só se descobrem no ambiente real:
+        Three things SAP requires, found only in the real environment:
 
-        1. **`DocumentNumber` recebe o `DocEntry`, não o `DocNum`.** O nome do
-           campo diz o contrário, mas os vínculos existentes em homologação não
-           deixam dúvida: a oportunidade `5681` aponta para `9486`, que é o
-           `DocEntry` da cotação — cujo `DocNum` é `4948`. O legado faz o mesmo
+        1. **`DocumentNumber` takes the `DocEntry`, not the `DocNum`.** The field name says otherwise,
+           but the existing links in homologation leave no doubt: opportunity `5681` points to `9486`,
+           the quotation's `DocEntry` (its `DocNum` is `4948`). The legacy does the same
            (`oport.Lines.DocumentNumber = Convert.ToInt32(DocEntryCotacao)`).
-        2. **`MaxLocalTotal` precisa ser maior que zero**, senão o SAP recusa
-           com `-5002 In "Potential Amount" field, enter number greater than 0
-           [OOPR.MaxSumLoc]`. Vai o total do documento; sem total, `1`, que é o
-           mesmo contorno do legado.
-        3. **`PercentageRate` por tipo**: 0 na cotação, 100 no pedido — ver
+        2. **`MaxLocalTotal` must be greater than zero**, otherwise SAP refuses with
+           `-5002 In "Potential Amount" field, enter number greater than 0 [OOPR.MaxSumLoc]`. The
+           document total goes in; without a total, `1` (the legacy workaround).
+        3. **`PercentageRate` per type**: 0 on the quotation, 100 on the order — see
            `PERCENTUAL_DO_ESTAGIO`.
 
-        **Oportunidade fechada é reaberta e fechada de novo.** O SAP recusa
-        estágio novo numa oportunidade `sos_Sold`/`sos_Missed`, com
-        `-1029 [SalesOpportunitiesLines.SequenceNo] Field cannot be updated` —
-        mensagem que aponta para um campo sem relação com a causa. O legado
-        resolve isso do mesmo jeito (`AddPedidoOportunidade`):
+        **A closed opportunity is reopened and closed again.** SAP refuses a new stage on a
+        `sos_Sold`/`sos_Missed` opportunity with
+        `-1029 [SalesOpportunitiesLines.SequenceNo] Field cannot be updated` — a message pointing at a
+        field unrelated to the cause. The legacy solves it the same way (`AddPedidoOportunidade`):
+        `sos_Open` + Update, add the line + Update, `sos_Sold` + Update. The difference: the legacy
+        always reclassifies as `sos_Sold`; here the previous status is **restored**, whatever it was,
+        so a lost opportunity that receives a document does not become won as a side effect. The
+        restore runs in a `finally`, so a failed link never leaves it open.
 
-            oport.Status = BoSoOsStatus.sos_Open;  oport.Update();
-            ... oport.Lines.Add() ...              oport.Update();
-            oport.Status = BoSoOsStatus.sos_Sold;  oport.Update();
+        **`U_INO_Update` is cleared when the order is linked.** The field flags that the operator asked
+        for a PN swap on the order; once the new order is saved there is nothing left to flag. It is a
+        UDF of this entity (the opportunity in SAP, not the WBC) and is filled by hand. Legacy
+        behaviour, order only: both writes of `U_INO_Update = "N"` are inside `AddPedidoOportunidade`
+        (`ServiceProcess.cs:198` and `:210`), none in `AddCotacaoOportunidade`.
 
-        A diferença é que o legado sempre reclassifica como `sos_Sold`; aqui o
-        estado anterior é **restaurado**, seja ele qual for. Uma oportunidade
-        perdida que recebe documento não deveria virar ganha por efeito
-        colateral do vínculo.
-
-        **`U_INO_Update` é baixado ao vincular o pedido.** O campo sinaliza que
-        o operador pediu a troca de PN do pedido; com o pedido novo gravado, o
-        pedido está feito e a marca não tem mais o que sinalizar. O campo é um
-        UDF desta mesma entidade — a oportunidade no SAP —, e não do WBC, e é
-        preenchido à mão. É o que
-        o legado faz, e só para o pedido — as duas escritas de
-        `U_INO_Update = "N"` estão dentro de `AddPedidoOportunidade`
-        (`ServiceProcess.cs:198` e `:210`), nenhuma em `AddCotacaoOportunidade`.
-
-        A baixa vai **junto** com o estágio, no mesmo PATCH: separá-la abriria
-        uma janela em que a marca está baixada e o vínculo não existe, e nesse
-        intervalo a informação de que os valores mudaram estaria perdida.
+        The clearing goes in the **same** PATCH as the stage: splitting it would open a window where the
+        flag is cleared and the link does not exist, losing the information that the values changed.
         """
         atual = self.por_id(oppr_id)
         status_original = str(atual.get("Status") or "")

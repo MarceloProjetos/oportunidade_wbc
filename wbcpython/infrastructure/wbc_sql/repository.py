@@ -1,20 +1,17 @@
-"""Repositório do WBC — acesso **somente leitura** ao banco WBCCAD.
+"""Repository of the WBC: **read-only** access to the `WBCCAD` database.
 
-Regra 5 do projeto (`ai_spec/04_environment_constraints.md`): a integração nunca
-escreve no SQL Server do WBC, em ambiente nenhum. Quem escreve no WBC é o
-próprio WBC.
+Rule 5 (`wbcpython/safety.py`; see `docs/wbc/ai_spec/00_index.md`): the integration never writes to the WBC SQL
+Server, in any environment. The WBC itself is the only writer.
 
-Essa promessa é sustentada aqui por três camadas:
+Three layers hold that promise here:
 
-1. **A interface não oferece escrita.** `RepositorioOrcamentosWbc` declara apenas
-   métodos de consulta — não há um `salvar()` para alguém chamar por engano.
-2. **Toda consulta passa pela trava.** `_executar()` chama
-   `assert_read_only_sql()` antes de enviar qualquer coisa ao banco.
-3. **Recomenda-se um usuário de banco com permissão apenas de leitura**
-   (`db_datareader`) como camada extra, do lado do servidor.
+1. **The interface offers no write.** `RepositorioOrcamentosWbc` declares only query methods.
+2. **Every query goes through the lock.** `_executar()` calls `assert_read_only_sql()` before sending anything
+   to the database.
+3. **A read-only database user** (`db_datareader`) is recommended as an extra, server-side layer.
 
-Estado de processamento — inclusive "este orçamento já foi integrado" — pertence
-ao banco de tracking da própria solução, nunca ao WBCCAD.
+Processing state, including "this quote was already integrated", belongs to the solution's tracking database,
+never to WBCCAD.
 """
 
 from __future__ import annotations
@@ -49,25 +46,24 @@ FONTE = "SQL Server do WBC (WBCCAD)"
 
 
 class RepositorioOrcamentosWbc(Protocol):
-    """Contrato de leitura dos orçamentos do WBC.
+    """Read contract for WBC quotes.
 
-    Deliberadamente **sem métodos de escrita**. Se em algum momento parecer
-    necessário gravar algo no WBC, isso é sinal de que o estado pertence ao
-    banco de tracking — não de que falta um método aqui.
+    Deliberately has **no write methods**. If writing something to the WBC ever seems necessary, the state belongs
+    in the tracking database; it does not mean a method is missing here.
     """
 
     def buscar_orcamento(self, orcnum: str) -> OrcamentoWbc | None: ...
 
     def situacao_atual(self, orcnum: str) -> tuple[int, str] | None:
-        """Devolve `(sitcode, revisao)` sem carregar os itens."""
+        """Return `(sitcode, revisao)` without loading the items."""
         ...
 
     def situacoes_atuais(self, orcnums: Sequence[str]) -> dict[str, tuple[int, str]]:
-        """O mesmo, para vários orçamentos de uma vez."""
+        """Same as `situacao_atual`, for several quotes at once."""
         ...
 
     def pesos_por_item(self, orcnum: str) -> dict[int, Decimal]:
-        """Peso (nível 1 da árvore) de cada item, para o `Weight1` do pedido."""
+        """Weight (tree level 1) of each item, for the order's `Weight1`."""
         ...
 
     def orcamentos_alterados_desde(
@@ -76,7 +72,7 @@ class RepositorioOrcamentosWbc(Protocol):
 
 
 def _decimal(valor: Any) -> Decimal:
-    """Converte para Decimal sem propagar dado sujo como exceção obscura."""
+    """Convert to `Decimal`; dirty data is logged and read as 0 instead of raising an obscure exception."""
     if valor is None:
         return Decimal(0)
     if isinstance(valor, Decimal):
@@ -89,12 +85,11 @@ def _decimal(valor: Any) -> Decimal:
 
 
 def _decimal_opcional(valor: Any) -> Decimal | None:
-    """Como `_decimal`, mas preserva o nulo em vez de assumir zero.
+    """Like `_decimal`, but keeps null instead of assuming zero.
 
-    Serve `ORCPRDQTD`, onde "não informado" e "zero" precisam continuar
-    distintos: a regra de negócio manda usar 1 nos dois casos, mas é ela quem
-    decide isso — não a leitura. Achatar aqui esconderia que a coluna é nula em
-    100% das linhas do WBC.
+    Serves `ORCPRDQTD`, where "not informed" and "zero" must stay distinct: the business rule uses 1 in both cases,
+    but the rule decides that, not the read. Flattening here would hide that the column is null in 100% of the WBC
+    rows.
     """
     return None if valor is None else _decimal(valor)
 
@@ -109,17 +104,12 @@ MARCADORES_WBC = ("[CR]", "[TAB]")
 
 
 def _texto_wbc(valor: Any) -> str:
-    """Texto longo do WBC, com os marcadores de formatação trocados por espaço.
+    """Long WBC text with the embedded formatting markers (`MARCADORES_WBC`) replaced by a space.
 
-    Campos como `ORCIMP_ACABAMENTO` e `ORCPGT` vêm com `[CR]` e `[TAB]`
-    literais no meio do texto — resquício de como o WBC monta a impressão.
-    O legado os troca por espaço na própria consulta
-    (`replace(replace(..., '[CR]', ' '), '[TAB]', ' ')`); aqui é feito na
-    leitura, para valer em qualquer consulta que traga o campo.
-
-    Sem isso, o acabamento chega ao SAP como
-    `"[CR][CR][CR][CR]Cinza Padrão Altamira..."` — visualmente quebrado para
-    quem abre a cotação.
+    Fields such as `ORCIMP_ACABAMENTO` and `ORCPGT` carry literal `[CR]` and `[TAB]` sequences in the middle of the
+    text, a leftover of how the WBC builds the printout. The legacy replaces them in the query itself; here it is
+    done at read time, so it holds for any query that brings the field. Without it the finish reaches SAP as
+    `"[CR][CR][CR][CR]Cinza Padrão Altamira..."`, visibly broken for whoever opens the quote.
     """
     texto = _texto(valor)
     for marcador in MARCADORES_WBC:
@@ -128,28 +118,24 @@ def _texto_wbc(valor: Any) -> str:
 
 
 def _revisao(valor: Any) -> str:
-    """Normaliza a revisão: sem espaços e **sempre maiúscula**.
+    """Normalize the revision: stripped and **always uppercase**.
 
-    A revisão é a letra que identifica a versão do orçamento (`A`, `B`, `C`…),
-    e é usada em dois lugares onde o caso importa:
+    The revision letter (`A`, `B`, `C`...) identifies the quote version, and the case matters in two places:
 
-    * vai para o UDF `U_INO_VERSAOWBC` do documento no SAP, que é lido por
-      pessoas e comparado por consultas — `"a"` e `"A"` não podem coexistir;
-    * alimenta `ordem_revisao()`, cuja fórmula ASCII-64 pressupõe maiúscula
-      (minúscula produziria um número muito maior, fazendo uma revisão antiga
-      parecer mais nova e disparando cancelamento e recriação de documento).
+    * it goes to the document's `U_INO_VERSAOWBC` UDF in SAP, read by people and compared by queries: `"a"` and
+      `"A"` must not coexist;
+    * it feeds `ordem_revisao()`, which also uppercases on its own (ASCII - 64); keeping the value uppercase here
+      guarantees that an old revision never looks newer and triggers a cancel and recreate of the document.
 
-    Nos dados atuais a coluna vem nula ou já em maiúscula, então isto é uma
-    salvaguarda — do tipo que só se percebe que faltava depois do estrago.
+    In today's data the column is null or already uppercase, so this is a safeguard.
     """
     return _texto(valor).strip().upper()
 
 
 class RepositorioOrcamentosWbcSql:
-    """Implementação sobre SQL Server (ou qualquer banco suportado pelo SQLAlchemy).
+    """`RepositorioOrcamentosWbc` over SQL Server (or any database supported by SQLAlchemy).
 
-    Aceita um `Engine` pronto, o que permite testar contra SQLite em memória sem
-    nenhum SQL Server envolvido.
+    Takes a ready `Engine`, so it can be tested against in-memory SQLite with no SQL Server involved.
     """
 
     def __init__(self, engine: Engine) -> None:
@@ -159,35 +145,29 @@ class RepositorioOrcamentosWbcSql:
 
     @classmethod
     def a_partir_de(cls, settings: WbcSqlSettings) -> RepositorioOrcamentosWbcSql:
-        """Cria o repositório a partir da configuração, em modo somente leitura."""
+        """Build the repository from the settings (`mssql+pymssql`).
+
+        Read-only is enforced by `_executar`, not by the connection (see `montar_url`).
+        """
         return cls(create_engine(cls.montar_url(settings), pool_pre_ping=True))
 
     @staticmethod
     def montar_url(settings: WbcSqlSettings) -> URL:
-        """Monta a URL de conexão.
+        """Build the connection URL.
 
-        Usa `URL.create()` em vez de formatar a string à mão. Não é preciosismo:
-        com interpolação direta, uma senha contendo `@` fazia o trecho seguinte
-        virar **hostname** (conectando no servidor errado e vazando parte da
-        senha em qualquer log da URL "mascarada"), e um `%` era interpretado
-        como escape de URL, autenticando com uma senha diferente da real — em
-        silêncio. `URL.create()` trata a senha como dado, não como texto de URL.
+        Uses `URL.create()` instead of formatting the string by hand: with direct interpolation a password containing
+        `@` turned the following part into the **hostname** (connecting to the wrong server and leaking part of the
+        password in any log of the "masked" URL), and a `%` was read as a URL escape, silently authenticating with a
+        different password. `URL.create()` treats the password as data, and its `repr()` masks it.
 
-        O objeto `URL` também protege melhor: seu `repr()` mascara a senha,
-        enquanto uma string a exporia inteira a quem a registrasse em log.
+        **`ApplicationIntent=ReadOnly` is not used.** It was tried as defense in depth, but `pymssql` does not
+        accept it: SQLAlchemy forwards it to the driver, which fails with
+        `TypeError: connect() got an unexpected keyword argument`. It works with `pyodbc`, not with this driver. Found
+        when connecting in the real environment; leaving it would break every WBC read.
 
-        **Sobre `ApplicationIntent=ReadOnly`:** foi tentado aqui como defesa em
-        profundidade, mas o `pymssql` **não aceita** esse parâmetro — o
-        SQLAlchemy o repassa ao driver, que rejeita com
-        `TypeError: connect() got an unexpected keyword argument`. Ele funciona
-        com `pyodbc`, não com este driver. Descoberto ao conectar no ambiente
-        real; deixá-lo aqui quebraria toda leitura do WBC.
-
-        A garantia de somente leitura não depende disso: está no código
-        (`assert_read_only_sql`, aplicado no ponto único de execução) e na
-        interface, que não expõe métodos de escrita. Como camada extra **no
-        servidor**, use um usuário de banco com permissão apenas de leitura
-        (`db_datareader`) — o que é mais eficaz que qualquer flag de conexão.
+        Read-only does not depend on it: it is in the code (`assert_read_only_sql` at the single execution point) and in
+        the interface, which exposes no write method. The extra layer belongs on the **server**: a database user with
+        read-only permission (`db_datareader`), more effective than any connection flag.
         """
         return URL.create(
             "mssql+pymssql",
@@ -203,12 +183,10 @@ class RepositorioOrcamentosWbcSql:
     def _executar(
         self, sql: str, *, expandir: tuple[str, ...] = (), **parametros: Any
     ) -> Sequence[Row[Any]]:
-        """Ponto único de execução — é aqui que a trava de leitura é aplicada.
+        """Single execution point; this is where the read-only lock is applied.
 
-        `expandir` nomeia os parâmetros que recebem uma lista e viram um `IN`
-        com um marcador por item. Quem monta a lista é o SQLAlchemy: o texto da
-        consulta continua fixo, e a trava de leitura o inspeciona antes de
-        qualquer expansão.
+        `expandir` names the parameters that receive a list and become an `IN` with one marker per item. SQLAlchemy
+        builds the list: the query text stays fixed, and the lock inspects it before any expansion.
         """
         assert_read_only_sql(sql, fonte=FONTE)
         consulta = text(sql)
@@ -227,11 +205,10 @@ class RepositorioOrcamentosWbcSql:
         return orcamento.model_copy(update={"arvore": tuple(self.buscar_linhas_arvore(orcnum))})
 
     def buscar_linhas_arvore(self, orcnum: str) -> list[ItemArvoreWbc]:
-        """Árvore de produtos do orçamento — vazia quando não há detalhamento.
+        """Product tree of the quote; empty when there is no breakdown.
 
-        Consulta separada de propósito: a árvore tem cardinalidade própria (um
-        orçamento com 20 linhas de árvore para 2 itens é comum) e juntá-la à
-        consulta do cabeçalho multiplicaria os itens.
+        A separate query on purpose: the tree has its own cardinality (a quote with 20 tree rows for 2 items is common)
+        and joining it to the header query would multiply the items.
         """
         linhas = self._executar(queries.LINHAS_DA_ARVORE, orcnum=orcnum)
         return [
@@ -252,15 +229,14 @@ class RepositorioOrcamentosWbcSql:
         ]
 
     def pesos_por_item(self, orcnum: str) -> dict[int, Decimal]:
-        """Peso de cada item do orçamento, para o `Weight1` do pedido.
+        """Weight of each quote item, for the order's `Weight1`.
 
-        Só o nível 1 da árvore — ver `queries.PESOS_NIVEL_1_POR_ITEM` para o
-        porquê (somar os níveis conta a mesma massa duas ou três vezes).
+        Tree level 1 only; see `queries.PESOS_NIVEL_1_POR_ITEM` for why (summing the levels counts the same mass two or
+        three times).
 
-        Item sem árvore simplesmente **não aparece** no dicionário. É a
-        diferença entre "não sei o peso" e "o peso é zero", e quem monta a linha
-        precisa dela: sem peso conhecido o campo não é enviado, e o SAP mantém o
-        do cadastro do item.
+        An item without a tree simply **does not appear** in the dict. That is the difference between "weight unknown"
+        and "weight is zero", and whoever builds the line needs it: with no known weight the field is not sent, and SAP
+        keeps the one from the item master.
         """
         linhas = self._executar(queries.PESOS_NIVEL_1_POR_ITEM, orcnum=orcnum)
         pesos: dict[int, Decimal] = {}
@@ -279,16 +255,13 @@ class RepositorioOrcamentosWbcSql:
         return int(linha["sitcode"] or 0), _revisao(linha["revisao"])
 
     def situacoes_atuais(self, orcnums: Sequence[str]) -> dict[str, tuple[int, str]]:
-        """`{orcnum: (sitcode, revisao)}` para vários orçamentos de uma vez.
+        """`{orcnum: (sitcode, revisao)}` for several quotes at once.
 
-        Os orçamentos vão em lotes porque o SQL Server recusa consultas com
-        milhares de parâmetros — e porque um `IN` gigantesco degrada o plano de
-        execução. Mil por vez resolve a janela atual em duas idas ao banco.
+        Quotes go in batches of `TAMANHO_DO_LOTE` because SQL Server refuses commands with thousands of parameters, and
+        a huge `IN` degrades the execution plan. A thousand at a time covers the current window in two round trips.
 
-        Ausente do resultado significa "não existe no WBC": quem chama trata
-        isso como erro do orçamento, não como situação zero — confundir os dois
-        faria um orçamento inexistente parecer "abaixo do mínimo" e sumir em
-        silêncio.
+        Absent from the result means "does not exist in the WBC": the caller treats that as a quote error, not as
+        situation zero. Confusing the two would make a nonexistent quote look "below the minimum" and silently vanish.
         """
         situacoes: dict[str, tuple[int, str]] = {}
         for lote in batched(orcnums, TAMANHO_DO_LOTE):
@@ -315,11 +288,10 @@ class RepositorioOrcamentosWbcSql:
 
     @staticmethod
     def _montar_orcamento(linhas: Iterable[Row[Any]]) -> OrcamentoWbc:
-        """Reconstitui cabeçalho + itens a partir do resultado achatado do join.
+        """Rebuild header + items from the flattened result of the join.
 
-        O `LEFT JOIN` com os itens faz com que um orçamento sem itens venha como
-        uma única linha com os campos de item nulos — daí o descarte de linhas
-        cujo `id_integracao` e `orcitm` sejam ambos zerados.
+        The `LEFT JOIN` makes a quote without items come as a single row with null item fields, hence rows whose
+        `id_integracao` and `orcitm` are both zero are discarded.
         """
         linhas = list(linhas)
         cabecalho = linhas[0]._mapping
@@ -381,7 +353,7 @@ class RepositorioOrcamentosWbcSql:
 
     @staticmethod
     def _montar_impressao(cabecalho: Any) -> DadosImpressaoWbc:
-        """Reúne os campos de impressão que alimentam o snapshot do OrcDetalhe."""
+        """Gather the print fields that feed the OrcDetalhe snapshot."""
         return DadosImpressaoWbc(
             valor_venda=_decimal(cabecalho["imp_valor_venda"]),
             valor_lista=_decimal(cabecalho["imp_valor_lista"]),

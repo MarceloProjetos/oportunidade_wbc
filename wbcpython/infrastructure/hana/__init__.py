@@ -1,7 +1,4 @@
-"""Camada: infrastructure.hana — views nativas do SAP HANA via hdbcli.
-
-**Somente leitura.** Ver ai_spec/02_data_model.md §3 e ai_spec/03_architecture.md.
-"""
+"""Infrastructure: native SAP HANA views and opportunity reads through hdbcli. **Read-only.**"""
 
 from wbcpython.infrastructure.hana.identificadores import (
     IdentificadorInvalido,

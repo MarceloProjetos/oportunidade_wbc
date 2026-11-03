@@ -1,12 +1,11 @@
-"""Modelos dos dados lidos do WBC (SQL Server, banco WBCCAD).
+"""Models of the data read from the WBC (SQL Server, database `WBCCAD`).
 
-Espelham as colunas realmente consultadas pelo sistema legado
-(`Querys.resx` → `GetOrcsWBC`), que faz um join entre `INTEGRACAO_ORCLST`
-(cabeçalho), `INTEGRACAO_ORCITM` (itens), `INTEGRACAO_ORCIMP` (dados de
-impressão) e `INTEGRACAO_ORCCAB` (dados comerciais).
+They mirror the columns the legacy system actually queried (`Querys.resx` -> `GetOrcsWBC`): `INTEGRACAO_ORCLST`
+(header), `INTEGRACAO_ORCIMP` (item lines and print data) and `INTEGRACAO_ORCCAB` (commercial data).
+`INTEGRACAO_ORCITM` is no longer read: it stopped receiving data (see `queries.ORCAMENTO_POR_NUMERO`).
 
-O legado devolve isso achatado — o cabeçalho repetido em cada linha de item.
-Aqui a estrutura é reconstituída: um `OrcamentoWbc` com seus `itens`.
+The legacy returned this flattened, with the header repeated on every item row. Here the structure is rebuilt:
+one `OrcamentoWbc` with its `itens`.
 """
 
 from __future__ import annotations
@@ -18,7 +17,7 @@ from pydantic import BaseModel, Field
 
 
 class ItemOrcamentoWbc(BaseModel):
-    """Uma linha de item do orçamento (`INTEGRACAO_ORCITM`)."""
+    """One item line of the quote (`INTEGRACAO_ORCIMP`; `INTEGRACAO_ORCITM` is no longer read)."""
 
     model_config = {"frozen": True}
 
@@ -51,19 +50,16 @@ class ItemOrcamentoWbc(BaseModel):
 
     @property
     def quantidade_para_documento(self) -> Decimal:
-        """Quantidade a enviar ao SAP, em três degraus.
+        """Quantity to send to SAP, in three tiers.
 
-        1. **`ORCPRDQTD` positiva** é respeitada. A coluna é nula em toda a
-           tabela hoje, mas a regra está escrita para o dia em que o WBC passar
-           a preenchê-la: não é um `1` fixo disfarçado.
-        2. **Porta-paletes lê "N Módulos" do texto** (`quantidade_no_texto`).
-           Decisão de 15/09/2026: o item PORTA-PALETES nascia no SAP como 1
-           unidade quando o orçamento dizia 14 módulos.
-        3. **1** para todo o resto — vazia, nula, inconsistente, zero, ou linha
-           que não é de porta-paletes.
+        1. A positive `ORCPRDQTD` is honored. The column is null across the whole table today, but the rule is written
+           for the day the WBC starts filling it: this is not a hard-coded `1` in disguise.
+        2. Porta-paletes lines read "N Módulos" from the text (`quantidade_no_texto`). Decision of 15/09/2026: the
+           PORTA-PALETES item was born in SAP as 1 unit when the quote said 14 modules.
+        3. `1` for everything else: empty, null, inconsistent, zero, or a line that is not porta-paletes.
 
-        Negativo conta como inconsistente — quantidade negativa em cotação não
-        tem significado de negócio e faria o SAP calcular um total negativo.
+        Negative counts as inconsistent: a negative quote quantity has no business meaning and would make SAP compute
+        a negative total.
         """
         if self.quantidade is not None and self.quantidade > 0:
             return self.quantidade
@@ -76,28 +72,27 @@ class ItemOrcamentoWbc(BaseModel):
 
     @property
     def preco_unitario(self) -> Decimal:
-        """Preço unitário: `ORCVAL` é o total da linha dividido pela quantidade.
+        """Unit price: `ORCVAL` (the line total) divided by the quantity.
 
-        Desde 15/09/2026 o documento **não** leva este número: a linha vai com
-        `LineTotal = ORCVAL` e o SAP deriva o preço (ver `domain.linhas`). O
-        unitário continua aqui para o log e para a prévia — é o que a pessoa
-        confere contra a tela do SAP.
+        Since 15/09/2026 the document does **not** carry this number: the line goes with `LineTotal = ORCVAL` and SAP
+        derives the price (see `domain.linhas`). It stays here for the log and the preview, which is what people check
+        against the SAP screen.
         """
         return self.valor / self.quantidade_para_documento
 
 
 class DadosImpressaoWbc(BaseModel):
-    """Os campos de `INTEGRACAO_ORCIMP` que alimentam o snapshot do OrcDetalhe.
+    """The `INTEGRACAO_ORCIMP` fields that feed the OrcDetalhe snapshot.
 
-    Ficam agrupados aqui, e não soltos no cabeçalho, porque têm um destino só:
-    o UDO `OrcDetalhe`. O legado os lê pela consulta `NovaTabelaQuot`.
+    Grouped here, not loose on the header, because they have a single destination: the `OrcDetalhe` UDO. The legacy
+    reads them through the `NovaTabelaQuot` query.
 
-    Alguns nomes enganam e por isso estão renomeados:
+    Some names mislead and were renamed:
 
-    * `montagem_tipo` é o `TIPMONCOD`, que **não** é tipo de moeda — é o texto
-      do tipo de montagem (ex.: "A combinar (não inclusa).").
-    * `pagamento_codigo` (`PGTCOD`) traz descrição, não código
-      (ex.: "100% NA ENTREGA|a contra embarque da mercadoria").
+    * `montagem_tipo` is `TIPMONCOD`, which is **not** a currency type: it is the assembly-type text
+      (e.g. "A combinar (não inclusa).").
+    * `pagamento_codigo` (`PGTCOD`) holds a description, not a code
+      (e.g. "100% NA ENTREGA|a contra embarque da mercadoria").
     """
 
     model_config = {"frozen": True}
@@ -140,12 +135,11 @@ class DadosImpressaoWbc(BaseModel):
 
 
 class ItemArvoreWbc(BaseModel):
-    """Uma linha da árvore de produtos (`INTEGRACAO_ORCPRDARV`).
+    """One row of the product tree (`INTEGRACAO_ORCPRDARV`).
 
-    É o detalhamento de engenharia do orçamento — o que de fato compõe cada
-    item — e é daqui que saem as linhas do snapshot do OrcDetalhe quando existe
-    árvore. Nem todo orçamento tem: os que não têm caem no caminho alternativo,
-    com linhas apenas de sequência e texto.
+    It is the engineering breakdown of the quote (what actually makes up each item) and supplies the OrcDetalhe
+    snapshot lines when it exists. Not every quote has one: those without fall back to lines with only sequence
+    and text.
     """
 
     model_config = {"frozen": True}
@@ -164,12 +158,10 @@ class ItemArvoreWbc(BaseModel):
 
     @property
     def preco_unitario(self) -> Decimal:
-        """Preço unitário = total ÷ quantidade.
+        """Unit price = `total / quantidade`.
 
-        O legado calcula assim, mas só quando o total é diferente de zero — e
-        divide sem verificar a quantidade, o que produziria infinito se ela
-        fosse zero. Aqui os dois casos degradam para zero, que é o que um preço
-        desconhecido deve ser num registro histórico.
+        The legacy computes it only when the total is non-zero and divides without checking the quantity (infinity if
+        it were zero). Here both cases degrade to zero, which is what an unknown price should be in a historical record.
         """
         if not self.total or not self.quantidade:
             return Decimal(0)
@@ -177,7 +169,7 @@ class ItemArvoreWbc(BaseModel):
 
 
 class OrcamentoWbc(BaseModel):
-    """Cabeçalho do orçamento no WBC, com seus itens."""
+    """Quote header in the WBC, with its items."""
 
     model_config = {"frozen": True}
 
@@ -219,9 +211,8 @@ class OrcamentoWbc(BaseModel):
 
     @property
     def quantidade_total_itens(self) -> Decimal:
-        """Soma das quantidades dos itens.
+        """Sum of the item quantities (`quantidade_para_documento`).
 
-        Equivale ao `item.OrcProdQuantidade` que o legado passa adiante para a
-        criação de cotação e pedido.
+        Equivalent to the legacy `item.OrcProdQuantidade` passed on to quote and order creation.
         """
         return sum((item.quantidade_para_documento for item in self.itens), Decimal(0))

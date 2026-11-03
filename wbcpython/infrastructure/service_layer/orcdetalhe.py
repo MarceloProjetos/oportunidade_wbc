@@ -1,18 +1,16 @@
-"""Repositório do UDO `OrcDetalhe` via Service Layer.
+"""Repository of the `OrcDetalhe` UDO over the Service Layer.
 
-`OrcDetalhe` (tabela de cabeçalho `INO_ORCAM`, tabela de linhas
-`INO_ORC_LINHA`) espelha o orçamento do WBC dentro do SAP.
+`OrcDetalhe` (header table `INO_ORCAM`, lines table `INO_ORC_LINHA`) mirrors the WBC quotation
+inside SAP.
 
-**Comportamento essencial: é um histórico, não um registro mutável.**
-Confirmado em dados reais — o mesmo `U_INO_COD` aparece em vários `DocEntry`
-(ex.: o orçamento `00123316` existe como 513925 *e* 513927). Bate com o sistema
-legado, que sempre chama `.Add()` e nunca `.Update()`, e resolve "o atual" com
-`SELECT max("DocEntry")`.
+**Essential behaviour: it is a history, not a mutable record.** Confirmed on real data — the
+same `U_INO_COD` appears under several `DocEntry` (e.g. quotation `00123316` exists as 513925
+*and* 513927). It matches the legacy system, which always calls `.Add()`, never `.Update()`,
+and resolves "the current one" with `SELECT max("DocEntry")`.
 
-Por isso este repositório **não expõe atualização**: cada verificação grava um
-novo registro, e a leitura do estado corrente é sempre "o de maior DocEntry
-para aquele código". Um método `atualizar()` aqui seria um convite a corromper
-o histórico.
+Hence this repository **exposes no update**: each verification writes a new record and the
+current state is always "the highest DocEntry for that code". An `atualizar()` here would be an
+invitation to corrupt the history.
 """
 
 from __future__ import annotations
@@ -30,7 +28,7 @@ COLECAO_LINHAS = "INO_ORC_LINHACollection"
 
 
 class RepositorioOrcDetalhe(Protocol):
-    """Contrato do UDO OrcDetalhe. Sem atualização, por decisão de projeto."""
+    """OrcDetalhe UDO contract. No update, by design."""
 
     def ultimo_snapshot(self, codigo: str) -> dict[str, Any] | None: ...
 
@@ -40,17 +38,16 @@ class RepositorioOrcDetalhe(Protocol):
 
 
 def _escapar_literal_odata(valor: str) -> str:
-    """Escapa uma aspas simples num literal OData (duplicando-a).
+    """Escapes single quotes in an OData literal (by doubling them).
 
-    Sem isso, um código com apóstrofo quebraria o `$filter` — e, no limite,
-    permitiria alterar o sentido do filtro. Os códigos de orçamento são
-    numéricos hoje, mas o repositório não deve depender disso.
+    Without it a code with an apostrophe would break the `$filter` and, at the limit, change its
+    meaning. Quotation codes are numeric today, but the repository must not depend on that.
     """
     return valor.replace("'", "''")
 
 
 class RepositorioOrcDetalheServiceLayer:
-    """Implementação sobre o Service Layer."""
+    """Service Layer implementation."""
 
     def __init__(self, cliente: ServiceLayerClient) -> None:
         self._cliente = cliente
@@ -58,10 +55,10 @@ class RepositorioOrcDetalheServiceLayer:
     # ------------------------------------------------------------- leitura
 
     def ultimo_snapshot(self, codigo: str) -> dict[str, Any] | None:
-        """Devolve o snapshot mais recente do orçamento, ou `None`.
+        """Returns the quotation's most recent snapshot, or `None`.
 
-        "Mais recente" é o maior `DocEntry` — a mesma definição usada pelo
-        sistema legado. Nunca assuma que existe apenas um registro por código.
+        "Most recent" is the highest `DocEntry` — the legacy's definition. Never assume one record per
+        code.
         """
         registros = self._cliente.listar(
             ENTIDADE,
@@ -89,10 +86,10 @@ class RepositorioOrcDetalheServiceLayer:
         return bool(registros)
 
     def historico(self, codigo: str, *, limite: int = 20) -> list[dict[str, Any]]:
-        """Todos os snapshots do orçamento, do mais novo para o mais antigo.
+        """All snapshots of the quotation, newest first (at most `limite`).
 
-        Útil para o dashboard: mostra a evolução do orçamento ao longo das
-        verificações, que é justamente o que o histórico do UDO guarda.
+        Shows how the quotation evolved across verifications, which is what the UDO history keeps.
+        No caller in `wbcpython` uses it today.
         """
         return self._cliente.listar(
             ENTIDADE,
@@ -104,10 +101,14 @@ class RepositorioOrcDetalheServiceLayer:
     # -------------------------------------------------------------- escrita
 
     def criar_snapshot(self, dados: dict[str, Any]) -> dict[str, Any]:
-        """Grava um novo snapshot (`POST`), equivalente ao `.Add()` do DI-API.
+        """Writes a new snapshot (`POST`), the equivalent of DI-API `.Add()`.
 
-        Não existe contrapartida de atualização: ver a nota no topo do módulo.
-        A trava de ambiente é aplicada pelo cliente, em `request()`.
+        There is no update counterpart: see the module note. The environment safety lock is applied
+        by the client, in `request()`.
+
+        Raises:
+            ValueError: `U_INO_COD` missing.
+            ServiceLayerError: SAP accepted the write but the body is not JSON.
         """
         if not dados.get("U_INO_COD"):
             raise ValueError(

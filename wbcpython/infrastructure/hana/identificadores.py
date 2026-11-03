@@ -1,19 +1,17 @@
-"""Validação e citação de identificadores SQL (nomes de schema).
+"""Validation and quoting of SQL identifiers (schema names).
 
-Por que este módulo existe: o nome do schema **não pode** ser passado como
-parâmetro de bind. Em SQL, um parâmetro é um *valor*; o schema é um
-*identificador*, e precisa aparecer literalmente no texto da consulta::
+A schema name cannot be a bind parameter: a parameter is a *value*, a schema is an
+*identifier* and must appear literally in the query text::
 
     SELECT ... FROM "SBOALTAMIRAHOMOLOG"."VW_EVOL_OPORTUNIDADE_ALT"
-                     ^^^^^^^^^^^^^^^^^^ não dá para bindar
+                     ^^^^^^^^^^^^^^^^^^ cannot be bound
 
-Ou seja, este é o único ponto de todo o projeto em que algo vindo de
-configuração é interpolado no texto de uma consulta. Como a regra do projeto é
-nunca concatenar SQL com dado variável, a exceção precisa ser tratada com
-rigor: o nome é validado contra uma lista branca de caracteres e depois citado.
+So this is the only place in the project where configuration is interpolated into query
+text. The project rule is never to concatenate variable data into SQL, hence the name is
+checked against a character allow-list and then quoted.
 
-O risco não é hipotético: `HANA_SCHEMA` vem do `.env`, e um valor como
-``X"."Y`` ou ``X; DROP`` mudaria a consulta se fosse interpolado sem cuidado.
+The risk is real: `HANA_SCHEMA` and `SL_COMPANY_DB` come from the `.env`, and a value like
+``X"."Y`` or ``X; DROP`` would change the query if interpolated unchecked.
 """
 
 from __future__ import annotations
@@ -27,14 +25,14 @@ _IDENTIFICADOR_VALIDO = re.compile(r"^[A-Za-z_][A-Za-z0-9_$#]{0,127}$")
 
 
 class IdentificadorInvalido(ValueError):
-    """Nome de schema/objeto que não passou na validação."""
+    """Schema/object name that failed validation."""
 
 
 def validar_identificador(nome: str, *, descricao: str = "identificador") -> str:
-    """Valida um identificador SQL e devolve a forma normalizada (sem aspas).
+    """Validate a SQL identifier and return it stripped and unquoted.
 
     Raises:
-        IdentificadorInvalido: se o nome não puder ser usado com segurança.
+        IdentificadorInvalido: the name cannot be used safely.
     """
     if not isinstance(nome, str) or not nome.strip():
         raise IdentificadorInvalido(f"{descricao} vazio ou ausente.")
@@ -51,5 +49,5 @@ def validar_identificador(nome: str, *, descricao: str = "identificador") -> str
 
 
 def citar_identificador(nome: str, *, descricao: str = "identificador") -> str:
-    """Valida e devolve o identificador entre aspas duplas, pronto para o SQL."""
+    """Validate the identifier and return it in double quotes, ready for SQL."""
     return f'"{validar_identificador(nome, descricao=descricao)}"'

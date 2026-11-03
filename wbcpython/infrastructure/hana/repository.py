@@ -1,17 +1,16 @@
-"""Repositório das views do HANA — acesso direto via `hdbcli`, somente leitura.
+"""Repository of the HANA views: direct `hdbcli` access, read-only.
 
-Terceiro padrão de acesso a dados da solução, ao lado do Service Layer (objetos
-transacionais) e do SQL Server do WBC. Adotado por decisão registrada em
-`ai_spec/03_architecture.md`: as views `VW_CLIENTE_MUNICIPIO_ALTA` e
-`VW_EVOL_OPORTUNIDADE_ALT` existem **apenas** no HANA.
+Third data-access pattern of the solution, next to the Service Layer (transactional objects)
+and the WBC SQL Server. The views `VW_CLIENTE_MUNICIPIO_ALTA` and `VW_EVOL_OPORTUNIDADE_ALT`
+exist **only** in HANA, and only in the production schema (`docs/wbc/DECISOES.md`, "Ler o HANA
+do schema de produção").
 
-Somente leitura, por duas razões que se somam: são views (não há o que gravar),
-e o schema consultado pode ser o de produção — onde a Regra 1 permite `SELECT`
-mas proíbe qualquer escrita.
+Read-only for two reasons: they are views (nothing to write) and the schema read is
+production's. `assert_read_only_sql` refuses any write SQL here with no off switch;
+production writes elsewhere are unlocked only on the .11, by machine IP.
 
-`hdbcli` é uma dependência **opcional** (`pip install -r requirements.txt`). O import é
-adiado para dentro da conexão, de modo que todo o resto do projeto — inclusive
-esta suíte de testes — funcione em máquinas sem o driver nativo instalado.
+`hdbcli` is in `requirements.txt` but the import is deferred into the connection opener, so
+the rest of the project (tests included) works on machines without the native driver.
 """
 
 from __future__ import annotations
@@ -36,18 +35,18 @@ VIEW_MUNICIPIO = "VW_CLIENTE_MUNICIPIO_ALTA"
 
 
 class ConexaoHanaIndisponivel(RuntimeError):
-    """O driver `hdbcli` não está instalado."""
+    """The `hdbcli` driver is not installed."""
 
 
 class RepositorioViewsHana(Protocol):
-    """Contrato de leitura das views do HANA. Sem métodos de escrita."""
+    """Read contract of the HANA views. No write methods."""
 
     def evolucao_do_orcamento(self, n_wbc: str) -> EvolucaoOportunidade | None: ...
 
     def municipio(self, nome: str, uf: str = "") -> MunicipioCliente | None: ...
 
     def views_existem(self) -> dict[str, bool]:
-        """Diz quais das views esperadas existem no schema configurado."""
+        """Which of the expected views exist in the configured schema."""
         ...
 
 
@@ -75,11 +74,11 @@ def _inteiro(valor: Any) -> int | None:
 
 
 def _decimal_textual(valor: Any, campo: str) -> Decimal | None:
-    """Normaliza campos NVARCHAR que guardam números.
+    """Normalize NVARCHAR fields that hold numbers.
 
-    `Retorno`, `Indice` e `Negociacao` são texto na view, com separador decimal
-    inconsistente entre registros — o mesmo achado documentado para os UDFs do
-    OrcDetalhe.
+    `Retorno`, `Indice` and `Negociacao` are text in the view, with a decimal separator that
+    varies between records (same finding as the OrcDetalhe UDFs); parsing goes through
+    `normalizar_decimal_tolerante`. Blank or null gives `None`.
     """
     if valor is None or str(valor).strip() == "":
         return None
@@ -87,7 +86,11 @@ def _decimal_textual(valor: Any, campo: str) -> Decimal | None:
 
 
 def _abrir_conexao_hdbcli(settings: HanaSettings) -> Any:
-    """Abre a conexão real ao HANA. Import adiado (dependência opcional)."""
+    """Open the real HANA connection. The `hdbcli` import is deferred (see module docstring).
+
+    Raises:
+        ConexaoHanaIndisponivel: `hdbcli` is not installed.
+    """
     try:
         from hdbcli import dbapi
     except ImportError as exc:  # pragma: no cover - depende do ambiente
@@ -104,10 +107,8 @@ def _abrir_conexao_hdbcli(settings: HanaSettings) -> Any:
 
 
 class RepositorioViewsHanaSql:
-    """Implementação sobre `hdbcli`.
-
-    A fábrica de conexão é injetável para que os testes rodem com uma conexão
-    falsa, sem driver nativo e sem rede.
+    """`hdbcli` implementation. The connection factory is injectable so tests run on a fake
+    connection, without the native driver or network.
     """
 
     def __init__(
@@ -157,11 +158,11 @@ class RepositorioViewsHanaSql:
     # ------------------------------------------------------------- execução
 
     def _executar(self, sql: str, parametros: Sequence[Any] = ()) -> list[tuple[Any, ...]]:
-        """Ponto único de execução — aplica as duas travas antes de consultar.
+        """Single execution point: applies both guards before querying.
 
-        `assert_read_only_sql` garante que o comando é de leitura (o HANA aqui é
-        somente leitura); `assert_sql_allowed` garante, adicionalmente, que uma
-        eventual escrita jamais atingiria o schema de produção.
+        `assert_read_only_sql` refuses any write SQL (this HANA access is read-only);
+        `assert_sql_allowed` additionally applies the production-write guard (a no-op for
+        reads, and redundant after the first guard).
         """
         assert_read_only_sql(sql, fonte=FONTE)
         assert_sql_allowed(
@@ -203,11 +204,10 @@ class RepositorioViewsHanaSql:
     )
 
     def evolucao_do_orcamento(self, n_wbc: str) -> EvolucaoOportunidade | None:
-        """Situação do orçamento conforme espelhada no HANA.
+        """Quote status as mirrored in HANA, or `None` when the quote is not in the view.
 
-        A view pode trazer mais de uma linha por orçamento (ela já carrega uma
-        coluna `rn` de numeração); pega-se a primeira, que é a mais recente pela
-        ordenação interna da própria view.
+        The view may return several rows per quote; the first row returned is used (the query
+        has no `ORDER BY`, so this relies on the view's own ordering).
         """
         colunas = ", ".join(f'"{c}"' for c in self.COLUNAS_EVOLUCAO)
         sql = (
@@ -245,12 +245,11 @@ class RepositorioViewsHanaSql:
         )
 
     def municipio(self, nome: str, uf: str = "") -> MunicipioCliente | None:
-        """Resolve o `AbsId` do município.
+        """Resolve the municipality `AbsId` (first match), optionally narrowed by ``uf``.
 
-        A busca é feita por `Name_N` (nome normalizado, sem acento e em
-        maiúsculas) e não por `Name`: o município que vem do WBC chega sem
-        acentuação, então comparar com o nome acentuado erraria em toda cidade
-        com acento — que é a maioria.
+        Matches on `Name_N` (unaccented, upper case), not `Name`: the municipality coming from
+        the WBC is unaccented, so comparing with the accented name would miss every accented
+        city, which is most of them.
         """
         sql = (
             f'SELECT "AbsId", "Name", "Name_N", "State", "Code", "IbgeCode", "Country" '
@@ -280,11 +279,10 @@ class RepositorioViewsHanaSql:
     # ------------------------------------------------------------ diagnóstico
 
     def views_existem(self) -> dict[str, bool]:
-        """Verifica quais views existem no schema configurado.
+        """Which expected views exist in the configured schema (`HANA_SCHEMA`).
 
-        É o que responde à pergunta deixada em aberto na especificação: as views
-        existem sob o schema de homologação, ou só sob o de produção?
-        Consulta o catálogo do HANA (`SYS.VIEWS`), sem tocar nas views em si.
+        Diagnostic: queries the catalog (`SYS.VIEWS`) without touching the views. A catalog
+        failure is logged and reported as all-missing instead of raising.
         """
         sql = 'SELECT "VIEW_NAME" FROM "SYS"."VIEWS" WHERE "SCHEMA_NAME" = ?'
         try:

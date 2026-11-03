@@ -1,12 +1,11 @@
-"""Erros do Service Layer.
+"""Service Layer errors.
 
-O Service Layer devolve erros num envelope JSON no formato::
+The SL returns errors in a JSON envelope::
 
     {"error": {"code": -5002, "message": {"lang": "en-us", "value": "..."}}}
 
-Este módulo traduz esse envelope numa exceção Python legível, preservando o
-código numérico do SAP — que é o que permite distinguir programaticamente, por
-exemplo, "CNPJ já existe" de "sessão expirada".
+This module turns it into a readable exception that keeps SAP's numeric code, which is what
+lets callers tell, e.g., "CNPJ already exists" from "session expired" programmatically.
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ import httpx
 
 
 class ServiceLayerError(RuntimeError):
-    """Erro devolvido pelo Service Layer do SAP Business One."""
+    """Error returned by the SAP Business One Service Layer."""
 
     def __init__(
         self,
@@ -43,20 +42,19 @@ class ServiceLayerError(RuntimeError):
 
     @property
     def sessao_expirada(self) -> bool:
-        """True quando o erro indica sessão inválida/expirada.
+        """True when the error means an invalid/expired session.
 
-        O Service Layer sinaliza isso com HTTP 401 — e, em algumas versões, com
-        o código -304 mesmo sob outro status.
+        The SL signals it with HTTP 401 and, in some versions, with SAP code -304 under another status.
         """
         return self.status_code == 401 or str(self.sap_code) == "-304"
 
 
 class ServiceLayerLoginError(ServiceLayerError):
-    """Falha de autenticação no Service Layer (usuário, senha ou company DB)."""
+    """Authentication failure on the Service Layer (user, password or company DB)."""
 
 
 def _extrai_valor_mensagem(bloco: Any) -> str | None:
-    """Extrai o texto da mensagem, que pode vir como str ou como {"value": ...}."""
+    """Extracts the message text, which may come as a str or as `{"value": ...}`."""
     if isinstance(bloco, str):
         return bloco
     if isinstance(bloco, dict):
@@ -73,10 +71,10 @@ def erro_de_resposta(
     caminho: str,
     login: bool = False,
 ) -> ServiceLayerError:
-    """Constrói a exceção adequada a partir de uma resposta de erro.
+    """Builds the right exception from an error response.
 
-    É tolerante a respostas que não sejam o envelope esperado (HTML de proxy,
-    corpo vazio, JSON malformado) — nesses casos usa o texto bruto, truncado.
+    Tolerates responses that are not the expected envelope (proxy HTML, empty body, malformed JSON):
+    falls back to the raw text, truncated to 500 chars. `login=True` yields `ServiceLayerLoginError`.
     """
     sap_code: int | str | None = None
     mensagem: str | None = None

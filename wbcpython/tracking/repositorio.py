@@ -1,9 +1,8 @@
-"""Acesso ao banco de acompanhamento.
+"""Access to the tracking database.
 
-Diferente dos repositórios do WBC e do HANA, **este banco é de escrita** — é o
-único lugar onde a integração grava estado próprio. As travas de segurança do
-projeto não se aplicam aqui: elas protegem o SAP de produção e o WBC, e este
-banco não é nenhum dos dois.
+Unlike the WBC and HANA repositories, **this database is writable**: it is the only place where the integration
+stores its own state. The project's safety locks do not apply here; they protect production SAP and the WBC, and
+this database is neither.
 """
 
 from __future__ import annotations
@@ -46,11 +45,10 @@ LINHA_UNICA = 1
 
 
 def _tornar_ocioso(pedido: PedidoDeJanela, agora: datetime) -> None:
-    """Volta o pedido ao padrão, preservando `detalhe` e `meses`.
+    """Return the request to the default (`OCIOSO`), preserving `detalhe` and `meses`.
 
-    `meses` fica para trás de propósito: é o que a tela mostra em "a última
-    janela estendida foi de N meses". Ele não tem efeito nenhum em `OCIOSO` —
-    quem decide a janela nesse estado é o `MESES_DE_JANELA` da configuração.
+    `meses` is left behind on purpose: the screen shows it as "the last extended window was N months". It has no
+    effect in `OCIOSO`: the window is then decided by the `MESES_DE_JANELA` setting.
     """
     pedido.estado = EstadoDaJanela.OCIOSO
     pedido.faltaram = 0
@@ -60,7 +58,7 @@ def _tornar_ocioso(pedido: PedidoDeJanela, agora: datetime) -> None:
 
 
 def _minutos(pedido: PedidoDeJanela) -> str:
-    """O prazo que venceu, em texto, para a linha de log."""
+    """The deadline length (`expira_em` minus `atualizado_em`) as text, for the log line."""
     if pedido.expira_em is None or pedido.atualizado_em is None:
         return "prazo"
     minutos = round((pedido.expira_em - pedido.atualizado_em).total_seconds() / 60)
@@ -92,20 +90,20 @@ def _sqlite_em_wal(conexao: Any, _registro: Any) -> None:
 
 
 class TravaNaoObtida(RuntimeError):
-    """Outra execução do worker já está em andamento."""
+    """Another worker run is already in progress."""
 
 
 def identidade_do_processo() -> str:
-    """Identifica quem detém a trava, para o diagnóstico ser útil.
+    """Identify who holds the lock (`host:pid`), so a stuck lock can be diagnosed.
 
-    Sem isso, uma trava presa mostra apenas "ocupada"; com host e PID dá para
-    descobrir qual processo travou e se ele ainda existe.
+    Without it a stuck lock only shows "busy"; with host and PID you can tell which process holds it and whether
+    it still exists.
     """
     return f"{socket.gethostname()}:{os.getpid()}"
 
 
 class RepositorioTracking:
-    """Repositório do banco de acompanhamento."""
+    """Repository of the tracking database."""
 
     def __init__(self, engine: Engine) -> None:
         self._engine = engine
@@ -126,19 +124,16 @@ class RepositorioTracking:
         self._acrescentar_colunas_novas()
 
     def _acrescentar_colunas_novas(self) -> None:
-        """Adiciona colunas que o modelo ganhou depois da base já existir.
+        """Add columns the model gained after the database already existed.
 
-        `create_all` cria tabelas que faltam, mas **não** altera as que já
-        existem: numa base de acompanhamento em uso, uma coluna nova no modelo
-        vira `OperationalError: no such column` na primeira consulta. Como o
-        acompanhamento é histórico operacional (quem decidiu o quê, e quando),
-        recriar a base para acompanhar o modelo não é opção.
+        `create_all` creates missing tables but does **not** alter existing ones: on a tracking database in use, a new
+        model column becomes `OperationalError: no such column` on the first query. The tracking data is operational
+        history (who decided what, and when), so recreating the database to follow the model is not an option.
 
-        Só faz `ADD COLUMN` de colunas **anuláveis e sem default de servidor** —
-        a única alteração que SQLite e PostgreSQL aceitam sem reescrever a
-        tabela, e a única que não pode perder dado. Qualquer mudança mais
-        profunda (renomear, apagar, mudar tipo) fica de fora de propósito: é aí
-        que uma migração automática silenciosa destrói histórico.
+        Only `ADD COLUMN` of columns that are **nullable and have no server default**, the one change SQLite and
+        PostgreSQL accept without rewriting the table and that cannot lose data. Anything deeper (rename, drop, type
+        change) is left out on purpose: that is where a silent automatic migration destroys history. A required column
+        that is missing is logged as an error and skipped (add it manually with `ALTER TABLE`).
         """
         inspetor = inspect(self._engine)
         for tabela in Base.metadata.sorted_tables:
@@ -192,10 +187,10 @@ class RepositorioTracking:
         regra: str = "",
         data_abertura: date | None = None,
     ) -> Acompanhamento:
-        """Cria ou atualiza a linha de acompanhamento do orçamento.
+        """Create or update the tracking row of the quote.
 
-        Só sobrescreve campos que foram informados: uma verificação que não
-        conhece o nome do cliente não pode apagar o que já estava lá.
+        Only overwrites the fields that were informed: a check that does not know the client name must not erase what
+        was already there.
         """
         with self._sessao() as s, s.begin():
             registro = s.get(Acompanhamento, orcnum)
@@ -241,9 +236,9 @@ class RepositorioTracking:
         doc_num: int | None = None,
         valor: Decimal | None = None,
     ) -> None:
-        """Guarda o documento do SAP gerado para o orçamento.
+        """Store the SAP document generated for the quote.
 
-        `tipo` é "cotacao" ou "pedido".
+        `tipo` is "cotacao" or "pedido"; anything else raises `ValueError`.
         """
         if tipo not in ("cotacao", "pedido"):
             raise ValueError(f"tipo de documento desconhecido: {tipo!r}")
@@ -286,16 +281,14 @@ class RepositorioTracking:
         mensagem: str = "",
         detalhes: dict[str, Any] | None = None,
     ) -> bool:
-        """Grava o evento. `False` quando uma DECISÃO repete a última e por isso não foi gravada.
+        """Record the event. Returns `False` when a DECISAO repeats the last one and so was not recorded.
 
-        Uma decisão igual à última do orçamento ("revisão congelada, nada a fazer")
-        não é um acontecimento novo: é o ciclo passando de novo. Gravá-la a cada
-        ciclo custou 934.634 linhas em 6 dias de produção — 99,4 % da tabela,
-        das quais só 12.559 eram mudanças de verdade (medido em 08/09/2026, com
-        1.682 oportunidades e ciclo de 3 min). O que fica é a **primeira** vez em
-        que a decisão passou a valer; `acompanhamento.ultima_verificacao` diz que
-        o ciclo continua olhando. Ação, erro e reprocessamento são sempre
-        gravados: cada um é um acontecimento.
+        A decision equal to the quote's last one ("revision frozen, nothing to do") is not a new happening: it is the
+        cycle passing again. Recording it every cycle cost 934,634 rows in 6 days of production, 99.4% of the table,
+        of which only 12,559 were real changes (measured on 08/09/2026, with 1,682 opportunities and a 3-minute cycle,
+        the interval at that time). What stays is the **first** time the decision came into effect;
+        `acompanhamento.ultima_verificacao` says the cycle keeps looking. Action, error and reprocessing events are
+        always recorded: each one is a happening.
         """
         detalhes_json = (
             json.dumps(detalhes, ensure_ascii=False, default=str) if detalhes else ""
@@ -331,14 +324,13 @@ class RepositorioTracking:
             return True
 
     def faxina_de_eventos(self, *, dias: int) -> int:
-        """Apaga eventos de DECISÃO com mais de `dias` dias. Devolve quantos apagou.
+        """Delete DECISAO events older than `dias` days. Returns how many were deleted.
 
-        Ação, erro e reprocessamento **ficam**: são o histórico que responde "por
-        que este orçamento virou (ou não virou) pedido?". A decisão repetida é o
-        que enchia o banco — com `registrar_evento` deixando de repeti-la, a
-        faxina cuida do que já foi gravado e do que ainda muda de verdade. Com
-        SQLite, compacta o arquivo quando apagou algo (o `DELETE` sozinho não
-        devolve espaço ao disco).
+        Action, error and reprocessing events **stay**: they are the history that answers "why did this quote become
+        (or not become) an order?". The repeated decision is what filled the database; with `registrar_evento` no longer
+        repeating it, the cleanup handles what was already recorded and what still really changes. On SQLite it
+        compacts the file when something was deleted (a `DELETE` alone does not give space back to the disk).
+        Raises `ValueError` if `dias` is negative.
         """
         if dias < 0:
             raise ValueError("dias não pode ser negativo")
@@ -360,11 +352,10 @@ class RepositorioTracking:
             return s.get(Acompanhamento, orcnum)
 
     def preencher_datas_de_abertura(self, datas: dict[str, Any]) -> int:
-        """Preenche `data_abertura` onde ela está nula. Devolve quantas mudaram.
+        """Fill `data_abertura` where it is null. Returns how many rows changed.
 
-        Só preenche o que está vazio: a data vinda da company nunca sobrescreve
-        uma já gravada pelo ciclo. Ver `_cmd_datas_de_abertura` para o porquê de
-        isto existir.
+        Only fills what is empty: the date coming from the company never overwrites one already stored by the cycle.
+        See `cli._cmd_datas_de_abertura` for why this exists.
         """
         preenchidas = 0
         with self._sessao() as s, s.begin():
@@ -387,12 +378,12 @@ class RepositorioTracking:
         limite: int = 200,
         aberto_desde: date | None = None,
     ) -> list[Acompanhamento]:
-        """`aberto_desde` aplica a **mesma** janela do worker (`OOPR.OpenDate`).
+        """List tracking rows, newest update first, at most `limite`.
 
-        Linhas sem `data_abertura` são as anteriores à coluna existir. Elas
-        passam pelo filtro de propósito: sumir do painel por falta de um dado
-        que nunca foi gravado seria pior do que aparecer — o operador leria
-        como "esses orçamentos não existem", e não como "não sei a data".
+        `aberto_desde` applies the **same** window as the worker (`OOPR.OpenDate`). Rows without `data_abertura` are the
+        ones from before the column existed; they pass the filter on purpose: vanishing from the panel for lack of data
+        that was never stored would be worse than showing up, since the operator would read it as "these quotes do not
+        exist" instead of "the date is unknown".
         """
         consulta = select(Acompanhamento)
         if status is not None:
@@ -471,16 +462,14 @@ class RepositorioTracking:
             return list(s.scalars(consulta))
 
     def nomes_que_ja_pediram(self, *, limite: int = 20) -> list[str]:
-        """Quem já armou a janela antes, do mais recente para o mais antigo.
+        """Who armed the window before, most recent first.
 
-        É a queda do cartão quando a lista de perfis do OrçaView não vem (a API
-        local fora do ar): o campo continua oferecendo nomes, só que os que já
-        passaram por aqui. Vazio no primeiro uso, e melhora sozinho.
+        It is the fallback of the card when the OrcaView profile list does not come (local API down): the field still
+        offers names, only those that already went through here. Empty on first use, and improves by itself.
 
-        Sai dos **eventos**, e não de uma coluna nova: `pedido_de_janela` é uma
-        linha só e guarda apenas o último. O histórico de verdade já está no
-        `detalhes` de cada reprocessamento — usá-lo custa um parse de JSON e
-        nenhuma tabela nova.
+        It comes from the **events**, not from a new column: `pedido_de_janela` is a single row and only keeps the last
+        request. The real history is already in the `detalhes` of each reprocessing event (`solicitante` key); using it
+        costs one JSON parse and no new table.
         """
         consulta = (
             select(Evento.detalhes)
@@ -507,13 +496,11 @@ class RepositorioTracking:
     # ------------------------------------------------- janela sob demanda
 
     def janela_pedida(self, *, agora: datetime | None = None) -> PedidoDeJanela:
-        """O pedido de janela corrente, já com a expiração aplicada.
+        """The current window request, with expiry already applied.
 
-        A expiração é preguiçosa — acontece aqui, na leitura — porque entre um
-        ciclo e outro nada roda para vigiar o relógio. É o mesmo desenho da
-        trava vencida em `_adquirir_trava`: quem chega depois do prazo é quem
-        limpa. Painel e worker chamam este método, então qualquer um dos dois
-        serve de gatilho, e a tela nunca mostra uma pergunta que já venceu.
+        Expiry is lazy, applied here on read, because nothing runs between two cycles to watch the clock. It is the same
+        design as the expired lock in `_adquirir_trava`: whoever arrives after the deadline cleans up. The panel and the
+        worker both call this, so either can be the trigger, and the screen never shows a question that already expired.
         """
         agora = agora or datetime.now()
         with self._sessao() as s, s.begin():
@@ -542,11 +529,10 @@ class RepositorioTracking:
             return pedido
 
     def armar_janela(self, meses: int, *, por: str, agora: datetime | None = None) -> PedidoDeJanela:
-        """Arma a janela estendida para a **próxima** passada do ciclo.
+        """Arm the extended window for the **next** pass of the cycle.
 
-        Zera tentativas e faltaram: um pedido novo não herda o placar do
-        anterior, senão o terceiro erro de ontem devolveria o pedido de hoje no
-        primeiro tropeço.
+        Resets `tentativas` and `faltaram`: a new request does not inherit the previous one's score, otherwise
+        yesterday's third error would give today's request back on its first stumble.
         """
         agora = agora or datetime.now()
         with self._sessao() as s, s.begin():
@@ -565,12 +551,12 @@ class RepositorioTracking:
             return pedido
 
     def limpar_janela(self, *, motivo: str, agora: datetime | None = None) -> PedidoDeJanela:
-        """Devolve a janela ao padrão, guardando por quê.
+        """Return the window to the default (`OCIOSO`), recording why in `detalhe`.
 
-        Chamado de quatro lugares que são a mesma coisa vista de ângulos
-        diferentes: o ciclo cumpriu, o usuário desistiu, o worker reiniciou, ou
-        as tentativas acabaram. Todos terminam em `OCIOSO` — é isso que garante
-        que a janela larga nunca fica ligada por esquecimento.
+        Called from three places that are the same thing seen from different angles: the cycle fulfilled the request
+        (`host.worker`), the user gave up (CLI and panel), or the worker restarted. A fourth way out, the attempts
+        running out, goes through `registrar_erro_da_janela`. All end in `OCIOSO`, which guarantees the wide window is
+        never left on by forgetfulness.
         """
         agora = agora or datetime.now()
         with self._sessao() as s, s.begin():
@@ -589,12 +575,11 @@ class RepositorioTracking:
         espera: timedelta,
         agora: datetime | None = None,
     ) -> PedidoDeJanela:
-        """O ciclo estendido bateu no teto: guarda o ponto de parada e pergunta.
+        """The extended cycle hit the ceiling: store the stopping point and ask.
 
-        Enquanto está aqui, os ciclos automáticos voltam ao padrão — quem lê
-        `janela_do_ciclo` no worker só enxerga janela estendida em `ARMADO`. Sem
-        isso, o worker seguiria varrendo a janela larga a cada intervalo
-        enquanto a pergunta espera resposta.
+        While it stays here, the automatic cycles go back to the default: the worker's `_janela_do_ciclo` only sees an
+        extended window in `ARMADO`. Without that, the worker would keep sweeping the wide window every interval while
+        the question waits for an answer. `expira_em` is set to `agora + espera`.
         """
         agora = agora or datetime.now()
         with self._sessao() as s, s.begin():
@@ -616,12 +601,11 @@ class RepositorioTracking:
         limite: int,
         agora: datetime | None = None,
     ) -> PedidoDeJanela:
-        """Um ciclo estendido falhou: conta a tentativa e decide se devolve.
+        """An extended cycle failed: count the attempt and decide whether to give the request back.
 
-        O pedido **não** é consumido por um erro — uma queda de rede no meio do
-        ciclo não pode custar o pedido de quem está esperando. Mas um erro que
-        se repete não pode virar um ciclo pesado a cada intervalo do worker: no
-        `limite`, a janela volta ao padrão com o erro registrado.
+        An error does **not** consume the request: a network drop in the middle of the cycle must not cost the
+        request of whoever is waiting. But a repeating error must not become a heavy cycle every worker interval:
+        at `limite` attempts the window returns to the default with the error recorded.
         """
         agora = agora or datetime.now()
         with self._sessao() as s, s.begin():
@@ -649,17 +633,16 @@ class RepositorioTracking:
     def trava_de_execucao(
         self, *, validade: timedelta = timedelta(minutes=30), nome: str = TRAVA_WORKER
     ) -> Iterator[Callable[[], None]]:
-        """Garante execução única do worker.
+        """Guarantee single execution of the worker.
 
-        A trava tem validade: se um processo morrer sem liberá-la, ela expira
-        sozinha e a próxima execução assume. Sem isso, um worker que caísse
-        deixaria a integração parada para sempre.
+        The lock has a validity: if a process dies without releasing it, it expires by itself and the next run takes
+        over. Without that, a crashed worker would leave the integration stopped forever. Raises `TravaNaoObtida` when
+        another run holds an unexpired lock.
 
-        Yields ``renovar``: called between quotes, it pushes ``expira_em`` forward (at most
-        once a minute — one cheap UPDATE). 01/10/2026 review: the lock was never renewed, so a
-        long cycle (an extended window allows 1,800 writes) could outlive its 30 min, and the
-        next process — now also the painel's per-quote cycle, which waits for the lock — would
-        take the "expired" lock and run over the same snapshot at the same time.
+        Yields ``renovar``: called between quotes, it pushes ``expira_em`` forward (at most once a minute, one cheap
+        UPDATE). 01/10/2026 review: the lock was never renewed, so a long cycle (an extended window allows 1,800 writes)
+        could outlive its 30 min, and the next process (now also the painel's per-quote cycle, which waits for the lock)
+        would take the "expired" lock and run over the same snapshot at the same time.
         """
         dono = identidade_do_processo()
         self._adquirir_trava(nome, dono, validade)
@@ -683,17 +666,15 @@ class RepositorioTracking:
                 s.execute(delete(Trava).where(Trava.nome == nome, Trava.dono == dono))
 
     def _adquirir_trava(self, nome: str, dono: str, validade: timedelta) -> None:
-        """Adquire a trava deixando a **chave primária arbitrar**, não o SELECT.
+        """Acquire the lock letting the **primary key arbitrate**, not a SELECT.
 
-        Um "consulta se existe, senão insere" tem uma corrida clássica: dois
-        processos consultam ao mesmo tempo, ambos veem vazio e ambos inserem.
-        Um deles recebe um `IntegrityError` — que, se não for tratado, sobe como
-        erro genérico em vez de "já tem execução rodando", e pode até derrubar o
-        worker vencedor por efeito colateral.
+        A "query whether it exists, otherwise insert" has a classic race: two processes query at the same time, both see
+        empty and both insert. One gets an `IntegrityError` which, if unhandled, rises as a generic error instead of
+        "an execution is already running", and may even bring down the winning worker as a side effect.
 
-        Aqui o `INSERT` é a única coisa que decide: quem conseguir gravar a
-        chave primária levou a trava. O `IntegrityError` deixa de ser um acidente
-        e passa a ser a resposta esperada de quem perdeu.
+        Here the `INSERT` alone decides: whoever manages to write the primary key got the lock, and `IntegrityError` is
+        the expected answer of the loser. If the existing lock is expired it is removed conditionally and one more
+        attempt is made. Raises `TravaNaoObtida` otherwise.
         """
         agora = datetime.now()
 
@@ -732,7 +713,7 @@ class RepositorioTracking:
     def _tentar_inserir_trava(
         self, nome: str, dono: str, agora: datetime, validade: timedelta
     ) -> bool:
-        """Tenta gravar a trava. `False` significa que alguém chegou antes."""
+        """Try to store the lock. `False` means someone got there first."""
         try:
             with self._sessao() as s, s.begin():
                 s.add(

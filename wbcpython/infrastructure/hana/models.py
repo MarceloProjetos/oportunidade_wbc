@@ -1,13 +1,11 @@
-"""Modelos das views nativas do SAP HANA.
+"""Models of the native SAP HANA views.
 
-Estas views existem **apenas no schema de produção** — confirmado por consulta
-ao catálogo do HANA (`SYS.VIEWS`) nos dois ambientes. A decisão está registrada
-em `docs/wbc/DECISOES.md` (a `ai_spec/` original não veio para este repositório —
-ver `docs/wbc/ai_spec/00_index.md`).
+These views exist **only in the production schema** (checked against the HANA catalog,
+`SYS.VIEWS`, in both environments); see "Ler o HANA do schema de produção" in
+`docs/wbc/DECISOES.md`.
 
-Os campos abaixo foram tirados do **catálogo real** (`SYS.VIEW_COLUMNS`), não de
-suposição — uma versão anterior deste módulo chutou nomes de coluna e falhou
-contra o ambiente real.
+The fields come from the **real catalog** (`SYS.VIEW_COLUMNS`), not guesswork: an earlier
+version guessed column names and failed against the real environment.
 """
 
 from __future__ import annotations
@@ -19,15 +17,12 @@ from pydantic import BaseModel
 
 
 class EvolucaoOportunidade(BaseModel):
-    """Linha de `VW_EVOL_OPORTUNIDADE_ALT`.
+    """Row of `VW_EVOL_OPORTUNIDADE_ALT`: the WBC quote status as mirrored in HANA, plus the
+    opportunity's commercial data.
 
-    Traz o status do orçamento no WBC já refletido dentro do HANA, junto com
-    dados comerciais da oportunidade.
-
-    Atenção aos tipos: `Retorno`, `Indice` e `Negociacao` são **NVARCHAR** na
-    view, não numéricos — é o mesmo problema de separador decimal inconsistente
-    documentado em `ai_spec/02_data_model.md`. Por isso são normalizados na
-    leitura, em vez de convertidos direto.
+    `Retorno`, `Indice` and `Negociacao` are **NVARCHAR** in the view, with an inconsistent
+    decimal separator (see "HANA" in `docs/wbc/APRENDIZADOS.md`), so they are read through
+    `normalizar_decimal_tolerante` instead of being cast directly.
     """
 
     model_config = {"frozen": True}
@@ -61,15 +56,13 @@ class EvolucaoOportunidade(BaseModel):
 
 
 class MunicipioCliente(BaseModel):
-    """Linha de `VW_CLIENTE_MUNICIPIO_ALTA`.
+    """Row of `VW_CLIENTE_MUNICIPIO_ALTA`: resolves the municipality's internal id (`AbsId`),
+    used when building business-partner addresses in SAP.
 
-    Resolve o identificador interno (`AbsId`) do município, usado ao montar
-    endereços de parceiro de negócios no SAP.
-
-    A view traz o nome em duas formas: `Name` (com acentuação, ex.:
-    "Acrelândia") e `Name_N` (normalizado, sem acento e em maiúsculas, ex.:
-    "ACRELANDIA"). A busca usa `Name_N`, porque o município que chega do WBC
-    vem sem acentuação — comparar com `Name` erraria em toda cidade acentuada.
+    The view has the name twice: `Name` (accented, e.g. "Acrelândia") and `Name_N`
+    (normalized: unaccented, upper case, e.g. "ACRELANDIA"). Lookup uses `Name_N` because the
+    municipality coming from the WBC is unaccented; comparing with `Name` would miss every
+    accented city.
     """
 
     model_config = {"frozen": True}

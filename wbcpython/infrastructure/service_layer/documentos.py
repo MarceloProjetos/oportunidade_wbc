@@ -1,18 +1,17 @@
-"""Cotações (`Quotations`) e Pedidos de Venda (`Orders`) via Service Layer.
+"""Quotations (`Quotations`) and sales orders (`Orders`) over the Service Layer.
 
-Substitui os `GetBusinessObject(oQuotations/oOrders)` do DI-API legado.
+Replaces the legacy DI-API `GetBusinessObject(oQuotations/oOrders)`.
 
-O vínculo entre o documento do SAP e o orçamento do WBC é o UDF
-**`U_INO_COTWBC`** — é por ele que o legado conta cotações e pedidos
-(`GetIntIdWBCOrcamentos`, `GetIdOrcamentosPedido`) e é a chave que torna a
-integração idempotente: antes de criar, pergunta-se se já existe.
+The link between the SAP document and the WBC quotation is the UDF **`U_INO_COTWBC`** — the
+legacy counts quotations and orders by it (`GetIntIdWBCOrcamentos`, `GetIdOrcamentosPedido`),
+and it is the key that makes the integration idempotent: check whether one exists before creating.
 
-`U_INO_VERSAOWBC` guarda a revisão do WBC aplicada ao documento, e é o que a
-máquina de estados compara para decidir entre atualizar e deixar congelado.
+`U_INO_VERSAOWBC` holds the WBC revision applied to the document; the state machine compares it
+to decide between updating and leaving the document frozen.
 
-Documentos **cancelados são ignorados** em todas as buscas (`Cancelled eq 'tNO'`),
-espelhando o `CANCELED = 'N'` das consultas do legado: um documento cancelado
-não conta como existente, senão a integração nunca recriaria o que foi anulado.
+**Cancelled documents are ignored** in every search (`Cancelled eq 'tNO'`), mirroring the
+legacy `CANCELED = 'N'`: a cancelled document does not count as existing, otherwise the
+integration would never recreate what was voided.
 """
 
 from __future__ import annotations
@@ -42,7 +41,7 @@ UDF_CONGELADO = "U_INO_Congelado"
 
 
 class TipoDocumento(Enum):
-    """Os dois documentos de venda que a integração cria."""
+    """The two sales documents the integration creates."""
 
     COTACAO = "Quotations"
     PEDIDO = "Orders"
@@ -102,39 +101,34 @@ ETAG_FIXA = 'W/"356A192B7913B04C54574D18C28D46E6395428AB"'
 
 
 def esta_congelado_pelo_campo(bruto: Any) -> bool:
-    """`U_INO_Congelado` do pedido, traduzido. Só `'Y'` congela.
+    """Translates the order's `U_INO_Congelado`. Only `'Y'` freezes.
 
-    Segue o legado ao pé da letra: `if (Congelado != "Y")` reconstrói as linhas
-    (`ServiceProcess.cs:597`). Vazio, nulo ou qualquer outro valor **não**
-    congela.
+    Follows the legacy to the letter: `if (Congelado != "Y")` rebuilds the lines
+    (`ServiceProcess.cs:597`). Empty, null or any other value does **not** freeze.
 
-    Ao contrário do `DocStatus`, aqui não há como falhar fechado sem divergir:
-    "falhar congelado" no valor desconhecido pararia de atualizar linhas num
-    caso que o legado atualiza. Em produção o ponto é acadêmico — os 2.581
-    pedidos vigentes estão todos em `'Y'` —, mas a divergência seria silenciosa,
-    e é justamente esse tipo que não se descobre depois.
+    Unlike `DocStatus`, there is no way to fail closed here without diverging: "fail frozen" on an
+    unknown value would stop updating lines in a case the legacy updates. In production this is
+    academic — all 2,581 current orders are `'Y'` — but the divergence would be silent, and that is
+    the kind nobody finds later.
     """
     return str(bruto or "").strip().upper() == "Y"
 
 
 def esta_fechado_pelo_status(bruto: Any, *, documento: str) -> bool:
-    """Traduz o status do documento — **falhando fechado** no desconhecido.
+    """Translates the document status, **failing closed** on unknown values.
 
-    Um valor que não é nem aberto nem fechado (vazio, nulo, coluna que sumiu da
-    consulta, vocabulário novo do SAP) devolve `True`: o documento é tratado
-    como fechado e a integração não escreve nele.
+    A value that is neither open nor closed (empty, null, a column that vanished from the query, new
+    SAP vocabulary) returns `True`: the document is treated as closed and the integration does not
+    write to it.
 
-    A escolha é deliberada e segue o resto do projeto — `safety.py` e a
-    `PAINEL_SENHA` também bloqueiam quando a configuração está incompleta. Aqui
-    ela pesa mais: o defeito do orçamento `00124268` foi exatamente uma coluna
-    que **não era lida**, e uma guarda que falha aberta evaporaria em silêncio
-    no dia em que a coluna sumisse de novo — sem um teste falhar, e voltando a
-    escrever em pedido fechado.
+    Deliberate, and consistent with the rest of the project — `safety.py` and `PAINEL_SENHA` also
+    block when configuration is incomplete. It weighs more here: quotation `00124268`'s defect was
+    exactly a column that **was not read**, and a fail-open guard would evaporate silently the day
+    the column vanished again — no test failing, and writes to a closed order resuming.
 
-    Custo medido: nenhum. Agrupando por status nos dois ambientes, só existem
-    `'O'` e `'C'` (146+2.424 em homologação, 116+2.452 em produção) — nenhuma
-    linha cairia neste caminho hoje. E o aviso torna visível o dia em que uma
-    cair.
+    Measured cost: none. Grouping by status in both environments only `'O'` and `'C'` exist
+    (146+2,424 in homologation, 116+2,452 in production), so no row takes this path today. The
+    warning makes visible the day one does.
     """
     valor = str(bruto or "").strip().upper()
     if valor in _FECHADO:
@@ -158,7 +152,7 @@ def _escapar(valor: str) -> str:
 
 
 class RepositorioDocumentosVendaServiceLayer:
-    """Implementação sobre o Service Layer."""
+    """Service Layer implementation."""
 
     def __init__(self, cliente: ServiceLayerClient) -> None:
         self._cliente = cliente
@@ -166,7 +160,7 @@ class RepositorioDocumentosVendaServiceLayer:
     # -------------------------------------------------------------- leitura
 
     def buscar(self, tipo: TipoDocumento, orcamento: str) -> dict[str, Any] | None:
-        """Documento não cancelado mais recente para o orçamento, ou `None`."""
+        """Most recent non-cancelled document for the quotation, or `None`."""
         registros = self._cliente.listar(
             tipo.value,
             filtro=(f"{UDF_ORCAMENTO} eq '{_escapar(orcamento)}' and Cancelled eq 'tNO'"),
@@ -176,14 +170,14 @@ class RepositorioDocumentosVendaServiceLayer:
         return registros[0] if registros else None
 
     def existe(self, tipo: TipoDocumento, orcamento: str) -> bool:
-        """Equivale ao `COUNT(*) > 0` das consultas do legado."""
+        """Equivalent to the legacy queries' `COUNT(*) > 0`."""
         return self.buscar(tipo, orcamento) is not None
 
     def revisao_aplicada(self, tipo: TipoDocumento, orcamento: str) -> str:
-        """Revisão do WBC já gravada no documento (`U_INO_VERSAOWBC`).
+        """WBC revision already stored on the document (`U_INO_VERSAOWBC`).
 
-        Devolve string vazia quando não há documento ou o campo está em branco —
-        que é como a máquina de estados representa "sem revisão".
+        Returns an empty string when there is no document or the field is blank — how the state machine
+        represents "no revision".
         """
         documento = self.buscar(tipo, orcamento)
         if not documento:
@@ -191,25 +185,22 @@ class RepositorioDocumentosVendaServiceLayer:
         return str(documento.get(UDF_REVISAO) or "")
 
     def parceiro_aplicado(self, tipo: TipoDocumento, orcamento: str) -> str:
-        """`CardCode` do documento vigente — vazio quando não há documento.
+        """`CardCode` of the current document — empty when there is none.
 
-        É o `ChecaPNPedido` do legado: comparar o parceiro que o pedido já tem
-        com o `U_INO_PN_Correc` é o que diz se a troca ainda está pendente.
+        The legacy `ChecaPNPedido`: comparing the order's partner with `U_INO_PN_Correc` tells whether
+        the swap is still pending.
         """
         documento = self.buscar(tipo, orcamento)
         return str(documento.get("CardCode") or "") if documento else ""
 
     def esta_fechado(self, tipo: TipoDocumento, orcamento: str) -> bool:
-        """Documento fechado: o SAP não aceita alteração nem cancelamento.
+        """Closed document: SAP accepts neither changes nor cancellation.
 
-        Aqui o campo é `DocumentStatus` (`bost_Open`/`bost_Close`); na consulta
-        do HANA a mesma informação vem como `DocStatus` (`'O'`/`'C'`). Os dois
-        caminhos respondem à mesma pergunta por nomes diferentes — é para isso
-        que o método está no protocolo, e quem conhece os dois vocabulários é
-        `esta_fechado_pelo_status`.
+        Here the field is `DocumentStatus` (`bost_Open`/`bost_Close`); the HANA query returns the same
+        fact as `DocStatus` (`'O'`/`'C'`). `esta_fechado_pelo_status` knows both vocabularies.
 
-        `False` quando não há documento: "não existe" não é "está fechado", e
-        confundir os dois impediria a criação do primeiro pedido.
+        `False` when there is no document: "does not exist" is not "is closed", and conflating them
+        would block creating the first order.
         """
         documento = self.buscar(tipo, orcamento)
         if not documento:
@@ -219,10 +210,10 @@ class RepositorioDocumentosVendaServiceLayer:
         )
 
     def esta_congelado(self, tipo: TipoDocumento, orcamento: str) -> bool:
-        """Pedido com as linhas protegidas (`U_INO_Congelado = 'Y'`).
+        """Order with protected lines (`U_INO_Congelado = 'Y'`).
 
-        `False` sem documento: não existindo pedido, não há linha a proteger —
-        e a criação nunca consulta este campo, no legado nem aqui.
+        `False` without a document: no order, no line to protect — and creation never reads this field,
+        in the legacy or here.
         """
         documento = self.buscar(tipo, orcamento)
         if not documento:
@@ -236,7 +227,12 @@ class RepositorioDocumentosVendaServiceLayer:
     # -------------------------------------------------------------- escrita
 
     def criar(self, tipo: TipoDocumento, dados: dict[str, Any]) -> dict[str, Any]:
-        """Cria o documento. A trava de ambiente é aplicada pelo cliente."""
+        """Creates the document. The environment safety lock is applied by the client.
+
+        Raises:
+            ValueError: `U_INO_COTWBC` missing — the document would be orphaned and duplicated on the
+                next run.
+        """
         if not dados.get(UDF_ORCAMENTO):
             raise ValueError(
                 f"{UDF_ORCAMENTO} é obrigatório ao criar {tipo.rotulo}: sem ele o "
@@ -256,48 +252,43 @@ class RepositorioDocumentosVendaServiceLayer:
         return criado
 
     def atualizar(self, tipo: TipoDocumento, doc_entry: int, dados: dict[str, Any]) -> None:
-        """Atualização parcial (`PATCH`), com substituição real das linhas.
+        """Partial update (`PATCH`) that really replaces the lines.
 
-        O `PATCH` do Service Layer, sozinho, **não** troca a coleção de linhas:
-        ele mescla. Linhas enviadas sem `LineNum` são acrescentadas, e as que já
-        estavam lá continuam — com valor e tudo.
+        On its own the SL `PATCH` does **not** replace the lines collection, it merges: lines sent
+        without `LineNum` are appended and existing ones stay, values included.
 
-        Isso foi observado em homologação, não deduzido: a cotação 101857 do
-        orçamento `00125527` terminou uma atualização com **três** linhas
-        (R$ 69.656,20) enquanto o orçamento no WBC tem duas (R$ 52.079,03). A
-        linha sobrando era de uma revisão anterior e ninguém a apagou. Numa
-        cotação que vai para o cliente, isso é dinheiro errado no documento.
+        Observed in homologation, not deduced: quotation 101857 (WBC quotation `00125527`) ended an
+        update with **three** lines (R$ 69,656.20) while the WBC quotation has two (R$ 52,079.03). The
+        extra line came from an earlier revision and nobody removed it — wrong money on a document that
+        goes to the customer.
 
-        `B1S-ReplaceCollectionsOnPatch` é o cabeçalho que o Service Layer expõe
-        exatamente para isso: com ele, a coleção enviada substitui a existente,
-        e o documento passa a ter só as linhas do orçamento atual.
+        `B1S-ReplaceCollectionsOnPatch` is the SL header for this: the sent collection replaces the
+        existing one. It is not always honoured (204 with the lines unchanged, quotations `00125616` and
+        `00125577` — see `total_das_linhas`), hence the post-update check.
 
-        **Dois `PATCH`, e a ordem importa** (medido em homologação, 15/09/2026,
-        cotação 101977 — ver `DECISOES.md`, "Preço unitário e desconto no PATCH"):
+        **Two `PATCH`es, and the order matters** (measured in homologation, 15/09/2026, quotation
+        101977 — `DECISOES.md`, "Preço unitário e desconto no `PATCH`"):
 
-        * Mandar só `LineTotal` numa linha que **já existia** faz o SAP manter o
-          `UnitPrice` da revisão anterior e fechar a conta com `DiscountPercent`.
-          Foi assim que a cotação 78264 (produção) saiu com "R$ 3.088,86 com
-          46,24% de desconto" numa linha de R$ 1.660,66 — total certo, unitário
-          e desconto errados na impressão do cliente.
-        * Mandar `UnitPrice` **muda** o unitário, mas o SAP recalcula o
-          `LineTotal` como `UnitPrice × Quantity` e ignora o enviado: com 4 casas
-          no preço, volta o centavo de diferença (`272 × 2600,0071 = 707.201,93`
-          contra `707.201,92`).
-        * Mandar só `LineTotal` numa linha cujo `UnitPrice` **já é** o certo faz
-          o SAP respeitar o `LineTotal`, com desconto 0,0000.
+        * Sending only `LineTotal` on a line that **already existed** makes SAP keep the previous
+          revision's `UnitPrice` and close the sum with `DiscountPercent`. That is how quotation 78264
+          (production) came out as "R$ 3,088.86 with 46.24% discount" on a R$ 1,660.66 line — right
+          total, wrong unit price and discount on the customer's printout.
+        * Sending `UnitPrice` **changes** the unit price, but SAP recomputes `LineTotal` as
+          `UnitPrice × Quantity` and ignores the one sent: with 4 decimals on the price a cent comes
+          back (`272 × 2600.0071 = 707,201.93` vs `707,201.92`).
+        * Sending only `LineTotal` on a line whose `UnitPrice` **already is** right makes SAP honour
+          `LineTotal`, with discount 0.0000.
 
-        Daí o passo 1 gravar `UnitPrice = LineTotal ÷ Quantity` (4 casas) e o
-        passo 2 regravar as linhas como vieram, só com `LineTotal`. Linha nova
-        (criação, `POST`) não precisa disso: nasce com o unitário derivado e
-        desconto zero — por isso `criar` não passa por aqui.
+        Hence step 1 writes `UnitPrice = LineTotal ÷ Quantity` (4 decimals) and step 2 rewrites the
+        lines as received, with `LineTotal` only. A new line (creation, `POST`) needs none of this: it
+        is born with the derived unit price and zero discount — which is why `criar` does not go through
+        here.
 
-        **O carimbo da revisão (`U_INO_VERSAOWBC`) vai só no passo 2.** Se o
-        passo 1 gravar e o passo 2 falhar (timeout, rede), o documento fica com
-        os totais recalculados pelo `UnitPrice` — o centavo de volta — e, com a
-        revisão já carimbada, o ciclo seguinte lê "revisão congelada" e nunca
-        mais o toca. Carimbando por último, a falha no meio deixa a revisão
-        antiga no SAP e o próximo ciclo refaz os dois passos.
+        **The revision stamp (`U_INO_VERSAOWBC`) goes in step 2 only.** If step 1 writes and step 2
+        fails (timeout, network), the document keeps totals recomputed from `UnitPrice` (the cent is
+        back); with the revision already stamped, the next cycle would read "frozen revision" and never
+        touch it again. Stamping last, a mid-way failure leaves the old revision in SAP and the next
+        cycle redoes both steps. Without `DocumentLines` only the single PATCH is sent.
         """
         linhas = dados.get("DocumentLines")
         if linhas:
@@ -323,21 +314,19 @@ class RepositorioDocumentosVendaServiceLayer:
         *,
         etag: str | None = None,
     ) -> None:
-        """Grava `Weight1` em linhas específicas, **sem** tocar no resto.
+        """Writes `Weight1` on specific lines, **without** touching the rest.
 
-        With ``etag`` (from `estado_das_linhas`) the PATCH goes with `If-Match`: if someone saved the
-        document since it was read, the Service Layer answers 412 instead of writing.
+        With `etag` (from `estado_das_linhas`) the PATCH goes with `If-Match`: if someone saved the
+        document since it was read, the SL answers 412 instead of writing.
 
-        A diferença para `atualizar` é o cabeçalho que **não** é enviado. Com
-        `B1S-ReplaceCollectionsOnPatch` a coleção enviada substitui a existente:
-        mandar só as linhas que têm peso apagaria as outras, e mandar todas com
-        apenas `LineNum` e `Weight1` zeraria o que não fosse repetido.
+        The difference from `atualizar` is the header that is **not** sent. With
+        `B1S-ReplaceCollectionsOnPatch` the sent collection replaces the existing one: sending only the
+        lines that have a weight would delete the others, and sending all of them with just `LineNum`
+        and `Weight1` would zero whatever was not repeated.
 
-        Sem o cabeçalho, o `PATCH` **mescla** — e é justamente o comportamento
-        que atrapalha ao atualizar um documento inteiro (ver `atualizar`) que
-        serve aqui: linha identificada por `LineNum` tem os campos enviados
-        alterados e conserva os demais. Item, preço, texto e depósito ficam como
-        estavam.
+        Without the header the `PATCH` **merges** — the very behaviour that hurts when updating a whole
+        document (see `atualizar`) helps here: a line identified by `LineNum` gets the sent fields
+        changed and keeps the rest. Item, price, text and warehouse stay as they were.
         """
         if not pesos_por_linha:
             return
@@ -386,36 +375,33 @@ class RepositorioDocumentosVendaServiceLayer:
         return etag, linhas
 
     def buscar_por_docnum(self, tipo: TipoDocumento, docnum: int) -> dict[str, Any] | None:
-        """Documento pelo número que as pessoas citam (`DocNum`), não pela chave.
+        """Document by the number people quote (`DocNum`), not by key.
 
-        `DocEntry` é a chave do Service Layer; `DocNum` é o que aparece na tela
-        do SAP e no e-mail de quem pede a correção. Quem opera não deveria
-        precisar traduzir um no outro à mão.
+        `DocEntry` is the SL key; `DocNum` is what shows on the SAP screen and in the e-mail of whoever
+        asks for the correction. Operators should not have to translate one into the other by hand.
         """
         registros = self._cliente.listar(tipo.value, filtro=f"DocNum eq {int(docnum)}", top=1)
         return registros[0] if registros else None
 
     def cancelar(self, tipo: TipoDocumento, doc_entry: int) -> None:
-        """Cancela via ação dedicada, equivalente ao `Documents.Cancel()`."""
+        """Cancels through the dedicated action, equivalent to `Documents.Cancel()`."""
         self._cliente.post(f"{tipo.value}({doc_entry})/Cancel", json=None)
         logger.info("%s %s cancelada.", tipo.rotulo.capitalize(), doc_entry)
 
     # ------------------------------------------------------------ conveniência
 
     def total_das_linhas(self, tipo: TipoDocumento, doc_entry: int) -> Decimal:
-        """Relê o documento no SAP e soma o `LineTotal` das linhas.
+        """Re-reads the document from SAP and sums the lines' `LineTotal`.
 
-        É a conferência do que **de fato ficou gravado**, e existe porque um
-        `PATCH` bem-sucedido não garante que as linhas mudaram: o Service Layer
-        respondeu `204 No Content` em documentos cujas linhas continuaram como
-        estavam (ver `DECISOES.md`, cotações `00125616` e `00125577`).
+        Checks what **actually got stored**: a successful `PATCH` does not guarantee the lines changed —
+        the SL answered `204 No Content` on documents whose lines stayed as they were (`DECISOES.md`,
+        quotations `00125616` and `00125577`).
 
-        Soma antes do imposto, como `total_do_payload`, para que os dois lados
-        da comparação sejam a mesma grandeza — `DocTotal` inclui o imposto e não
-        serviria. Lê o `LineTotal` que o SAP devolve, e não `Quantity * Price`:
-        desde 15/09/2026 é o total que a integração envia, e o `Price` gravado
-        é derivado com 4 casas — multiplicá-lo de volta reintroduziria o
-        centavo de arredondamento que a troca eliminou.
+        Sums before tax, like `total_do_payload`, so both sides of the comparison are the same quantity
+        (`DocTotal` includes tax and would not do). Reads the `LineTotal` SAP returns instead of
+        `Quantity * Price`: since 15/09/2026 it is the total the integration sends, and the stored
+        `Price` is derived with 4 decimals — multiplying it back would reintroduce the rounding cent
+        the change removed.
         """
         documento = self._cliente.get_json(f"{tipo.value}({doc_entry})")
         total = Decimal(0)
@@ -426,12 +412,10 @@ class RepositorioDocumentosVendaServiceLayer:
     def cancelar_e_recriar(
         self, tipo: TipoDocumento, orcamento: str, dados: dict[str, Any]
     ) -> dict[str, Any]:
-        """Cancela o documento vigente (se houver) e cria o novo.
+        """Cancels the current document (if any) and creates the new one.
 
-        A ordem importa e não é intercambiável: cancelar primeiro evita que
-        `buscar()` passe a encontrar dois documentos não cancelados para o mesmo
-        orçamento — estado ambíguo que quebraria a idempotência das execuções
-        seguintes.
+        The order matters: cancelling first keeps `buscar()` from finding two non-cancelled documents
+        for the same quotation — an ambiguous state that would break idempotency on later runs.
         """
         atual = self.doc_entry(tipo, orcamento)
         if atual is not None:
@@ -440,11 +424,10 @@ class RepositorioDocumentosVendaServiceLayer:
 
 
 def _com_unitario(linha: dict[str, Any]) -> dict[str, Any]:
-    """A linha com `UnitPrice = LineTotal ÷ Quantity`, arredondado a 4 casas.
+    """The line with `UnitPrice = LineTotal ÷ Quantity`, rounded to 4 decimals.
 
-    4 casas porque é o que o SAP guarda no preço; mandar mais é o SAP arredondar
-    por nós, sem dizer como. Linha sem `LineTotal` ou sem quantidade volta como
-    veio.
+    4 because that is what SAP stores for the price; sending more leaves SAP to round for us,
+    unannounced. A line without `LineTotal` or quantity is returned as is.
     """
     total = linha.get("LineTotal")
     quantidade = linha.get("Quantity")

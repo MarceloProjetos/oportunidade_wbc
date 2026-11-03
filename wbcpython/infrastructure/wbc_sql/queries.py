@@ -1,17 +1,14 @@
-"""Consultas ao WBC — **somente leitura**, sempre parametrizadas.
+"""Queries against the WBC: **read-only** and always parameterized.
 
-Diferenças deliberadas em relação ao SQL do sistema legado (`Querys.resx`):
+Deliberate differences from the legacy SQL (`Querys.resx`):
 
-1. **Parâmetros nomeados** (`:orcnum`) no lugar de `String.Format`. Além de
-   eliminar a classe de bugs em que uma aspas simples no dado quebra a consulta,
-   é o que permite manter a promessa de que a integração nunca monta SQL
-   concatenando valores.
-2. **`COALESCE` no lugar de `ISNULL`.** `ISNULL` só existe no SQL Server;
-   `COALESCE` é padrão e funciona também em SQLite — o que torna as consultas
-   testáveis sem um SQL Server à mão, sem manter duas versões do SQL.
-3. **Sem `GROUP BY` sobre todas as colunas.** O legado agrupava por toda a lista
-   de campos, o que só servia para deduplicar linhas; o agrupamento em
-   cabeçalho + itens é feito aqui, em Python, onde é explícito e testável.
+1. **Named parameters** (`:orcnum`) instead of `String.Format`. This removes the bug class where a single quote
+   in the data breaks the query, and keeps the guarantee that the integration never builds SQL by concatenating
+   values.
+2. **`COALESCE` instead of `ISNULL`.** `ISNULL` is SQL Server only; `COALESCE` is standard and also runs on
+   SQLite, so the queries are testable without a SQL Server and without two versions of the SQL.
+3. **No `GROUP BY` over all columns.** The legacy grouped by the whole field list just to deduplicate rows;
+   grouping into header + items is done here in Python, where it is explicit and testable.
 """
 
 from __future__ import annotations

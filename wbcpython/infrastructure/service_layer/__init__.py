@@ -1,6 +1,6 @@
-"""Camada: infrastructure.service_layer — cliente REST do SAP Service Layer.
+"""Layer: infrastructure.service_layer — REST client for the SAP Service Layer.
 
-Ver ai_spec/03_architecture.md (mapeamento DI-API → Service Layer).
+See `docs/wbc/ai_spec/00_index.md` (architecture and DI-API → Service Layer mapping).
 """
 
 from wbcpython.infrastructure.service_layer.client import ServiceLayerClient

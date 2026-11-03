@@ -1,19 +1,15 @@
-"""De-para grupo do WBC → item do SAP (`@INO_GRP_PRODUTOS`).
+"""WBC group → SAP item mapping (`@INO_GRP_PRODUTOS`).
 
-Esta é a tabela que responde à pergunta "qual item do SAP corresponde a esta
-linha do orçamento". A resposta **não** está no texto da linha (`ORCTXT`), como
-a leitura dos dados sugere à primeira vista, e sim no código de grupo
-(`GRPCOD`) — foi assim que o sistema legado sempre fez
-(`Querys.resx → GetItensSAP`).
+Answers "which SAP item matches this quotation line". The answer is NOT in the line text
+(`ORCTXT`), as the data suggests at first glance, but in the group code (`GRPCOD`) — which is
+how the legacy system always did it (`Querys.resx → GetItensSAP`).
 
-A tabela é pequena e praticamente estática (11 grupos), então é lida uma vez por
-execução e mantida em memória: relê-la a cada linha de cada orçamento seria uma
-chamada de rede por linha, sem nada em troca.
+The table is small and practically static (11 groups), so it is read once per run and kept in
+memory instead of costing one network call per line of every quotation.
 
-**Nome do recurso no Service Layer:** `U_INO_GRP_PRODUTOS`, com o prefixo `U_`.
-O nome sem prefixo responde `-1002 Service Not Found` — verificado contra o
-ambiente real. É a convenção do Service Layer para tabelas de usuário que não
-estão registradas como UDO.
+**SL resource name:** `U_INO_GRP_PRODUTOS`, with the `U_` prefix. The unprefixed name answers
+`-1002 Service Not Found` (verified against the real environment); the prefix is the SL
+convention for user tables that are not registered as UDOs.
 """
 
 from __future__ import annotations
@@ -29,7 +25,7 @@ RECURSO = "U_INO_GRP_PRODUTOS"
 
 @dataclass(frozen=True, slots=True)
 class GrupoDeProduto:
-    """Uma linha do de-para."""
+    """One row of the mapping."""
 
     codigo: str
     descricao: str
@@ -37,13 +33,13 @@ class GrupoDeProduto:
 
 
 class RepositorioGrupoProdutos(Protocol):
-    """Contrato de leitura do de-para — sem escrita, por construção."""
+    """Read contract of the mapping — no writes, by construction."""
 
     def carregar(self) -> dict[str, GrupoDeProduto]: ...
 
 
 class RepositorioGrupoProdutosServiceLayer:
-    """Lê o de-para do Service Layer e o guarda em memória."""
+    """Reads the mapping from the Service Layer and caches it in memory."""
 
     def __init__(self, cliente: Any) -> None:
         self._cliente = cliente

@@ -1,23 +1,21 @@
-"""Leitura das oportunidades direto no HANA, em **uma** consulta.
+"""Reads the opportunities straight from HANA in **one** query.
 
-Por que este módulo existe: o Service Layer entrega 20 registros por resposta e
-ignora `$top` acima disso. Varrer a janela custava ~90 requisições paginadas,
-mais quatro por orçamento só para descobrir se já havia cotação e pedido — cerca
-de 900 idas ao SAP num ciclo de 200. Aqui é **uma** consulta: 1.785
-oportunidades, com cotação e pedido já resolvidos, em 0,04 s.
+Why: the Service Layer returns 20 records per response and ignores `$top` above that.
+Scanning the window cost ~90 paginated requests, plus four per quote just to learn whether a
+quotation and an order already existed: about 900 SAP round trips for a 200-quote cycle. Here
+it is **one** query: 1,785 opportunities with quotation and order already resolved, in 0.04 s.
 
-**O que esta consulta reproduz.** Exatamente o mesmo retrato que
-`montar_estado` obtinha do Service Layer:
+**What the query reproduces.** The exact snapshot `montar_estado` used to get from the
+Service Layer:
 
-| Campo | Origem | O que o Service Layer fazia |
+| Field | Source | What the Service Layer did |
 |---|---|---|
-| `U_INO_StatusWBC`, `U_INO_Update`, `U_INO_PN_Correc`, `CardCode` | `OOPR` | listagem paginada |
-| cotação: existe? qual revisão? | `OQUT` | `buscar(COTACAO)`, duas vezes |
-| pedido: existe? qual revisão? | `ORDR` | `buscar(PEDIDO)`, duas vezes |
+| `U_INO_StatusWBC`, `U_INO_Update`, `U_INO_PN_Correc`, `CardCode` | `OOPR` | paginated listing |
+| quotation: exists? which revision? | `OQUT` | `buscar(COTACAO)`, twice |
+| order: exists? which revision? | `ORDR` | `buscar(PEDIDO)`, twice |
 
-Conferido contra o Service Layer em 40 orçamentos de homologação — incluindo
-casos sem documento, com cotação, com pedido e com revisão aplicada: **zero
-divergências**.
+Checked against the Service Layer on 40 homologation quotes (no document, with quotation,
+with order, with a revision applied): **zero divergences**.
 
 The read also carries what the Service Layer path never had: the live production
 orders of the current sales order (`OWOR` by `OriginAbs`, status P/R/L), so the
@@ -25,16 +23,16 @@ partner swap stops cancelling an order that production already holds
 (`docs/PLANO_TROCA_PN_COM_OP.md`). On 20/10/2026 the swap had left 110 planned
 OPs on two cancelled orders while their replacements got their own.
 
-**O schema é o da company que recebe a escrita, não o `HANA_SCHEMA`.** Esta é a
-parte perigosa do módulo. `HANA_SCHEMA` aponta para as views de relatório
-(`SBOALTAMIRAPROD`, mesmo em homologação); a company que a integração escreve é
-`SL_COMPANY_DB`. Ler o estado de uma e escrever na outra criaria documentos em
-homologação com base no que produção já tem — silenciosamente, e com aparência
-de normalidade. Por isso o schema vem de `service_layer.company_db` e há um
-teste que fixa essa escolha.
+**The schema is the one of the company that receives the writes, not `HANA_SCHEMA`.** This
+is the dangerous part of the module. `HANA_SCHEMA` points at the reporting views
+(`SBOALTAMIRAPROD`, even in homologation); the company the integration writes to is
+`SL_COMPANY_DB`. Reading the state of one and writing to the other would create documents in
+homologation based on what production already has, silently and looking normal. Hence the
+schema comes from `service_layer.company_db`, and
+`tests/wbc/infrastructure/test_hana_oportunidades.py` pins that choice.
 
-Só leitura: a escrita continua toda pelo Service Layer, que é quem aplica as
-regras de negócio do SAP.
+Read-only: every write still goes through the Service Layer, which applies SAP's business
+rules.
 """
 
 from __future__ import annotations
@@ -65,11 +63,10 @@ CAMPOS = (
 
 
 def _sql(schema_citado: str) -> str:
-    """Monta a consulta. `ROW_NUMBER` escolhe o documento mais recente.
+    """Build the query; `ROW_NUMBER` picks the latest document per quote.
 
-    O critério é `DocEntry desc` entre os não cancelados — exatamente o que o
-    Service Layer fazia com `$orderby=DocEntry desc&$top=1` e
-    `Cancelled eq 'tNO'`.
+    Latest = highest `DocEntry` among the non-cancelled ones, exactly what the Service Layer
+    did with `$orderby=DocEntry desc&$top=1` and `Cancelled eq 'tNO'`.
     """
     return f"""
 SELECT O."OpprId", O."U_ORCNUM_WBC", O."CardCode", C."CardName", O."SlpCode", O."CprCode",
@@ -118,7 +115,7 @@ ORDER BY O."OpprId" DESC
 
 
 class RepositorioOportunidadesHana:
-    """Oportunidades da janela, com os documentos já resolvidos."""
+    """Window opportunities with their quotation/order already resolved."""
 
     def __init__(
         self,
@@ -150,10 +147,10 @@ class RepositorioOportunidadesHana:
     def pendentes_de_integracao(
         self, *, desde: date, orcamento: str | None = None
     ) -> list[dict[str, Any]]:
-        """A janela inteira, numa consulta só.
+        """The whole window in one query; ``orcamento`` narrows it to one quote number.
 
-        Não há teto de leitura: ler tudo aqui custa centésimos de segundo. O teto
-        que importa é o de **escrita**, e ele vive no worker.
+        There is no read cap: reading everything costs hundredths of a second. The cap that
+        matters is the **write** one, and it lives in the worker.
         """
         cursor = self._obter_conexao().cursor()
         try:
@@ -166,13 +163,12 @@ class RepositorioOportunidadesHana:
         return [self._para_dicionario(dict(zip(colunas, linha, strict=False))) for linha in linhas]
 
     def datas_de_abertura(self, orcnums: list[str]) -> dict[str, Any]:
-        """`OpenDate` por orçamento, **sem** filtro de janela.
+        """`OpenDate` per quote, **without** the window filter.
 
-        Existe para preencher o histórico do acompanhamento: as linhas gravadas
-        antes da coluna existir não têm data, e as que já saíram da janela nunca
-        mais serão verificadas — ficariam nulas para sempre, e uma data nula
-        passa por qualquer filtro de janela. Sem este preenchimento, o corte no
-        painel não teria efeito nenhum sobre elas.
+        Backfills the tracking history: rows saved before the column existed have no date, and
+        rows that already left the window are never checked again, so they would stay null
+        forever, and a null date passes any window filter. Without the backfill the dashboard's
+        cutoff would never apply to them.
         """
         if not orcnums:
             return {}
@@ -191,17 +187,16 @@ class RepositorioOportunidadesHana:
 
     @staticmethod
     def _para_dicionario(campos: dict[str, Any]) -> dict[str, Any]:
-        """Traduz a linha para o formato do Service Layer.
+        """Translate the row into the Service Layer shape.
 
-        `documentos` viaja junto, pré-resolvido: é o que evita as quatro idas ao
-        SAP por orçamento que existiam só para responder "já tem cotação?".
+        `documentos` travels pre-resolved; that is what saves the four SAP round trips per
+        quote that existed only to answer "is there a quotation already?".
 
-        A leitura é **por nome de coluna**, nunca por posição. A versão anterior
-        usava `linha[0]`, `linha[1]`... e o custo apareceu na primeira vez que
-        uma coluna entrou no meio do `SELECT`: todos os campos seguintes
-        deslocaram uma casa, em silêncio. O `U_INO_StatusWBC` passou a receber o
-        `Status`, o `Update` passou a receber o SitCode, e o ciclo seguiu
-        rodando sem erro nenhum — decidindo sobre um retrato trocado.
+        Columns are read **by name**, never by position. The earlier version used `linha[0]`,
+        `linha[1]`... and it bit the first time a column was added in the middle of the
+        `SELECT`: every following field shifted by one, silently. `U_INO_StatusWBC` received
+        `Status`, `Update` received the SitCode, and the cycle kept running with no error,
+        deciding on a swapped snapshot.
         """
         return {
             "SequentialNo": campos["OpprId"],
@@ -264,25 +259,24 @@ def _documento(
     status: Any = None,
     extras: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """`None` quando não há documento — o mesmo que o Service Layer devolvia.
+    """Document summary, or `None` when there is no document (same as the Service Layer).
 
-    `CardCode` é o equivalente do `ChecaPNPedido` legado: é comparando o
-    parceiro que o pedido **já tem** com o `U_INO_PN_Correc` que se sabe se a
-    troca ainda está pendente. Ver `EstadoIntegracao.troca_de_parceiro_pendente`.
+    `CardCode` is the equivalent of the legacy `ChecaPNPedido`: comparing the partner the
+    order **already has** with `U_INO_PN_Correc` tells whether the swap is still pending; see
+    `EstadoIntegracao.troca_de_parceiro_pendente`.
 
-    `DocStatus` é `'O'` (aberto) ou `'C'` (fechado). Documento fechado não
-    aceita alteração nem cancelamento no SAP, e a integração precisa saber disso
-    **antes** de tentar — ver `DocumentosJaLidos.esta_fechado`.
+    `DocStatus` is `'O'` (open) or `'C'` (closed). SAP accepts neither changes nor
+    cancellation on a closed document and the integration must know **before** trying; see
+    `DocumentosJaLidos.esta_fechado`.
 
-    A coluna vem para os dois tipos porque `esta_fechado(tipo, ...)` responde
-    sobre os dois: não é dado morto, é dado que a regra atual ainda não pergunta.
-    As regras de hoje só consultam o pedido; existem 3 cotações fechadas em cada
-    ambiente, e o dia em que elas forem tratadas não precisa mexer na consulta —
-    ver `DECISOES.md`.
+    The column is kept for both types because `esta_fechado(tipo, ...)` answers for both: it
+    is not dead data, just data today's rules do not ask about. They only query the order;
+    there are 3 closed quotations in each environment and handling them later needs no query
+    change; see `DECISOES.md`.
 
-    `extras` carrega o que é de um tipo só. Hoje é o `U_INO_Congelado`, UDF do
-    `ORDR` que a cotação não tem: `'Y'` protege as linhas do pedido de serem
-    refeitas — ver `DocumentosJaLidos.esta_congelado`.
+    `extras` carries what belongs to one type only. Today that is `U_INO_Congelado`, a UDF of
+    `ORDR` the quotation lacks: `'Y'` protects the order's lines from being redone; see
+    `DocumentosJaLidos.esta_congelado`.
     """
     if doc_entry is None:
         return None
