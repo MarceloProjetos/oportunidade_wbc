@@ -1,7 +1,7 @@
 # Plano — docstrings e type hints em inglês (ServidorIntegracaoSAP)
 
-> **Status (03/11/2026):** **E1–E5 concluídas** (68 arquivos; 107 docstrings desatualizados
-> corrigidos + 1 regra errada no CLAUDE.md); E6–E8 abertas.
+> **Status (03/11/2026):** **E1–E6 concluídas** (79 arquivos; 151 docstrings desatualizados
+> corrigidos + 2 regras do CLAUDE.md); E7–E8 abertas.
 > Página: ver o artifact "Docstrings EN" (mesmo conteúdo).
 
 **Começo → Meio → Fim:** núcleo que tudo importa (E1) → regras que escrevem no SAP (E2–E5) → API,
@@ -59,7 +59,7 @@ tarefa; um em `dashboard/` vale só quando mexo na tela.
 | **E3** | Regra do CP — Manutenção de OP | 4 | 17 | 8 | **concluída** |
 | **E4** | Worker WBC — `domain/`, `application/`, `host/` | 19 | 125 | 0 | **concluída** |
 | **E5** | Worker WBC — `infrastructure/`, `tracking/` | 20 | 115 | 0 | **concluída** |
-| **E6** | API 8077 e extrações (`api.py`, `pipeline_core`, `situacao_pedidos_hana`, `extract_*`, `monitoring`) | 14 | 94 | 90 | aberta |
+| **E6** | API 8077 e extrações (`api.py`, `pipeline_core`, `situacao_pedidos_hana`, `extract_*`, `monitoring`) | 11 | 94 | 90 | **concluída** |
 | **E7** | Telas, CLI, MCP, `operacao/`, `seguranca/`, `casa/` (só o que não é texto de tela) | 45 | 170 | 95 | aberta |
 | **E8** | Arquivos-irmãos, junto com SAP_RDP e web | 8 | 21 | 7 | aberta (opcional) |
 
@@ -171,6 +171,32 @@ campos, `evolucao_do_orcamento`, **não tem chamador fora dos testes** — o ris
   a saída por `registrar_erro_da_janela`. Citava `janela_do_ciclo` (é `_janela_do_ciclo`).
 - `orcdetalhe.historico` dizia "útil para o dashboard": **ninguém chama**.
 - 9 docstrings apontavam para `ai_spec/02`, `/03`, `/04`, que não existem.
+
+### O que a E6 achou de desatualizado (44 + o CLAUDE.md)
+
+`api.py` (14 + escopos de 10 rotas), `pipeline_core`/`situacao_pedidos_hana`/`monitoring` (16),
+extrações e módulos menores (14). `arquivo_pedidos`, `pedidos_compra_hana`, `controle_montagem`: ok.
+Tipagem: 80 anotações no `api.py` (Flask ignora anotação), as 6 travas `@contextmanager` do
+`pipeline_core` com `Iterator[None]` e o resto das funções sem tipo.
+
+- **CLAUDE.md da .11**: dizia que o `/status` completo exige `OS_API_KEY` ou `STATUS_ID`; uma chave
+  registrada com `leitura` também recebe (`test_status_completo_para_quem_tem_leitura`). Corrigido.
+- `api.py`: a lista de status do `os_sincronizar` não tinha 409/429/403; "até 30" é 30 por padrão e
+  `?limit=` até 50; `?campos=resumo` tem 11 colunas (não 10); 10 rotas diziam "exige X-API-Key" em vez
+  do escopo real (`os:sincronizar`, `oportunidades:carga`, `historico:apagar`…); `aprovacao_pedir` não
+  citava o `Idempotency-Key` nem o `ja_existia`.
+- `pipeline_core`: "as 4 travas" (são 5); `registrar_rotina` dizia que a .11 não grava e que
+  depende de um interruptor de `.env` (grava, e liga pelo IP da máquina).
+- `situacao_pedidos_hana.liberacao_e_nf`: "13 campos" (são 12); "3 consultas" (até 4).
+- `monitoring`: o sinal do agendador lê os 2 últimos registros, não o último; o ramo "aposentado"
+  da tarefa WBC não era citado.
+- `extract_vendas_bi`: apontava para `sql/bi_vendas.sql` e uma migração que não existem; não citava
+  o filtro de nota espelho (84534).
+- `faturamento_pedido.ler_faturamento`: "três consultas" (são até três, duas só com entrega futura).
+- `entrega_combinada`: "três chamadas" à tabela (são cinco).
+
+<span class="warn">Fora do escopo, não mexido:</span> o log do `registrar_rotina` ainda diz
+"`ROTINAS_ESTADO_SUPABASE` desligada", mas a variável não existe mais (é texto de log).
 
 ## Decisões
 

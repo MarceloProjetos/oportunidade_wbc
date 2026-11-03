@@ -1,28 +1,29 @@
-"""situacao_pedidos_hana -- leitura da view de Situacao dos Pedidos no HANA (F2).
+"""situacao_pedidos_hana -- reads the order-status view from HANA (F2).
 
-A camada de I/O que falta ao :mod:`situacao_pedidos` (que e' puro de proposito e nao
-pode ganhar rede sem quebrar o teste de diffabilidade). Aqui mora o SELECT, o cache e a
-traducao de "HANA fora do ar" para uma mensagem que a F3 vira 503.
+The I/O layer that :mod:`situacao_pedidos` lacks (that one is pure on purpose and cannot gain
+network access without breaking the diffability test). The SELECT, the cache and the translation
+of "HANA is down" into a message that F3 turns into a 503 live here.
 
-**Esta e' a primeira leitura HANA sincrona servida por request neste repo.** Todas as
-rotas de leitura de hoje batem no Supabase; o ``sap_connection`` so era usado pelos
-pipelines (que rodam sozinhos, sem ninguem esperando) e pelo *ping* do ``/status``. Tres
-consequencias, todas deliberadas:
+**This was the first synchronous HANA read served per request in this repo** (the later
+``pedidos_compra_hana`` copies its shape). Until then every read route hit Supabase;
+``sap_connection`` was used only by the pipelines (which run on their own, with nobody waiting)
+and by the ``/status`` *ping*. Three consequences, all deliberate:
 
-1. **Uma conexao por leitura, aberta e fechada na hora.** Conexao ``hdbcli`` nao e'
-   thread-safe e o waitress atende em varias threads; compartilhar uma so pediria lock e
-   reconexao. Com o cache de 120s isso da, no pior caso, **uma** conexao a cada 2 min --
-   barato demais para justificar a complexidade.
-2. **Guarda de volume antes do SELECT.** A view devolve o recorte inteiro, sem filtro de
-   data (decisao do dono). Se um dia ela mudar de natureza e passar a devolver historico,
-   e' melhor um erro explicito que 200 mil linhas na resposta.
-3. **Erro legivel, nunca 500 cru.** :class:`SAPIndisponivel` carrega a mensagem que vai
-   para a tela de quem perguntou.
+1. **One connection per read, opened and closed on the spot.** An ``hdbcli`` connection is not
+   thread-safe and waitress serves in several threads; sharing one would need a lock and
+   reconnection logic. With the 120 s cache this means, in the worst case, **one** connection
+   every 2 min -- too cheap to justify the complexity.
+2. **Volume guard before the SELECT.** The view returns the whole slice, with no date filter
+   (owner's decision). If it ever changes nature and starts returning history, an explicit
+   error beats 200 thousand rows in the response.
+3. **Readable error, never a raw 500.** :class:`SAPIndisponivel` carries the message that goes
+   to the screen of whoever asked.
 
-O SQL e' o MESMO do ``sap_hana_client.fetch_status_pedidos`` do V117 -- e' isso que faz a
-.11 e a tela responderem igual. Ao mexer nele, mexa nos dois.
+The SQL is the SAME as the web's ``sap_hana_client.fetch_status_pedidos`` (OrcaView V118, earlier
+V117) -- that is what makes the .11 and the screen answer the same. When changing one, change both.
 
-Plano: ``PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29)``.
+Plan: ``PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29)``.
+
 """
 from __future__ import annotations
 
@@ -68,11 +69,12 @@ LIBERACAO_FORCADA_DOCNUM: frozenset[int] = frozenset({84326})
 
 
 class SAPIndisponivel(RuntimeError):
-    """HANA fora do ar, credencial ausente ou consulta que estourou.
+    """HANA down, missing credential, or a query that blew up.
 
-    A F3 traduz para **503** com ``str(e)`` no corpo. Existe separada da
-    :class:`situacao_pedidos.ValidationError` porque as duas viram HTTP diferente:
-    parametro errado e' culpa de quem chamou (422), HANA fora nao e' (503).
+    F3 translates it to **503** with ``str(e)`` in the body. It is separate from
+    :class:`situacao_pedidos.ValidationError` because the two become different HTTP codes: a wrong
+    parameter is the caller's fault (422), HANA being down is not (503).
+
     """
 
 
@@ -153,7 +155,12 @@ _cache: tuple[float, list[dict[str, Any]]] | None = None
 
 
 def limpar_cache() -> None:
-    """Esvazia o cache de linhas cruas (testes, e o ``?recarregar=1`` da F3)."""
+    """Empty the raw-rows cache (used by the tests).
+
+    The routes' ``?recarregar=1`` does not call this: it passes ``recarregar=True`` to
+    :func:`fetch_status_pedidos`, which reads HANA and refreshes the cache.
+
+    """
     global _cache
     with _cache_lock:
         _cache = None
@@ -174,7 +181,7 @@ def _schema() -> str:
         raise SAPIndisponivel(f"SAP_SCHEMA inválido no .env: {e}") from e
 
 
-def _conectar():
+def _conectar() -> Any:
     s = get_settings()
     try:
         return connect_sap_hana(
@@ -186,12 +193,12 @@ def _conectar():
 
 
 def _num(v: Any) -> Any:
-    """``Decimal`` do HANA → float (serializável em JSON); o resto passa intacto."""
+    """HANA ``Decimal`` → float (JSON-serializable); anything else passes through untouched."""
     return float(v) if isinstance(v, Decimal) else v
 
 
 def _data_iso(v: Any) -> str | None:
-    """Data/timestamp do HANA → ``'YYYY-MM-DD'``, que e' o que o nucleo espera."""
+    """HANA date/timestamp → ``'YYYY-MM-DD'``, which is what the core expects."""
     if v is None:
         return None
     if hasattr(v, "strftime"):
@@ -200,16 +207,18 @@ def _data_iso(v: Any) -> str | None:
     return s[:10] if len(s) >= 10 and s[4:5] == "-" else s
 
 
-def _linhas(conn, sql: str, params: tuple = ()) -> list[dict[str, Any]]:
-    """SELECT → lista de dicts, com as colunas vindas do ``cursor.description``.
+def _linhas(conn: Any, sql: str, params: tuple = ()) -> list[dict[str, Any]]:
+    """SELECT → list of dicts, with the columns taken from ``cursor.description``.
 
-    Direto no cursor, e nao pelo ``db_utils.read_dbapi_query`` (que e' o padrao deste
-    repo): aquele devolve ``DataFrame``, e a passagem pelo pandas transformaria ``NULL``
-    em ``NaN`` e coluna inteira com nulo em float -- o nucleo portado espera ``None`` e
-    ``int``. Os pipelines querem DataFrame porque carregam em lote; aqui a saida e' JSON.
+    Straight on the cursor rather than through ``db_utils.read_dbapi_query`` (the repo's usual way):
+    that returns a ``DataFrame``, and going through pandas would turn ``NULL`` into ``NaN`` and any
+    integer column holding a null into float -- the ported core expects ``None`` and ``int``. The
+    pipelines want a DataFrame because they load in bulk; here the output is JSON. (Only
+    ``_ExecutorDaConexao``, for ``faturamento_pedido``, goes through ``read_dbapi_query``.)
 
-    Coluna ``CHAR`` do HANA vem preenchida com espaco a direita; o ``rstrip`` evita
-    divergencia cosmetica com a tela (que le pelo Service Layer, sem o padding).
+    HANA ``CHAR`` columns come right-padded with spaces; the ``rstrip`` avoids a cosmetic mismatch
+    with the screen (which reads through the Service Layer, without the padding).
+
     """
     cur = conn.cursor()
     try:
@@ -235,27 +244,27 @@ def _linhas(conn, sql: str, params: tuple = ()) -> list[dict[str, Any]]:
 MUNICIPIO_CHAVES = {"local": "_MunicipioLocal", "ponto": "_MunicipioPonto"}
 
 
-def _injetar_municipios(conn, schema: str, linhas: list[dict[str, Any]]) -> None:
-    """Resolve ``CntyDlvryP``/``CountyS`` (codigos = ``OCNT.AbsId``) para o NOME da
-    cidade, **em uma consulta so**, e grava em :data:`MUNICIPIO_CHAVES`.
+def _injetar_municipios(conn: Any, schema: str, linhas: list[dict[str, Any]]) -> None:
+    """Resolve ``CntyDlvryP``/``CountyS`` (codes = ``OCNT.AbsId``) to the city NAME, **in a single
+    query**, and store it under :data:`MUNICIPIO_CHAVES`.
 
-    Tres decisoes que valem a leitura:
+    Three decisions worth reading:
 
-    1. **Fora do JOIN.** Ha linha historica com o campo vazio; no plano de execucao do
-       join o HANA avalia a conversao em linhas que o filtro descartaria e a consulta
-       MORRE com "invalid number". Um ``SELECT ... WHERE AbsId IN (...)`` a parte
-       funciona — e' o padrao do ``fetch_municipios`` do OrcaView.
-    2. **Mesma conexao, mesmo ciclo, mesmo cache.** Nao abre conexao nova (uma por
-       leitura e' regra deste modulo) nem guarda cache proprio: o nome viaja dentro das
-       proprias linhas, que ja tem o cache de 120 s do recorte. Sem tabela, sem espelho,
-       sem job.
-    3. **Best-effort.** Se a OCNT falhar, o recorte inteiro NAO cai por causa do nome de
-       uma cidade: as chaves ficam ``None`` (que ja significa "nao foi possivel saber") e
-       o log registra. Medido em 10/09: ``CountyS`` vem preenchido em 266 de 266 pedidos,
-       entao na pratica isso quase nunca fica vazio.
+    1. **Outside the JOIN.** There are historical rows with the field empty; in the join's execution
+       plan HANA evaluates the conversion on rows the filter would discard and the query DIES with
+       "invalid number". A separate ``SELECT ... WHERE AbsId IN (...)`` works -- it is the pattern
+       of OrcaView's ``fetch_municipios``.
+    2. **Same connection, same cycle, same cache.** It opens no new connection (one per read is this
+       module's rule) and keeps no cache of its own: the name travels inside the rows themselves,
+       which already have the slice's 120 s cache. No table, no mirror, no job.
+    3. **Best-effort.** If the OCNT query fails, the whole slice does NOT go down over a city name:
+       the keys stay ``None`` (which already means "could not be determined") and it is logged.
+       Measured 10/09: ``CountyS`` is filled in 266 of 266 orders, so in practice this is almost
+       never empty.
 
-    A lista do ``IN`` e' montada com ``int()`` em cada elemento — os codigos entram como
-    numero, nunca como texto vindo de fora.
+    The ``IN`` list is built with ``int()`` on each element -- the codes enter as numbers, never as
+    text coming from outside.
+
     """
     codigos: set[int] = set()
     for r in linhas:
@@ -324,11 +333,12 @@ def texto_livre(valor: Any) -> str | None:
 
 
 def momento(data: Any, hhmmss: Any) -> datetime | None:
-    """Data + hora inteira ``HHMMSS`` do B1 (``UpdateTS``, ``CreateTS``) → datetime com fuso.
+    """Date + integer ``HHMMSS`` time from B1 (``UpdateTS``, ``CreateTS``) → timezone-aware datetime.
 
-    O B1 grava a hora a parte, como inteiro (``165116`` = 16:51:16), no fuso do servidor,
-    que e' o de Sao Paulo. Sem data ou sem hora devolve ``None``: meia-noite inventada
-    pareceria um dado.
+    B1 stores the time apart, as an integer (``165116`` = 16:51:16), in the server's timezone, which
+    is São Paulo's. Without a date or without a time it returns ``None``: an invented midnight would
+    look like data.
+
     """
     if data is None or hhmmss is None:
         return None
@@ -375,11 +385,12 @@ def liberado_ate(versoes: list[tuple[Any, datetime | None]]) -> datetime | None:
 
 def sinal_pago_em(odpis: list[dict[str, Any]],
                   recebimentos: dict[int, list[datetime | None]]) -> datetime | None:
-    """Quando o sinal do pedido ficou pago, ou ``None``.
+    """When the order's down payment was paid, or ``None``.
 
-    Vale so a ULTIMA Solicitacao de Adiantamento nao cancelada (maior ``DocEntry``):
-    as anteriores sao reemissoes do mesmo sinal, e uma nova aberta volta a bloquear o
-    pedido. Aberta → ``None``. Fechada → o registro mais tardio dos recebimentos dela.
+    Only the LAST non-cancelled Advance Request counts (highest ``DocEntry``): the earlier ones are
+    reissues of the same down payment, and a new open one blocks the order again. Open → ``None``.
+    Closed → the latest registration among its receipts.
+
     """
     vivas = [o for o in odpis if str(o.get("CANCELED") or "N").strip().upper() == "N"]
     if not vivas:
@@ -402,15 +413,19 @@ def _int(v: Any) -> int | None:
         return None
 
 
-def _injetar_liberacao_e_nf(conn, schema: str, linhas: list[dict[str, Any]]) -> None:
-    """Grava :data:`LIBERACAO_CHAVES` nas linhas cruas: 3 consultas para o recorte inteiro.
+def _injetar_liberacao_e_nf(conn: Any, schema: str, linhas: list[dict[str, Any]]) -> None:
+    """Write :data:`LIBERACAO_CHAVES` onto the raw rows: 3 blocks, up to 4 queries for the whole slice.
 
-    Mesmo desenho do :func:`_injetar_municipios`: mesma conexao, sem cache proprio (viaja
-    nas linhas, que ja tem o de 120 s) e **best-effort por consulta** — o historico fora
-    do ar nao derruba a Situacao nem apaga a NF. Custo medido em 25/09: ~1,0 s no recorte
-    de 281 pedidos.
+    The blocks are the ADOC history; the down-payment documents (DPI1/ODPI) with their receipts
+    (RCT2/ORCT, a second query); and the orcamentos view with the DANFE number.
 
-    As listas do ``IN`` sao montadas com ``int()`` em cada elemento, como no municipio.
+    Same design as :func:`_injetar_municipios`: same connection, no cache of its own (it travels in
+    the rows, which already have the 120 s one) and **best-effort per block** -- the history being
+    down does not take the Situacao down nor erase the NF. Cost measured on 25/09: ~1.0 s on the
+    281-order slice.
+
+    The ``IN`` lists are built with ``int()`` on each element, as for the municipality.
+
     """
     for r in linhas:
         for k in LIBERACAO_CHAVES:
@@ -507,12 +522,15 @@ def _injetar_liberacao_e_nf(conn, schema: str, linhas: list[dict[str, Any]]) -> 
 
 
 def liberacao_e_nf(r: dict[str, Any]) -> dict[str, Any]:
-    """Linha crua (com :data:`LIBERACAO_CHAVES`) → os 13 campos do contrato.
+    """Raw row (with :data:`LIBERACAO_CHAVES`) → the 12 fields of the contract.
 
-    Pura. ``lib_producao_em`` so existe com a Producao liberada AGORA e com todas as
-    condicoes datadas: sem a hora do Financeiro, ou com sinal exigido e sem a hora do
-    pagamento, vem ``None`` — um "quase" aqui seria uma data inventada.
-    ``lib_entrega_em`` e' a mesma: o SAP nao separa Producao de Entrega (281 de 281).
+    Pure. ``lib_producao_em`` only exists when Producao is released NOW and every dated condition
+    holds: without Financeiro's time, or with a down payment required and no payment time, it is
+    ``None`` -- an "almost" here would be an invented date. The one exception: when Financeiro's
+    time was lost with the old versions (only the upper bound ``_LibFinAte`` is known), a payment
+    dated at or after that bound still dates the release. ``lib_entrega_em`` is the same: SAP does
+    not separate Producao from Entrega (281 of 281).
+
     """
     fin = r.get("_LibFinEm")
     ate = r.get("_LibFinAte")
@@ -569,13 +587,13 @@ def _texto(v: Any) -> str:
 
 
 def _cep(valor: Any) -> str | None:
-    """CEP normalizado para ``NNNNN-NNN``; o que nao for 8 digitos passa como veio.
+    """CEP normalized to ``NNNNN-NNN``; anything that is not 8 digits passes through as it came.
 
-    **Medido em 10/09: o SAP guarda os dois formatos, nas duas colunas** —
-    ``ZipDlvryP`` tinha 4 com hifen e 33 sem (``'36033000'``); ``ZipCodeS``, 147 e 117.
-    Repassar como veio daria ``36033000`` num pedido e ``30330-000`` no outro, no MESMO
-    campo, e quem consome teria de normalizar. Nao inventamos digito: so formatamos o
-    que ja tem 8.
+    **Measured 10/09: SAP stores both formats, in both columns** -- ``ZipDlvryP`` had 4 with a
+    hyphen and 33 without (``'36033000'``); ``ZipCodeS``, 147 and 117. Passing it through as it came
+    would give ``36033000`` on one order and ``30330-000`` on another, in the SAME field, and
+    consumers would have to normalize. We do not invent digits: we only format what already has 8.
+
     """
     bruto = _texto(valor)
     if not bruto:
@@ -589,8 +607,9 @@ def _cep(valor: Any) -> str | None:
 def _linha_do_endereco(e: dict[str, Any]) -> str | None:
     """``'AVENIDA DEUSDEDITH SALGADO, 4010 - SALVATERRA, 36033-000 JUIZ DE FORA-MG'``.
 
-    Uma string pronta para etiqueta/tela, montada por partes: campo vazio nao deixa
-    virgula solta nem hifen orfao.
+    A ready-made string for a label/screen, built part by part: an empty field leaves no dangling
+    comma or orphan hyphen.
+
     """
     rua = ", ".join(p for p in (e.get("logradouro"), e.get("numero")) if p)
     if e.get("bairro"):
@@ -601,7 +620,7 @@ def _linha_do_endereco(e: dict[str, Any]) -> str | None:
 
 
 def _endereco(r: dict[str, Any], lado: str) -> dict[str, Any]:
-    """Um lado do endereco (``local`` ou ``ponto``) em campos ja limpos."""
+    """One side of the address (``local`` or ``ponto``) as cleaned fields."""
     cols = ENDERECO_COLS[lado]
     e: dict[str, Any] = {
         campo: (_texto(r.get(coluna)) or None)
@@ -615,31 +634,32 @@ def _endereco(r: dict[str, Any], lado: str) -> dict[str, Any]:
 
 
 def _preenchido(e: dict[str, Any]) -> bool:
-    """Tem rua, cidade OU CEP com pelo menos :data:`MIN_CARACTERES`.
+    """Has street, city OR CEP with at least :data:`MIN_CARACTERES` characters.
 
-    Os mesmos tres campos que o ``_entrega_efetiva`` do OrcaView testa — e' o que a tela
-    usa para decidir se desenha o card do Local de Entrega com o selo "difere do ponto
-    de entrega".
+    The same three fields OrcaView's ``_entrega_efetiva`` tests -- it is what the screen uses to
+    decide whether to draw the Local de Entrega card with the "differs from the delivery point" badge.
+
     """
     return any(len(_texto(e.get(c))) >= MIN_CARACTERES
                for c in ("logradouro", "cidade", "cep"))
 
 
 def endereco_entrega_efetivo(r: dict[str, Any]) -> dict[str, Any]:
-    """O endereco de DESPACHO do pedido, ja resolvido — mais o ShipTo como referencia.
+    """The order's DISPATCH address, already resolved -- plus the ShipTo as a reference.
 
-    **Se houver Local de Entrega preenchido, e' ele.** Vazio, ou com menos de
-    :data:`MIN_CARACTERES`, conta como ausente e responde o padrao (o Ponto de Entrega),
-    que e' 86% dos casos (medido em 10/09).
+    **If there is a filled-in Local de Entrega, it is that one.** Empty, or with fewer than
+    :data:`MIN_CARACTERES`, it counts as absent and the default answers (the Ponto de Entrega),
+    which is 86% of the cases (measured 10/09).
 
-    A propriedade que segura a coisa: os campos do TOPO sao sempre o endereco efetivo.
-    Quem ignorar ``fonte``, ignorar o selo e ler so ``cidade``/``uf``/``linha`` **ainda
-    despacha certo** — o caminho preguicoso e' o caminho correto.
+    The property holding this up: the TOP-level fields are always the effective address. Whoever
+    ignores ``fonte``, ignores the badge and reads only ``cidade``/``uf``/``linha`` **still
+    dispatches correctly** -- the lazy path is the correct path.
 
-    ``difere_do_ponto_de_entrega`` e' "existe Local de Entrega preenchido", **nao**
-    comparacao de cidade: a caixa das duas colunas diverge no SAP (``'BELO HORIZONTE'``
-    contra ``'Belo Horizonte'`` no 84317). E' a mesma regra do selo da tela, que aparece
-    nos 38 — inclusive nos 14 que sao outro endereco na MESMA cidade.
+    ``difere_do_ponto_de_entrega`` means "a filled-in Local de Entrega exists", **not** a city
+    comparison: the letter case of the two columns diverges in SAP (``'BELO HORIZONTE'`` against
+    ``'Belo Horizonte'`` on 84317). It is the same rule as the screen's badge, which shows on all
+    38 -- including the 14 that are another address in the SAME city.
+
     """
     local = _endereco(r, "local")
     ponto = _endereco(r, "ponto")
@@ -654,23 +674,25 @@ def endereco_entrega_efetivo(r: dict[str, Any]) -> dict[str, Any]:
 
 
 def cidade_uf(e: dict[str, Any]) -> str | None:
-    """``'JUIZ DE FORA-MG'`` — o par pronto, para o perfil ``resumo`` nao ter de juntar
-    dois campos (e nao ter duas montagens do mesmo texto no repo)."""
+    """``'JUIZ DE FORA-MG'`` -- the ready pair, so the ``resumo`` profile does not have to join two
+    fields (and the repo does not hold two assemblies of the same text).
+    """
     return "-".join(p for p in (e.get("cidade"), e.get("uf")) if p) or None
 
 
 def fetch_endereco_do_pedido(doc_num: int) -> dict[str, Any]:
-    """A RDR12 de UM pedido, por DocNum — o caminho do pedido **CANCELADO**.
+    """The RDR12 of ONE order, by DocNum -- the path for the **CANCELLED** order.
 
-    A view exclui cancelado, entao esse pedido nao passa pelo recorte e nao tem de onde
-    tirar o endereco. Cancelado tambem tem endereco, e a chave ``entrega_endereco`` nao
-    pode faltar so nele (ha teste comparando as chaves dos dois caminhos) — decisao do
-    Marcelo em 10/09 (D5): le a RDR12 daquele DocEntry em vez de emitir nulos.
+    The view excludes cancelled orders, so such an order does not go through the slice and has
+    nowhere to get its address. A cancelled order has an address too, and the ``entrega_endereco``
+    key cannot be missing only on it (a test compares the keys of both paths) -- Marcelo's decision
+    on 10/09 (D5): read that DocEntry's RDR12 instead of emitting nulls.
 
-    Caminho raro (a rota so chega aqui quando o pedido esta fora da view), uma linha,
-    conexao aberta e fechada na hora — o mesmo desenho do recorte. Devolve ``{}`` quando
-    o DocNum nao existe; **quem chama trata SAPIndisponivel**: o endereco nao vale
-    derrubar a resposta de "este pedido esta cancelado".
+    A rare path (the route only gets here when the order is outside the view), one row, a connection
+    opened and closed on the spot -- the same design as the slice. Returns ``{}`` when the DocNum
+    does not exist; **the caller handles SAPIndisponivel**: the address is not worth taking down the
+    answer "this order is cancelled".
+
     """
     schema = _schema()
     conn = _conectar()
@@ -701,15 +723,15 @@ FATURAMENTO_CHAVES = {"faturamento": "_Faturamento", "remessa": "_Remessa",
 class _ExecutorDaConexao:
     """``execute_query`` (DataFrame) over this module's open connection, for ``faturamento_pedido``."""
 
-    def __init__(self, conn) -> None:
+    def __init__(self, conn: Any) -> None:
         self._conn = conn
 
-    def execute_query(self, query: str, params=None):
+    def execute_query(self, query: str, params: Any = None) -> Any:
         from db_utils import read_dbapi_query
         return read_dbapi_query(query, self._conn, params)
 
 
-def _injetar_faturamento(conn, schema: str, linhas: list[dict[str, Any]]) -> None:
+def _injetar_faturamento(conn: Any, schema: str, linhas: list[dict[str, Any]]) -> None:
     """Invoicing of every CLOSED row, in place; a pending future-delivery sale becomes ``Aberto``.
 
     SAP closes the pedido on the future-delivery NF (CFOP 5922/6922) before the goods leave, and
@@ -751,7 +773,12 @@ def faturamento(r: dict[str, Any]) -> dict[str, Any]:
 
 
 def _buscar_no_hana() -> list[dict[str, Any]]:
-    """Uma ida ao HANA: conta, confere o volume, seleciona e converte os tipos."""
+    """One round trip to HANA: count, check the volume, select, inject the derived keys, convert types.
+
+    The injections (municipality names, release/NF dates, invoicing) run on the same connection, so
+    what reaches the cache is already complete.
+
+    """
     schema = _schema()
     conn = _conectar()
     try:
@@ -810,21 +837,22 @@ def _forcar_liberacao(linhas: list[dict[str, Any]]) -> None:
 
 
 def fetch_status_pedidos(*, recarregar: bool = False) -> list[dict[str, Any]]:
-    """Linhas cruas da view, com cache curto (:data:`CACHE_TTL_SEGUNDOS`).
+    """Raw rows of the view, with a short cache (:data:`CACHE_TTL_SEGUNDOS`).
 
     Args:
-        recarregar: ignora o cache e vai ao HANA. **Nao** e' o default: as 3 consultas
-            do plano tem de ver o mesmo retrato, e um cliente MCP em laco passaria a
-            interrogar o SAP a cada frase.
+        recarregar: ignore the cache and go to HANA. It is **not** the default: the plan's 3 queries
+            must see the same snapshot, and an MCP client in a loop would start interrogating SAP on
+            every sentence.
 
     Returns:
-        Copia rasa da lista cacheada -- isola o cache de um ``sort()`` acidental de quem
-        chamou. Os dicts em si continuam compartilhados: **ninguem pode muta-los**.
-        (:func:`situacao_pedidos.normalizar` nao muta; ele constroi dicts novos.)
+        A shallow copy of the cached list -- it isolates the cache from an accidental ``sort()`` by
+        the caller. The dicts themselves remain shared: **nobody may mutate them**.
+        (:func:`situacao_pedidos.normalizar` does not mutate; it builds new dicts.)
 
     Raises:
-        SAPIndisponivel: HANA fora, credencial ausente ou consulta que falhou.
-        ValidationError: volume acima de ``_MAX_LINHAS``.
+        SAPIndisponivel: HANA down, missing credential, or a query that failed.
+        ValidationError: volume above ``_MAX_LINHAS``.
+
     """
     global _cache
 
@@ -841,10 +869,11 @@ def fetch_status_pedidos(*, recarregar: bool = False) -> list[dict[str, Any]]:
 
 
 def idade_do_cache_s() -> float | None:
-    """Ha quantos segundos o retrato foi tirado — ``None`` se nao ha cache.
+    """How many seconds ago the snapshot was taken -- ``None`` if there is no cache.
 
-    A F3 devolve isto no corpo: quem le "bloqueado" precisa saber se o dado e' de agora
-    ou de 2 minutos atras.
+    F3 returns this in the body: whoever reads "blocked" needs to know whether the data is from now
+    or from 2 minutes ago.
+
     """
     with _cache_lock:
         if not _cache:
@@ -853,20 +882,21 @@ def idade_do_cache_s() -> float | None:
 
 
 def fetch_udf_valid_values(table_id: str, alias_id: str) -> list[dict[str, str]]:
-    """Valores validos de uma UDF, como o SAP os define -- a fonte dos rotulos.
+    """Valid values of a UDF, as SAP defines them -- the source of the labels.
 
-    O B1 guarda a metadata da UDF em ``CUFD`` (``TableID`` + ``AliasID`` → ``FieldID``) e
-    a lista do dropdown em ``UFD1`` (``FldValue`` + ``Descr``, na ordem do ``IndexID``).
-    Ler daqui e' o que evita um mapa de rotulos chumbado no codigo.
+    B1 keeps the UDF metadata in ``CUFD`` (``TableID`` + ``AliasID`` → ``FieldID``) and the dropdown
+    list in ``UFD1`` (``FldValue`` + ``Descr``, in ``IndexID`` order). Reading from here is what
+    avoids a label map hard-coded in the code.
 
-    O ``AliasID`` e' o nome do campo **sem** o prefixo ``U_``: a coluna
-    ``ORDR.U_INO_TPO_MONTAGEM`` tem ``AliasID = 'INO_TPO_MONTAGEM'``. O filtro por tabela
-    e' obrigatorio -- o mesmo alias existe em ~30 delas e a lista de valores e' por tabela.
+    ``AliasID`` is the field name **without** the ``U_`` prefix: column ``ORDR.U_INO_TPO_MONTAGEM``
+    has ``AliasID = 'INO_TPO_MONTAGEM'``. The filter by table is mandatory -- the same alias exists
+    in ~30 of them and the value list is per table.
 
     Returns:
-        ``[{"value": ..., "descr": ...}, ...]`` na ordem do SAP; ``[]`` quando o campo
-        nao tem lista. Nunca levanta: quem chama (``sap_montagem_labels``) tem fallback,
-        e ficar sem rotulo e' pior que o rotulo de ontem.
+        ``[{"value": ..., "descr": ...}, ...]`` in SAP's order; ``[]`` when the field has no list.
+        Never raises: the caller (``sap_montagem_labels``) has a fallback, and having no label is
+        worse than yesterday's label.
+
     """
     try:
         schema = _schema()
@@ -906,10 +936,11 @@ def fetch_udf_valid_values(table_id: str, alias_id: str) -> list[dict[str, str]]
 
 
 def ligar_rotulos_do_sap() -> None:
-    """Liga o gancho que a F1 deixou: o rotulo de montagem passa a vir do SAP.
+    """Plug the hook F1 left in place: the assembly label now comes from SAP.
 
-    Chamado uma vez na subida da API (F3). Sem isto, ``sap_montagem_labels`` responde
-    pelo ``FALLBACK_LABELS`` -- que esta correto, mas congelado em 27/07/2026.
+    Called once at API startup (F3). Without it, ``sap_montagem_labels`` answers from
+    ``FALLBACK_LABELS`` -- which is correct but frozen at 27/07/2026.
+
     """
     sap_montagem_labels.registrar_fonte(fetch_udf_valid_values)
     logger.info("[MONTAGEM] rótulos passam a vir do SAP (fallback continua de rede).")

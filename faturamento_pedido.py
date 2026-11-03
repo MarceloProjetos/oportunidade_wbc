@@ -83,10 +83,14 @@ def _num(valor: object) -> float:
         return 0.0
 
 
-def ler_faturamento(sap, schema: str, pedidos: list[int]) -> dict[int, Faturamento] | None:
-    """Invoicing of each pedido ``DocEntry`` in ``pedidos``, on an open ``SAPExtractor``.
+def ler_faturamento(sap: object, schema: str, pedidos: list[int]) -> dict[int, Faturamento] | None:
+    """Invoicing of each pedido ``DocEntry`` in ``pedidos``.
 
-    Three queries for the whole list. Pedidos with no live NF are absent from the result.
+    ``sap`` is anything with ``execute_query(query, params)``: an open ``SAPExtractor`` or the
+    ``_ExecutorDaConexao`` that ``situacao_pedidos_hana`` wraps around its own connection.
+
+    At most three queries for the whole list (the credit-note and remessa ones run only when
+    some pedido has a future-delivery NF). Pedidos with no live NF are absent from the result.
     Returns ``None`` when any query fails — the caller keeps the plain ``DocStatus`` answer.
     """
     from extract_ordens_servico_engenharia import _data_iso  # same ISO format as the ORDR fields

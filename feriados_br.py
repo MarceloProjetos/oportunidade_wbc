@@ -79,7 +79,7 @@ def is_business_day(d: date) -> bool:
     ordinary business day (only weekends are excluded). Without the warning,
     2031-01-01 would silently be a "business day" and the scheduler would run the load
     on New Year's Day — the kind of bug that only surfaces years later, on the worst
-    possible day. The warning shows up in the scheduler log and in ``/status``.
+    possible day. The warning goes to the service log (scheduler and API).
     """
     if not covers(d):
         logger.warning(

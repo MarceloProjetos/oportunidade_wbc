@@ -120,14 +120,16 @@ def diagnosticar_nped(nped: object) -> dict:
     pedido number. No row → OS not generated yet. If **all** rows have ``Status`` =
     ``'C'`` → OS cancelled. ``ORDR`` adds the **pedido** status (best-effort): it tells
     "pedido cancelled" and "pedido not found" apart from "open pedido that has not
-    generated an OS yet".
+    generated an OS yet". For a closed, not cancelled pedido the invoicing is read too, so a
+    future-delivery sale not fully shipped yet comes as ``'Aberto'`` (see :func:`classificar_pedido`).
 
     Returns:
         ``{'tem_os': bool, 'cancelada': bool, 'status': [...],
         'pedido_existe': bool|None, 'pedido_cancelado': bool|None,
         'pedido_status': 'Aberto'|'Cancelado'|'Fechado'|None}``
         (the ``pedido_*`` keys stay ``None`` if the ORDR query fails) or
-        ``{'erro': '<reason>'}`` if OWOR cannot be queried.
+        ``{'erro': '<reason>'}`` if OWOR cannot be queried (``sap_config``, ``sap_conexao``
+        or ``consulta``).
 
     Raises:
         ValueError: if ``nped`` is not a positive integer.
@@ -311,10 +313,10 @@ def consultar_status_pedido(nped: object) -> dict | None:
 
 
 def _data_iso(valor: object) -> str | None:
-    """``ORDR.DocDate`` (datetime/date/str) → ``'YYYY-MM-DD'``, ou ``None``.
+    """``ORDR.DocDate``/``DocDueDate`` (datetime/date/str) → ``'YYYY-MM-DD'``, or ``None``.
 
-    A view ja entrega data ISO; a ORDR crua vem como ``Timestamp`` do pandas. Quem
-    consome os dois caminhos nao pode receber formatos diferentes no mesmo campo.
+    The view already delivers an ISO date; the raw ORDR comes as a pandas ``Timestamp``. Whoever
+    consumes both paths must not get different formats in the same field.
     """
     if valor is None or valor != valor:  # NaT/NaN nunca e' igual a si mesmo
         return None
@@ -345,8 +347,10 @@ def listar_pedidos_com_os(limit: int = 30) -> list[dict] | None:
     Returns:
         List of ``{'nped': int, 'cliente': str|None, 'os': int|None, 'data': str|None,
         'status_pedido': 'Aberto'|'Cancelado'|'Fechado'|None, 'pedido_cancelado':
-        bool|None}`` sorted newest to oldest, or ``None`` on failure. The two status keys
-        are ``None`` when the pedido is not in ORDR (OS orphaned from its pedido).
+        bool|None, 'faturamento': ..., 'remessa': ..., 'faturado_em': ...}`` sorted newest to
+        oldest, or ``None`` on failure. The two status keys are ``None`` when the pedido is not in
+        ORDR (OS orphaned from its pedido). The three invoicing keys (see
+        :func:`consultar_status_pedido`) are filled only for a closed, not cancelled pedido.
     """
     settings = get_settings()
     limit_int = coerce_positive_int(limit, what='limit')
@@ -553,7 +557,7 @@ def main(
 
 
 def _registrar_sincronizacao(
-    settings, loader: SupabaseLoader | None, nped_int: int | None, resultado: bool,
+    settings: object, loader: SupabaseLoader | None, nped_int: int | None, resultado: bool,
     qtd_registros: int, duracao: float,
 ) -> None:
     """The sync-log row of one NPED. Never raises: the log must not change the outcome."""

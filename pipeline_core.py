@@ -1,12 +1,13 @@
 """Shared pipeline core (generic, domain-free).
 
 Functions/classes reusable by any "SAP view → Supabase table" ETL: retry with
-backoff, SQL identifier validation, FROM-clause building, the Supabase loader
-(batched insert, prune-by-execution, sync log) and DataFrame preparation for
-insertion (control fields + JSON serialization).
+backoff, SQL identifier validation, FROM-clause building, cross-process file locks, the
+Supabase loader (batched insert/upsert, the prune strategies, sync log and routine-run log)
+and DataFrame preparation for insertion (control fields + JSON serialization).
 
-Originally part of ``extract_sap_to_supabase.py``; extracted so that both the
-``oportunidades`` and the ``ordens_servico_engenharia`` pipelines can use it.
+Originally part of ``extract_sap_to_supabase.py``; extracted so that every pipeline
+(oportunidades, ordens_servico_engenharia, Vendas BI, the orcamentos mirror) can use it.
+
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ import os
 import re
 import socket
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal
@@ -54,11 +55,12 @@ _LOCK_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.locks')
 
 
 @contextmanager
-def _file_lock(arquivo: str, rotulo: str, timeout: float):
-    """O corpo comum dos 4 locks de arquivo abaixo: ``FileLock`` em ``.locks/<arquivo>``.
+def _file_lock(arquivo: str, rotulo: str, timeout: float) -> Iterator[None]:
+    """Common body of the five file locks below: a ``FileLock`` on ``.locks/<arquivo>``.
 
-    Sem ``filelock`` instalado vira **no-op** com aviso — o mesmo contrato que os quatro
-    repetiam. ``_LOCK_DIR`` é lido na hora (os testes o trocam por monkeypatch).
+    Without ``filelock`` installed it becomes a **no-op** with a warning -- the same contract the
+    locks used to repeat. ``_LOCK_DIR`` is read at call time (tests swap it via monkeypatch).
+
     """
     if FileLock is None:
         logger.warning("filelock não instalado — %s SEM lock cross-process", rotulo)
@@ -70,7 +72,7 @@ def _file_lock(arquivo: str, rotulo: str, timeout: float):
 
 
 @contextmanager
-def oportunidades_sync_lock(timeout: float = 0):
+def oportunidades_sync_lock(timeout: float = 0) -> Iterator[None]:
     """Cross-process file lock for the oportunidades load.
 
     Shared between the scheduler and the API's "force sync", preventing two concurrent
@@ -89,19 +91,20 @@ def oportunidades_sync_lock(timeout: float = 0):
 
 
 @contextmanager
-def vendas_bi_sync_lock(timeout: float = 0):
-    """Lock cross-process da carga de agregados do dashboard Vendas.
+def vendas_bi_sync_lock(timeout: float = 0) -> Iterator[None]:
+    """Cross-process lock for the Vendas dashboard aggregates load.
 
-    Irmão do de oportunidades, com arquivo PRÓPRIO: as duas cargas leem views
-    diferentes e escrevem tabelas diferentes, então uma travar a outra só
-    atrasaria as duas sem proteger nada.
+    Sibling of the oportunidades lock, with its OWN file: the two loads read different views and
+    write different tables, so one blocking the other would only delay both without protecting
+    anything.
+
     """
     with _file_lock('vendas_bi_sync.lock', 'carga de vendas', timeout):
         yield
 
 
 @contextmanager
-def arquivo_pedidos_lock(timeout: float = 0):
+def arquivo_pedidos_lock(timeout: float = 0) -> Iterator[None]:
     """Cross-process lock of the order-history archive (``arquivo_pedidos``): the scheduler's
     job and a manual ``python -m arquivo_pedidos`` must not advance the same cursor twice."""
     with _file_lock('arquivo_pedidos.lock', 'arquivo de pedidos', timeout):
@@ -109,19 +112,20 @@ def arquivo_pedidos_lock(timeout: float = 0):
 
 
 @contextmanager
-def orcamentos_espelho_sync_lock(timeout: float = 0):
-    """Lock cross-process do espelho de orçamentos (``VW_EVOL_ORCAMENTO_ALT``).
+def orcamentos_espelho_sync_lock(timeout: float = 0) -> Iterator[None]:
+    """Cross-process lock for the orcamentos mirror (``VW_EVOL_ORCAMENTO_ALT``).
 
-    Arquivo próprio, pela mesma razão do de vendas: view e tabela diferentes das
-    outras cargas. O lock importa aqui porque este também é snapshot — duas
-    execuções simultâneas fariam uma podar as linhas da outra.
+    Own file, for the same reason as the Vendas one: view and table differ from the other loads.
+    The lock matters here because this one is also a snapshot -- two simultaneous runs would make
+    each prune the other's rows.
+
     """
     with _file_lock('orcamentos_espelho_sync.lock', 'espelho de orçamentos', timeout):
         yield
 
 
 @contextmanager
-def os_sync_lock(nped: object, timeout: float = 0):
+def os_sync_lock(nped: object, timeout: float = 0) -> Iterator[None]:
     """Cross-process file lock for the OS sync of **a single pedido**.
 
     The ``_sync_lock`` in ``api.py`` is a ``threading.Lock`` — it serializes waitress
@@ -274,7 +278,12 @@ def validate_sql_identifier(name: str, *, what: str = "identifier") -> str:
 
 
 def build_view_query(view_name: str, schema: str | None = None) -> str:
-    """Build quoted SAP HANA FROM clause (optional schema prefix)."""
+    """Return the FROM-clause target for a SAP HANA view.
+
+    A qualified name (``schema.view``) is returned as given; with ``schema`` the result is
+    ``"schema"."view"``; otherwise the bare view name. Both parts are validated first.
+
+    """
     validate_sql_identifier(view_name, what="nome da view SAP")
     if '.' in view_name:
         return view_name
@@ -309,14 +318,14 @@ def coerce_positive_int(value: Any, *, what: str = "valor") -> int:
 
 
 class SupabaseLoader:
-    """Batch insert/delete and sync log for Supabase PostgREST."""
+    """Batch insert/upsert, prune strategies and sync/routine logs for Supabase PostgREST."""
 
     def __init__(
         self,
         supabase_url: str,
         supabase_key: str,
         timeout_s: float | None = None,
-    ):
+    ) -> None:
         """Create Supabase client with explicit REST timeout."""
         if timeout_s is None:
             timeout_s = get_settings().supabase_timeout_s
@@ -326,7 +335,12 @@ class SupabaseLoader:
         logger.info(f"Cliente Supabase inicializado (timeout REST: {timeout_s}s)")
 
     def fetch_sitcod_domain(self, table_name: str) -> set[int] | None:
-        """Load valid sitcod values from Supabase domain table (FK reference)."""
+        """Load valid sitcod values from the Supabase domain table (FK reference).
+
+        Returns:
+            The set of codes, or ``None`` if the table could not be read (FK validation is skipped).
+
+        """
         try:
             res = with_retries(
                 lambda: self.client.table(table_name).select('sitcod').execute(),
@@ -392,33 +406,35 @@ class SupabaseLoader:
         sucesso: bool,
         erro: str | None = None,
     ) -> bool:
-        """Grava a última execução de uma rotina em ``rotinas_execucao``. **Nunca levanta.**
+        """Write a routine's last run to ``rotinas_execucao``. **Never raises.**
 
-        Por que existe: em 21/08/2026 o pipeline de Vendas passou **20 horas** gravando
-        pela metade — o CHECK de ``metrica`` em produção não aceitava ``'orcamentos'``,
-        o upsert do lote com essas linhas era recusado, ``ok`` virava ``False`` e a poda
-        nunca rodava (o ranking de "hoje" amanhecia com cliente de ontem). Nada disso
-        acendeu: um ``False`` que ninguém lê não é alerta. Quem percebeu foi um selo
-        amarelo na tela do celular, um dia depois.
+        Why it exists: on 21/08/2026 the Vendas pipeline spent **20 hours** writing only half of its
+        data -- the production CHECK on ``metrica`` did not accept ``'orcamentos'``, the upsert of the
+        batch with those rows was refused, ``ok`` became ``False`` and the prune never ran (the
+        "today" ranking woke up with yesterday's customer). None of it raised an alert: a ``False``
+        nobody reads is not an alert. What noticed it was a yellow badge on the phone screen, a day
+        later.
 
-        As 9 rotinas do ``.90`` já gravam nesta tabela; as da ``.11`` não gravavam
-        nenhuma. Com a linha aqui, "a rotina falhou às 14:31 com este erro" fica
-        legível no mesmo lugar das outras.
+        The 9 routines on the ``.90`` already write to this table; the ``.11`` loads (Vendas BI and the
+        orcamentos mirror) now do too. With the row here, "the routine failed at 14:31 with this error"
+        is readable in the same place as the others.
 
-        **Fail-soft por princípio:** a gravação acontece DEPOIS de o trabalho ter sido
-        feito. Uma falha de rede aqui não pode transformar carga boa em erro — por isso
-        o ``except`` largo e o retorno ``False`` em vez de exceção.
+        **Fail-soft by design:** the write happens AFTER the work was done. A network failure here
+        must not turn a good load into an error -- hence the broad ``except`` and the ``False`` return
+        instead of an exception.
 
         Args:
-            nome: chave da linha (ex.: ``'VENDAS_BI'``).
-            rotulo: nome legível, para a tela de status.
-            inicio: quando a execução começou.
-            fim: quando terminou.
-            sucesso: desfecho.
-            erro: o que falhou, quando ``sucesso`` é ``False``. Truncado em 500 chars.
+            nome: row key (e.g. ``'VENDAS_BI'``).
+            rotulo: readable name, for the status screen.
+            inicio: when the run started.
+            fim: when it finished.
+            sucesso: outcome.
+            erro: what failed, when ``sucesso`` is ``False``. Truncated to 500 chars.
 
         Returns:
-            ``True`` se gravou; ``False`` se a trava está desligada ou a escrita falhou.
+            ``True`` if written; ``False`` if recording is off (it follows the machine: only the
+            ``.11`` writes, there is no ``.env`` switch) or the write failed.
+
         """
         if not get_settings().rotinas_estado_supabase:
             logger.debug('[ROTINAS] ROTINAS_ESTADO_SUPABASE desligada — %s não gravada.', nome)
@@ -468,29 +484,32 @@ class SupabaseLoader:
         on_conflict: str,
         batch_size: int = INSERT_BATCH_SIZE,
     ) -> bool:
-        """Insert-or-update em lote, pela chave natural da tabela.
+        """Batched insert-or-update by the table's natural key.
 
-        Irmão de :meth:`insert_data` para as cargas que **reescrevem o mesmo
-        conjunto** a cada execução (os agregados de BI, por exemplo): a tabela
-        tem chave natural e o pipeline roda de 15 em 15 minutos, então inserir
-        de novo daria conflito e apagar-tudo-e-inserir deixaria a tela vazia
-        entre as duas operações — um buraco visível para quem estiver com o app
-        aberto.
+        Sibling of :meth:`insert_data` for the loads that **rewrite the same set** on every run (the
+        BI aggregates, for instance): the table has a natural key and the pipeline runs every 15
+        minutes inside the business window (hourly outside it), so inserting again would conflict and
+        delete-everything-then-insert would leave the screen empty between the two operations -- a
+        visible gap for whoever has the app open.
 
-        Sem reversão parcial de propósito, ao contrário do `insert_data`: aqui
-        um lote que falha no meio deixa dados **antigos porém coerentes** (a
-        chave é a mesma), e a execução seguinte corrige. Reverter é que criaria
-        o buraco.
+        No partial rollback, on purpose, unlike ``insert_data``: a batch failing midway leaves **old
+        but consistent** data (the key is the same) and the next run fixes it. Rolling back is what
+        would create the gap.
+
+        Runs the same schema guard as ``insert_data`` (``colunas_faltantes``), and schema errors are
+        not retried.
 
         Args:
-            table_name: Nome da tabela.
-            data: Linhas.
-            on_conflict: Colunas da chave natural, separadas por vírgula —
-                exatamente como o PostgREST espera (``'metrica,vendedor,ano,mes'``).
-            batch_size: Tamanho do lote.
+            table_name: Table name.
+            data: Rows.
+            on_conflict: Natural-key columns, comma-separated, exactly as PostgREST expects
+                (``'metrica,vendedor,ano,mes'``).
+            batch_size: Batch size.
 
         Returns:
-            ``True`` se todos os lotes entraram.
+            ``True`` if every batch went in (also when ``data`` is empty); ``False`` on a schema
+            mismatch or a failed batch.
+
         """
         total = len(data)
         if total == 0:
@@ -528,19 +547,22 @@ class SupabaseLoader:
             return False
 
     def delete_nao_carimbadas(self, table_name: str, coluna: str, carimbo: Any) -> bool:
-        """Apaga tudo o que **não** tem o carimbo desta execução.
+        """Delete everything that does **not** carry this run's stamp.
 
-        A poda das cargas de chave natural sem data. Toda linha escrita por uma
-        execução leva o mesmo ``atualizado_em``; o que sobrou com carimbo
-        diferente é, por definição, resto de execução anterior — o cliente que
-        parou de comprar, o vendedor que saiu do período, o dia que virou.
+        The prune of the natural-key loads that have no date. Every row written by a run carries the
+        same ``atualizado_em``; whatever is left with a different stamp is, by definition, a leftover
+        of an earlier run -- the customer who stopped buying, the seller who left the period, the day
+        that rolled over.
 
-        Uma chamada por tabela, em vez de comparar chave a chave: além de barato,
-        é **exato** — não depende de a chave ser única entre recortes.
+        One call per table instead of comparing key by key: besides being cheap, it is **exact** -- it
+        does not depend on the key being unique across slices.
 
-        ⚠️ Só chame quando a escrita da execução deu certo por inteiro. Podar
-        depois de um upsert parcial apagaria dado bom que esta execução não
-        conseguiu reescrever.
+        ⚠️ Only call it when the run's write succeeded as a whole. Pruning after a partial upsert
+        would delete good data this run could not rewrite.
+
+        Returns:
+            ``True`` if the prune ran; ``False`` otherwise.
+
         """
         try:
             with_retries(
@@ -560,13 +582,13 @@ class SupabaseLoader:
         filtros: dict[str, Any],
         em: tuple[str, list[Any]] | None = None,
     ) -> bool:
-        """Poda por carimbo, mas só DENTRO de um recorte que a execução reescreveu.
+        """Stamp-based prune, but only INSIDE a slice the run rewrote.
 
-        Igual a :meth:`delete_nao_carimbadas`, restrita às linhas que casam com
-        ``filtros`` (igualdade) e, se vier, com ``em = (coluna, valores)`` (IN).
-        Serve às cargas cuja chave tem período: podar a tabela inteira por
-        carimbo apagaria o período que a execução não leu; podar só o período
-        que ela leu apaga apenas a linha que sumiu da origem (pedido cancelado).
+        Same as :meth:`delete_nao_carimbadas`, restricted to the rows matching ``filtros`` (equality)
+        and, when given, ``em = (column, values)`` (IN). Serves the loads whose key has a period:
+        pruning the whole table by stamp would delete the period the run did not read; pruning only
+        the period it read deletes just the row that vanished from the source (a cancelled order).
+
         """
         try:
             q = self.client.table(table_name).delete().neq(coluna, carimbo)
@@ -584,14 +606,14 @@ class SupabaseLoader:
             return False
 
     def delete_menor_que(self, table_name: str, coluna: str, limite: Any) -> bool:
-        """Apaga toda linha com ``coluna`` estritamente menor que ``limite``.
+        """Delete every row whose ``coluna`` is strictly less than ``limite``.
 
-        A poda das cargas cuja chave TEM data (ou ano): o upsert reescreve cada
-        linha no lugar dentro da janela consultada, mas o que fica **atrás** da
-        janela ninguém reescreve nem apaga — congela na tabela para sempre. O
-        carimbo não serve aqui: consulta de origem que falha vira lista vazia
-        (não erro), e podar por carimbo apagaria a métrica inteira que essa
-        execução não conseguiu ler.
+        The prune of the loads whose key HAS a date (or year): the upsert rewrites each row in place
+        inside the queried window, but whatever falls **behind** the window is neither rewritten nor
+        deleted by anyone -- it freezes in the table forever. The stamp does not work here: a failing
+        source query becomes an empty list (not an error), and pruning by stamp would delete the whole
+        metric this run could not read.
+
         """
         try:
             with_retries(
@@ -608,8 +630,10 @@ class SupabaseLoader:
     ) -> bool:
         """Insert data into the Supabase table, in batches.
 
-        Batching avoids blowing the PostgREST payload limit and adds resilience: each
-        batch gets its own retry.
+        Batching avoids blowing the PostgREST payload limit and adds resilience: each batch gets its
+        own retry (schema errors are not retried). The schema guard runs first: with missing columns
+        nothing is inserted and a ready-to-paste ``ALTER`` is logged. If a batch fails midway, the rows
+        this execution already inserted are removed (see :meth:`_reverter_parcial`).
 
         Args:
             table_name: Table name.
@@ -617,7 +641,8 @@ class SupabaseLoader:
             batch_size: Size of each batch.
 
         Returns:
-            ``True`` if every batch was inserted; ``False`` otherwise.
+            ``True`` if every batch was inserted (also when ``data`` is empty); ``False`` otherwise.
+
         """
         total = len(data)
         if total == 0:
@@ -716,7 +741,7 @@ class SupabaseLoader:
             ``True`` if the cleanup ran without error; ``False`` otherwise.
         """
         try:
-            def _op():
+            def _op() -> Any:
                 # `neq` ALONE does not catch rows with a NULL `id_execucao`: in SQL,
                 # `NULL <> 'x'` evaluates to NULL (not TRUE) and DELETE skips the row —
                 # measured. An orphan row (manual load, import, column added later) would

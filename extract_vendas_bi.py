@@ -1,39 +1,40 @@
-"""ETL: SAP HANA → agregados do dashboard "Vendas" no Supabase.
+"""ETL: SAP HANA → aggregates of the "Vendas" dashboard in Supabase.
 
-Origem
+Source
 ------
-- ``VW_PEDIDO_ALTA``       → Pedidos. A medida é ``SUM("VlrPedido")``.
-- ``VW_FATO_FATURAMENTO``  → Faturamento. A medida é ``SUM("Valor")``.
+- ``VW_PEDIDO_ALTA``       → Pedidos. The measure is ``SUM("VlrPedido")``.
+- ``VW_FATO_FATURAMENTO``  → Faturamento. The measure is ``SUM("Valor")``.
 
-⚠️ **A partir de 21/09/2026 o Pedidos NÃO bate com o Power BI por desenho.** As
-duas consultas da ``VW_PEDIDO_ALTA`` cortam os pedidos de ``pedidos_bloqueados``
-— hoje só o 84337 (NAVARRO, R$ 93.531,74, 02/09/2026), fechado na mão no SAP sem
-entrega nem nota. Setembro/2026 sai R$ 93.531,74 MENOR que o do Power BI, e isso
-é a correção, não uma regressão. O Faturamento não muda: esse pedido nunca virou
-nota.
+⚠️ **From 21/09/2026 Pedidos deliberately does NOT match Power BI.** Both queries over
+``VW_PEDIDO_ALTA`` drop the orders in ``pedidos_bloqueados`` -- today only 84337 (NAVARRO,
+R$ 93.531,74, 02/09/2026), closed by hand in SAP with no delivery and no invoice.
+September/2026 comes out R$ 93.531,74 LOWER than Power BI, and that is the fix, not a
+regression. Faturamento does not change: that order never became an invoice. Orders flagged
+``ORDR.U_U_INO_NotaEspelho = 'Y'`` (mirror notes, 84534, 26/10/2026) are dropped too, see
+:func:`_pedidos_unicos`.
 
-As duas foram **conferidas contra o Power BI em 11/08/2026**, não deduzidas:
-agosto/2026 fecha em R$ 1.314.876,11 com Clayton em R$ 527.389,46 pelo bruto, e
-o `valorXindice` do modelo do PBI (``VlrPedido * Indice_Pedido``) dá outro número
-(R$ 1.309.079,46) — ou seja, o dashboard **não** usa o índice. Trocar a medida
-aqui faz a tela do celular divergir da do Power BI sem nenhum erro aparecer.
+Both measures were **checked against Power BI on 11/08/2026**, not deduced: August/2026
+closes at R$ 1.314.876,11 with Clayton at R$ 527.389,46 gross, and the Power BI model's
+``valorXindice`` (``VlrPedido * Indice_Pedido``) gives another number (R$ 1.309.079,46) --
+so the dashboard does **not** use the index. Changing the measure here makes the phone screen
+diverge from Power BI with no error showing up.
 
-Desenho
--------
-Quatro consultas agregadas no HANA e funções puras montando as linhas das três
-tabelas. O que decide valor mora nas funções puras porque é o que dá para testar
-sem banco (``tests/test_extract_vendas_bi.py``).
+Design
+------
+Four aggregate queries in HANA and pure functions building the rows of the three tables.
+What decides a value lives in the pure functions because that is what can be tested without
+a database (``tests/test_extract_vendas_bi.py``).
 
-Volume total: menos de mil linhas. Nenhuma linha de pedido individual sai do
-servidor — ver o cabeçalho de ``sql/bi_vendas.sql``.
+Total volume: under a thousand rows. No individual order row leaves the server -- see the
+header of the ``bi_vendas`` DDL (it is not in this repo's ``sql/``; the applied migrations are
+in ``sql/migracoes/``).
 
-⚠️ **Vendedor casa por NOME.** ``VW_PEDIDO_ALTA."CodVend"`` já é o nome;
-``VW_FATO_FATURAMENTO."CodVend"`` é o ``SlpCode`` e precisa do join com ``OSLP``.
-Do lado do app, ``app_profiles.slp_name`` também é nome. O ``slp_code`` de lá
-guardou até 21/09/2026 o código do representante (``OSLP.U_RepCod``/``Memo``:
-Edson 6, Luiz Augusto 12, Robson 47) em vez do ``OSLP.SlpCode`` (7, 9, 11); já foi
-corrigido, mas casar por código ainda entregaria o número de um vendedor para outro
-num perfil errado. Nome é a chave segura.
+⚠️ **The salesperson matches by NAME.** ``VW_PEDIDO_ALTA."CodVend"`` is already the name;
+``VW_FATO_FATURAMENTO."CodVend"`` is the ``SlpCode`` and needs the join with ``OSLP``. On the
+app side ``app_profiles.slp_name`` is a name too. Until 21/09/2026 the app's ``slp_code`` held
+the representative code (``OSLP.U_RepCod``/``Memo``: Edson 6, Luiz Augusto 12, Robson 47)
+instead of ``OSLP.SlpCode`` (7, 9, 11); that was fixed, but matching by code would still hand
+one salesperson's numbers to another on a wrong profile. Name is the safe key.
 """
 
 from __future__ import annotations
@@ -58,7 +59,7 @@ from sap_connection import SAPExtractor
 logger = logging.getLogger(__name__)
 
 # Tabelas no Supabase. Fazem parte do contrato com o app — ver
-# mobile_orcaview_V3/hooks/vendas/useVendasBI.ts.
+# mobile_orcaview_V4/hooks/vendas/useVendasBI.ts.
 TABELA_KPI = 'bi_vendas_kpi'
 TABELA_SERIE = 'bi_vendas_serie_mensal'
 TABELA_RANKING = 'bi_vendas_ranking'
@@ -93,13 +94,12 @@ def _uf_normalizada(bruta: Any) -> str:
 
 
 def ano_inicial(hoje: date) -> int:
-    """Primeiro ano da janela de histórico (o corrente conta como um).
+    """First year of the history window (the current year counts as one).
 
-    É a MESMA conta para consultar e para podar: as consultas mensais só trazem
-    ``ano >= ano_inicial``, então tudo o que ficou atrás disso na
-    ``bi_vendas_serie_mensal`` é lixo por definição — nenhum upsert volta a
-    tocá-lo. Se as duas contas divergirem, ou a poda come dado vivo, ou o lixo
-    volta a acumular.
+    The SAME arithmetic is used to query and to prune: the monthly queries only bring
+    ``ano >= ano_inicial``, so anything older left in ``bi_vendas_serie_mensal`` is garbage by
+    definition -- no upsert ever touches it again. If the two computations diverged, either the
+    prune eats live data or the garbage piles up again.
     """
     return hoje.year - (ANOS_HISTORICO - 1)
 
@@ -131,12 +131,11 @@ def _pedidos_unicos(schema: str) -> str:
 
 
 def sql_pedidos_mensal(schema: str, ano_inicial: int) -> str:
-    """Pedidos por ano/mês/vendedor.
+    """Pedidos per year/month/salesperson.
 
-    Teto de data em `CURRENT_DATE`: um pedido digitado com ano errado (2027)
-    entraria na série e, como o app deriva a régua do gráfico **do próprio
-    dado**, o eixo inteiro escorregaria — 2025-2027, sem 2024, sem nada
-    explicando por quê.
+    Date ceiling at ``CURRENT_DATE``: an order typed with a wrong year (2027) would enter the
+    series and, since the app derives the chart axis **from the data itself**, the whole axis
+    would slip -- 2025-2027, no 2024, with nothing explaining why.
     """
     validate_sql_identifier(schema)
     return f'''
@@ -152,13 +151,13 @@ def sql_pedidos_mensal(schema: str, ano_inicial: int) -> str:
 
 
 def sql_detalhe_recente(schema: str, de: date, ate: date) -> str:
-    """Pedidos por dia × vendedor × cliente no intervalo fechado ``[de, ate]``.
+    """Pedidos per day × salesperson × customer in the closed interval ``[de, ate]``.
 
-    Uma consulta só alimenta **os quatro KPIs e os quatro rankings**, porque a
-    janela mínima que a tela precisa (do 1º dia do mês passado até hoje) cabe em
-    ~150 linhas agregadas. Duas consultas separadas — uma para o dia, outra para
-    o mês — divergiriam a cada pedido lançado entre as duas, e o app mostraria um
-    KPI que não é a soma do ranking exibido logo abaixo dele.
+    One query feeds **the four KPIs and the four rankings**, because the smallest window the
+    screen needs (day 1 of last month up to today) fits in ~150 aggregated rows. Two separate
+    queries -- one for the day, another for the month -- would diverge with every order entered
+    between them, and the app would show a KPI that is not the sum of the ranking displayed right
+    below it.
     """
     validate_sql_identifier(schema)
     # LEFT JOIN OCRD: a UF do cliente (State1, endereco de cobranca — o mesmo
@@ -180,11 +179,11 @@ def sql_detalhe_recente(schema: str, de: date, ate: date) -> str:
 
 
 def sql_faturamento_mensal(schema: str, ano_inicial: int) -> str:
-    """Faturamento por ano/mês/vendedor.
+    """Faturamento per year/month/salesperson.
 
-    O join com ``OSLP`` é o que traduz o ``SlpCode`` da fato em nome — a mesma
-    chave que o app usa. ``LEFT JOIN`` de propósito: nota de vendedor
-    desconhecido não pode sumir do consolidado.
+    The join with ``OSLP`` is what translates the fact's ``SlpCode`` into a name -- the same key
+    the app uses. It is a ``LEFT JOIN`` on purpose: an invoice of an unknown salesperson must not
+    vanish from the consolidated figure.
     """
     validate_sql_identifier(schema)
     return f'''
@@ -200,34 +199,29 @@ def sql_faturamento_mensal(schema: str, ano_inicial: int) -> str:
 
 
 def sql_orcamentos_mensal(schema: str, ano_inicial: int) -> str:
-    """Orçamentos (cotações) emitidos por ano/mês/vendedor.
+    """Quotations (cotações) issued per year/month/salesperson.
 
-    UNIÃO das duas views de cotação, deduplicada por ``Cotacao``. As duas, e não
-    uma, porque cada uma tem o que falta na outra (medido em 24/08/2026, janela
-    de 3 anos):
+    UNION of the two quotation views, deduplicated by ``Cotacao``. Both, and not just one,
+    because each has what the other lacks (measured 24/08/2026, 3-year window):
 
-    - ``VW_EVOL_ORCAMENTO_ALT`` traz as **canceladas** (``StatusWBC`` 99), que a
-      ``VW_ORCAMENTO_ALT`` **não tem nenhuma**: eram **+607 cotações (+7,4%)**
-      faltando no gráfico, 4 a 92 por mês. Cotação cancelada não deixa de ter
-      sido emitida (regra do Marcelo, 24/08) -- e desde que o eixo virou
-      QUANTIDADE (web V117.834) essa ausência aparece direto na barra;
-    - ``VW_ORCAMENTO_ALT`` tem **25 cotações antigas** (todas do "Administração",
-      numeração baixa) que **não existem** na de evolução. Trocar uma view pela
-      outra as apagaria do histórico; a união preserva as duas pontas -- medido:
-      **zero meses perdem cotação**.
+    - ``VW_EVOL_ORCAMENTO_ALT`` carries the **cancelled** ones (``StatusWBC`` 99), which
+      ``VW_ORCAMENTO_ALT`` has **none of**: **+607 quotations (+7,4%)** were missing from the
+      chart, 4 to 92 per month. A cancelled quotation was still issued (Marcelo's rule, 24/08) --
+      and since the axis became QUANTITY (web V117.834) the gap shows directly in the bar;
+    - ``VW_ORCAMENTO_ALT`` has **25 old quotations** (all "Administração", low numbering) that
+      **do not exist** in the evolution view. Swapping one view for the other would erase them
+      from the history; the union keeps both ends -- measured: **zero months lose a quotation**.
 
-    A deduplicação por ``Cotacao`` conserta um terceiro erro, que existia antes
-    desta mudança: **as duas views repetem a mesma cotação quando ela muda de
-    status** (64097 aparece com 40 e com 60; 5151 com 0 e com 60). O ``COUNT(*)``
-    anterior contava essas duas vezes e o ``SUM`` somava o valor em dobro -- o
-    docstring antigo dizia "não vale dedupe" porque só o VALOR importava; com o
-    eixo em quantidade, vale.
+    Deduplicating by ``Cotacao`` fixes a third error that existed before this change: **both views
+    repeat the same quotation when it changes status** (64097 appears with 40 and with 60; 5151
+    with 0 and with 60). The previous ``COUNT(*)`` counted them twice and ``SUM`` doubled the
+    value -- the old docstring said "dedupe is not worth it" because only the VALUE mattered; with
+    the axis in quantity it is.
 
-    ``MAX(VALOR)`` no grupo interno é seguro: nenhuma cotação tem valor diferente
-    entre as views (conferido, 0 divergências em 3 anos).
+    ``MAX(VALOR)`` in the inner group is safe: no quotation has a different value between the
+    views (checked, 0 divergences in 3 years).
 
-    ``Representante`` está no mesmo espaço de nomes do ``CodVend`` da
-    VW_PEDIDO_ALTA nas DUAS views.
+    ``Representante`` is in the same namespace as ``CodVend`` of VW_PEDIDO_ALTA in BOTH views.
     """
     validate_sql_identifier(schema)
     janela = (
@@ -252,11 +246,11 @@ def sql_orcamentos_mensal(schema: str, ano_inicial: int) -> str:
     '''
 
 
-def janelas(hoje: date) -> dict[str, tuple]:
-    """Intervalo fechado ``(de, ate)`` de cada escopo, e a competência de cada um.
+def janelas(hoje: date) -> dict[str, tuple[date, date, date]]:
+    """Closed interval of each scope plus its competence date: ``(de, ate, competencia)``.
 
-    Mês passado é calculado voltando um dia do dia 1 do mês corrente — a virada
-    de ano sai de graça e não há aritmética de mês 0.
+    Last month is computed by stepping one day back from day 1 of the current month -- the year
+    rollover comes for free and there is no month-0 arithmetic.
     """
     primeiro = date(hoje.year, hoje.month, 1)
     fim_passado = primeiro - timedelta(days=1)
@@ -274,7 +268,7 @@ def janelas(hoje: date) -> dict[str, tuple]:
 
 
 def _num(v: Any) -> float:
-    """Decimal/None do HANA → float com 2 casas. `None` vira 0."""
+    """HANA ``Decimal``/``None`` → float with 2 decimals. ``None`` becomes 0."""
     if v is None:
         return 0.0
     try:
@@ -293,12 +287,11 @@ def _int(v: Any) -> int:
 def linhas_serie(
     registros: Iterable[dict[str, Any]], metrica: str, quando: str
 ) -> list[dict[str, Any]]:
-    """Linhas de ``bi_vendas_serie_mensal``, com o consolidado incluído.
+    """Rows of ``bi_vendas_serie_mensal``, consolidated row included.
 
-    O ``__TOTAL__`` é somado aqui, e não numa segunda consulta ao HANA, para que
-    o consolidado e as partes venham do MESMO retorno: duas consultas separadas
-    divergiriam a cada pedido lançado entre uma e outra, e o app mostraria um
-    total que não é a soma do que ele exibe.
+    ``__TOTAL__`` is summed here, not in a second HANA query, so the consolidated figure and its
+    parts come from the SAME result: two separate queries would diverge with every order entered
+    between them, and the app would show a total that is not the sum of what it displays.
     """
     saida: dict[tuple, dict[str, Any]] = {}
     for r in registros:
@@ -327,7 +320,7 @@ def linhas_serie(
 
 
 def _no_intervalo(dia: str, de: date, ate: date) -> bool:
-    """`YYYY-MM-DD` dentro do intervalo fechado. Comparação de string basta no ISO."""
+    """``YYYY-MM-DD`` inside the closed interval. String comparison is enough for ISO dates."""
     return bool(dia) and de.isoformat() <= dia <= ate.isoformat()
 
 
@@ -336,15 +329,14 @@ def linhas_kpi(
     hoje: date,
     quando: str,
 ) -> list[dict[str, Any]]:
-    """Os quatro cartões, por vendedor e consolidado.
+    """The four cards, per salesperson and consolidated.
 
-    Os quatro escopos saem do **mesmo** retorno diário (:func:`sql_detalhe_recente`),
-    e não de consultas separadas: o cartão "mês atual" tem de ser exatamente a
-    soma do ranking do mês que aparece logo abaixo dele na tela.
+    The four scopes come from the **same** daily result (:func:`sql_detalhe_recente`), not from
+    separate queries: the "mês atual" card must be exactly the sum of the month ranking shown right
+    below it on the screen.
 
-    Vendedor sem venda no período **ganha linha zerada**: sem ela o app não
-    distingue "nenhum pedido hoje" de "o dado não chegou", e as duas coisas
-    pintam a mesma tela vazia.
+    A salesperson with no sales in the period **gets a zeroed row**: without it the app cannot tell
+    "no order today" from "the data did not arrive", and both paint the same empty screen.
     """
     linhas = list(detalhe)
     vendedores = {TOTAL} | {(r.get('VENDEDOR') or '?').strip() for r in linhas}
@@ -383,25 +375,23 @@ def linhas_ranking(
     quando: str,
     top_clientes: int = TOP_CLIENTES,
 ) -> list[dict[str, Any]]:
-    """Ranking de vendedores, de clientes e de UFs, **um conjunto por escopo**.
+    """Ranking of salespeople, customers and UFs, **one set per scope**.
 
-    ⚠️ ``tipo='uf'`` exige o CHECK ampliado em ``bi_vendas_ranking``
-    (``sql/migracao_bi_vendas_ranking_uf.sql``) — **o ALTER vai ANTES deste
-    código entrar em produção**: ampliar o domínio não quebra o código velho,
-    mas o código novo gravando 'uf' no CHECK antigo falha a carga inteira.
+    ⚠️ ``tipo='uf'`` requires the widened CHECK on ``bi_vendas_ranking`` (its migration file is not
+    in this repo's ``sql/``) -- **the ALTER goes BEFORE this code reaches production**: widening the
+    domain does not break the old code, but the new code writing 'uf' against the old CHECK fails the
+    whole load.
 
-    Os quatro escopos existem porque na tela o cartão do topo virou filtro: tocar
-    em "ontem" tem de trocar o ranking inteiro, e ranking de um dia não se deriva
-    do ranking do mês.
+    The four scopes exist because on the screen the top card became a filter: tapping "ontem" must
+    swap the whole ranking, and a one-day ranking cannot be derived from the month ranking.
 
-    Dois escopos de visibilidade convivem na coluna ``vendedor``:
+    Two visibility scopes coexist in the ``vendedor`` column:
 
-    - ``__TOTAL__`` — placar de vendedores **e** de clientes da empresa. Só
-      admin e diretoria alcançam (RLS).
-    - o nome de cada vendedor — **apenas os clientes dele**. É o que o
-      representante vê: sem isso o card do ranking nasce vazio na tela dele, o
-      que se lê como app quebrado. O placar de vendedores continua fora do
-      alcance dele — é o número dos colegas.
+    - ``__TOTAL__`` -- company-wide board of salespeople **and** customers. Only admin and diretoria
+      reach it (RLS).
+    - each salesperson's name -- **only their own customers**. It is what the representative sees:
+      without it the ranking card is born empty on their screen, which reads as a broken app. The
+      salespeople board stays out of their reach -- it is their colleagues' numbers.
     """
     linhas = list(detalhe)
     saida: list[dict[str, Any]] = []
@@ -483,7 +473,7 @@ def _linha_ranking(
     competencia: date,
     quando: str,
 ) -> dict[str, Any]:
-    """Uma linha de ranking. ``visibilidade`` é quem alcança, não quem vendeu."""
+    """One ranking row. ``visibilidade`` is who can reach it, not who sold."""
     return {
         'escopo': escopo,
         'competencia': competencia.isoformat(),
@@ -505,12 +495,12 @@ CONSULTAS_FALHAS = '_consultas_falhas'
 
 
 def _consultar(ex: SAPExtractor, sql: str, rotulo: str) -> list[dict[str, Any]] | None:
-    """Roda a consulta e devolve dicionários; ``None`` quando ela FALHOU.
+    """Run the query and return dicts; ``None`` when it FAILED.
 
-    Failure used to come back as an empty list, the same as "no sales" (01/10/2026 review):
-    with the detail query down, the load wrote the four zeroed ``__TOTAL__`` cards, pruned
-    every per-seller KPI and the whole ranking by stamp, and logged "sucesso" — the app showed
-    R$ 0,00 for "Hoje" until the next load.
+    Failure used to come back as an empty list, the same as "no sales" (01/10/2026 review): with the
+    detail query down, the load wrote the four zeroed ``__TOTAL__`` cards, pruned every per-seller
+    KPI and the whole ranking by stamp, and logged "sucesso" -- the app showed R$ 0,00 for "Hoje"
+    until the next load.
     """
     df = ex.execute_query(sql)
     if df is None:
@@ -521,7 +511,12 @@ def _consultar(ex: SAPExtractor, sql: str, rotulo: str) -> list[dict[str, Any]] 
 
 
 def montar_payload(ex: SAPExtractor, schema: str, hoje: date) -> dict[str, list[dict[str, Any]]]:
-    """Consulta o HANA e devolve as linhas prontas das três tabelas."""
+    """Query HANA and return the ready rows of the three tables.
+
+    The result also carries ``CONSULTAS_FALHAS``: the labels of the queries that failed. A failed
+    detail query leaves the KPI and ranking lists empty (``_carga`` then keeps the previous rows);
+    a failed monthly query only adds no series rows.
+    """
     quando = agora_iso()
     desde = ano_inicial(hoje)
     falhas: list[str] = []
@@ -565,12 +560,15 @@ ROTINA_ROTULO = 'Agregados do dashboard Vendas'
 
 
 def main(hoje: date | None = None) -> bool:
-    """Carga completa dos agregados de Vendas. `True` se tudo entrou.
+    """Full load of the Vendas aggregates. ``True`` if everything went in.
 
-    Envelope de :func:`_carga` que cronometra a execução e **registra o desfecho**
-    em ``rotinas_execucao``. O registro existe porque, até 21/08/2026, esta rotina
-    não tinha desfecho gravado em lugar nenhum: um `False` devolvido daqui não era
-    lido por ninguém, e uma falha parcial durou 20 horas sem acender nada.
+    Wrapper around :func:`_carga` that times the run and **records the outcome** in
+    ``rotinas_execucao``. The record exists because, until 21/08/2026, this routine had its outcome
+    written nowhere: a ``False`` returned from here was read by no one, and a partial failure lasted
+    20 hours without lighting anything up.
+
+    Raises:
+        Exception: whatever ``_carga`` raises, re-raised after the failure is recorded.
     """
     inicio = datetime.now().astimezone()
     falhas: list[str] = []
@@ -596,7 +594,7 @@ def _registrar_execucao(
     ok: bool,
     falhas: list[str],
 ) -> None:
-    """Grava o desfecho, se houver com quem gravar. Nunca atrapalha a carga."""
+    """Write the outcome, if there is a loader to write with. Never disturbs the load."""
     if loader is None:
         return
     loader.registrar_rotina(
@@ -610,10 +608,10 @@ def _registrar_execucao(
 
 
 def _preparar(falhas: list[str]) -> SupabaseLoader | None:
-    """Confere as credenciais e devolve com quem gravar. `None` = nem começa.
+    """Check the credentials and return the loader to write with. ``None`` = does not even start.
 
-    Sem chave do Supabase não há carga **nem** registro: o desfecho de "faltou
-    credencial" só existe no log da máquina.
+    Without the Supabase key there is neither a load **nor** a record: the "missing credential"
+    outcome exists only in the machine's log.
     """
     s = get_settings()
     if not s.sap_ready():
@@ -628,7 +626,7 @@ def _preparar(falhas: list[str]) -> SupabaseLoader | None:
 
 
 def _carga(loader: SupabaseLoader, hoje: date | None, falhas: list[str]) -> bool:
-    """A carga em si. Acrescenta a `falhas` o nome do que não entrou."""
+    """The load itself. Appends to ``falhas`` the name of whatever did not go in."""
     s = get_settings()
     hoje = hoje or date.today()
     ex = SAPExtractor(s.sap_host, s.sap_port, s.sap_user, s.sap_password, s.sap_database)
@@ -691,38 +689,35 @@ def _podar(
     desde: int,
     serie: Iterable[dict[str, Any]] = (),
 ) -> bool:
-    """Apaga o que a execução NÃO reescreveu e nenhuma futura reescreveria.
+    """Delete what this run did NOT rewrite and no future run would rewrite.
 
-    Por que existe: `bi_vendas_kpi` tem chave `(escopo, vendedor)` e
-    `bi_vendas_ranking` tem `(escopo, tipo, vendedor, chave)` — **nenhuma das
-    duas carrega data**. O upsert sobrescreve o que voltou a aparecer e deixa o
-    resto intacto, então quem sai do período **fica na tabela para sempre**:
+    Why it exists: ``bi_vendas_kpi`` is keyed ``(escopo, vendedor)`` and ``bi_vendas_ranking``
+    ``(escopo, tipo, vendedor, chave)`` -- **neither carries a date**. The upsert overwrites what
+    reappeared and leaves the rest untouched, so whoever leaves the period **stays in the table
+    forever**:
 
-    - o ranking de "hoje" amanhece com os clientes de ontem e o cartão em cima
-      dizendo R$ 0,00;
-    - no dia 1º, "mês atual" mostra o mês anterior inteiro;
-    - o vendedor que passa um mês sem vender some do detalhe e congela com os
-      quatro cartões de semanas atrás, rotulados "Hoje".
+    - the "hoje" ranking wakes up with yesterday's customers and the card above it saying R$ 0,00;
+    - on the 1st, "mês atual" shows the whole previous month;
+    - a salesperson who goes a month without selling vanishes from the detail and freezes with the
+      four cards of weeks ago, labelled "Hoje".
 
-    Sem a poda a tabela também cresce sem teto (dezenas de clientes novos por
-    mês) e o recorte `__TOTAL__` acaba passando das 1000 linhas do `db_max_rows`
-    do PostgREST — que trunca **calado**.
+    Without the prune the table also grows without a ceiling (dozens of new customers per month)
+    and the ``__TOTAL__`` cut ends up over the 1000 rows of PostgREST's ``db_max_rows``, which
+    truncates **silently**.
 
-    O critério é o carimbo: toda linha desta execução levou o mesmo
-    ``atualizado_em``, então "diferente do meu carimbo" é exatamente o resto.
+    The criterion is the stamp: every row of this run carries the same ``atualizado_em``, so
+    "different from my stamp" is exactly the rest.
 
-    A série mensal é podada por **ano**, não por carimbo. A chave dela tem ano e
-    mês, então dentro da janela cada linha é reescrita no lugar — mas o upsert
-    só alcança ``ano >= desde``, e quando o ano vira, o ano que saiu da janela
-    fica atrás dela: nenhuma execução o reescreve nem o apaga, e ele congelaria
-    na tabela para sempre, crescendo um ano a cada virada (achado da revisão de
-    19/08/2026 — as linhas de 2024 ficariam lá a partir de 01/01/2027). O
-    carimbo não serve para ela: consulta HANA que falha vira lista vazia, e a
-    poda por carimbo apagaria a métrica inteira que a execução não conseguiu
-    ler.
+    The monthly series is pruned by **year**, not by stamp. Its key has year and month, so inside
+    the window each row is rewritten in place -- but the upsert only reaches ``ano >= desde``, and
+    when the year turns, the year that left the window stays behind it: no run rewrites or deletes
+    it, and it would freeze in the table forever, growing one year per rollover (finding of the
+    19/08/2026 review -- the 2024 rows would stay from 01/01/2027). The stamp does not work for it:
+    a failing HANA query becomes an empty list, and the stamp prune would delete the whole metric
+    the run could not read.
 
-    Dentro da janela a série TAMBÉM é podada por carimbo, mas só nos meses que
-    esta execução leu (ver :func:`_podar_serie_meses_lidos`).
+    Inside the window the series IS ALSO pruned by stamp, but only in the months this run read (see
+    :func:`_podar_serie_meses_lidos`).
     """
     ok = True
     for tabela in (TABELA_KPI, TABELA_RANKING):
@@ -735,20 +730,18 @@ def _podar(
 def _podar_serie_meses_lidos(
     loader: SupabaseLoader, quando: str, serie: Iterable[dict[str, Any]]
 ) -> bool:
-    """Apaga, nos meses que esta execução leu, o vendedor que sumiu da origem.
+    """In the months this run read, delete the salesperson that disappeared from the source.
 
-    Achado de 25/09/2026: o upsert da série só reescreve o vendedor que VOLTOU
-    no retorno do HANA. Se o único pedido do mês de um representante é
-    cancelado, a linha dele some da origem e fica na tabela para sempre com o
-    carimbo antigo — a soma dos vendedores deixa de bater com o ``__TOTAL__`` e
-    o app (modo Vendas lê a linha do próprio vendedor) mostra um valor fantasma.
-    Caso real: 2026/09 'pedidos' do Adilson Soares, R$ 318.029,68, parado em
-    21/09 enquanto o resto do mês tinha o carimbo novo.
+    Finding of 25/09/2026: the series upsert only rewrites the salesperson who CAME BACK in the HANA
+    result. If a representative's only order of the month is cancelled, their row vanishes from the
+    source and stays in the table forever with the old stamp -- the sum of the salespeople stops
+    matching ``__TOTAL__`` and the app (Vendas mode reads the salesperson's own row) shows a ghost
+    value. Real case: 2026/09 'pedidos' of Adilson Soares, R$ 318.029,68, stuck at 21/09 while the
+    rest of the month had the new stamp.
 
-    "Mês lido" = (métrica, ano, mês) em que esta execução gravou o
-    ``__TOTAL__``. Mês que não voltou (consulta que falhou vira lista vazia)
-    fica intocado — é o motivo de a série não entrar na poda por carimbo da
-    tabela inteira. Uma chamada por (métrica, ano), com os meses em IN.
+    "Month read" = (metric, year, month) in which this run wrote ``__TOTAL__``. A month that did not
+    come back (a failed query becomes an empty list) is left untouched -- which is why the series is
+    not part of the whole-table stamp prune. One call per (metric, year), with the months in an IN.
     """
     lidos: dict[tuple[str, int], set[int]] = {}
     for linha in serie:

@@ -5,7 +5,8 @@ the services. Each call opens test connections to SAP, SQL Server (WBC) and Supa
 measures latency; it also collects system metrics (host/IP/OS/disk via stdlib; CPU and
 memory via ``psutil``, if installed — without it the rest of ``/status`` still works).
 
-Use sparingly: each call opens (and closes) 3 test connections.
+Use sparingly: a call with every check opens (and closes) 3 test connections, plus a Supabase
+read for the scheduler signal and a loopback HTTP probe of the Controle de Produção.
 """
 
 from __future__ import annotations
@@ -148,7 +149,7 @@ FALHAS_SEGUIDAS_PARA_ALERTA = 2
 def _scheduler_signal() -> dict[str, Any]:
     """INDIRECT scheduler signal: age of the last oportunidades load (read from the log).
 
-    Reads the most recent record in ``sincronizacao_log``. It only marks ``stale=True``
+    Reads the most recent ``FALHAS_SEGUIDAS_PARA_ALERTA`` records of ``sincronizacao_log``. It only marks ``stale=True``
     when the absence of a load is genuinely ABNORMAL, i.e. when **all** hold:
 
     * we are in the **business window** (business day, within ``JANELA_HORAS``) — outside
@@ -275,7 +276,9 @@ def _scheduled_task_signal() -> dict[str, Any]:
     """State of the "Integração WBC" scheduled task, read from the monitor's JSON.
 
     Opens no connections and spawns no subprocess: it only reads the file the PowerShell
-    script (scheduled every 10 min) keeps up to date. It flags problems on three fronts:
+    script (scheduled every 10 min) keeps up to date. With ``WBC_TASK_MONITOR`` off (the default
+    since the task was retired on 2026-09-08) it returns ``retired=True`` / ``available=False``
+    and never alerts. Otherwise it flags problems on three fronts:
 
     - **missing/unreadable** → the monitor never ran or the file got corrupted;
     - **``stale``** → the ``checked_at`` stamp is older than ``WBC_TASK_STALE_MIN`` (the
@@ -508,7 +511,7 @@ def _wbc_worker_signal() -> dict[str, Any]:
             'stale': stale, 'stuck': stuck, 'healthy': not (stale or stuck or failed)}
 
 
-def _wbc_worker_alerts(w: dict[str, Any]) -> list:
+def _wbc_worker_alerts(w: dict[str, Any]) -> list[str]:
     """Readable alerts for the ``wbc_worker`` block. Nothing before the first recorded
     cycle on this machine (see ``_wbc_worker_signal``)."""
     if not w.get('installed'):
@@ -594,7 +597,7 @@ def _controle_producao_signal() -> dict[str, Any]:
             'producao': saude.get('producao')}
 
 
-def _controle_producao_alerts(cp: dict[str, Any]) -> list:
+def _controle_producao_alerts(cp: dict[str, Any]) -> list[str]:
     """Readable alerts for the ``controle_producao`` block. Nothing before the first start."""
     if not cp.get('installed'):
         return []
@@ -694,7 +697,7 @@ def _system_info() -> dict[str, Any]:
     return info
 
 
-def collect_status(only: set | None = None) -> dict[str, Any]:
+def collect_status(only: set[str] | None = None) -> dict[str, Any]:
     """Collect the state of the server + dependencies (on demand).
 
     Args:
@@ -705,7 +708,8 @@ def collect_status(only: set | None = None) -> dict[str, Any]:
     Returns:
         Dict with ``ok`` (every connection that ran is green), ``healthy`` (``ok`` and no
         alerts), ``checks`` (connectivity), ``scheduler`` (indirect signal),
-        ``scheduled_task`` (state of the "Integração WBC" task, read from the monitor),
+        ``scheduled_task`` (state of the legacy "Integração WBC" task, read from the monitor;
+        ``retired=true`` by default),
         ``wbc_worker`` (the WBC → SAP integration worker, read from its tracking DB),
         ``controle_producao`` (the Controle de Produção screen, probed on CP_PORTA),
         ``windows_update`` (pending reboot + pending updates + last patch), ``system``,
@@ -813,10 +817,10 @@ def collect_status(only: set | None = None) -> dict[str, Any]:
     return out
 
 
-def _scheduled_task_alerts(task: dict[str, Any]) -> list:
+def _scheduled_task_alerts(task: dict[str, Any]) -> list[str]:
     """Turn the scheduled task's state into readable alerts for ``/status``.
 
-    A missing/stale file points to a stopped monitor; ``problems`` are the task's own
+    A retired task yields no alerts. A missing/stale file points to a stopped monitor; ``problems`` are the task's own
     problems as detected by the PowerShell script.
     """
     name = task.get('task_name', 'Integração WBC')

@@ -1,26 +1,25 @@
 """ETL: VW_EVOL_ORCAMENTO_ALT (SAP HANA) → Supabase ``orcamentos_espelho``.
 
-A view foi refeita em 09/2026 e passou de 12 para 34 colunas: ganhou o CNAE do
-cliente, o bloco de montagem (``TipoMontagem``/``ValorMontagem``/``Montador``) e
-o bloco de nota fiscal (``NumNF``/``DataNF``/``QuitacaoNF``). Este espelho leva
-isso ao Supabase para o web e o app lerem sem depender do HANA.
+The view was rebuilt in 09/2026 and went from 12 to 34 columns: it gained the customer's CNAE,
+the assembly block (``TipoMontagem``/``ValorMontagem``/``Montador``) and the invoice block
+(``NumNF``/``DataNF``/``QuitacaoNF``). This mirror takes them to Supabase so the web and the app
+can read them without depending on HANA.
 
-**Snapshot, como o de oportunidades**: insere a carga nova e só depois apaga as
-execuções anteriores (carrega-depois-poda) — se a carga falhar, a tabela
-continua com o estado anterior em vez de ficar vazia.
+**Snapshot, like the oportunidades one**: inserts the new load and only then deletes the previous
+executions (load-then-prune) -- if the load fails, the table keeps the previous state instead of
+ending up empty.
 
-Três decisões que o SQL carrega, e o porquê (sonda de 17/09/2026 na view
-inteira, 5.643 linhas):
+Three decisions the SQL carries, and why (probe of 17/09/2026 over the whole view, 5.643 rows):
 
-- ``nf_quitada`` é **booleano de três estados**: ``NULL`` quando não há nota.
-  ``QuitacaoNF`` sozinho mente — 4.310 linhas dizem ``'Não'`` apenas porque nota
-  nenhuma foi emitida, e quem lesse isso como "nota em aberto" erraria por um
-  fator de três. Gravar a regra aqui resolve uma vez para todos os leitores;
-- ``AcaoContato``, ``Lead`` e ``SituacaoCliente`` vêm como STRING VAZIA, nunca
-  ``NULL``; entram no espelho como ``NULL`` (``NULLIF``), senão todo relatório
-  do Postgres precisaria lembrar de testar ``<> ''``;
-- a janela é a view inteira: ela **não tem mais 2024** (começa em 06/01/2025), e
-  filtrar por data aqui só esconderia isso de quem lê o espelho.
+- ``nf_quitada`` is a **three-state boolean**: ``NULL`` when there is no invoice. ``QuitacaoNF``
+  alone lies -- 4.310 rows say ``'Não'`` only because no invoice was issued, and whoever read that
+  as "open invoice" would be off by a factor of three. Writing the rule here settles it once for
+  every reader;
+- ``AcaoContato``, ``Lead`` and ``SituacaoCliente`` come as an EMPTY STRING, never ``NULL``; they
+  enter the mirror as ``NULL`` (``NULLIF``), otherwise every Postgres report would have to
+  remember to test ``<> ''``;
+- the window is the whole view: it **no longer has 2024** (it starts on 06/01/2025), and
+  filtering by date here would only hide that from whoever reads the mirror.
 
 In 10/2026 the view gained a 35th column, ``Incoterms`` (freight mode, already a text
 label). Only order rows (``TipoDoc = '17'``) carry it; quotations are always ``NULL``.
@@ -28,8 +27,8 @@ The Supabase column must exist before this code runs (``sql/orcamentos_espelho.s
 The 36th, ``ObsMontagem`` (free text, up to 2000 chars, orders only), arrives with SAP's
 bare CR line breaks turned into LF, the same text the ``/pedidos`` API returns.
 
-A ``VW_ORCAMENTO_ALT``, a outra view de cotação, continua com 16 colunas e
-nenhum dos campos novos — por isso o espelho é desta view e só dela.
+``VW_ORCAMENTO_ALT``, the other quotation view, remains at 16 columns with none of the new
+fields -- which is why the mirror is of this view and only this one.
 """
 
 from __future__ import annotations
@@ -68,7 +67,7 @@ _LOG = "[ORCAMENTOS_ESPELHO]"
 
 
 def sql_orcamentos(schema: str) -> str:
-    """A view inteira, com os nomes já em ``snake_case`` do Postgres."""
+    """The whole view, with names already in Postgres ``snake_case``."""
     validate_sql_identifier(schema)
     return f'''
         SELECT "Cotacao" AS "cotacao",
@@ -115,10 +114,13 @@ def sql_orcamentos(schema: str) -> str:
 
 
 def main(execution_id: str | None = None) -> bool:
-    """Carga completa do espelho. ``True`` quando a tabela ficou consistente.
+    """Full load of the mirror. ``True`` when the table ended up consistent.
 
     Args:
-        execution_id: ID de rastreio; gerado (UUID4) quando ausente.
+        execution_id: Tracking ID; generated (UUID4) when absent.
+
+    Raises:
+        Exception: whatever ``_carga`` raises, re-raised after the failure is recorded.
     """
     inicio_dt = datetime.now().astimezone()
     inicio = time.monotonic()
@@ -152,7 +154,7 @@ def _carga(
     execution_id: str | None,
     falhas: list[str],
 ) -> tuple[bool, int]:
-    """A carga em si. Devolve ``(ok, linhas gravadas)``."""
+    """The load itself. Returns ``(ok, rows written)``."""
     ex = SAPExtractor(
         settings.sap_host, settings.sap_port, settings.sap_user,
         settings.sap_password, settings.sap_database,
@@ -198,7 +200,7 @@ def _carga(
 
 
 def _registrar(loader: SupabaseLoader, inicio: datetime, ok: bool, falhas: list[str]) -> None:
-    """Desfecho em ``rotinas_execucao`` — o mesmo lugar das outras rotinas."""
+    """Outcome in ``rotinas_execucao`` -- the same place as the other routines."""
     loader.registrar_rotina(
         ROTINA_NOME, ROTINA_ROTULO,
         inicio=inicio, fim=datetime.now().astimezone(),

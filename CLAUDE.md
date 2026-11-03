@@ -181,8 +181,9 @@ Regra com teste = 1 linha + o teste que a protege; sem teste = o porquê junto.
 - Rota protegida da 8077 declara escopo (`@requer_chave('leitura')`); ferramenta MCP nova entra em
   `ESCOPO_DA_FERRAMENTA` (senão exige `admin`). Chave registrada só no cabeçalho; só a `OS_API_KEY`
   mantém o `?key=` antigo. — `tests/test_api_seguranca.py`, `tests/test_mcp_acesso.py`
-- `/health` é aberto; `/status` tem dois níveis (mínimo sem credencial; completo com `OS_API_KEY` ou
-  `STATUS_ID`, que não abre outra rota); o código HTTP não depende da credencial (o watchdog do .90
+- `/health` é aberto; `/status` tem dois níveis (mínimo sem credencial; completo com `OS_API_KEY`,
+  `STATUS_ID` — que não abre outra rota — ou chave registrada com `leitura` que o interruptor do agente
+  não recusa); o código HTTP não depende da credencial (o watchdog do .90
   decide por ele); `?strict=1` → 503 se degradado. `collect_status`/`SELECTABLE_CHECKS` são contrato
   entre repos: a redução mora no `api.py`. — `tests/test_api.py`
 - `OS_API_KEY` é uma só para 8077, painel e CP (cookie `wbc_painel`, HMAC em `casa/acesso.py`); escrita

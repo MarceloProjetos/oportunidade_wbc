@@ -8,8 +8,9 @@ reason; whoever asked may cancel their own pending request. Both write the same 
 ``ck_pea_*`` + the partial unique index ``pedidos_entrega_um_pendente``). Nothing here writes
 to SAP. Design: ``docs/DESENHO_DATA_ENTREGA_COMBINADA.md``.
 
-This module holds what is pure (body validation, the reply block) and the three table calls,
-which receive the Supabase client as an argument; ``api.py`` only adapts HTTP. The date
+This module holds what is pure (body and date validation, the ``aguarda`` helper) and the five
+table calls (``linhas_do_pedido``, ``inserir``, ``uma_linha``, ``decidir``, ``listar``), which
+receive the Supabase client as an argument; ``api.py`` only adapts HTTP. The date
 arithmetic is ``situacao_pedidos.entrega_combinada`` — ported byte for byte from the web, so
 the screen and this API never disagree.
 """

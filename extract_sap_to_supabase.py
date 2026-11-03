@@ -53,7 +53,11 @@ def get_sqlserver_connection(
     database: str,
     driver: str | None = None,
 ) -> Any | None:
-    """Connect to SQL Server via pyodbc (tries ODBC 18 → 17 → legacy drivers)."""
+    """Connect to SQL Server via pyodbc.
+
+    Tries ``driver`` first when given, then ODBC 18 → 17 → legacy drivers. Returns ``None`` when
+    pyodbc is missing or no driver connects.
+    """
     try:
         import pyodbc
     except ImportError:
@@ -213,7 +217,11 @@ def validate_sitcod_fk(
     *,
     domain_table: str,
 ) -> pd.DataFrame:
-    """Null out SITCOD values missing from situacoes_orcamento (avoids FK violation)."""
+    """Null out SITCOD values missing from ``domain_table`` (avoids a FK violation).
+
+    ``domain_table`` is ``settings.sitcod_domain_table`` (default ``situacoes_orcamento``). If the
+    domain cannot be loaded the validation is skipped and ``df`` is returned untouched.
+    """
     if 'SITCOD' not in df.columns:
         return df
 

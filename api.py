@@ -14,11 +14,11 @@ Endpoints
 - ``GET  /inicio``                          → the Central's home page: state of the three screens
 - ``GET|POST /entrar`` · ``POST /sair``     → the key prompt (same cookie as the other screens)
 - ``GET  /orcaview``                        → 302 to the OrçaView home (``ORCAVIEW_URL``)
-- ``GET  /health``                          → ``{"status": "ok"}``
+- ``GET  /health``                          → ``{"status": "ok", "service": ...}``
 - ``GET  /status``                          → diagnosis (two levels, see below); ``?checks=``, ``?strict=1``
 - ``GET|DELETE /historico``                 → OS sync log (read / clear)
 - ``GET  /usuarios-ativos``                 → active app profiles (cached 10 min)
-- ``GET  /ordens-servico/disponiveis``      → up to 30 pedidos with an OS created in SAP
+- ``GET  /ordens-servico/disponiveis``      → pedidos with an OS created in SAP (30; ``?limit=`` up to 50)
 - ``GET  /ordens-servico/<nped>``           → detail (summary) of a pedido's OS
 - ``POST /ordens-servico/<nped>/sincronizar`` → syncs + returns the summary (GET's pair)
 - ``POST /sync/ordens-servico/<nped>``      → syncs **one** pedido
@@ -51,17 +51,21 @@ Endpoints
 Authentication (optional, **recommended in production**)
 --------------------------------------------------------
 Set ``OS_API_KEY`` in ``.env``. The client must send the ``X-API-Key: <key>`` header
-(or ``Authorization: Bearer <key>``). Without ``OS_API_KEY`` the endpoint is **open**
-(use only on a trusted internal network / development). A browser on the Sincronização
-page uses instead the shared login cookie of the .11 screens (``casa/acesso.py``); a write
-by cookie must come from this same origin (CSRF).
+(or ``Authorization: Bearer <key>``); only the ``OS_API_KEY`` itself still accepts the old
+``?key=`` / ``?api_key=`` query string. Without ``OS_API_KEY`` the endpoint is **open**
+(use only on a trusted internal network / development) -- except the OP status write, which
+is fail-closed (503). A key registered with ``python -m seguranca criar`` is accepted only
+in the header and holds scopes: every protected route declares one (``@requer_chave``).
+A browser on the Sincronização page uses instead the shared login cookie of the .11 screens
+(``casa/acesso.py``); a write by cookie must come from this same origin (CSRF).
 
 ``GET /status`` is the one route with **two** levels. It stays open — the .90's watchdog
 polls it with no credential and decides by the HTTP status code — but a caller without a
 credential now gets a **minimal** view (``ok``, ``healthy``, one boolean per check, the
 alert **count**, ``restrito: true``). The full payload needs either the ``OS_API_KEY`` or
-the low-privilege ``STATUS_ID``, which is the one handed to the other team and to the
-OrçaView: it opens the diagnosis and **nothing else** — on every other route it is a 401.
+the low-privilege ``STATUS_ID`` (the one handed to the other team and to the OrçaView: it
+opens the diagnosis and **nothing else** — on every other route it is a 401); a registered
+key with scope ``leitura`` also sees it.
 Reason: the full payload publishes the HANA and SQL Server ``host:port``, the Supabase
 URL, hostname/IP/OS/Python, the install path and the patch level — a map of the
 integration for anyone on the LAN.
@@ -265,7 +269,7 @@ class _RateLimiter:
 _rate_limiter = _RateLimiter()
 
 
-def _checar_rate(bucket: str, limite: int, oque: str = 'escritas'):
+def _checar_rate(bucket: str, limite: int, oque: str = 'escritas') -> tuple[Response, int] | None:
     """If the rate limit is blown, returns ``(response_429, 429)`` to return; else ``None``.
     ``oque`` names what is being limited in the message ("leituras" for a heavy read)."""
     permitido, retry = _rate_limiter.check(bucket, limite, _RATE_WINDOW_S)
@@ -291,7 +295,7 @@ _usuarios_cache: tuple[float, list[str]] | None = None
 USUARIOS_CACHE_S = 600
 
 
-def _supabase():
+def _supabase() -> Any:
     global _supabase_client
     if _supabase_client is None:
         from supabase import create_client
@@ -550,7 +554,8 @@ def _autorizado() -> bool:
 
 
 def _status_completo_autorizado() -> bool:
-    """Who may see the **whole** ``/status``: the ``OS_API_KEY`` or the ``STATUS_ID``.
+    """Who may see the **whole** ``/status``: the ``OS_API_KEY``, the ``STATUS_ID``, or a registered
+    client holding ``leitura`` that no agent rule refuses for a read.
 
     Everyone else gets :func:`_status_publico`. Reusing ``_autorizado()`` keeps a single
     fail-open rule in the service: with no ``OS_API_KEY`` configured the API is open as a
@@ -634,7 +639,7 @@ def _cliente() -> Cliente | None:
     return cliente
 
 
-def requer_chave(escopo: str):
+def requer_chave(escopo: str) -> Any:
     """Require a credential that holds ``escopo`` on the route — 401 without one, 403 without
     the scope or when an agent rule refuses (``seguranca.agente``).
 
@@ -652,9 +657,9 @@ def requer_chave(escopo: str):
     if escopo not in credenciais.ESCOPOS:
         raise ValueError(f'escopo desconhecido: {escopo!r}')
 
-    def decorador(fn):
+    def decorador(fn: Any) -> Any:
         @wraps(fn)   # without this, Flask uses the wrapper's name as the endpoint and collides
-        def _wrapper(*args, **kwargs):
+        def _wrapper(*args: Any, **kwargs: Any) -> Any:
             cliente = _cliente()
             escrita = request.method not in _METODOS_SEGUROS
             if cliente is None or (cliente.nome == 'tela' and escrita and not _mesma_origem()):
@@ -757,7 +762,7 @@ def _url_painel_wbc() -> str:
 
 
 @app.get('/')
-def ui():
+def ui() -> Response:
     """The entrance of the server: the **WBC integration painel is the main screen**
     (Marcelo, 2026-09-08), so the address everybody already uses (``:8077``) lands there.
 
@@ -798,7 +803,7 @@ def _pagina(nome: str, status: int = 200, **contexto: Any) -> Response:
 
 
 @app.get('/sincronizar')
-def sincronizar():
+def sincronizar() -> Response:
     """Painel de Sincronização (OS by pedido · Oportunidades load). Was ``GET /`` until
     2026-09-08; the root now leads to the WBC painel.
 
@@ -813,7 +818,7 @@ def sincronizar():
 
 
 @app.get('/inicio')
-def inicio():
+def inicio() -> Response:
     """The Central's home page (PLANO_CASA_COMUM_11, F5): one card per screen with the state
     of its service, and the connections below — all read in the browser from ``/status``
     and the sync logs, the same data the monitors use. Reached by the brand of the shared
@@ -824,7 +829,7 @@ def inicio():
 
 
 @app.get('/entrar')
-def entrar():
+def entrar() -> Response:
     """The key prompt of this API's pages — the same key and the same cookie as the painel
     WBC and the Controle de Produção: whoever entered one of them never sees this."""
     if not get_settings().os_api_key:
@@ -834,7 +839,7 @@ def entrar():
 
 
 @app.post('/entrar')
-def entrar_conferir():
+def entrar_conferir() -> Response:
     chave = get_settings().os_api_key
     if not chave:
         return redirect('/sincronizar', code=303)
@@ -848,7 +853,7 @@ def entrar_conferir():
 
 
 @app.post('/sair')
-def sair():
+def sair() -> Response:
     """Forgets the key in this browser — on the three screens, the cookie is one."""
     resposta = redirect('/entrar', code=303)
     resposta.delete_cookie(casa_acesso.COOKIE_DE_ACESSO)
@@ -856,26 +861,26 @@ def sair():
 
 
 @app.get('/orcaview')
-def orcaview():
+def orcaview() -> Response:
     """The "← OrçaView" link of the shared bar (``ORCAVIEW_URL``, the .90 home). Open: it
     only redirects, and someone stuck at the key prompt must still be able to leave."""
     return redirect(get_settings().orcaview_url, code=302)
 
 
 @app.get('/favicon.ico')
-def favicon():
+def favicon() -> tuple[str, int]:
     return ('', 204)  # avoids a noisy 404 in the log
 
 
 @app.get('/casa/<path:arquivo>')
-def casa_estatico(arquivo: str):
+def casa_estatico(arquivo: str) -> Response:
     """The shared shell's CSS/JS (``casa/static``) — the very files the painel WBC and the
     Controle de Produção serve. Open: the key prompt wears them too."""
     return send_from_directory(casa.STATIC_DIR, arquivo, max_age=3600)
 
 
 @app.get('/painel-wbc')
-def painel_wbc():
+def painel_wbc() -> Response:
     """302 to the **WBC → SAP integration painel** (``python -m wbcpython dashboard``, a
     separate FastAPI process on ``PAINEL_PORTA``, 8079 by default).
 
@@ -895,7 +900,7 @@ def _url_controle_producao() -> str:
 
 
 @app.get('/controle-producao')
-def controle_producao():
+def controle_producao() -> Response:
     """302 to the **Controle de Produção** screen (``python -m controleproducao web``, a
     separate FastAPI process on ``CP_PORTA``, 8080 by default): Pedidos WBC → Ordens de
     Produção and Manutenção de OP. Open (no key): the screen asks for the same
@@ -904,7 +909,7 @@ def controle_producao():
 
 
 @app.get('/controle-producao/<tela>')
-def controle_producao_tela(tela: str):
+def controle_producao_tela(tela: str) -> Response:
     """The shared bar's links to one Controle de Produção screen: ``pedidos``, ``ops`` and
     ``tarefas``; anything else lands on its home. Open, like the root redirect."""
     caminho = _TELAS_DO_CONTROLE_DE_PRODUCAO.get(tela, '')
@@ -912,7 +917,7 @@ def controle_producao_tela(tela: str):
 
 
 @app.get('/health')
-def health():
+def health() -> Response:
     """Light liveness (is the API up?). No key, no external check — fast and always
     available. For the deep diagnosis, use ``/status``."""
     return jsonify(status='ok', service='ordens-servico-engenharia')
@@ -937,16 +942,16 @@ _CHECK_ALIASES = {
 
 
 @app.get('/status')
-def status_detalhado():
+def status_detalhado() -> tuple[Response, int]:
     """**On-demand** diagnosis: SAP, SQL Server (WBC), Supabase (with latency), scheduler
     signal, WBC worker, Controle de Produção (``/health`` on ``CP_PORTA``), Windows Update
     and system (CPU/memory/disk/IP/uptime).
 
     **Open, in two levels.** With no credential the answer is the **minimal** view
     (:func:`_status_publico`): ``ok``, ``healthy``, one boolean per check, the alert
-    **count** and ``restrito: true``. The full payload needs the ``OS_API_KEY`` or the
-    low-privilege ``STATUS_ID`` — the one handed to the other team and to the OrçaView,
-    which opens this route and **nothing else**.
+    **count** and ``restrito: true``. The full payload needs the ``OS_API_KEY``, a
+    registered key with scope ``leitura``, or the low-privilege ``STATUS_ID`` — the one handed
+    to the other team and to the OrçaView, which opens this route and **nothing else**.
 
     The **HTTP status code does not depend on the credential**: ``?strict=1`` answers 503
     for a degraded server either way. That is deliberate — the .90's watchdog polls
@@ -995,8 +1000,8 @@ def status_detalhado():
 
 @app.get('/historico')
 @requer_chave('leitura')
-def historico():
-    """Latest syncs (reads the log table). Requires X-API-Key."""
+def historico() -> Response | tuple[Response, int]:
+    """Latest syncs (reads the log table). Scope ``leitura``."""
     try:
         limit = int(request.args.get('limit', 20))
     except (TypeError, ValueError):
@@ -1012,8 +1017,8 @@ def historico():
 
 @app.delete('/historico')
 @requer_chave('historico:apagar')
-def historico_limpar():
-    """Clear the OS history (empties the log table). Requires X-API-Key."""
+def historico_limpar() -> Response | tuple[Response, int]:
+    """Clear the OS history (empties the log table). Scope ``historico:apagar``."""
     try:
         removidos = _clear_log(get_settings().os_sync_log_table)
     except Exception as exc:
@@ -1024,25 +1029,23 @@ def historico_limpar():
 
 @app.get('/usuarios-ativos')
 @requer_chave('rh')
-def usuarios_ativos():
-    """Nomes dos perfis ATIVOS do OrcaView (``app_profiles``). Exige X-API-Key.
+def usuarios_ativos() -> Response | tuple[Response, int]:
+    """Names of the ACTIVE OrçaView profiles (``app_profiles``). Scope ``rh``.
 
-    Existe para o painel WBC oferecer uma lista em vez de um campo de texto livre
-    no "Seu nome" -- o campo que audita quem armou a janela de busca. Texto livre
-    virava "j", "joana" e "Joana Silva" no mesmo historico, o que estraga
-    justamente a pergunta que o campo existe para responder.
+    Exists so the WBC painel can offer a list instead of a free-text "Seu nome" field -- the
+    field that audits who armed the search window. Free text ended up as "j", "joana" and
+    "Joana Silva" in the same history, which spoils the very question the field exists to answer.
 
-    Mora aqui, e nao no painel, de proposito: o ``wbcpython`` nao conhece o
-    Supabase e nao deve passar a conhecer (``wbcpython/dashboard/__init__``). A
-    API ja tem o cliente e a credencial; o painel chama por localhost.
+    It lives here, not in the painel, on purpose: ``wbcpython`` does not know Supabase and must
+    not start to (``wbcpython/dashboard/__init__``). The API already has the client and the
+    credential; the painel calls it over localhost.
 
-    So o nome sai. Email, papel e ``slp_code`` nao servem para preencher um campo
-    de auditoria, e uma lista de e-mails da equipe atras de uma chave
-    compartilhada e exposicao sem contrapartida.
+    Only the name goes out. E-mail, role and ``slp_code`` do not help fill an audit field, and a
+    list of the team's e-mails behind a shared key is exposure with no payoff.
 
-    O cache existe porque a lista muda em meses e a tela e repintada o tempo
-    todo; sem ele, cada recarga do painel custaria uma ida ao Supabase (1,2 s
-    medidos na .11 em 14/09/2026).
+    Cached for ``USUARIOS_CACHE_S`` (10 min): the list changes over months while the screen is
+    repainted all the time; without it every painel reload would cost a Supabase round trip
+    (1.2 s measured on the .11 on 14/09/2026).
     """
     global _usuarios_cache
     agora = time.time()
@@ -1069,9 +1072,9 @@ def usuarios_ativos():
 
 @app.get('/ordens-servico/disponiveis')
 @requer_chave('leitura')
-def os_disponiveis():
-    """List up to 30 pedidos with an OS created in SAP (NPED + customer + date).
-    Requires X-API-Key.
+def os_disponiveis() -> Response | tuple[Response, int]:
+    """List pedidos with an OS created in SAP (NPED + customer + date): 30 by default,
+    ``?limit=`` up to 50. Scope ``leitura``.
 
     Feeds the panel's "Buscar na Lista" button: the user picks pedidos without having to
     type the NPEDs.
@@ -1089,8 +1092,8 @@ def os_disponiveis():
 
 @app.get('/ordens-servico/<nped>')
 @requer_chave('leitura')
-def os_detalhe(nped: str):
-    """Detail of ONE pedido's OS (reads the single Supabase table). Requires X-API-Key.
+def os_detalhe(nped: str) -> Response | tuple[Response, int]:
+    """Detail of ONE pedido's OS (reads the single Supabase table). Scope ``leitura``.
 
     Returns a ``resumo`` (customer, status, total, row and OP counts, last sync, delivery
     and release dates, and the pedido's note — all from the same ``vw_os_integracao``
@@ -1132,14 +1135,14 @@ def os_detalhe(nped: str):
 
 
 class _ParametroInvalido(Exception):
-    """Parâmetro de rota inválido — vira 400 no ``errorhandler`` abaixo."""
+    """Invalid route parameter -- becomes a 400 in the ``errorhandler`` below."""
 
 
 def _inteiro_positivo(valor: object, what: str) -> int:
-    """``coerce_positive_int`` que responde **400** sozinho (via ``_ParametroInvalido``).
+    """``coerce_positive_int`` that answers **400** by itself (via ``_ParametroInvalido``).
 
-    Troca o ``try/except ValueError → 400`` que se repetia em 7 rotas. A resposta é a mesma
-    de antes: ``{"ok": false, "error": "<mensagem>"}``.
+    Replaces the ``try/except ValueError → 400`` that was repeated in 7 routes. The answer is the
+    same as before: ``{"ok": false, "error": "<message>"}``.
     """
     try:
         return coerce_positive_int(valor, what=what)
@@ -1148,12 +1151,15 @@ def _inteiro_positivo(valor: object, what: str) -> int:
 
 
 @app.errorhandler(_ParametroInvalido)
-def _responder_parametro_invalido(exc: _ParametroInvalido):
+def _responder_parametro_invalido(exc: _ParametroInvalido) -> tuple[Response, int]:
     return jsonify(ok=False, error=str(exc)), 400
 
 
 def _status_pedido_ordr(nped: int) -> dict:
-    """``status_pedido``/``pedido_cancelado`` (+ ``aviso`` when cancelled) from ORDR.
+    """``status_pedido``/``pedido_cancelado`` + the invoicing keys, from ORDR.
+
+    ``aviso`` is added when the pedido is cancelled (``pedido_cancelado``) or was closed by the
+    future-delivery NF with the remessa still pending (``entrega_futura``).
 
     Never raises: the OS detail must answer even with SAP down (keys come ``None``).
     """
@@ -1178,9 +1184,9 @@ def _status_pedido_ordr(nped: int) -> dict:
 
 @app.post('/ordens-servico/<nped>/sincronizar')
 @requer_chave('os:sincronizar')
-def os_sincronizar(nped: str):
+def os_sincronizar(nped: str) -> tuple[Response, int]:
     """Sync (SAP → Supabase) ONE pedido's OS and return the resulting ``resumo``.
-    Requires X-API-Key. The **write pair** of ``GET /ordens-servico/<nped>``.
+    Scope ``os:sincronizar``. The **write pair** of ``GET /ordens-servico/<nped>``.
 
     Reuses ``_sync_one`` (serialized under ``_sync_lock``): it diagnoses OWOR + ORDR first
     — if the pedido **has no OS generated** (types ``sem_os``, ``pedido_cancelado``,
@@ -1191,8 +1197,9 @@ def os_sincronizar(nped: str):
     success it re-reads the table and includes a fresh ``resumo`` (customer, status,
     row/OP counts, last sync).
 
-    Status: ``200`` (synced **or** a business notice sem_os/cancelada) · ``502`` (sync
-    failure) · ``400`` invalid NPED · ``401`` missing/bad X-API-Key.
+    Status: ``200`` (synced **or** a business notice sem_os/cancelada) · ``409`` (another
+    process is already syncing this pedido) · ``429`` (anti-loop guard) · ``502`` (sync
+    failure) · ``400`` invalid NPED · ``401`` no credential · ``403`` no scope.
     """
     n = _inteiro_positivo(nped, 'NPED')
 
@@ -1233,8 +1240,8 @@ def _limit_arg(default: int = 20, maximo: int = 100) -> int:
 
 @app.get('/oportunidades/historico')
 @requer_chave('leitura')
-def oport_historico():
-    """Latest oportunidades syncs (reads sincronizacao_log). Requires X-API-Key."""
+def oport_historico() -> Response | tuple[Response, int]:
+    """Latest oportunidades syncs (reads sincronizacao_log). Scope ``leitura``."""
     try:
         itens = _fetch_log(get_settings().sync_log_table_name, _limit_arg())
     except Exception as exc:
@@ -1245,8 +1252,8 @@ def oport_historico():
 
 @app.delete('/oportunidades/historico')
 @requer_chave('historico:apagar')
-def oport_historico_limpar():
-    """Clear the oportunidades log. Requires X-API-Key."""
+def oport_historico_limpar() -> Response | tuple[Response, int]:
+    """Clear the oportunidades log. Scope ``historico:apagar``."""
     try:
         removidos = _clear_log(get_settings().sync_log_table_name)
     except Exception as exc:
@@ -1257,8 +1264,8 @@ def oport_historico_limpar():
 
 @app.get('/oportunidades/info')
 @requer_chave('leitura')
-def oport_info():
-    """Context for the oportunidades pipeline: total rows + schedule. Requires X-API-Key."""
+def oport_info() -> Response:
+    """Context for the oportunidades pipeline: total rows + schedule. Scope ``leitura``."""
     s = get_settings()
     total = None
     try:
@@ -1273,16 +1280,18 @@ def oport_info():
     )
 
 
-def _disparar_carga(bucket: str, limite: int, trava, carga, *, rotulo: str, ocupado: str, falhou: str):
-    """Carga completa disparada por HTTP: rate-limit + lock de arquivo + resposta por código.
+def _disparar_carga(
+        bucket: str, limite: int, trava: Any, carga: Any, *, rotulo: str, ocupado: str, falhou: str,
+) -> Response | tuple[Response, int]:
+    """Full load fired over HTTP: rate limit + file lock + one answer per code.
 
-    Oportunidades e Vendas BI eram a mesma função escrita duas vezes. Quem chama passa os
-    nomes do módulo NA HORA da chamada (os testes os trocam por monkeypatch).
+    Oportunidades and Vendas BI were the same function written twice. The caller passes the
+    module's names AT CALL TIME (tests swap them with monkeypatch).
 
-    Status: ``200`` ok · ``409`` outra carga já está rodando (o lock é cross-process: o
-    agendador conta) · ``429`` rate-limit · ``502`` a carga falhou ou não carregou nada.
-    O 502 da carga "vazia" é o MESMO problema da exceção (a carga não aconteceu): com 200,
-    todo monitor que decide pelo código — a norma — lia a falha como sucesso.
+    Status: ``200`` ok · ``409`` another load is already running (the lock is cross-process: the
+    scheduler counts) · ``429`` rate limit · ``502`` the load failed or loaded nothing. The 502
+    for an "empty" load is the SAME problem as the exception (the load did not happen): with a
+    200, every monitor that decides by the code -- the norm -- read the failure as success.
     """
     limitado = _checar_rate(bucket, limite)
     if limitado is not None:
@@ -1302,8 +1311,8 @@ def _disparar_carga(bucket: str, limite: int, trava, carga, *, rotulo: str, ocup
 
 @app.post('/oportunidades/sincronizar')
 @requer_chave('oportunidades:carga')
-def oport_sincronizar():
-    """Force the FULL oportunidades load (the scheduler's own). Requires X-API-Key.
+def oport_sincronizar() -> Response | tuple[Response, int]:
+    """Force the FULL oportunidades load (the scheduler's own). Scope ``oportunidades:carga``.
 
     Uses a cross-process file lock: if the scheduler (or another trigger) is already
     running, it responds 409 instead of running two snapshot loads at once.
@@ -1318,12 +1327,12 @@ def oport_sincronizar():
 
 @app.post('/vendas-bi/sincronizar')
 @requer_chave('vendas_bi:carga')
-def vendas_bi_sincronizar():
-    """Recalcula os agregados do dashboard Vendas do app. Requer X-API-Key.
+def vendas_bi_sincronizar() -> Response | tuple[Response, int]:
+    """Recompute the aggregates of the app's Vendas dashboard. Scope ``vendas_bi:carga``.
 
-    Mesmo desenho do gatilho de oportunidades: rate-limit próprio e lock de
-    arquivo — duas cargas simultâneas fariam upsert da mesma chave e a última a
-    terminar venceria, o que é inofensivo mas desperdiça duas viagens ao HANA.
+    Same design as the oportunidades trigger: its own rate limit and a file lock -- two
+    simultaneous loads would upsert the same key and the last one to finish would win, which is
+    harmless but wastes two round trips to HANA.
     """
     return _disparar_carga(
         'vendas_bi', _RATE_VENDAS_BI_MAX, vendas_bi_sync_lock, sync_vendas_bi,
@@ -1335,8 +1344,8 @@ def vendas_bi_sincronizar():
 
 @app.post('/sync/ordens-servico/<nped>')
 @requer_chave('os:sincronizar')
-def sync_um(nped: str):
-    """Sync **one** pedido. Requires X-API-Key. Same anti-loop guard as its pair
+def sync_um(nped: str) -> tuple[Response, int]:
+    """Sync **one** pedido. Scope ``os:sincronizar``. Same anti-loop guard as its pair
     ``/ordens-servico/<nped>/sincronizar`` (bucket ``sync_os``)."""
     n = _inteiro_positivo(nped, 'NPED')
 
@@ -1348,8 +1357,8 @@ def sync_um(nped: str):
 
 @app.post('/sync/ordens-servico')
 @requer_chave('os:sincronizar')
-def sync_varios():
-    """Sync several pedidos: ``{"nped": N}`` or ``{"npeds": [...]}``. Requires X-API-Key.
+def sync_varios() -> tuple[Response, int]:
+    """Sync several pedidos: ``{"nped": N}`` or ``{"npeds": [...]}``. Scope ``os:sincronizar``.
 
     Limits: at most ``SYNC_LOTE_MAX`` pedidos per request, plus the anti-loop guard
     (bucket ``sync_os``) — see ``_SYNC_LOTE_MAX``.
@@ -1511,8 +1520,8 @@ def _resposta_op_erro(exc: op_sl.OPError) -> tuple[Any, int]:
 
 @app.get('/ordens-producao/<numero>')
 @requer_chave('leitura')
-def op_detalhe(numero: str):
-    """Status and identification of ONE Production Order. Requires X-API-Key.
+def op_detalhe(numero: str) -> Response | tuple[Response, int]:
+    """Status and identification of ONE Production Order. Scope ``leitura``.
 
     ``<numero>`` is the **DocNum** (the number on the SAP screen); ``?chave=docentry``
     reads by DocEntry instead. Read-only — it does not change anything in the SAP.
@@ -1535,8 +1544,8 @@ def op_detalhe(numero: str):
 
 @app.get('/wbc/orcamentos/<orcnum>')
 @requer_chave('leitura')
-def wbc_orcamento_rota(orcnum: str):
-    """What the WBC worker knows about ONE quote. Requires X-API-Key. Read-only.
+def wbc_orcamento_rota(orcnum: str) -> Response | tuple[Response, int]:
+    """What the WBC worker knows about ONE quote. Scope ``leitura``. Read-only.
 
     From the worker's tracking DB (no SAP, no WBC): status, the rule it applied, the
     quotation and order it holds, the last error and the latest events. ``404`` with
@@ -1561,7 +1570,7 @@ def wbc_orcamento_rota(orcnum: str):
 
 @app.get('/wbc/orcamentos/<orcnum>/log')
 @requer_chave('leitura')
-def wbc_orcamento_log(orcnum: str):
+def wbc_orcamento_log(orcnum: str) -> Response | tuple[Response, int]:
     """The worker log lines that mention ONE quote, newest first (``?linhas=``, max 200).
     Read-only; the same file the painel's "Log" tab reads (F2 of PLANO_MIRA_AGENTE_11)."""
     numero = (orcnum or '').strip()
@@ -1579,21 +1588,21 @@ _RATE_CONEXAO_MAX = 20
 
 @app.get('/operacao/servicos')
 @requer_chave('leitura')
-def operacao_servicos():
+def operacao_servicos() -> Response:
     """The six NSSM services of the .11: state, automatic start, since when. Read-only."""
     return jsonify(ok=True, **operacao_servicos_mod.estado_servicos())
 
 
 @app.get('/operacao/conexoes')
 @requer_chave('leitura')
-def operacao_conexoes():
+def operacao_conexoes() -> Response:
     """The closed list of destinations ``/operacao/conexoes/<destino>`` can test."""
     return jsonify(ok=True, destinos=[d.publico() for d in conexoes.destinos().values()])
 
 
 @app.get('/operacao/conexoes/<destino>')
 @requer_chave('leitura')
-def operacao_testar_conexao(destino: str):
+def operacao_testar_conexao(destino: str) -> Response | tuple[Response, int]:
     """DNS, ping and TCP from the .11 to ONE listed destination (``?porta=`` one of its ports).
     Never a free host or port: an unknown name or port is 400 with the list."""
     bloqueio = _checar_rate('conexao', _RATE_CONEXAO_MAX)
@@ -1608,7 +1617,7 @@ def operacao_testar_conexao(destino: str):
 
 @app.get('/operacao/deploy')
 @requer_chave('leitura')
-def operacao_deploy():
+def operacao_deploy() -> Response:
     """The running commit (and whether a restart is pending), the last deploy's steps and the
     last runs without steps (``deploys``, newest first)."""
     return jsonify(ok=True, versao=versao.versao(), ultimo_deploy=versao.ultimo_deploy(),
@@ -1617,7 +1626,7 @@ def operacao_deploy():
 
 @app.get('/operacao/boots')
 @requer_chave('leitura')
-def operacao_boots():
+def operacao_boots() -> Response:
     """Why the .11 restarted (F5 of PLANO_TEO_REDE_E_ROTINAS, web repo): each boot of the last 7
     days, newest first, and how the life before it ended. Read only; cached 60 s."""
     return jsonify(ok=True, **boots.boots())
@@ -1625,7 +1634,7 @@ def operacao_boots():
 
 @app.get('/operacao/travamentos')
 @requer_chave('leitura')
-def operacao_travamentos():
+def operacao_travamentos() -> Response:
     """Windows services that hung, crashed or did not start in the last hour, and the latest
     cascade (F5b of PLANO_TEO_REDE_E_ROTINAS, web repo): the early warning before a hang."""
     return jsonify(ok=True, **travamentos.travamentos())
@@ -1638,7 +1647,7 @@ _RATE_LOGINS_SAP_MAX = 6
 
 @app.get('/operacao/logins-sap')
 @requer_chave('leitura')
-def operacao_logins_sap():
+def operacao_logins_sap() -> Response | tuple[Response, int]:
     """Who logs into the SAP B1 (USR5), from where and with which process. ``?modo=`` resumo
     (``dia``), eventos (``usuario``, ``limite``) or escritas (``usuario``, ``desde`` <= 31 days).
     Read only, cached 120 s; 400 bad parameter, 404 unknown SAP user, 503 HANA down."""
@@ -1664,7 +1673,7 @@ _RATE_BACKUP_MAX = 2
 
 @app.post('/operacao/backup/estado')
 @requer_chave('backup:relatar')
-def operacao_backup_relatar():
+def operacao_backup_relatar() -> Response | tuple[Response, int]:
     """The ALTHOST's hourly report of the Veeam backups (``maintenance/estado_backup.ps1``). The key is
     the first lock, the origin the second; the body is capped and reduced to a closed shape."""
     origem = request.remote_addr or ''
@@ -1690,7 +1699,7 @@ def operacao_backup_relatar():
 
 @app.get('/operacao/backup')
 @requer_chave('leitura')
-def operacao_backup():
+def operacao_backup() -> Response:
     """The last backup report of the ALTHOST and its age by the .11's receive time."""
     return jsonify(ok=True, **backup.ler())
 
@@ -1701,7 +1710,7 @@ _RATE_HYPERV_MAX = 4
 
 @app.post('/operacao/hyperv/estado')
 @requer_chave('hyperv:relatar')
-def operacao_hyperv_relatar():
+def operacao_hyperv_relatar() -> Response | tuple[Response, int]:
     """A Hyper-V host's hourly report (``maintenance/estado_hyperv.ps1``). The origin names the host;
     same locks as the backup report (key, origin, size, rate, closed shape)."""
     origem = request.remote_addr or ''
@@ -1727,14 +1736,14 @@ def operacao_hyperv_relatar():
 
 @app.get('/operacao/hyperv')
 @requer_chave('leitura')
-def operacao_hyperv():
+def operacao_hyperv() -> Response:
     """The last report of each Hyper-V host and its age by the .11's receive time."""
     return jsonify(ok=True, **hyperv.ler())
 
 
 @app.get('/operacao/ronda-90')
 @requer_chave('leitura')
-def operacao_ronda_90():
+def operacao_ronda_90() -> Response:
     """The .90 seen from the .11 (F6 of PLANO_AGENTE_TI, web repo): its state now and the periods
     it was down, with the real times. Read from the round's file; nothing is tested here."""
     return jsonify(ok=True, **ronda_90.publico())
@@ -1782,10 +1791,14 @@ def _aprovacao_publica(r: dict) -> dict:
 
 @app.post('/aprovacoes')
 @requer_chave('leitura')
-def aprovacao_pedir():
+def aprovacao_pedir() -> tuple[Response, int]:
     """An agent REQUESTS a write; nothing runs. Body ``{acao, parametros, motivo}``. The caller
     needs the action's own scope (``acoes_agente.CATALOGO``); the answer is the preview a person
-    will read and the ``codigo`` to approve it. Valid for ``aprovacoes.VALIDADE_MIN`` minutes."""
+    will read and the ``codigo`` to approve it. Valid for ``aprovacoes.VALIDADE_MIN`` minutes.
+
+    Optional ``Idempotency-Key`` header (8 to 64 chars): a repeat of the same request answers
+    ``200 ja_existia`` instead of ``201``; ``409`` on a reused key or a different pending
+    request for the same target; ``429`` past ``acao.por_hora`` requests per hour."""
     cliente = _cliente()
     corpo = request.get_json(silent=True) or {}
     acao = acoes_agente.CATALOGO.get(str(corpo.get('acao') or ''))
@@ -1846,7 +1859,7 @@ def aprovacao_pedir():
 _CHAVE_IDEM = re.compile(r'[A-Za-z0-9_-]{8,64}')
 
 
-def _aprovacao_criada(r: dict):
+def _aprovacao_criada(r: dict) -> tuple[Response, int]:
     """201 for a new request; 200 + ``ja_existia`` for the one a repeat returns (F4)."""
     if r.get('ja_existia'):
         return jsonify(ok=True, ja_existia=True, aprovacao=_aprovacao_publica(r),
@@ -1859,7 +1872,7 @@ def _aprovacao_criada(r: dict):
 
 @app.get('/aprovacoes')
 @requer_chave('leitura')
-def aprovacao_listar():
+def aprovacao_listar() -> Response | tuple[Response, int]:
     """Requests, newest first (``?estado=pendente`` = waiting for a person)."""
     estado = request.args.get('estado') or None
     if estado and estado not in aprovacoes.ESTADOS:
@@ -1870,7 +1883,7 @@ def aprovacao_listar():
 
 @app.get('/aprovacoes/<chave>')
 @requer_chave('leitura')
-def aprovacao_ver(chave: str):
+def aprovacao_ver(chave: str) -> Response | tuple[Response, int]:
     """One request by id or pending code; a processed order also brings the live execution."""
     r = aprovacoes.obter(chave)
     if r is None:
@@ -1883,7 +1896,7 @@ def aprovacao_ver(chave: str):
     return jsonify(ok=True, aprovacao=publico)
 
 
-def _executa_aprovada(r: dict, acao, ctx) -> None:
+def _executa_aprovada(r: dict, acao: Any, ctx: acoes_agente.Contexto) -> None:
     try:
         ok, resultado = acao.executar(r['parametros'], r['previa'], ctx)
     except Exception as exc:  # the record must end, whatever the action did
@@ -1892,7 +1905,7 @@ def _executa_aprovada(r: dict, acao, ctx) -> None:
     aprovacoes.concluir(r['id'], ok=ok, resultado=resultado)
 
 
-def _decisao(chave: str, aprovar: bool):
+def _decisao(chave: str, aprovar: bool) -> Response | tuple[Response, int]:
     cliente = _cliente()
     corpo = request.get_json(silent=True) or {}
     pessoa = _pessoa_que_decide(cliente, corpo)
@@ -1930,7 +1943,7 @@ def _decisao(chave: str, aprovar: bool):
 
 @app.post('/aprovacoes/<chave>/aprovar')
 @requer_chave('aprovar')
-def aprovacao_aprovar(chave: str):
+def aprovacao_aprovar(chave: str) -> Response | tuple[Response, int]:
     """A PERSON approves (screen, or the Mira for a person) and the action runs in background.
     The agent never holds ``aprovar`` (``credenciais.PROIBIDOS_AO_AGENTE``)."""
     return _decisao(chave, aprovar=True)
@@ -1938,14 +1951,14 @@ def aprovacao_aprovar(chave: str):
 
 @app.post('/aprovacoes/<chave>/recusar')
 @requer_chave('aprovar')
-def aprovacao_recusar(chave: str):
+def aprovacao_recusar(chave: str) -> Response | tuple[Response, int]:
     """A person refuses; nothing runs. Body ``{pessoa, motivo}``."""
     return _decisao(chave, aprovar=False)
 
 
 @app.get('/pedidos/<numero>/historico')
 @requer_chave('leitura')
-def pedido_historico(numero: str):
+def pedido_historico(numero: str) -> Response | tuple[Response, int]:
     """What changed in ONE sales order, version by version, and who saved each one (the
     SAP change log, ADOC/ADO1). ``<numero>`` is the DocNum (``?chave=docentry`` for the
     DocEntry); ``?versoes=`` caps how many, newest first (default 20, max 60). Read-only.
@@ -1972,8 +1985,8 @@ def pedido_historico(numero: str):
 
 @app.post('/ordens-producao/<numero>/status')
 @requer_chave('op:status')
-def op_status(numero: str):
-    """Change the status of ONE Production Order **in the SAP**. Requires X-API-Key.
+def op_status(numero: str) -> Response | tuple[Response, int]:
+    """Change the status of ONE Production Order **in the SAP**. Scope ``op:status``.
 
     Body: ``{"status": "liberada", "status_atual": "<opcional>"}``. ``status`` also accepts
     the raw code (``boposReleased``). ``encerrada``/``boposClosed`` → ``400`` since D9
@@ -1983,9 +1996,9 @@ def op_status(numero: str):
     written.
 
     Status: ``200`` changed (or ``ja_estava: true``, with no PATCH sent) · ``400`` invalid
-    number/status or status outside the allowlist · ``401`` missing X-API-Key · ``404`` no
-    such OP · ``409`` terminal status, ambiguous DocNum or compare-and-swap mismatch ·
-    ``429`` anti-loop guard · ``502`` Service Layer down or the SAP refused · ``503``
+    number/status or status outside the allowlist · ``401`` no credential · ``403`` no scope or
+    refused by an agent rule · ``404`` no such OP · ``409`` terminal status, ambiguous DocNum or
+    compare-and-swap mismatch · ``429`` anti-loop guard · ``502`` Service Layer down or the SAP refused · ``503``
     feature off or this API has no key configured.
     """
     # FAIL-CLOSED, unlike every other route here. Elsewhere an unset OS_API_KEY leaves the
@@ -2045,12 +2058,11 @@ def op_status(numero: str):
 
 
 def _resposta_situacao_erro(exc: Exception) -> tuple[Any, int]:
-    """Erro de dominio -> resposta HTTP. **503 e 422 nao se misturam.**
+    """Domain error -> HTTP answer. **503 and 422 do not mix.**
 
-    ``SAPIndisponivel`` e' 503 (nao e' culpa de quem chamou, e vale tentar de novo);
-    ``ValidationError`` e' 422 (parametro fora do dominio -- tentar de novo nao adianta).
-    A mensagem vai inteira no corpo: e' ela que a fachada MCP mostra ao modelo, em vez de
-    um "HTTP 503" generico.
+    ``SAPIndisponivel`` is 503 (not the caller's fault, and worth retrying); ``ValidationError``
+    is 422 (parameter outside the domain -- retrying will not help). The message goes whole in
+    the body: it is what the MCP facade shows the model, instead of a generic "HTTP 503".
     """
     if isinstance(exc, sit_ped_hana.SAPIndisponivel):
         logger.warning("[SIT_PED] indisponivel: %s", exc)
@@ -2060,17 +2072,17 @@ def _resposta_situacao_erro(exc: Exception) -> tuple[Any, int]:
 
 
 def _aplicar_endereco(pedidos: list, linhas: list) -> None:
-    """Poe ``entrega_endereco`` em cada pedido normalizado, **no lugar**.
+    """Put ``entrega_endereco`` on each normalized pedido, **in place**.
 
-    Aqui, e nao dentro do ``situacao_pedidos.py``: aquele arquivo e' PORTE do
-    ``situacao_pedidos_service.py`` do OrcaView e um teste compara os dois funcao por
-    funcao. Endereco e' consumo desta API (e da fachada MCP); a tela mostra o dela por
-    outro caminho. Este modulo e o ``situacao_pedidos_hana`` sao os dois lugares deste
-    repo que nao sao portados — e' por isso que a decoracao mora num deles.
+    Here, not inside ``situacao_pedidos.py``: that file is a PORT of the OrçaView's
+    ``situacao_pedidos_service.py`` and a test compares the two function by function. The address
+    is consumed by this API (and the MCP facade); the screen shows its own by another path. This
+    module and ``situacao_pedidos_hana`` are the two places in this repo that are not ports --
+    which is why the decoration lives in one of them.
 
-    Casa por ``DocEntry`` (a chave interna, 1:1 com a linha da view); pedido sem linha
-    crua correspondente recebe o endereco vazio, com as MESMAS chaves — nunca ``None``
-    solto, que viraria ``KeyError`` em quem le.
+    Matches by ``DocEntry`` (the internal key, 1:1 with the view's row); a pedido with no matching
+    raw row gets the empty address with the SAME keys -- never a bare ``None``, which would become
+    a ``KeyError`` for the reader.
     """
     por_docentry = {r.get('DocEntry'): r for r in linhas}
     for p in pedidos:
@@ -2079,12 +2091,12 @@ def _aplicar_endereco(pedidos: list, linhas: list) -> None:
 
 
 def _aplicar_liberacao_e_nf(pedidos: list, linhas: list) -> None:
-    """Poe os 13 campos de liberacao real + primeira NF + Incoterms + obs. de montagem, **no lugar**.
+    """Put the 13 real-release fields + first NF + Incoterms + assembly note on each pedido, **in place**.
 
-    Mesmo desenho do :func:`_aplicar_endereco` (e fora do nucleo portado pelo mesmo
-    motivo): casa por ``DocEntry`` e pedido sem linha crua recebe as MESMAS chaves, com
-    ``None`` ("nao foi possivel saber"). So o perfil ``completo`` os mostra — o ``resumo``
-    corta para ``CAMPOS_RESUMO``. Plano: ``PLANO_DATAS_LIBERACAO_NF.md (removed 2026-10-06)``.
+    Same design as :func:`_aplicar_endereco` (and outside the ported core for the same reason):
+    matches by ``DocEntry`` and a pedido with no raw row gets the SAME keys, with ``None``
+    ("could not be known"). Only the ``completo`` profile shows them -- ``resumo`` cuts to
+    ``CAMPOS_RESUMO``. Plan: ``PLANO_DATAS_LIBERACAO_NF.md (removed 2026-10-06)``.
     """
     por_docentry = {r.get('DocEntry'): r for r in linhas}
     for p in pedidos:
@@ -2104,15 +2116,16 @@ def _aplicar_faturamento(pedidos: list, linhas: list) -> None:
 
 
 def _resumir(pedidos: list) -> list:
-    """``resumir()`` do nucleo + os 3 campos de entrega, ja resolvidos.
+    """The core's ``resumir()`` + the 3 delivery fields and the invoicing keys, already resolved.
 
-    O ``resumir`` corta para as colunas da tela (``CAMPOS_RESUMO``, que e' do porte e
-    nao pode ganhar campo daqui). Os tres entram DEPOIS, nesta camada.
+    ``resumir`` cuts to the screen's columns (``CAMPOS_RESUMO``, which belongs to the port and
+    cannot gain fields from here). The delivery fields (``entrega_linha``, ``entrega_cidade_uf``,
+    ``entrega_difere``) and ``_CAMPOS_FATURAMENTO`` come in AFTER, in this layer.
 
-    **Sao os tres ja resolvidos, de proposito** (D4, decisao do Marcelo em 10/09): quem
-    esta no perfil ``resumo`` — o default da lista — nao recebe o ShipTo, entao nao tem
-    como escolher errado. ``entrega_difere`` vai junto porque desenha o selo da tela,
-    **nao** porque alguem deva decidir com ele.
+    **The delivery fields come already resolved, on purpose** (D4, Marcelo's decision of 10/09):
+    whoever is on the ``resumo`` profile -- the list's default -- does not receive the ShipTo, so
+    has no way to pick the wrong one. ``entrega_difere`` goes along because it draws the screen's
+    badge, **not** because anyone should decide with it.
     """
     resumidos = sit_ped.resumir(pedidos)
     for r, p in zip(resumidos, pedidos):
@@ -2127,11 +2140,11 @@ def _resumir(pedidos: list) -> list:
 
 
 def _situacao_recorte() -> tuple[dict, list]:
-    """Recorte inteiro da view: ``(dashboard, pedidos_com_alerta)``.
+    """Whole cut of the view: ``(dashboard, pedidos_com_alerta)``.
 
-    Uma unica ida ao :func:`fetch_status_pedidos` alimenta os dois -- e ela mesma passa
-    pelo cache, entao as tres consultas do plano respondem sobre o MESMO retrato. O
-    endereco de entrega entra aqui, sobre as mesmas linhas cruas.
+    A single trip to :func:`fetch_status_pedidos` feeds both -- and it goes through the cache
+    itself, so the plan's three queries answer about the SAME snapshot. The delivery address, the
+    release/NF fields and the invoicing keys are added here, over the same raw rows.
     """
     linhas = sit_ped_hana.fetch_status_pedidos(recarregar=_flag_query('recarregar'))
     dashboard = sit_ped.montar_dashboard(linhas)
@@ -2142,7 +2155,10 @@ def _situacao_recorte() -> tuple[dict, list]:
 
 
 def _campos_resumo(padrao_resumo: bool) -> bool:
-    """``?campos=resumo|completo``. O default e' por rota -- ver a D4 do plano."""
+    """``?campos=resumo|completo`` (``full`` is accepted as ``completo``): True for ``resumo``.
+
+    Absent or unknown falls back to ``padrao_resumo``, which is per route -- see D4 of the plan.
+    """
     pedido = (request.args.get('campos') or '').strip().lower()
     if pedido == 'resumo':
         return True
@@ -2153,26 +2169,26 @@ def _campos_resumo(padrao_resumo: bool) -> bool:
 
 @app.get('/pedidos/situacao')
 @requer_chave('leitura')
-def situacao_pedidos_lista():
-    """Recorte da Situacao dos Pedidos -- as consultas 2 e 3 do plano. Requer X-API-Key.
+def situacao_pedidos_lista() -> Response | tuple[Response, int]:
+    """Cut of the Situacao dos Pedidos -- queries 2 and 3 of the plan. Scope ``leitura``.
 
-    Sem parametro nenhum devolve o recorte inteiro da view (**consulta 3**: "todos os
-    dados, incluindo montadores"). Com ``?bloqueio=qualquer`` devolve so o que esta
-    travado em pelo menos uma etapa (**consulta 2**).
+    With no parameter it returns the whole cut of the view (**query 3**: "all the data,
+    including assemblers"). With ``?bloqueio=qualquer`` it returns only what is blocked in at
+    least one stage (**query 2**).
 
-    **Parametros:** ``bloqueio`` (``qualquer`` | ``financeiro`` | ``producao`` |
-    ``entrega`` | ``nenhum``), ``status`` (``todos`` | ``aberto`` | ``fechado``),
-    ``montador`` (CNPJ ou ``__sem__``), ``busca`` (cliente, codigo, numero do pedido ou
-    cotacao WBC), ``so_atrasados_fin=1`` (so quem passou dos 10 dias no financeiro),
-    ``campos`` (``resumo`` -- o default AQUI -- ou ``completo``) e ``recarregar=1``.
+    **Parameters:** ``bloqueio`` (``qualquer`` | ``financeiro`` | ``producao`` | ``entrega`` |
+    ``nenhum``), ``status`` (``todos`` | ``aberto`` | ``fechado``), ``montador`` (CNPJ or
+    ``__sem__``), ``busca`` (customer, code, pedido number or WBC quote), ``so_atrasados_fin=1``
+    (only those past the 10 days in Financeiro), ``campos`` (``resumo`` -- the default HERE -- or
+    ``completo``) and ``recarregar=1``.
 
-    **Os KPIs e a lista de montadores sao sempre do recorte INTEIRO**, nunca do
-    filtrado: e' assim na tela (o card diz quantos existem, o filtro diz quais aparecem),
-    e trocar isso faria o mesmo numero significar coisas diferentes nos dois lugares.
-    Quantos voltaram esta em ``total_filtrado``.
+    **The KPIs and the assemblers list always come from the WHOLE cut**, never the filtered one:
+    that is how the screen works (the card says how many exist, the filter says which show up),
+    and changing it would make the same number mean different things in the two places. How many
+    came back is in ``total_filtrado``.
 
-    **404 nao existe aqui:** filtro que nao casa com nada devolve **200** com a lista
-    vazia. E' resposta legitima ("nao ha nada bloqueado"), nao pedido inexistente.
+    **There is no 404 here:** a filter that matches nothing returns **200** with an empty list.
+    It is a legitimate answer ("nothing is blocked"), not a nonexistent request.
     """
     try:
         recorte, pedidos = _situacao_recorte()
@@ -2210,18 +2226,17 @@ def situacao_pedidos_lista():
 
 @app.get('/pedidos/<numero>/situacao')
 @requer_chave('leitura')
-def situacao_pedido_unico(numero: str):
-    """Situacao de UM pedido -- a consulta 1 do plano. Requer X-API-Key.
+def situacao_pedido_unico(numero: str) -> Response | tuple[Response, int]:
+    """Situacao of ONE pedido -- query 1 of the plan. Scope ``leitura``.
 
-    ``<numero>`` e' o **DocNum** (o numero que aparece na tela, ex.: 84260);
-    ``?chave=docentry`` procura pelo DocEntry. Os dois **nao** sao o mesmo numero, e
-    confundi-los devolveria outro pedido calado -- a mesma armadilha das rotas de Ordem
-    de Producao.
+    ``<numero>`` is the **DocNum** (the number on the screen, e.g. 84260); ``?chave=docentry``
+    searches by DocEntry. The two are **not** the same number, and mixing them up would return
+    another pedido silently -- the same trap as the Production Order routes.
 
-    **Pedido cancelado no SAP responde 200 dizendo "Cancelado"** (desde 2026-09-03). A
-    view exclui cancelado, entao a resposta vem da ORDR ao vivo, no MESMO formato: as
-    tres etapas viram ``"Cancelado"``, com ``fonte: "ordr"``, ``pedido_cancelado: true``
-    e ``aviso``. Quem consome nao precisa de outra chamada nem de outro `if`.
+    **A pedido cancelled in SAP answers 200 saying "Cancelado"** (since 2026-09-03). The view
+    excludes cancelled ones, so the answer comes from ORDR live, in the SAME shape: the three
+    stages become ``"Cancelado"``, with ``fonte: "ordr"``, ``pedido_cancelado: true`` and
+    ``aviso``. The consumer needs no second call and no other `if`.
     Closed pedido (``ORDR.DocStatus = 'C'``, 2026-10-14) takes the same path: 200 with
     the three stages ``"Fechado"``, ``pedido_cancelado: false`` and
     ``aviso.tipo = "pedido_fechado"``. A pedido closed by the future-delivery NF whose
@@ -2232,21 +2247,21 @@ def situacao_pedido_unico(numero: str):
     carry ``faturamento``/``remessa``/``faturado_em`` at the top (``null`` = open pedido or
     not read).
 
-    **404 quer dizer "nao da' para afirmar a situacao", nao "sem bloqueio"** -- e nunca
-    vem mudo: ``motivo`` diz qual dos tres casos e' (``fora_do_recorte``, o pedido de
-    2024 que a view nao carrega; ``pedido_nao_encontrado``, DocNum que nao existe na
-    ORDR; ``indeterminado``, o SAP nao respondeu agora) e ``status_pedido`` traz o que a
-    ORDR disser. Responder "sem bloqueio" em qualquer um deles seria mentira.
+    **404 means "the situation cannot be asserted", not "no block"** -- and it is never mute:
+    ``motivo`` says which of the three cases it is (``fora_do_recorte``, the 2024 pedido the
+    view does not load; ``pedido_nao_encontrado``, a DocNum that does not exist in ORDR;
+    ``indeterminado``, SAP did not answer now) and ``status_pedido`` carries whatever ORDR says.
+    Answering "no block" in any of them would be a lie.
 
-    Em toda resposta, ``status_pedido`` + ``pedido_cancelado`` no topo -- o MESMO par de
-    ``GET /ordens-servico/<nped>``, com o mesmo sentido (``null`` = nao se sabe).
+    Every answer carries ``status_pedido`` + ``pedido_cancelado`` at the top -- the SAME pair as
+    ``GET /ordens-servico/<nped>``, with the same meaning (``null`` = unknown).
 
-    **409** quando o numero casa com mais de um pedido: recusa, nunca resolve por
-    ``[0]``. Nao deve acontecer (a view e' por DocEntry), e e' justamente por isso que
-    merece resposta propria em vez de "o primeiro que achar".
+    **409** when the number matches more than one pedido: it refuses, never resolves by ``[0]``.
+    It should not happen (the view is per DocEntry), which is exactly why it deserves its own
+    answer instead of "the first one found".
 
-    Aqui o default e' ``campos=completo`` (e' um registro so, cabe); ``?campos=resumo``
-    corta para as 10 colunas da tela.
+    Here the default is ``campos=completo`` (a single record, it fits); ``?campos=resumo`` cuts
+    to the 11 columns of the screen (``CAMPOS_RESUMO``).
     """
     n = _inteiro_positivo(numero, 'numero do pedido')
 
@@ -2345,24 +2360,23 @@ def _entrega_futura_pendente(info: dict | None) -> bool:
         info.get('remessa') in ('nenhuma', 'parcial')
 
 
-def _situacao_fora_da_view(n: int, campo: str):
-    """Pedido que a ``VW_STATUS_PEDIDO_DDP`` nao carrega -> pergunta ao SAP (ORDR).
+def _situacao_fora_da_view(n: int, campo: str) -> Response | tuple[Response, int]:
+    """Pedido that ``VW_STATUS_PEDIDO_DDP`` does not load -> ask SAP (ORDR).
 
-    **Cancelado responde 200 dizendo "Cancelado"** (decisao do dono, 2026-09-03). Ate
-    aqui a rota devolvia um 404 mudo, identico ao de um pedido de 2024, e a tela de quem
-    consome mostrava "sem situacao" para pedido que o usuario tinha cancelado no SAP
-    (84282, 84305, 84314) — reclamacao real de quem consome. Cancelado **e'** uma
-    situacao, e a ORDR sabe dize-la.
+    **Cancelled answers 200 saying "Cancelado"** (owner's decision, 2026-09-03). Until then the
+    route returned a mute 404, identical to a 2024 pedido's, and the consumer's screen showed
+    "sem situacao" for pedidos the user had cancelled in SAP (84282, 84305, 84314) -- a real
+    complaint. Cancelled **is** a situation, and ORDR can say it. Closed and future-delivery
+    pedidos take the same path (see :func:`situacao_pedido_unico`).
 
-    O payload sai com o **mesmo formato** do caminho da view (passa pelo
-    :func:`situacao_pedidos.normalizar`, entao nenhuma chave falta e nada muda de tipo):
-    as tres etapas vem ``"Cancelado"`` em vez de Liberado/Bloqueado. Quem ja desenha o
-    chip da etapa passa a escrever "Cancelado" sem mudar uma linha.
+    The payload comes out in the **same shape** as the view path (it goes through
+    :func:`situacao_pedidos.normalizar`, so no key is missing and nothing changes type): the three
+    stages come as ``"Cancelado"`` instead of Liberado/Bloqueado. Whoever already draws the stage
+    chip starts writing "Cancelado" without changing a line.
 
-    Os demais casos continuam **404** — mas nunca mudos: ``motivo`` diz qual e'
-    (``fora_do_recorte`` / ``pedido_nao_encontrado`` / ``indeterminado``) e
-    ``status_pedido`` traz o que a ORDR disser. SAP fora e' ``indeterminado``, jamais
-    "sem bloqueio".
+    The remaining cases stay **404** -- but never mute: ``motivo`` says which one it is
+    (``fora_do_recorte`` / ``pedido_nao_encontrado`` / ``indeterminado``) and ``status_pedido``
+    carries whatever ORDR says. SAP down is ``indeterminado``, never "no block".
     """
     # A ORDR so' sabe procurar por DocNum: com ?chave=docentry nao ha o que perguntar,
     # e inventar uma traducao devolveria a situacao de OUTRO pedido, calada.
@@ -2494,7 +2508,7 @@ def _numero_do_pedido(numero: str) -> int:
     return n
 
 
-def _recusa_entrega(n: int | None, exc: entrega.Recusa):
+def _recusa_entrega(n: int | None, exc: entrega.Recusa) -> tuple[Response, int]:
     """A refusal in the house shape: ``motivo`` = stable key, ``error`` = text."""
     corpo = {'ok': False, 'motivo': exc.motivo, 'error': exc.texto, **exc.extra}
     if n is not None:
@@ -2502,7 +2516,7 @@ def _recusa_entrega(n: int | None, exc: entrega.Recusa):
     return jsonify(corpo), exc.status
 
 
-def _base_entrega():
+def _base_entrega() -> Any:
     """The service_role client, or ``None``. Never the anon fallback of ``_supabase``: with RLS
     and no policy, anon reads ``[]`` WITHOUT an error and the agreed date would silently turn
     back into the SAP one."""
@@ -2604,7 +2618,7 @@ def _bloco_entrega(n: int, linhas: list, pedido: dict | None, *, sap_disponivel:
 
 @app.post('/pedidos/<numero>/data-entrega/solicitacoes')
 @requer_chave('entrega:solicitar')
-def entrega_solicitar(numero: str):
+def entrega_solicitar(numero: str) -> tuple[Response, int]:
     """Production asks for a new agreed delivery date of ONE order (by DocNum). Never writes SAP.
 
     The order of the checks is contract: a retry is recognised in the base BEFORE the rate
@@ -2628,7 +2642,7 @@ def entrega_solicitar(numero: str):
     except entrega.Recusa as exc:
         return _recusa_entrega(n, exc)
 
-    def _repeticao(linhas: list):
+    def _repeticao(linhas: list) -> tuple[Response, int] | None:
         """The pending row decides a repeat: same content from Production → 200; anything else → 409.
 
         A Comercial pending with the same date and reason is NOT a repeat: it waits for Production's
@@ -2733,7 +2747,7 @@ def entrega_solicitar(numero: str):
 
 @app.get('/pedidos/<numero>/data-entrega')
 @requer_chave('entrega:ler')
-def entrega_do_pedido(numero: str):
+def entrega_do_pedido(numero: str) -> Response | tuple[Response, int]:
     """The agreed delivery date of ONE order + the whole thread (requests, decisions and
     Comercial's direct changes). ``null`` in a date/delay field means only "cannot tell"."""
     try:
@@ -2789,7 +2803,7 @@ def entrega_do_pedido(numero: str):
 
 @app.get('/pedidos/data-entrega/solicitacoes')
 @requer_chave('entrega:ler')
-def entrega_solicitacoes():
+def entrega_solicitacoes() -> Response | tuple[Response, int]:
     """Requests across orders: ``?situacao=pendente`` (default) | ``decididas`` | ``todas``,
     ``?dias=7`` (1-90, for decided/all), ``?limite=100`` (1-200). Newest first. What Production
     asks every morning: "what changed since yesterday?" — Comercial's direct changes included."""
@@ -2827,7 +2841,7 @@ _TEXTO_ACAO = {'aprovar': 'aprovada', 'recusar': 'recusada', 'cancelar': 'cancel
 
 @app.post('/pedidos/data-entrega/solicitacoes/<id_>/<acao>')
 @requer_chave('entrega:solicitar')
-def entrega_decidir(id_: str, acao: str):
+def entrega_decidir(id_: str, acao: str) -> tuple[Response, int]:
     """Production approves or refuses Comercial's pending request, or cancels a Production one.
 
     Conditional UPDATE (pending AND the right origin): two deciders never overwrite each other.
@@ -2857,7 +2871,7 @@ def entrega_decidir(id_: str, acao: str):
     except entrega.Recusa as exc:
         return _recusa_entrega(None, exc)
 
-    def _ja_resolvida(atual: dict | None):
+    def _ja_resolvida(atual: dict | None) -> tuple[Response, int]:
         """Answer for a row that cannot change now (missing, other side's turn, already decided)."""
         if atual is None:
             return _recusa_entrega(None, entrega.Recusa(404, 'solicitacao_nao_encontrada',
@@ -2878,7 +2892,7 @@ def entrega_decidir(id_: str, acao: str):
             f"esta solicitacao ja foi {atual.get('situacao')} por {atual.get('decidido_por') or '-'}",
             solicitacao={**atual, 'aguarda': None}))
 
-    def _base_fora(exc: Exception):
+    def _base_fora(exc: Exception) -> tuple[Response, int]:
         logger.error("[ENTREGA] decisao %s da solicitacao %s falhou: %s", acao, sol, exc)
         return _recusa_entrega(None, entrega.Recusa(
             503, 'base_indisponivel',
@@ -2916,7 +2930,7 @@ def entrega_decidir(id_: str, acao: str):
 
 @app.get('/manutencao-op/pedidos-fechados')
 @requer_chave('leitura')
-def manutencao_op_pedidos_fechados():
+def manutencao_op_pedidos_fechados() -> tuple[Response, int]:
     """Closed orders that still have open OPs — read from the Controle de Produção (loopback).
 
     PLANO_ENCERRAR_OPS_PEDIDOS_FECHADOS F3: the MCP talks only to this API, and the list lives
@@ -2932,7 +2946,7 @@ def manutencao_op_pedidos_fechados():
 
 @app.get('/compras/pedidos-itens')
 @requer_chave('leitura')
-def compras_pedidos_itens():
+def compras_pedidos_itens() -> Response | tuple[Response, int]:
     """Purchase-order lines from ``VW_ALTA_PEDIDOS_COMPRA_ITENS`` (contract: API_PEDIDOS_COMPRA.md).
 
     Optional filters, combined with AND: ``pedido`` (DocNum), ``fornecedor`` (code, exact),
@@ -3016,16 +3030,15 @@ def _colab_carimbo(linhas: list[dict]) -> str | None:
 
 
 def _colab_frescor(carimbo_iso: str | None) -> dict:
-    """Frescor do espelho: perdeu o último slot? contra qual slot comparou?
+    """Freshness of the mirror: did it miss the last slot, and which slot was it compared against?
 
-    Não é um "mais velho que N horas": na segunda de manhã o dado É de sexta e
-    isso está certo (a carga só roda em dia útil). A pergunta é se o 12:40 mais
-    recente que já passou produziu carga.
+    It is not an "older than N hours": on Monday morning the data IS from Friday and that is
+    right (the load only runs on business days). The question is whether the most recent 12:40
+    that has already passed produced a load.
 
-    Devolve também ``carga_esperada_em`` (o slot da comparação, que torna o
-    ``desatualizado`` auditável em vez de mágico) e ``atualizado_em_br`` — o mesmo
-    instante em horário de Brasília, porque o carimbo cru é UTC e "19:31" já é
-    lido como se fosse hora local por quem bate o olho no JSON.
+    Also returns ``carga_esperada_em`` (the slot compared against, which makes ``desatualizado``
+    auditable instead of magic) and ``atualizado_em_br`` -- the same instant in Brasília time,
+    because the raw stamp is UTC and "19:31" is read as local time by whoever glances at the JSON.
     """
     # Import local: o módulo `time` (stdlib) já é importado no topo com esse nome.
     from datetime import datetime, timedelta
@@ -3061,10 +3074,10 @@ def _colab_frescor(carimbo_iso: str | None) -> dict:
 
 
 def _agrupar_colaboradores(linhas: list[dict]) -> list[dict]:
-    """Empresa → Setor → colaboradores, ordenado e com contagens.
+    """Empresa → Setor → colaboradores, sorted and with counts.
 
-    ``cargo`` é CAMPO do colaborador, não um nível: aninhar por cargo criaria um
-    nível de uma pessoa só na maioria dos casos (decisão 4 do plano).
+    ``cargo`` is a FIELD of the colaborador, not a level: nesting by cargo would create a
+    one-person level in most cases (decision 4 of the plan).
     """
     por_empresa: dict = {}
     for linha in linhas:
@@ -3102,22 +3115,21 @@ def _agrupar_colaboradores(linhas: list[dict]) -> list[dict]:
 
 @app.get('/rh/colaboradores')
 @requer_chave('rh')
-def rh_colaboradores():
-    """Quadro de colaboradores das 3 empresas do Kairos. Requer X-API-Key.
+def rh_colaboradores() -> Response | tuple[Response, int]:
+    """Roster of the 3 Kairos companies. Scope ``rh``.
 
-    Devolve ``empresas[] → setores[] → colaboradores[]``, cada pessoa com
-    ``status`` (``ativo``/``desligado``/``ausente``), cargo, matrícula e o sinal
-    ``em_ferias_ou_afastado``. **A linha do desligado nunca some** — é isso que
-    impede o programa de quem consome de quebrar quando alguém sai; use
-    ``?somente_ativos=1`` para receber só quem está na ativa.
+    Returns ``empresas[] → setores[] → colaboradores[]``, each person with ``status``
+    (``ativo``/``desligado``/``ausente``), cargo, matrícula and the ``em_ferias_ou_afastado``
+    signal. **The row of someone who left never disappears** -- that is what keeps the consumer's
+    program from breaking when somebody leaves; use ``?somente_ativos=1`` to receive only who is
+    active.
 
-    ``?empresa=`` restringe a uma empresa e **recusa (400)** chave desconhecida,
-    de propósito: cair no default devolveria o quadro de outra empresa com 200.
+    ``?empresa=`` restricts to one company and **refuses (400)** an unknown key, on purpose:
+    falling back to a default would return another company's roster with a 200.
 
-    ``desatualizado=true`` diz que a carga do último 12:40 de dia útil não
-    chegou — o dado ainda é servido (é o último bom conhecido), mas quem
-    consome fica sabendo. Fonte: espelho ``kairos_colaboradores`` no Supabase,
-    escrito pelo web_orcaview_V118; esta API só lê.
+    ``desatualizado=true`` says the load of the last business-day 12:40 did not arrive -- the
+    data is still served (it is the last known good), but the consumer is told. Source: the
+    ``kairos_colaboradores`` mirror in Supabase, written by web_orcaview_V118; this API only reads.
     """
     empresa = (request.args.get('empresa') or '').strip().lower()
     if empresa and empresa not in COLAB_EMPRESAS:
