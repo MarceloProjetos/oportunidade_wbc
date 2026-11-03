@@ -1,7 +1,7 @@
 # Plano — docstrings e type hints em inglês (ServidorIntegracaoSAP)
 
-> **Status (03/11/2026):** **E1 e E2 concluídas** (25 arquivos; 38 docstrings desatualizados
-> corrigidos); E3–E8 abertas.
+> **Status (03/11/2026):** **E1, E2 e E3 concluídas** (29 arquivos; 44 docstrings desatualizados
+> corrigidos + 1 regra errada no CLAUDE.md); E4–E8 abertas.
 > Página: ver o artifact "Docstrings EN" (mesmo conteúdo).
 
 **Começo → Meio → Fim:** núcleo que tudo importa (E1) → regras que escrevem no SAP (E2–E5) → API,
@@ -56,7 +56,7 @@ tarefa; um em `dashboard/` vale só quando mexo na tela.
 | --- | --- | --- | --- | --- | --- |
 | **E1** | Núcleo: `safety`, configs, `padroes`, clientes do Service Layer, HANA e SQL Server, `tarefas`, `acesso`, `guardas`, `sql_seguro` | 20 | 79 | 3 | **concluída** |
 | **E2** | Regra do CP — Pedidos WBC (`service.py`, `acoes.py`, `queries.py`, `listas_fixas.py`) | 5 | 69 | 11 | **concluída** |
-| **E3** | Regra do CP — Manutenção de OP | 7 | 17 | 8 | aberta |
+| **E3** | Regra do CP — Manutenção de OP | 4 | 17 | 8 | **concluída** |
 | **E4** | Worker WBC — `domain/`, `application/`, `host/` | 19 | 125 | 0 | aberta |
 | **E5** | Worker WBC — `infrastructure/`, `tracking/` | 24 | 115 | 0 | aberta |
 | **E6** | API 8077 e extrações (`api.py`, `pipeline_core`, `situacao_pedidos_hana`, `extract_*`, `monitoring`) | 14 | 94 | 90 | aberta |
@@ -112,6 +112,20 @@ enganavam:
 **dizia ao operador** que pedido integrado é "reprocessável com `--force`" — e `--force` duplica OP.
 ✅ Corrigido em 03/11/2026 (commit à parte): as 3 mensagens apontam para `reprocessar-integrados`, e
 o `--help` do `--force` e do `processar-novos` avisa que ele duplica e diz como retomar.
+
+### O que a E3 achou de desatualizado (6 + o CLAUDE.md)
+
+`service.py`, `acoes.py`, `fechados.py`, `queries.py` (os 4 routers ficam na E7).
+
+- **CLAUDE.md da .11** dizia que Liberar, Replanejar **e** Encerrar recusam OP com saída/entrada
+  lançada. Pelo código e pelos testes, **só o Replanejar recusa** (o lote inteiro, 409); o Encerrar
+  **pula** OP já apontada e dá saída só no insumo pendente; o Liberar não confere. Corrigido.
+- `muda_status`: não dizia que OP terminal, OP já no status-alvo e (no Replanejar) OP com
+  movimento vão para `ignoradas` sem chegar ao SAP.
+- `finalizar_ops`: não dizia que falha entre a liberação e a saída devolve a OP para Planejada.
+- `_valida_status` dizia "impede injeção": o status já vai como parâmetro `?`; ela só dá erro legível.
+- `levanta_ops`: por pedido exclui OP Cancelada, por número não.
+- `encerra_pedido_com_ajustes`: item inativo sem "ativar inativos" **não** tenta de novo.
 
 ## Decisões
 

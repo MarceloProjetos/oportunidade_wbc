@@ -1,25 +1,19 @@
-"""Lógica de negócio do módulo Manutenção de OP — **completo** (17/09/2026).
+"""Business logic of Manutenção de OP: status changes, search and closing with stock movement.
 
-- 16/09/2026: mudança de status (`muda_status`) — CLI `liberar` / `replanejar`.
-- 17/09/2026: busca com filtros (`buscar_ops`) e encerramento com movimentação de estoque
-  (`corrige_op` + `saida_insumo` + `entrada_produto` + `finalizar_ops`) — CLI `buscar` e
-  `encerrar`.
+Port of `Views/ManutencaoOp.b1f.cs`; CLI commands `buscar`, `liberar`, `replanejar`, `encerrar`
+(see section 4.5 of migration_guide.md).
 
-Referência: `Views/ManutencaoOp.b1f.cs` (ver seção 4.5 do migration_guide.md).
-Prioridade 3 na ordem de migração acordada com o usuário.
+Mapping to the legacy C# (`Views/ManutencaoOp.b1f.cs`):
 
-Referência linha a linha do C# original (`Views/ManutencaoOp.b1f.cs`):
+- `buscar_ops`      <- `buscar()` (line ~99)
+- `muda_status`     <- `mudaStatus` + `updateOP` (lines ~241 and ~278)
+- `corrige_op`      <- `corrigeOP` (line ~364)
+- `saida_insumo`    <- `SaidaEnsumo` (line ~472)
+- `entrada_produto` <- `EntradaProduto` (line ~547)
+- `finalizar_ops`   <- `Button4_ClickAfter` (line ~399)
 
-- `buscar_ops`      <- `buscar()` (linha ~99)
-- `muda_status`     <- `mudaStatus` + `updateOP` (linhas ~241 e ~278)
-- `corrige_op`      <- `corrigeOP` (linha ~364)
-- `saida_insumo`    <- `SaidaEnsumo` (linha ~472)
-- `entrada_produto` <- `EntradaProduto` (linha ~547)
-- `finalizar_ops`   <- `Button4_ClickAfter` (linha ~399)
-
-⚠️ NÃO portar `cancelapedidoteste` (linha ~321) — é código de teste manual do
-desenvolvedor original que cancela um range fixo de DocEntry (13302-13309),
-sem relação com a lógica de negócio real.
+WARNING: do NOT port `cancelapedidoteste` (line ~321). It is the original developer's manual
+test code that cancels a fixed DocEntry range (13302-13309), unrelated to the business logic.
 """
 from __future__ import annotations
 
@@ -90,14 +84,15 @@ def _inteiro(valor: object, rotulo: str) -> int:
 def _monta_filtro(
     op_de: str | None, op_ate: str | None, status_de: str | None, status_ate: str | None
 ) -> tuple[str, list]:
-    """Reproduz a montagem do `WhereQuery` de `ManutencaoOp.buscar()` (linha ~99).
+    """Build the optional filter of `OPS_MANUTENCAO`, as the legacy `WhereQuery` of `buscar()` (line ~99).
 
-    Regra do original, preservada: informar só o limite inferior vira igualdade (`=`),
-    e informar os dois vira `between`. O limite superior sozinho é ignorado — no legado
-    porque o `if` externo testa só o inferior; aqui isso vira um erro explícito, já que
-    numa CLI o usuário não tem a tela para perceber que o filtro não foi aplicado.
+    Kept from the original: only a lower bound becomes equality (`=`), both become `BETWEEN`.
+    An upper bound alone is ignored by the legacy (its outer `if` tests only the lower one); here
+    it is an explicit ValueError, because a CLI user has no screen to notice the filter was not
+    applied. Inverted ranges raise too (status ranges compare the codes alphabetically).
 
-    Returns ``(fragment, params)``: since F7 (28/09/2026) the values are bound parameters.
+    Returns:
+        ``(fragment, params)``; since F7 (28/09/2026) the values are bound parameters.
     """
     if op_ate and not op_de:
         raise ValueError("--op-ate exige --op-de (o legado ignora silenciosamente esse caso).")
@@ -146,10 +141,10 @@ def _monta_filtro(
 
 
 def _valida_status(codigo: str) -> str:
-    """Impede injeção no literal de status e erros de digitação silenciosos.
+    """Normalise a status code and refuse anything that is not a real `OWOR."Status"` value.
 
-    O legado interpolava o conteúdo da caixa de texto direto na query. Como aqui a origem
-    é a linha de comando, o valor é restrito aos códigos reais de `OWOR."Status"`.
+    Not about injection any more (values are bound parameters): it turns a typo into a readable
+    error instead of an empty result. Returns the upper-case code.
     """
     codigo = (codigo or "").strip().upper()
     if codigo not in STATUS_OP:
@@ -167,15 +162,18 @@ def buscar_ops(
     status_de: str | None = None,
     status_ate: str | None = None,
 ) -> list[dict]:
-    """`ManutencaoOp.buscar()` (linha ~99) — OPs de um pedido, com os filtros da tela.
+    """`ManutencaoOp.buscar()` (line ~99): the OPs of an order, with the screen's filters.
 
-    O pedido é obrigatório, como no original ("O número do pedido é obrigatório."), e a
-    ordenação final é `DocNum` decrescente. Somente leitura: é a consulta que alimenta as
-    demais ações do módulo.
+    The order number is required ("O número do pedido é obrigatório."); the result is ordered by
+    `DocNum` descending. Read-only; it feeds the other actions of the module. Each row also
+    carries "Baixada" (issued quantity; None when the row lacks it).
 
-    Leitura por `hdbcli` e não pela Service Layer: a query tem três joins e aliases de
-    exibição — exatamente o caso que a decisão de 14/09 reserva ao acesso direto (seção 6.4
-    do guia). A assinatura antiga recebia um `ServiceLayerClient`; foi trocada por isso.
+    Read through `hdbcli`, not the Service Layer: three joins and display aliases are the case the
+    14/09 decision reserves for direct access (guide section 6.4). The old signature took a
+    `ServiceLayerClient`; it was replaced for that reason.
+
+    Raises:
+        ValueError: empty or non-numeric order, or an invalid/inverted filter.
     """
     if not str(doc_num or "").strip():
         raise ValueError("O número do pedido é obrigatório.")
@@ -201,10 +199,14 @@ def levanta_ops(
     op_docnums: list[str] | None = None,
     doc_num_pedido: str | None = None,
 ) -> list[dict]:
-    """Lê as OPs alvo com o status atual — por número de OP, ou todas de um pedido.
+    """Read the target OPs with their current status: by OP number, or all OPs of an order.
 
-    Substitui a grade da tela original: no legado o usuário via os status antes de clicar
-    em Liberar/Planejar, e é essa informação que permite decidir. Só leitura.
+    Replaces the legacy grid, where the user saw the statuses before clicking Liberar/Planejar.
+    Read-only. The lookup by order leaves out Cancelada OPs; the lookup by number does not.
+    ``baixada`` is None when the row did not carry it (the Replanejar guard reads it as unknown).
+
+    Raises:
+        ValueError: a non-numeric number, or neither argument given.
     """
     if op_docnums:
         numeros = list(dict.fromkeys(_inteiro(n, "Número da OP") for n in op_docnums))
@@ -335,21 +337,27 @@ def acoes_possiveis(
 
 
 async def muda_status(sl: ServiceLayerClient, ops: list[dict], status: str) -> dict:
-    """`ManutencaoOp.mudaStatus` + `updateOP` — muda o status das OPs informadas.
+    """`ManutencaoOp.mudaStatus` + `updateOP`: change the status of the given OPs via the Service Layer.
 
-    `status` usa os códigos do legado: `"l"` liberar, `"p"` planejar, `"c"` cancelar,
-    `"f"` encerrar.
+    Args:
+        status: legacy code: "l" Liberar, "p" Replanejar, "c" cancel, "f" close.
 
-    ⚠️ **`"f"` não deve ser chamado isoladamente.** No legado ele é o último passo do
-    encerramento (`Button4_ClickAfter`), depois de `corrigeOP` + `SaidaEnsumo` +
-    `EntradaProduto` — fechar a OP sem a movimentação de estoque deixa o apontamento
-    inconsistente. Está no mapa porque `finalizar_ops` vai precisar dele, não para uso
-    avulso; a CLI expõe apenas liberar e replanejar.
+    Returns:
+        ``{"alteradas", "com_erro", "ignoradas", "destino"}``. Terminal OPs, OPs already in the
+        target status and, for "p", OPs with a goods issue/receipt posted (or unknown) go to
+        ``ignoradas`` with a ``motivo`` and never reach the SAP.
 
-    Diferença consciente em relação ao C#: lá cada OP era atualizada e os erros iam só para
-    o `INO_LOG`/status bar, sem o usuário saber quais deram certo. Aqui o resultado separa
-    `alteradas` de `com_erro`, e um erro numa OP não interrompe as demais — mesmo critério
-    adotado no `cancelar-ops` do módulo 2.
+    Raises:
+        ValueError: unknown status code.
+
+    WARNING: "f" must not be called alone. In the legacy it is the last step of the closing
+    (`Button4_ClickAfter`), after `corrigeOP` + `SaidaEnsumo` + `EntradaProduto`; closing an OP
+    without the stock movement leaves the report inconsistent. It is mapped because
+    `finalizar_ops` calls it; the CLI exposes only liberar and replanejar.
+
+    Deliberate difference from the C#: there each OP was updated and errors went only to
+    `INO_LOG`/status bar. Here the result separates `alteradas` from `com_erro` and one failing OP
+    does not stop the others (same criterion as `cancelar-ops` of module 2).
     """
     transicao = TRANSICOES.get(status)
     if not transicao:
@@ -436,32 +444,32 @@ def _filial_do_movimento(
     hana_reader: HanaDirectReader, doc_entry: int, filial_configurada: int = 0,
     cache: dict | None = None,
 ) -> int:
-    """Descobre a filial (`BPLId`) a usar na saída e na entrada de mercadoria da OP.
+    """Find the branch (`BPLId`) for the OP's goods issue and receipt.
 
-    A Service Layer recusa os dois documentos sem esse campo quando a empresa usa filiais
-    (`Specify an active branch [OIGE.BPLId]`). O C# não informa `BPLId` em lugar nenhum
-    porque a DI API o preenchia a partir da filial padrão do usuário logado — não há
-    equivalente a portar, é comportamento a inventar. Descoberto em 21/09/2026, no
-    primeiro `encerrar` real (seção 7.27 do guia).
+    The Service Layer refuses both documents without it when the company uses branches
+    (`Specify an active branch [OIGE.BPLId]`). The C# never sets `BPLId` because the DI API filled
+    it from the logged user's default branch: nothing to port, behaviour to invent. Found on
+    21/09/2026 in the first real `encerrar` (guide section 7.27).
 
-    **Deriva do dado, não de configuração.** A ordem de preferência:
+    Derived from data, not configuration. The first candidate that is an ACTIVE branch wins:
 
-    1. **Filial do depósito da OP** — um lançamento de estoque acontece na filial do
-       depósito, e o próprio B1 exige essa coerência. É o candidato mais correto.
-    2. **Filial dos depósitos dos componentes** — cobre a OP cujo depósito de produto não
-       tem filial definida. Usa o menor `BPLId` entre eles.
-    3. **Filial do pedido de origem** — vínculo mais fraco (uma OP pode atender pedido de
-       outra filial), por isso vem depois.
-    4. `SL_BUSINESS_PLACE_ID` do `.env` — último recurso, e de propósito: um número fixo
-       em configuração quebra em silêncio no dia em que a segunda filial for criada.
+    1. branch of the OP's warehouse (a stock posting happens in the warehouse's branch and the B1
+       itself demands that coherence);
+    2. lowest branch among the components' warehouses (OP warehouse without a branch);
+    3. branch of the origin order (weakest link: an OP may serve another branch's order);
+    4. `SL_BUSINESS_PLACE_ID` from `.env`: last resort on purpose, a fixed configured number
+       breaks silently the day a second branch is created.
 
-    Cada candidato é conferido contra as filiais **ativas** (`OBPL."Disabled" <> 'Y'`), e
-    não só contra as existentes: a mensagem do SAP fala em filial ativa, e uma empresa pode
-    ter filial cadastrada e desabilitada (é o caso aqui — a filial 2 está desabilitada).
-    Melhor falhar com um motivo legível antes de postar do que receber a recusa do SAP.
+    Candidates are checked against ACTIVE branches (`OBPL."Disabled" <> 'Y'`), not just existing
+    ones: the SAP message speaks of an active branch and the company has a registered but disabled
+    one (branch 2). Failing with a readable reason before posting beats the SAP's refusal.
 
-    `cache` (30/09/2026): one dict per `finalizar_ops` call. The active branches are the
-    same for every OP of a closing — they were read again per OP.
+    Args:
+        cache: one dict per `finalizar_ops` call (30/09/2026); the active branches are the same
+            for every OP of a closing and were read again per OP.
+
+    Raises:
+        ValueError: no active branch in OBPL, or none of the candidates is active.
     """
     cache = {} if cache is None else cache
     if "filiais_ativas" not in cache:
@@ -508,27 +516,25 @@ def _filial_do_movimento(
 def _serie_do_documento(
     hana_reader: HanaDirectReader, object_code: str, filial: int, cache: dict | None = None,
 ) -> int:
-    """Descobre a série de numeração (`Series`) do documento, para a filial informada.
+    """Find the numbering series (`Series`) of a stock document for the given branch.
 
-    Segunda metade da lacuna do `BPLId` (seção 7.27). Informar só a filial **não basta**:
-    a Service Layer continua respondendo `Specify an active branch` até receber também a
-    `Series`. A DI API escolhia a série padrão do usuário logado — de novo, não há o que
-    portar do C#, é comportamento a inventar.
+    Second half of the `BPLId` gap (section 7.27): with the branch alone the Service Layer keeps
+    answering `Specify an active branch` until `Series` is sent too. The DI API picked the logged
+    user's default series: again behaviour to invent, not to port.
 
-    Confirmado no ambiente da Altamira: as séries não são por filial (`NNM1."BPLId"` nulo)
-    e os documentos existentes em `OIGE` têm `Series = 20` com `BPLId = 1`. A precedência
-    abaixo cobre os dois arranjos, porque uma empresa pode passar a ter séries por filial
-    sem avisar ninguém:
+    Confirmed at Altamira: series are not per branch (`NNM1."BPLId"` null) and existing `OIGE`
+    documents have `Series = 20` with `BPLId = 1`. The precedence covers both layouts, because a
+    company may move to per-branch series without notice: the branch's own series first, then a
+    series with no branch (serves all); never a locked one (`Locked = 'Y'`); ties go to the lowest
+    number so the choice is deterministic (a different series per run would scatter the numbering).
 
-    1. Série cadastrada **para aquela filial**;
-    2. Série **sem filial**, que serve todas;
+    Args:
+        object_code: `NNM1."ObjectCode"` ('60' OIGE, '59' OIGN).
+        cache: one dict per `finalizar_ops` call (30/09/2026); the series depends only on document
+            type and branch, and was read twice per OP.
 
-    nunca uma série bloqueada (`Locked = 'Y'`), e o empate é resolvido pelo menor número
-    para a escolha ser determinística — uma série diferente a cada execução espalharia a
-    numeração dos documentos sem que ninguém entendesse por quê.
-
-    `cache` (30/09/2026): one dict per `finalizar_ops` call — the series depends only on the
-    document type and the branch, and was read twice per OP.
+    Raises:
+        ValueError: no active series for that document type and branch.
     """
     chave = ("serie", str(object_code), int(filial))
     if cache is not None and chave in cache:
@@ -553,29 +559,25 @@ def _serie_do_documento(
 async def corrige_op(
     sl: ServiceLayerClient, doc_entry: int, status_atual: str = ""
 ) -> bool:
-    """`ManutencaoOp.corrigeOP` (linha ~364) — prepara a OP para o apontamento.
+    """`ManutencaoOp.corrigeOP` (line ~364): prepare the OP for the goods movements.
 
-    **Regra de negócio (informada pelo Anderson em 21/09/2026): uma OP só pode ser
-    apontada estando LIBERADA.** Encerrar uma OP envolve apontar produção — saída de
-    insumo e entrada de produto —, então uma OP Planejada precisa ser liberada antes. É
-    essa a razão de o `corrigeOP` do legado liberar a OP; até aqui o guia registrava só a
-    consequência técnica (sem `im_Manual` o SAP tenta backflush e recusa a saída manual),
-    sem dizer a regra que a motiva.
+    Rule from Anderson (21/09/2026): an OP can only be reported on while LIBERADA. Closing involves
+    reporting production (issue + receipt), so a Planejada OP must be released first; that is why
+    the legacy `corrigeOP` releases it (without `im_Manual` the SAP tries backflush and refuses the
+    manual issue).
 
-    Faz duas coisas num único PATCH:
+    One partial PATCH does two things:
 
-    1. **Libera a OP**, se ela ainda não estiver liberada. Com `status_atual == "R"` o
-       campo de status não é enviado: a OP já está onde precisa, e reenviar o mesmo status
-       é uma escrita sem efeito.
-    2. Força `ProductionOrderIssueType = Manual` em **todas** as linhas — isso vai sempre,
-       independente do status, porque é o que permite a baixa manual dos insumos.
+    1. releases the OP unless ``status_atual`` is already "R" (then the status field is not sent:
+       resending it is a write with no effect);
+    2. sets `ProductionOrderIssueType = im_Manual` on ALL lines, always, which allows the manual
+       issue of the components.
 
-    Devolve `True` quando a liberação foi incluída no PATCH, para quem chama poder relatar
-    a transição de verdade em vez de supor.
+    Only `LineNumber` + the changed field go per line (guide section 7.11): resending the whole
+    collection drops fields the Service Layer returns empty but does not accept back.
 
-    Usa PATCH parcial das linhas (só `LineNumber` + o campo alterado), pelo motivo
-    registrado na seção 7.11 do guia: reenviar a coleção inteira derruba campos que a
-    Service Layer devolve vazios mas não aceita de volta.
+    Returns:
+        True when the release was included in the PATCH, so the caller reports the real transition.
     """
     op = await sl.get_by_key("ProductionOrders", doc_entry)
     linhas = op.get("ProductionOrderLines") or []
@@ -604,19 +606,21 @@ async def saida_insumo(
     sl: ServiceLayerClient, hana_reader: HanaDirectReader, doc_entry: int,
     filial: int, serie: int,
 ) -> dict:
-    """`ManutencaoOp.SaidaEnsumo` (linha ~472) — Saída de Mercadoria dos componentes.
+    """`ManutencaoOp.SaidaEnsumo` (line ~472): goods issue (`InventoryGenExits`) of the OP's components.
 
-    Cria um `InventoryGenExits` com uma linha por componente, apontando para a OP
-    (`BaseType`/`BaseEntry`/`BaseLine`). Item, quantidade e depósito NÃO são informados: o
-    SAP os copia do documento base, exatamente como no original (que tinha essas atribuições
-    comentadas).
+    One line per component pointing at the OP (`BaseType`/`BaseEntry`/`BaseLine`). Item, quantity
+    and warehouse are NOT sent: the SAP copies them from the base document, as in the original
+    (whose assignments were commented out).
 
-    Duas correções conscientes em relação ao C#:
+    Two deliberate fixes over the C#:
 
-    1. `BaseLine` usa o `LineNum` real da linha da OP, e não o índice da linha no recordset
-       (ver o comentário em `queries.LINHAS_FALTANTES_OP`).
-    2. Linhas já totalmente baixadas (`PlannedQty - IssuedQty <= 0`) são puladas. O legado as
-       incluía e deixava o SAP recusar ou lançar quantidade zero.
+    1. `BaseLine` is the real `LineNum` of the OP line, not the row index in the recordset (see
+       `queries.LINHAS_FALTANTES_OP`).
+    2. Lines already fully issued (`PlannedQty - IssuedQty <= 0`) are skipped; the legacy included
+       them and let the SAP refuse or post quantity zero.
+
+    Returns:
+        The created document, or ``{}`` when nothing is pending (no issue needed).
     """
     linhas_op = hana_reader.fetch_all(q.LINHAS_FALTANTES_OP, (int(doc_entry),))
     pendentes = [linha for linha in linhas_op if float(linha["Faltante"] or 0) > 0]
@@ -658,10 +662,10 @@ async def saida_insumo(
 async def entrada_produto(
     sl: ServiceLayerClient, doc_entry: int, filial: int, serie: int
 ) -> dict:
-    """`ManutencaoOp.EntradaProduto` (linha ~547) — Entrada de Mercadoria do produto.
+    """`ManutencaoOp.EntradaProduto` (line ~547): goods receipt (`InventoryGenEntries`) of the product.
 
-    Uma única linha apontando para a OP; o SAP traz o item, a quantidade restante e o
-    depósito do documento base.
+    A single line pointing at the OP; the SAP takes item, remaining quantity and warehouse from the
+    base document.
     """
     corpo = {
         # Mesmo campo da saída (`InventoryGenEntries` é a mesma entidade `Documents`).
@@ -678,7 +682,7 @@ async def entrada_produto(
 def _componentes_por_op(
     hana_reader: HanaDirectReader, doc_entries: list[int]
 ) -> dict[int, set[str]]:
-    """Itens que cada OP consome, para montar a hierarquia."""
+    """Item codes each OP consumes (`{doc_entry: {item_code, ...}}`), to build the hierarchy."""
     if not doc_entries:
         return {}
     unicos = list(dict.fromkeys(int(d) for d in doc_entries))
@@ -692,22 +696,22 @@ def _componentes_por_op(
 def ordena_por_dependencia(
     ops: list[dict], componentes: dict[int, set[str]]
 ) -> tuple[list[dict], list[dict]]:
-    """Ordena as OPs de baixo para cima: filha antes da mãe.
+    """Order the OPs bottom-up: child before parent.
 
-    **A razão é física, não estética.** A saída de insumo de uma OP pai consome o item que
-    a OP filha produz. Encerrada a mãe primeiro, o produto da filha ainda não existe em
-    estoque e o SAP recusa a saída — ou, pior, consome saldo de outra origem.
+    The reason is physical, not cosmetic: the parent OP's goods issue consumes the item the child
+    produces. Closing the parent first leaves the child's product out of stock and the SAP refuses
+    the issue, or worse, consumes balance from another origin.
 
-    A hierarquia é descoberta **pelo item**: se o item produzido por B aparece como
-    componente de A, B vem antes de A. O B1 não tem campo de "OP pai" para esta cascata.
-    Itens produzidos por mais de uma OP (o `PAR000PADRA000000000` aparece 13 vezes no
-    pedido 84348) funcionam naturalmente: todas as OPs que produzem o item precedem todas
-    as que o consomem.
+    The hierarchy is discovered by item: if the item produced by B is a component of A, B comes
+    before A (the B1 has no "parent OP" field for this cascade). An item produced by several OPs
+    (`PAR000PADRA000000000` appears 13 times in order 84348) works naturally: every OP producing it
+    precedes every OP consuming it. An item an OP both produces and consumes is ignored. Ties break
+    by DocNum, then DocEntry, so the order is reproducible.
 
-    Devolve `(ordenadas, em_ciclo)`. OPs num ciclo de dependência ficam **fora** da lista
-    ordenada em vez de entrarem numa ordem arbitrária: numa operação irreversível de
-    estoque, chutar a ordem é pior que recusar. Um ciclo não deveria existir numa árvore de
-    estrutura, mas dado ruim existe.
+    Returns:
+        ``(ordenadas, em_ciclo)``. OPs in a dependency cycle are left OUT of the ordered list
+        instead of being put in an arbitrary order: on an irreversible stock operation, guessing is
+        worse than refusing. A cycle should not exist in a BOM tree, but bad data does.
     """
     por_entry = {int(op["doc_entry"]): op for op in ops}
 
@@ -747,10 +751,10 @@ def ordena_por_dependencia(
 def dependentes_transitivos(
     ops: list[dict], componentes: dict[int, set[str]]
 ) -> dict[int, set[int]]:
-    """`{doc_entry: OPs que dependem dela, direta ou indiretamente}`.
+    """`{doc_entry: OPs that depend on it, directly or indirectly}`.
 
-    Serve para, quando uma OP falha, pular as que a consomem em vez de tentá-las e colher
-    uma cascata de "sem estoque" que esconde a causa real.
+    Used to skip, when an OP fails, the OPs that consume it, instead of attempting them and
+    collecting a cascade of "no stock" errors that hides the real cause.
     """
     por_entry = {int(op["doc_entry"]): op for op in ops}
     produtoras: dict[str, set[int]] = {}
@@ -784,30 +788,37 @@ async def finalizar_ops(
     filial_configurada: int = 0, dependentes: dict[int, set[int]] | None = None,
     deve_parar: Callable[[], bool] | None = None,
 ) -> dict:
-    """`ManutencaoOp.Button4_ClickAfter` (linha ~399) — encerramento com movimentação.
+    """`ManutencaoOp.Button4_ClickAfter` (line ~399): closing with stock movement.
 
-    Para cada OP, na ordem do original: `corrige_op` -> `saida_insumo` -> `entrada_produto`
-    -> status Encerrada. Só entram OPs com `apontada < planejada`, precondição do legado.
+    Per OP, in the original order: `corrige_op` -> `saida_insumo` -> `entrada_produto` -> status
+    Encerrada. Only OPs with `apontada < planejada` are processed (legacy precondition); the others
+    go to ``ignoradas``. If the chain fails after the release and before the issue is posted, the OP
+    goes back to Planejada.
 
-    ⚠️ **Irreversível.** A saída e a entrada de mercadoria são lançamentos de estoque; não
-    há desfazer. Quem chama é responsável por confirmar com o usuário antes.
+    IRREVERSIBLE: the goods issue and receipt are stock postings with no undo. The caller must
+    confirm with the user first (the single-use `PLANOS` token).
 
-    Divergências conscientes em relação ao C#:
+    Deliberate differences from the C#:
 
-    - O legado chamava `mudaStatus("f")` uma vez no fim, sobre TODAS as linhas marcadas,
-      inclusive as cujo `corrigeOP`/`SaidaEnsumo` tinha falhado — fechando OPs sem a
-      movimentação correspondente. Aqui cada OP só é encerrada se a sua própria cadeia
-      tiver ido até o fim.
-    - O legado resolvia o `DocEntry` a partir do `DocNum` com a query `OPDE` a cada linha;
-      aqui o `DocEntry` já vem do levantamento, então essa ida ao banco desaparece.
-    - Erros iam apenas para a status bar e o `INO_LOG`; aqui o resultado diz o que foi e o
-      que não foi feito, no mesmo formato de `muda_status`.
+    - the legacy called `mudaStatus("f")` once at the end over ALL marked rows, including those
+      whose `corrigeOP`/`SaidaEnsumo` had failed, closing OPs without the movement; here each OP is
+      closed only if its own chain went to the end;
+    - it resolved the DocEntry from the DocNum with the `OPDE` query per row; here the DocEntry
+      already comes from the survey;
+    - errors went only to the status bar and `INO_LOG`; here the result says what was and was not
+      done, in the shape of `muda_status`.
 
-    ``deve_parar`` (29/09/2026, D5 of PLANO_API_MANUTENCAO_OP.md (removed 2026-10-06)) is asked at the START
-    of each OP, never in the middle: an interruption lets the OP in progress finish its chain
-    (issue → receipt → close, or its own error) and leaves the rest untouched, in
-    ``interrompidas``. Cancelling the coroutine instead could stop between the material issue
-    and the product receipt of the same OP — stock taken out, product never put in.
+    Args:
+        filial_configurada: `SL_BUSINESS_PLACE_ID`, last-resort branch (see `_filial_do_movimento`).
+        dependentes: output of `dependentes_transitivos`; OPs depending on a failed one are skipped.
+        deve_parar: (29/09/2026, D5 of PLANO_API_MANUTENCAO_OP.md (removed 2026-10-06)) asked at
+            the START of each OP, never in the middle: an interruption lets the OP in progress
+            finish its chain (issue -> receipt -> close, or its own error) and leaves the rest
+            untouched, in ``interrompidas``. Cancelling the coroutine instead could stop between the
+            issue and the receipt of the same OP: stock taken out, product never put in.
+
+    Returns:
+        ``{"finalizadas", "com_erro", "ignoradas", "puladas", "interrompidas"}``.
     """
     finalizadas: list[dict] = []
     com_erro: list[dict] = []
@@ -823,16 +834,16 @@ async def finalizar_ops(
     leituras: dict = {}
 
     async def _desfaz_liberacao(op_alvo: dict, doc_entry_alvo: int) -> str:
-        """Devolve a OP para Planejada quando a cadeia falhou sem lançar nada.
+        """Put the OP back to Planejada when the chain failed before anything was posted.
 
-        Só é chamada no caso em que isso é seguro: a OP foi liberada por `corrige_op` e a
-        saída de insumo **não** foi criada. Se a saída já tivesse sido lançada, reverter o
-        status deixaria estoque movimentado numa OP Planejada — pior que o estado atual.
+        Called only where that is safe: `corrige_op` released the OP and the goods issue was NOT
+        created. With the issue already posted, reverting the status would leave stock moved on a
+        Planejada OP, worse than the current state. It exists because the 21/09 tests (five failures in
+        a row: branch, series, field name, item cost) left OPs Liberada and undoing it became repeated
+        manual work. Best effort: a failed revert is reported and the original error stays the main one.
 
-        Existe porque nos testes de 21/09 cinco falhas seguidas (filial, série, nome de
-        campo, custo de item) deixaram a OP Liberada, e desfazer isso virou trabalho
-        manual repetido. Melhor esforço: se a reversão falhar, ela é relatada e o erro
-        original continua sendo o principal.
+        Returns:
+            "desfeita", or "falhou (<error>)".
         """
         try:
             await sl.update_entity(

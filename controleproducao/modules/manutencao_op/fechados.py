@@ -269,8 +269,15 @@ async def restaura_itens(sl: ServiceLayerClient, originais: dict[str, dict]) -> 
 # ---------------------------------------------------------------------------
 # The run
 # ---------------------------------------------------------------------------
-async def _encerra_pedido(sl, leitor, pedido: int, filial: int, deve_parar) -> dict:
-    """One closing attempt of one order — the same chain as "Encerrar todas as OPs de um pedido"."""
+async def _encerra_pedido(
+    sl: ServiceLayerClient, leitor: HanaDirectReader, pedido: int, filial: int,
+    deve_parar: Callable[[], bool] | None,
+) -> dict:
+    """One closing attempt of one order, the same chain as "Encerrar todas as OPs de um pedido".
+
+    Returns the `finalizar_ops` result shape; a dependency cycle comes back as ``com_erro`` entries
+    (etapa "ordenar") instead of raising.
+    """
     ops = service.levanta_ops(leitor, doc_num_pedido=str(pedido))
     ops = [o for o in ops if service.classifica_encerramento(o["status"], o["planejada"], o["apontada"])[1]]
     if not ops:
@@ -291,13 +298,19 @@ def _motivos(resultado: dict) -> str:
 
 
 async def encerra_pedido_com_ajustes(
-    sl, leitor, pedido: int, filial: int, custo: Decimal, ativar_inativos: bool,
+    sl: ServiceLayerClient, leitor: HanaDirectReader, pedido: int, filial: int, custo: Decimal,
+    ativar_inativos: bool,
     deve_parar: Callable[[], bool] | None = None,
 ) -> dict:
     """Close one order; on a known failure apply its fix and try ONCE more.
 
-    Returns the last attempt's result plus ``ajustes`` (what was done between attempts) and
-    ``tentativas``. Inactive items activated here are always restored, retry or not.
+    Retry triggers: the Service Layer dropping the connection, ``10001287`` (revaluation of the
+    zero-cost raw materials), ``10001069`` (inactive items, only with ``ativar_inativos``; without
+    it the order is not retried and an adjustment note says so). An interrupted run is never retried.
+
+    Returns:
+        The last attempt's result plus ``ajustes`` (what was done between attempts) and
+        ``tentativas``. Inactive items activated here are always restored, retry or not.
     """
     resultado = await _encerra_pedido(sl, leitor, pedido, filial, deve_parar)
     ajustes: list[str] = []

@@ -73,16 +73,20 @@ def _exige_todas(numeros: list[str], ops: list[dict]) -> None:
 def prepara_mudanca_status(leitor: HanaDirectReader, numeros: list[str], acao: str = "l") -> list[dict]:
     """The OPs a status change will touch, read again from the SAP.
 
-    ``acao`` is the legacy code: "l" Liberar, "p" Replanejar. Replanejar also refuses the
-    whole batch when a Liberada OP already has material issued (F6, 29/09/2026) or product
-    received (D6, same day): the movement must be cancelled in the SAP first, or it would sit
-    on a planned OP. The issue is checked first, so an OP with both is reported for it.
+    ``acao`` is the legacy code: "l" Liberar, "p" Replanejar. Replanejar also refuses the whole
+    batch when a Liberada OP already has material issued (F6, 29/09/2026) or product received (D6,
+    same day): the movement must be cancelled in the SAP first, or it would sit on a planned OP.
+    The issue is checked first, so an OP with both is reported for it.
 
     Blocking (HANA): async callers run it in a thread. Refuses the WHOLE batch when an OP is
     terminal instead of changing the others in silence: the screen disables those boxes, so
     receiving one means the list changed since the page loaded (someone closed the OP in the
-    meantime) or the request did not come from the screen. Either way the caller must look
-    again — this is not the moment to guess which rows are still wanted.
+    meantime) or the request did not come from the screen. Either way the caller must look again;
+    this is not the moment to guess which rows are still wanted.
+
+    Raises:
+        Recusa: ``invalido``, ``nao_encontrada`` (also when a requested number does not exist),
+            ``status_terminal``, and for Replanejar ``saida_lancada`` / ``entrada_lancada``.
     """
     if not numeros:
         raise Recusa("invalido", "Nenhuma OP selecionada.")
@@ -144,7 +148,10 @@ def prepara_mudanca_status(leitor: HanaDirectReader, numeros: list[str], acao: s
 def corrotina_mudanca_status(
     nome: str, ops: list[dict], acao: str
 ) -> Callable[[Tarefa], Awaitable[dict]]:
-    """The background body of a status change (legacy code in ``acao``: "l", "p")."""
+    """The background body of a status change (legacy code in ``acao``: "l", "p").
+
+    Its result is that of `service.muda_status` (``alteradas`` / ``com_erro`` / ``ignoradas``).
+    """
 
     async def executa(tarefa: Tarefa) -> dict:
         tarefa.avanca(f"{nome}: {len(ops)} OP(s)…", 0, len(ops))
@@ -171,9 +178,13 @@ def monta_plano_encerramento(
 ) -> Plano:
     """The checked plan of a closing: every OP asked, in execution order, with its action.
 
-    Blocking (HANA). The order is computed, not chosen — child before parent, because the
-    material issue of a parent OP consumes what the child produces; a cycle refuses the
-    whole operation. Returns the stored `Plano` (its token is what the execution accepts).
+    Blocking (HANA). The order is computed, not chosen: child before parent, because the material
+    issue of a parent OP consumes what the child produces; a cycle refuses the whole operation.
+    Returns the stored `Plano` (its token is what the execution accepts).
+
+    Raises:
+        Recusa: ``invalido`` (OPs and order both or neither given), ``nao_encontrada``, ``ciclo``,
+            ``nada_a_encerrar`` (no OP is in a condition to be closed).
     """
     op_docnums = list(op_docnums or [])
     pedido = (pedido or "").strip()
@@ -361,8 +372,11 @@ def dispara(
 ) -> Tarefa:
     """Create the background execution of this module, or refuse because it is busy.
 
-    One WARNING line per execution started, with who asked, from where and through what
-    (screen or API) — the audit trail next to the write notice of ``avisa_escrita``.
+    One WARNING line per execution started, with who asked, from where and through what (screen or
+    API): the audit trail next to the write notice of ``avisa_escrita``.
+
+    Raises:
+        Recusa: ``ocupado`` when the module already has an execution running.
     """
     try:
         tarefa = TAREFAS.criar(

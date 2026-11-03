@@ -1,10 +1,11 @@
-"""Queries do módulo Manutenção de OP, transcritas de `Controllers/Querys.resx`.
-Todas em HANA (SAP B1) — este módulo não acessa o WBC.
+"""Queries of the Manutenção de OP module, transcribed from `Controllers/Querys.resx`.
 
-Since 28/09/2026 (F7 of PLANO_CONTROLE_PRODUCAO_11.md (removed 2026-10-06)) every value is a bound parameter
-(`?`, passed to `HanaDirectReader.fetch_all(sql, params)`); the text is otherwise the original.
-The only thing still formatted in is `{marcadores}` of the two `IN` lists, and it only ever
-receives `?, ?, ...` built by `service._marcadores` — never a value.
+All of them HANA (SAP B1); this module never touches the WBC.
+
+Since 28/09/2026 (F7 of PLANO_CONTROLE_PRODUCAO_11.md (removed 2026-10-06)) every value is a
+bound parameter (`?`, passed to `HanaDirectReader.fetch_all(sql, params)`); the text is
+otherwise the original. The only thing still formatted in is the `{marcadores}` of the two `IN`
+lists, and it only ever receives the `?, ?, ...` built by `service._marcadores`, never a value.
 """
 
 # How much of the OP's components has already been issued (29/09/2026, F6 of
