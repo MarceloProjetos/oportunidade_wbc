@@ -351,6 +351,14 @@ async def encerra_pedido_com_ajustes(
                            else f"ATENÇÃO: inative à mão no SAP: {', '.join(presos)}")
     # The first attempt's closed OPs stay closed: report both attempts' successes.
     resultado2["finalizadas"] = resultado["finalizadas"] + resultado2["finalizadas"]
+    # A first-attempt failure the retry did not touch stays a failure: an OP whose close
+    # PATCH dropped after its receipt has apontada = planejada, so the retry skips it and the
+    # order used to come back "sem erro" with that OP still open (2026-11-03 review).
+    tocadas = {str(o.get("doc_entry")) for chave in ("finalizadas", "com_erro") for o in resultado2[chave]}
+    resultado2["com_erro"] = resultado2["com_erro"] + [
+        {**e, "motivo": f"1ª tentativa: {e.get('motivo')}"}
+        for e in resultado["com_erro"] if str(e.get("doc_entry")) not in tocadas
+    ]
     return {**resultado2, "ajustes": ajustes, "tentativas": 2}
 
 
@@ -387,7 +395,11 @@ def corrotina(plano: Plano) -> Callable[[Tarefa], Awaitable[dict]]:
             + ".",
             len(por_pedido),
         )
-        return {"pedidos": {str(p): _resumo(r) for p, r in por_pedido.items()},
+        resumos = {str(p): _resumo(r) for p, r in por_pedido.items()}
+        # Flattened at the top too: `Tarefa.com_falhas` reads `resultado["com_erro"]`, and a
+        # batch where every order failed used to show a green "concluída" (2026-11-03 review).
+        com_erro = [{"pedido": int(p), **e} for p, r in resumos.items() for e in r["com_erro"]]
+        return {"pedidos": resumos, "com_erro": com_erro,
                 "nao_iniciados": [p for p in pedidos if p not in por_pedido]}
 
     return executa

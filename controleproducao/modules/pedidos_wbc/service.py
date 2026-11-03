@@ -31,6 +31,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from controleproducao.core.audit_log import preenche_log
+from controleproducao.core.exceptions import ServiceLayerAuthError, ServiceLayerError
 from controleproducao.core.formato import numero_br
 from controleproducao.core.hana_reader import HanaDirectReader
 from controleproducao.core.service_layer_client import ServiceLayerClient
@@ -1997,8 +1998,9 @@ async def processar_pedidos_novos(
                             "orc_num": orc_num,
                             "motivo": (
                                 f"pedido {doc_num} já está marcado como processado (U_INO_ProcessWBC=Y) — "
-                                "use --force para reprocessar mesmo assim, ou rode "
-                                "'reprocessar-integrados' primeiro para cancelar as OPs antigas."
+                                "para refazer, rode 'reprocessar-integrados' (cancela as OPs "
+                                "planejadas) e depois processe de novo, sem forçar: forçar "
+                                "cria OPs duplicadas."
                             ),
                         }
                     )
@@ -2020,6 +2022,16 @@ async def processar_pedidos_novos(
                 logger.warning("  ATENÇÃO — %s", motivo)
                 proposta_desatualizada.append({"orc_num": orc_num, **desatualizada, "motivo": motivo})
 
+            # The structure is read BEFORE the first write: `atualiza_pedido_tabela` marks the
+            # order `ProcessWBC='Y'`, and an empty structure found after that left it
+            # "processed" with no OP, gone from "Pedidos novos" (2026-11-03 review).
+            logger.info("Pedido %s: lendo a estrutura de produto no WBC...", orc_num)
+            estrutura = await busca_estrutura_produto(wbc, [orc_num])
+            if not estrutura:
+                await preenche_log(sl, orc_num, "Pedido", "Erro", "Integração", "Esse pedido não tem dados no WBC.")
+                com_erro.append({"orc_num": orc_num, "motivo": "sem dados no WBC (estrutura vazia)"})
+                continue
+
             # Progresso em `logger.info` (e não `print`): a CLI liga o log no console com
             # `--perfil`/`--verbose`, e a web pode consumir o mesmo log sem alteração.
             # Adicionado em 16/09/2026 porque a execução pode levar minutos sem dar sinal,
@@ -2029,13 +2041,6 @@ async def processar_pedidos_novos(
             await atualiza_pedido_tabela(
                 sl, wbc, hana_reader, listaOport, orc_num, card_code, doc_num, doc_entry, tab, "Y"
             )
-
-            logger.info("Pedido %s: lendo a estrutura de produto no WBC...", orc_num)
-            estrutura = await busca_estrutura_produto(wbc, [orc_num])
-            if not estrutura:
-                await preenche_log(sl, orc_num, "Pedido", "Erro", "Integração", "Esse pedido não tem dados no WBC.")
-                com_erro.append({"orc_num": orc_num, "motivo": "sem dados no WBC (estrutura vazia)"})
-                continue
 
             pesos_diferentes.extend(_loga_pesos(hana_reader, orc_num, doc_entry, estrutura))
             logger.info(
@@ -2122,7 +2127,8 @@ async def _processa_grupo_producao(
 
     Returns `None` when the OP was created, or a sentence saying why this group produced no OP
     (`GrpCode` missing from `@INO_GRP_PRODUTOS`; item already had a non-cancelled OP; the Service Layer
-    refused the OP).
+    refused the OP; `EntregaMultipla='Y'`, where the legacy creates no parent OP). A refusal does not
+    stop the other groups; `ProcessWBC` stays `'Y'` (no rollback, see `processar_pedidos_novos`).
 
     `force` (added 15/09/2026; same check as `_verifica_process_wbc`, see `_ops_existentes_para_item`):
     with `force=False` the creation is skipped when the item already had an OP on this order before
@@ -2293,46 +2299,57 @@ async def _processa_grupo_producao(
         motivo = (
             f"item {orc_item_sap} já tinha a OP não cancelada DocEntry={op_existente} no "
             f"pedido {doc_num_ped} antes desta execução — nenhuma OP nova foi criada "
-            "(use --force para recriar)"
+            "(forçar criaria uma OP duplicada)"
         )
         logger.warning("    SEM OP: %s.", motivo)
         await preenche_log(
             sl, orc_num, "Pedido", "Aviso", "Integração",
             f"já existe uma OP não cancelada (DocEntry={op_existente}) para o pedido "
-            f"{doc_num_ped}, item {orc_item_sap} — use --force para recriar mesmo assim.",
+            f"{doc_num_ped}, item {orc_item_sap} — nenhuma OP nova criada.",
         )
         return motivo
 
     linha_documento = -1
-    status, novo_doc_entry = await cria_ordem_producao(
-        sl, hana_reader, grupo, orc_item_sap, linha_documento, quantidade_linha_base, recurso, entrega_multipla
-    )
-
-    if status == 0:
-        # Acumula os itens a marcar em vez de chamar a Service Layer a cada um: uma chamada
-        # por item eram 6 PATCHes / 4,1s no perfil do orçamento 00125192 (ver
-        # `marca_op_nas_linhas`). A cascata de semiacabados segue item a item — ela cria
-        # documentos diferentes, não dá para agrupar.
-        orc_itens_do_grupo: list = []
-        for item in grupo:
-            await checa_semi_acabado(
-                sl, wbc, hana_reader, item.prd_code, item.linha, item.quantidade, recurso,
-                quantidade_linha_base, item.orc_num, item.quantidade, item.id_integracao_orc,
-                item.linha_orc, estrutura_completa,
-            )
-            linha_documento = item.linha
-            orc_itens_do_grupo.append(item.linha)
-
-        await marca_op_nas_linhas(sl, hana_reader, orc_itens_do_grupo, novo_doc_entry, doc_entry_final)
-        await _atualiza_doc(sl, hana_reader, linha_documento, novo_doc_entry, doc_entry_final, "Sucesso")
-    else:
-        motivo = f"a Service Layer recusou a OP do item {orc_item_sap} (status {status})"
-        logger.error("    SEM OP: %s.", motivo)
-        await preenche_log(
-            sl, orc_num, "Pedido", "Erro", "Integração",
-            f"Erro ao criar a OP para o item: {orc_item_sap}.",
+    try:
+        _, novo_doc_entry = await cria_ordem_producao(
+            sl, hana_reader, grupo, orc_item_sap, linha_documento, quantidade_linha_base, recurso,
+            entrega_multipla,
         )
-        await _atualiza_doc(sl, hana_reader, 0, novo_doc_entry, doc_entry_final, "Erro")
+    except ServiceLayerAuthError:
+        raise
+    except ServiceLayerError as exc:
+        # The SL refused this OP (already in `@INO_LOG` by `cria_ordem_producao`). The other
+        # groups are independent OPs: aborting the order here left them without OP and out of
+        # the result (2026-11-03 review). Transport errors still propagate: the OP may exist.
+        motivo = f"a Service Layer recusou a OP do item {orc_item_sap}: {exc}"
+        logger.error("    SEM OP: %s.", motivo)
+        return motivo
+
+    # Acumula os itens a marcar em vez de chamar a Service Layer a cada um: uma chamada
+    # por item eram 6 PATCHes / 4,1s no perfil do orçamento 00125192 (ver
+    # `marca_op_nas_linhas`). A cascata de semiacabados segue item a item — ela cria
+    # documentos diferentes, não dá para agrupar.
+    orc_itens_do_grupo: list = []
+    for item in grupo:
+        await checa_semi_acabado(
+            sl, wbc, hana_reader, item.prd_code, item.linha, item.quantidade, recurso,
+            quantidade_linha_base, item.orc_num, item.quantidade, item.id_integracao_orc,
+            item.linha_orc, estrutura_completa,
+        )
+        linha_documento = item.linha
+        orc_itens_do_grupo.append(item.linha)
+
+    await marca_op_nas_linhas(sl, hana_reader, orc_itens_do_grupo, novo_doc_entry, doc_entry_final)
+    await _atualiza_doc(sl, hana_reader, linha_documento, novo_doc_entry, doc_entry_final, "Sucesso")
+
+    if not novo_doc_entry:
+        # `EntregaMultipla='Y'`: like the legacy, no parent OP is created (only the
+        # semi-finished cascade). Reported, so the screen does not say "concluído".
+        motivo = (
+            f"pedido com entrega múltipla: a OP do item {orc_item_sap} não é criada "
+            "(mesmo comportamento do addon antigo)"
+        )
+        logger.warning("    SEM OP: %s.", motivo)
         return motivo
 
     return None

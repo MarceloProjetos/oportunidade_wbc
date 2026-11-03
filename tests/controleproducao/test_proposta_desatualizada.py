@@ -143,6 +143,8 @@ class TestNaExecucao:
         monkeypatch.setattr(service, "ops_vivas_de_pedidos_cancelados", AsyncMock(return_value={}))
         monkeypatch.setattr(service, "propostas_desatualizadas", propostas)
         monkeypatch.setattr(service, "_verifica_process_wbc", AsyncMock(return_value=processado))
+        # The structure read (WBC, no write) comes before the first write since 2026-11-03.
+        monkeypatch.setattr(service, "busca_estrutura_produto", AsyncMock(return_value=[object()]))
         # Stop right after the checks: the warning must be recorded before any SAP write.
         monkeypatch.setattr(service, "preenche_tabela", AsyncMock(side_effect=RuntimeError("parou")))
         monkeypatch.setattr(service, "preenche_log", AsyncMock())

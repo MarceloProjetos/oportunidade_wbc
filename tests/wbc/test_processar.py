@@ -1358,6 +1358,14 @@ class TestPedidoNasceNoParceiroCorrigido:
         mensagens = [e.mensagem for e in tracking.eventos("00123316")]
         assert any("não existe no SAP" in m and "não foi criado" in m for m in mensagens)
 
+    def test_pedido_nao_criado_nao_conta_como_executado(self, tracking) -> None:
+        """2026-11-03 review: the action used to enter `executadas`, so the tracking read
+        `pedido_criado` with no order and the event listed `criar_pedido`, every cycle."""
+        self._rodar(tracking, self.ParceirosFalso(set()), U_INO_PN_Correc="C004584", U_INO_Update="Y")
+        assert tracking.obter("00123316").status is not StatusIntegracao.PEDIDO_CRIADO
+        mensagens = [e.mensagem for e in tracking.eventos("00123316")]
+        assert not any("criar_pedido" in m for m in mensagens)
+
     def test_pn_corrigido_existente_consulta_uma_vez_e_cria(self, tracking) -> None:
         parceiros = self.ParceirosFalso({"C004584"})
         docs = self._rodar(tracking, parceiros, U_INO_PN_Correc="C004584", U_INO_Update="Y")

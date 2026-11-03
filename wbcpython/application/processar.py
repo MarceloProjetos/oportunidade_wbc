@@ -143,6 +143,16 @@ class DocumentoSemValor(Exception):
     """
 
 
+class ParceiroCorrigidoInexistente(Exception):
+    """The corrected partner (`U_INO_PN_Correc`) does not exist in the SAP, so the order was not
+    created. Already recorded as an ERRO event by `_parceiro_existe`.
+
+    Raised instead of returning `(None, None)`: that return also means "done, nothing to link",
+    and the action was counted as executed — the tracking said `pedido_criado` with no order,
+    every cycle (2026-11-03 review).
+    """
+
+
 class _SnapshotSobDemanda:
     """The OrcDetalhe snapshot of one quote, written once, on first use.
 
@@ -486,7 +496,7 @@ class ProcessadorDeOrcamento:
                 documento, tipo = self._executar_documento(
                     acao, estado, orcamento, oportunidade, snapshot
                 )
-            except DocumentoSemValor:
+            except (DocumentoSemValor, ParceiroCorrigidoInexistente):
                 # A ação **não** entra em `executadas`: nada foi escrito, e
                 # contá-la faria o espelhamento de status e o teto de escrita
                 # tratarem um documento que não existe como se existisse.
@@ -1007,7 +1017,7 @@ class ProcessadorDeOrcamento:
             # existir pedido): a mesma guarda `ChecaPN` da troca. Fora desse
             # caso `_parceiro_existe` devolve True sem ir à rede.
             if not self._parceiro_existe(estado, orcamento.orcnum):
-                return None, None
+                raise ParceiroCorrigidoInexistente(orcamento.orcnum)
             return (
                 self._documentos.criar(tipo, regras_pedido.com_uso_principal(snapshot.no_payload(dados))),
                 tipo,
@@ -1018,7 +1028,7 @@ class ProcessadorDeOrcamento:
             # — pior que o estado inicial, e irreversível. O legado protegia
             # isso com `ChecaPN`, e a proteção vinha antes de tudo.
             if not self._parceiro_existe(estado, orcamento.orcnum):
-                return None, None
+                raise ParceiroCorrigidoInexistente(orcamento.orcnum)
             # O payload já prioriza o PN novo quando há troca de parceiro.
             return (
                 self._documentos.cancelar_e_recriar(

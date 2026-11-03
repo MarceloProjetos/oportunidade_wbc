@@ -905,7 +905,10 @@ curl -X POST "http://192.168.7.11:8080/api/manutencao-op/pedidos-fechados/encerr
 Responde `202` com a execução, que você acompanha em `/api/manutencao-op/execucoes/{id}`
 (seção 5.4) e interrompe pela seção 5.5. Os pedidos são encerrados **um de cada vez**, na ordem
 da conferência; dentro de cada pedido, a OP filha antes da mãe. Em `resultado.pedidos` vem, por
-pedido: `encerradas`, `com_erro`, `puladas`, `nao_iniciadas`, `ajustes` e `tentativas`.
+pedido: `encerradas`, `com_erro`, `puladas`, `nao_iniciadas`, `ajustes` e `tentativas`. Em
+`resultado.com_erro` vêm os erros de todos os pedidos juntos, cada um com o `pedido`; com algum
+erro ali, a execução termina como `falhas`, e não como `ok`. Um erro da primeira tentativa que a
+segunda não resolveu continua em `com_erro`, com o motivo começando por "1ª tentativa:".
 
 Quando um pedido falha por um motivo conhecido, o servidor corrige e **tenta esse pedido mais uma
 vez** (nunca mais de uma):

@@ -6,6 +6,22 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-03] — Resultado que dizia "concluído" com parte do trabalho faltando
+
+Achados da revisão de código de 03/11 (comparação com uma revisão isolada). **Pede ação**: deploy na .11
+(`deploy_update.bat`; reinicia o CP e o worker).
+
+- **Processar pedidos novos**: a estrutura do WBC é lida **antes** de marcar `ProcessWBC='Y'`; estrutura vazia
+  não deixa mais o pedido "processado" sem OP.
+- **OP recusada pela Service Layer** num grupo não interrompe mais os outros grupos do pedido: o grupo vai para
+  `sem_op` com o motivo. Sessão recusada e erro de rede continuam parando o pedido (a OP pode ter sido criada).
+- **Entrega múltipla** (`EntregaMultipla='Y'`, sem OP-pai, igual ao addon antigo) aparece em `sem_op`.
+- As mensagens de pedido já processado e de OP prévia não mandam mais "usar --force" (que duplica OPs).
+- **Encerrar pedidos fechados**: `resultado.com_erro` traz os erros de todos os pedidos (a tela deixa de pintar
+  "concluída" um lote que falhou), e o erro da 1ª tentativa que a 2ª não resolveu continua no resultado.
+- **Worker WBC**: pedido não criado porque o PN corrigido não existe não conta mais como `criar_pedido`
+  executado (o acompanhamento dizia `pedido_criado` sem pedido).
+
 ## [2026-11-03] — O ALTHOSTBKP02 entra no relato Hyper-V
 
 **Pede ação**: deploy na .11 (`deploy_update.bat`), depois a credencial `bkp02-hyperv` e o instalador no host
