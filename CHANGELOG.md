@@ -6,6 +6,16 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-03] — `wake_altservidor_ia.py`: comentários e docstrings em inglês
+
+- Cabeçalho, docstrings e comentários em inglês técnico, mesmo texto da cópia do web
+  (`web_orcaview_V118/tools/wake_altservidor_ia.py`, V118.1463), no mesmo dia. Logs e `--help` seguem em PT-BR.
+  Só comentário: a árvore sintática sem as docstrings é a mesma.
+- ⚠️ As duas cópias já não eram iguais antes disto: a opção `--nao-antes-de` (29/10, segurar o envio até 06:44)
+  entrou só no web, e a tarefa da .11 não a usa. Ficou como estava; trazê-la para cá muda o horário em que o .90
+  liga e é decisão do Marcelo.
+- Não pede deploy: basta `git pull --ff-only` na .11 quando for conveniente.
+
 ## [2026-10-29] — Levantamento de acessos da .11 (só leitura) + conserto do script do firewall da 8078
 
 - `maintenance/levantamento_acessos_11.ps1`: em um relatório, quem usa cada porta e cada chave antes de fechar

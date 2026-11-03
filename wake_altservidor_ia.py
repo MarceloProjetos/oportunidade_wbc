@@ -1,106 +1,105 @@
 #!/usr/bin/env python3
-r"""Liga o ALTSERVIDOR-IA (o .90) pela rede, com Wake-on-LAN.
+r"""Wakes ALTSERVIDOR-IA (the .90) over the network, with Wake-on-LAN.
 
-Rode de QUALQUER máquina da rede: ``python wake_altservidor_ia.py``.
-Só biblioteca padrão (Python 3.8+) — nada de ``pip install``.
+Run it from ANY machine on the network: ``python wake_altservidor_ia.py``.
+Standard library only (Python 3.8+) -- no ``pip install``.
 
-⚠️ Este arquivo existe em DOIS repositórios, byte a byte igual:
+⚠️ This file lives in TWO repositories, byte for byte the same:
 
-* ``web_orcaview_V118/tools/wake_altservidor_ia.py`` — uso manual, de qualquer máquina.
-* ``ServidorIntegracaoSAP/wake_altservidor_ia.py``  — o que roda sozinho no boot da .11
-  (tarefa ``OrcaView-WOL-AltservidorIA``, instalada pelo ``install_wol_task.ps1``).
+* ``web_orcaview_V118/tools/wake_altservidor_ia.py`` -- manual use, from any machine.
+* ``ServidorIntegracaoSAP/wake_altservidor_ia.py``  -- the one that runs by itself on the .11 boot
+  (task ``OrcaView-WOL-AltservidorIA``, installed by ``install_wol_task.ps1``).
 
-Mexeu num, copie para o outro. São máquinas e deploys separados; não há pacote comum.
+Change one, copy it to the other. Separate machines and deploys; there is no shared package.
 
-O que é Wake-on-LAN
+What Wake-on-LAN is
 -------------------
-A placa de rede continua alimentada com a máquina desligada (estado S5). Ela não
-enxerga IP nem TCP nesse estado — só olha o tráfego cru que passa pelo cabo
-procurando um padrão fixo: o **magic packet**. São 102 bytes — seis ``0xFF``
-seguidos do MAC da própria placa repetido 16 vezes. Reconhecido o padrão, a
-placa aciona o pino de power da placa-mãe e a máquina liga. É isso, o protocolo
-inteiro.
+The NIC stays powered while the machine is off (state S5). In that state it sees
+neither IP nor TCP -- it only watches the raw traffic on the wire for one fixed
+pattern: the **magic packet**. That is 102 bytes -- six ``0xFF`` followed by the
+NIC's own MAC repeated 16 times. Once it matches, the NIC drives the motherboard
+power pin and the machine turns on. That is the whole protocol.
 
-Consequências práticas, que explicam cada escolha deste script:
+Practical consequences, which explain every choice in this script:
 
-* **Não tem resposta.** O magic packet vai em UDP e a máquina desligada não
-  responde nada. "Deu certo?" só se responde pingando depois — é o que o modo
-  de espera faz.
-* **Não tem garantia de entrega.** UDP é o que é; por isso o pacote vai repetido
-  dentro da rodada, e a rodada se repete (``--reenviar``). São 102 bytes.
-* **Endereço é o MAC, não o IP.** A máquina desligada não tem IP (o DHCP nem
-  está de pé), então o pacote vai num **broadcast** e a placa se reconhece pelo
-  MAC lá dentro.
-* **Porta não importa muito.** A placa filtra pelo conteúdo, não pela porta;
-  9 e 7 são as convencionais. Mandamos nas duas.
-* **Não atravessa roteador.** Broadcast morre no primeiro roteamento: isto tem
-  de rodar na MESMA rede física do .90 (ou por uma VPN em bridge/camada 2).
-  A .11 (192.168.7.11) está dentro do /21 do .90 — mesma rede, funciona.
+* **There is no reply.** The magic packet goes over UDP and the powered-off
+  machine answers nothing. "Did it work?" is only answered by pinging afterwards --
+  which is what the wait mode does.
+* **There is no delivery guarantee.** UDP is what it is; so the packet is repeated
+  within a round, and the round itself repeats (``--reenviar``). It is 102 bytes.
+* **The address is the MAC, not the IP.** A powered-off machine has no IP (DHCP is
+  not even up), so the packet goes to a **broadcast** and the NIC recognises its
+  own MAC inside it.
+* **The port barely matters.** The NIC filters on content, not on port;
+  9 and 7 are the conventional ones. We send to both.
+* **It does not cross a router.** Broadcast dies at the first routing hop: this has
+  to run on the SAME physical network as the .90 (or over a bridged/layer-2 VPN).
+  The .11 (192.168.7.11) is inside the .90's /21 -- same network, it works.
 
-Cada rodada = 2 broadcasts × 2 portas × 3 repetições = **12 pacotes**, ~1,2 KB.
+Each round = 2 broadcasts × 2 ports × 3 repeats = **12 packets**, ~1.2 KB.
 
-A máquina alvo
---------------
+The target machine
+------------------
 ======================  ===========================================
 Hostname                ALTSERVIDOR-IA
-Placa alvo              Realtek PCIe 2.5GbE (adaptador ``Ethernet``)
+Target NIC              Realtek PCIe 2.5GbE (adapter ``Ethernet``)
 MAC                     BC:FC:E7:09:D9:7D
 IP                      192.168.0.90 /21
 Gateway                 192.168.0.10
-Broadcast               192.168.7.255 e 255.255.255.255
+Broadcast               192.168.7.255 and 255.255.255.255
 ======================  ===========================================
 
-O broadcast é **.7.255**, não .0.255: a máscara é /21 (255.255.248.0), então a
-faixa vai de 192.168.0.0 a 192.168.7.255 e o último endereço dela é o broadcast.
-Errar isso é o motivo mais comum de "mandei e não acordou" nesta rede.
+The broadcast is **.7.255**, not .0.255: the mask is /21 (255.255.248.0), so the
+range runs from 192.168.0.0 to 192.168.7.255 and its last address is the broadcast.
+Getting this wrong is the most common cause of "I sent it and it did not wake" here.
 
-O que acontece depois que ele acorda
-------------------------------------
-Nada precisa ser feito daqui: o .90 tem autologon (~16 s após o boot) e a tarefa
-``OrcaView Stack AtLogon`` sobe o OrçaView 60 s depois, com
-``npm run start:all-detailed`` — é o ``tools/ops/subir_stack_boot.ps1`` do
-``web_orcaview_V118``, com guarda anti-instância-dupla e backup das sessões do
-WhatsApp. Este script acorda a máquina; o stack é problema dela.
+What happens after it wakes
+---------------------------
+Nothing needs to be done from here: the .90 has autologon (~16 s after boot) and the
+``OrcaView Stack AtLogon`` task brings OrçaView up 60 s later with
+``npm run start:all-detailed`` -- that is ``tools/ops/subir_stack_boot.ps1`` in
+``web_orcaview_V118``, with a double-instance guard and a backup of the WhatsApp
+sessions. This script wakes the machine; the stack is the machine's business.
 
-Se não acordar: o roteiro
--------------------------
-1. **O pacote saiu?** ``--dry-run`` imprime os 102 bytes sem enviar. Se o
-   hexdump está certo e nada acontece, o problema não é aqui.
-2. **Está na mesma rede?** Broadcast não passa por roteador (ver acima).
-3. **Windows do .90** — os pré-requisitos foram conferidos e estavam TODOS ok em
-   set/2026 (Wake on Magic Packet ligado, "só magic packet", fast startup fora do
-   caminho). Não volte a perder tempo aqui antes do item 4.
-4. **BIOS — é aqui que costuma estar, e nunca foi confirmado:**
+If it does not wake: the checklist
+----------------------------------
+1. **Did the packet go out?** ``--dry-run`` prints the 102 bytes without sending. If
+   the hexdump is right and nothing happens, the problem is not here.
+2. **Same network?** Broadcast does not cross a router (see above).
+3. **Windows on the .90** -- the prerequisites were checked and were ALL fine in
+   Sep/2026 (Wake on Magic Packet on, "magic packet only", fast startup out of the
+   way). Do not lose time here again before item 4.
+4. **BIOS -- this is where it usually is, and it was never confirmed:**
 
    * ``Power On By PCI-E`` = **Enabled**
-   * ``ErP Ready`` = **Disabled**  <- o traiçoeiro
+   * ``ErP Ready`` = **Disabled**  <- the treacherous one
 
-   Com ``ErP Ready`` ligado a placa-mãe corta a energia da NIC no S5 para cumprir
-   o limite de consumo em standby. A placa fica morta, mas **o Windows continua
-   reportando "Wake on Magic Packet: habilitado" exatamente igual** — o
-   diagnóstico pelo SO dá verde e a máquina não acorda assim mesmo. Se chegou
-   até aqui, é BIOS, não é software.
-5. **Faltou energia?** Algumas placas ARMAM o WOL no desligamento do Windows e
-   PERDEM o armamento se a energia da tomada cair. Nesse cenário o que resolve
-   não é este script, é ``Restore on AC Power Loss = Power On`` na mesma BIOS.
+   With ``ErP Ready`` on, the motherboard cuts the NIC's power in S5 to meet the
+   standby consumption limit. The NIC is dead, yet **Windows keeps reporting
+   "Wake on Magic Packet: enabled" exactly the same** -- the OS-side diagnosis is
+   green and the machine still does not wake. If you got this far, it is the BIOS,
+   not software.
+5. **Power outage?** Some boards ARM WOL when Windows shuts down and LOSE the
+   arming if mains power drops. In that case the fix is not this script, it is
+   ``Restore on AC Power Loss = Power On`` in the same BIOS.
 
-O que este script NÃO prova
----------------------------
-O envio é testável e foi testado; **acordar de verdade, não** — isso só se
-verifica no dia em que a máquina estiver realmente desligada e o pacote vier de
-fora. Rodar com a máquina ligada confirma o caminho de rede e o ping, nada mais.
+What this script does NOT prove
+-------------------------------
+Sending is testable and was tested; **actually waking up is not** -- that is only
+verified on the day the machine is really off and the packet comes from outside.
+Running it with the machine on confirms the network path and the ping, nothing more.
 
-Uso
----
-    python wake_altservidor_ia.py                    # manda e espera o ping
-    python wake_altservidor_ia.py --dry-run          # só mostra o pacote
-    python wake_altservidor_ia.py --no-wait          # manda e sai
+Usage
+-----
+    python wake_altservidor_ia.py                    # send and wait for the ping
+    python wake_altservidor_ia.py --dry-run          # only show the packet
+    python wake_altservidor_ia.py --no-wait          # send and exit
     python wake_altservidor_ia.py --wait 600 --reenviar 60 --log D:\wol.log
     python wake_altservidor_ia.py --mac AA:BB:CC:DD:EE:FF --ip 192.168.0.42 \
-        --broadcast 192.168.7.255                    # outra máquina
+        --broadcast 192.168.7.255                    # another machine
 
-Códigos de saída: 0 = acordou (ou já estava ligada, ou pacote enviado com
---no-wait/--dry-run), 1 = não respondeu dentro do prazo, 2 = erro de uso.
+Exit codes: 0 = woke up (or was already on, or packet sent with
+--no-wait/--dry-run), 1 = no reply within the window, 2 = usage error.
 """
 from __future__ import annotations
 
@@ -113,32 +112,32 @@ import sys
 import time
 from datetime import datetime
 
-# --- A máquina alvo (ver o cabeçalho) ---------------------------------------
+# --- The target machine (see the header) -----------------------------------
 HOSTNAME = "ALTSERVIDOR-IA"
 MAC = "BC:FC:E7:09:D9:7D"
 IP = "192.168.0.90"
 BROADCASTS = ["192.168.7.255", "255.255.255.255"]
 
-# --- Como o pacote é disparado ----------------------------------------------
-PORTS = [9, 7]          # as duas convencionais; a placa não filtra por porta
-REPEATS = 3             # UDP não garante entrega e o pacote tem 102 bytes
-WAIT_DEFAULT = 180      # janela total de espera pelo ping, em segundos
-REENVIAR_DEFAULT = 0    # 0 = uma rodada só (o padrão do uso manual)
-POLL = 5                # intervalo entre pings dentro da janela
+# --- How the packet is fired -----------------------------------------------
+PORTS = [9, 7]          # the two conventional ones; the NIC does not filter by port
+REPEATS = 3             # UDP does not guarantee delivery and the packet is 102 bytes
+WAIT_DEFAULT = 180      # total window waiting for the ping, in seconds
+REENVIAR_DEFAULT = 0    # 0 = a single round (the manual-use default)
+POLL = 5                # interval between pings inside the window
 
-_LOG_PATH = None        # definido por --log; ver log()
+_LOG_PATH = None        # set by --log; see log()
 
 
 def log(msg: str = "") -> None:
-    """Imprime e, se ``--log`` foi passado, anexa ao arquivo com timestamp.
+    """Print and, when ``--log`` was given, append to that file with a timestamp.
 
-    Tarefa agendada não tem console: sem arquivo, o que este script descobriu
-    morre com o processo. Falha de escrita nunca derruba a execução — o trabalho
-    é acordar a máquina, não registrar.
+    A scheduled task has no console: without a file, whatever this script found out
+    dies with the process. A write failure never aborts the run -- the job is to
+    wake the machine, not to log.
 
-    O corte em 1 MB é a lição de 11/09/2026 na .11: log sem faxineiro cresce para
-    sempre. São poucas linhas por boot, mas "poucas linhas por boot" é exatamente
-    o que ninguém revisita durante anos.
+    The 1 MB cut is the lesson of 2026-09-11 on the .11: a log nobody trims grows
+    forever. It is a few lines per boot, but "a few lines per boot" is exactly what
+    nobody revisits for years.
     """
     print(msg)
     if not _LOG_PATH:
@@ -155,7 +154,7 @@ def log(msg: str = "") -> None:
 
 
 def normalize_mac(raw: str) -> str:
-    """Aceita ``:``, ``-``, ``.`` ou nada e devolve 12 dígitos hex maiúsculos."""
+    """Accept ``:``, ``-``, ``.`` or no separator and return 12 uppercase hex digits."""
     cleaned = raw.strip().replace(":", "").replace("-", "").replace(".", "").replace(" ", "")
     if len(cleaned) != 12:
         raise ValueError(f"MAC deve ter 12 digitos hex, veio {len(cleaned)}: {raw!r}")
@@ -167,7 +166,7 @@ def normalize_mac(raw: str) -> str:
 
 
 def build_magic_packet(mac: str) -> bytes:
-    """Os 102 bytes: seis ``0xFF`` de sincronismo + o MAC repetido 16 vezes."""
+    """The 102 bytes: six sync ``0xFF`` + the MAC repeated 16 times."""
     return b"\xff" * 6 + bytes.fromhex(normalize_mac(mac)) * 16
 
 
@@ -180,18 +179,18 @@ def hexdump(data: bytes, width: int = 16) -> str:
 
 
 def send_packet(packet: bytes, broadcast: str, port: int) -> None:
-    """Um datagrama UDP com ``SO_BROADCAST`` — sem isso o kernel recusa o envio."""
+    """One UDP datagram with ``SO_BROADCAST`` -- without it the kernel refuses to send."""
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         sock.sendto(packet, (broadcast, port))
 
 
 def ping(host: str) -> bool:
-    """Um ping, timeout de 1 s. ``True`` só se veio resposta DO host.
+    """One ping, 1 s timeout. ``True`` only when the reply came FROM the host.
 
-    O ``ping`` do Windows sai com código 0 até quando o que voltou foi
-    "Host de destino inacessível" (o erro vem do roteador, e para o ``ping``
-    isso é uma resposta). Por isso conferimos o TTL na saída, não o código.
+    Windows ``ping`` exits 0 even when what came back was "Destination host
+    unreachable" (the error comes from the router, and to ``ping`` that is a
+    reply). So we check for the TTL in the output, not the exit code.
     """
     win = platform.system().lower().startswith("win")
     cmd = ["ping", "-n", "1", "-w", "1000", host] if win else ["ping", "-c", "1", "-W", "1", host]
@@ -204,7 +203,7 @@ def ping(host: str) -> bool:
 
 
 def burst(packet: bytes, broadcasts) -> int:
-    """Uma rodada: o pacote em cada broadcast × porta × REPEATS."""
+    """One round: the packet to each broadcast × port × REPEATS."""
     enviados = 0
     for broadcast in broadcasts:
         for port in PORTS:
@@ -219,11 +218,11 @@ def burst(packet: bytes, broadcasts) -> int:
 
 
 def acordar(mac: str, ip: str, broadcasts, wait: int, reenviar: int) -> bool:
-    """Manda rodadas de magic packet até o host responder ou a janela acabar.
+    """Send magic-packet rounds until the host replies or the window ends.
 
-    O reenvio existe por causa do boot da .11: quando ela sobe depois de uma
-    queda de energia, a porta do switch pode ainda não ter convergido e a
-    primeira rodada se perde no vazio. Uma rodada custa 1,2 KB.
+    Resending exists because of the .11 boot: when it comes up after a power
+    outage, the switch port may not have converged yet and the first round is
+    lost. A round costs 1.2 KB.
     """
     packet = build_magic_packet(mac)
     limite = time.monotonic() + wait
@@ -236,7 +235,7 @@ def acordar(mac: str, ip: str, broadcasts, wait: int, reenviar: int) -> bool:
             rodadas += 1
             enviados = burst(packet, broadcasts)
             log(f"  rodada {rodadas}: {enviados} pacotes enviados.")
-            # reenviar=0 -> uma rodada só: joga a próxima para depois do limite.
+            # reenviar=0 -> a single round: push the next one past the deadline.
             proxima_rodada = agora + (reenviar if reenviar > 0 else wait + 1)
 
         if ping(ip):
