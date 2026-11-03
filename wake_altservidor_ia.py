@@ -95,6 +95,7 @@ Usage
     python wake_altservidor_ia.py --dry-run          # only show the packet
     python wake_altservidor_ia.py --no-wait          # send and exit
     python wake_altservidor_ia.py --wait 600 --reenviar 60 --log D:\wol.log
+    python wake_altservidor_ia.py --nao-antes-de 06:44   # hold the send until 06:44
     python wake_altservidor_ia.py --mac AA:BB:CC:DD:EE:FF --ip 192.168.0.42 \
         --broadcast 192.168.7.255                    # another machine
 
@@ -268,6 +269,8 @@ def main(argv=None) -> int:
     parser.add_argument("--reenviar", type=int, default=REENVIAR_DEFAULT, metavar="SEG",
                         help=f"Reenvia a rodada a cada SEG; 0 = rodada unica (padrao: {REENVIAR_DEFAULT})")
     parser.add_argument("--log", metavar="ARQ", help="Anexa a saida neste arquivo (tarefa agendada nao tem console)")
+    parser.add_argument("--nao-antes-de", metavar="HH:MM",
+                        help="Antes deste horario, espera ate ele para enviar; depois, envia na hora")
     args = parser.parse_args(argv)
 
     _LOG_PATH = args.log
@@ -277,6 +280,17 @@ def main(argv=None) -> int:
     except ValueError as exc:
         parser.error(str(exc))
 
+    # TIME OF THE .90 (Marcelo's request, 2026-10-29): the .11 boots at 06:12 and the .90
+    # used to come up with it; he wants the .90 up at 06:45. The .11 task still runs on
+    # its boot and only holds the send. A boot after that time (back from a power
+    # outage) sends at once, as it always did.
+    alvo = None
+    if args.nao_antes_de:
+        try:
+            alvo = datetime.strptime(args.nao_antes_de, "%H:%M").time()
+        except ValueError:
+            parser.error(f"--nao-antes-de espera HH:MM, veio {args.nao_antes_de!r}")
+
     if args.log:
         log("--- inicio ---")
 
@@ -285,6 +299,14 @@ def main(argv=None) -> int:
         print(hexdump(build_magic_packet(args.mac)))
         print("\n--dry-run: nada foi enviado.")
         return 0
+
+    if alvo is not None:
+        agora = datetime.now()
+        hora_alvo = datetime.combine(agora.date(), alvo)
+        if agora < hora_alvo:
+            espera = (hora_alvo - agora).total_seconds()
+            log(f"Antes das {alvo:%H:%M}: espero {int(espera // 60)} min para enviar.")
+            time.sleep(espera)
 
     if ping(args.ip):
         log(f"{args.ip} JA responde ao ping -- a maquina esta ligada. Nada a fazer.")

@@ -8,7 +8,8 @@
     A corrente inteira, para ninguem precisar remontar depois:
 
         .11 liga -> tarefa OrcaView-WOL-AltservidorIA (boot + 30s)
-                 -> wake_altservidor_ia.py manda o magic packet
+                 -> wake_altservidor_ia.py segura ate -NaoAntesDe (06:44)
+                    e manda o magic packet
                  -> .90 acorda
                  -> autologon do .90 (~16s)
                  -> tarefa "OrcaView Stack AtLogon" (+60s) roda
@@ -38,6 +39,18 @@
     disparo -- UMA vez so. Com o .90 ja ligado a repeticao so escreve "JA responde
     ao ping" no log e sai. -RetryMinutes 0 desliga a repeticao.
 
+    Time of the .90 (Marcelo's request, 2026-10-29; reached the .11 on 2026-11-03):
+    the .11 boots at ~06:12 and the .90 used to come up with it; he wants it up at
+    06:45. The boot run passes --nao-antes-de and sleeps until -NaoAntesDe; a boot
+    after that time (back from a power outage) sends at once. A boot during the night
+    also waits for the morning. Two consequences shape the defaults:
+      * -DailyAt is -NaoAntesDe too. The boot and daily retries at +RetryMinutes
+        would land on the boot instance still sleeping (IgnoreNew drops them), so the
+        second chance is the DAILY trigger's retry (06:59), after the boot window.
+      * The execution limit covers the sleep (up to a day), else Windows kills the
+        task mid-wait and the packet never goes out.
+    -NaoAntesDe '' restores the old behavior (send right after boot).
+
     Roda como SYSTEM (LogonType ServiceAccount): dispensa senha e roda com
     ninguem logado -- que e exatamente o caso no boot.
 
@@ -66,6 +79,10 @@
     plus the boot delay, so on normal days the boot run has already woken the .90.
     Empty string = no daily trigger (boot only, the pre-05/10/2026 behavior).
 
+.PARAMETER NaoAntesDe
+    Time (HH:mm) before which the run holds the send (wake_altservidor_ia.py
+    --nao-antes-de). Empty string = send as soon as the task runs.
+
 .PARAMETER DailyDays
     Weekdays of the daily trigger. Default Mon-Fri, matching the .11 schedule.
 
@@ -85,7 +102,8 @@ param(
     [int]$Reenviar        = 60,
     [int]$DelaySeconds    = 30,
     [int]$RetryMinutes    = 15,
-    [string]$DailyAt      = '06:15',
+    [string]$DailyAt      = '06:44',
+    [string]$NaoAntesDe   = '06:44',
     [string[]]$DailyDays  = @('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'),
     [switch]$Desinstalar
 )
@@ -135,6 +153,9 @@ $horaDiaria = $null
 if ($DailyAt) {
     $horaDiaria = [datetime]::ParseExact($DailyAt, 'HH:mm', [Globalization.CultureInfo]::InvariantCulture)
 }
+if ($NaoAntesDe) {
+    [void][datetime]::ParseExact($NaoAntesDe, 'HH:mm', [Globalization.CultureInfo]::InvariantCulture)
+}
 
 # logs\ esta inteiro no .gitignore; o proprio script corta o arquivo em 1 MB.
 $logDir = Join-Path $PSScriptRoot 'logs'
@@ -149,10 +170,13 @@ if ($horaDiaria) { Write-Host ("  diario : {0} em {1}" -f $DailyAt, ($DailyDays 
 else { Write-Host "  diario : desligado (so no boot)" }
 if ($RetryMinutes -gt 0) { Write-Host "  retry  : mais 1 disparo ${RetryMinutes} min depois, se o .90 nao acordou" }
 else { Write-Host "  retry  : desligado" }
+if ($NaoAntesDe) { Write-Host "  horario: nao envia antes das $NaoAntesDe (boot antes disso espera)" }
+else { Write-Host "  horario: envia logo que roda" }
 Write-Host "  janela : ${Wait}s, reenviando a cada ${Reenviar}s"
 Write-Host "  log    : $logPath"
 
 $argumentos = '"{0}" --wait {1} --reenviar {2} --log "{3}"' -f $scriptPath, $Wait, $Reenviar, $logPath
+if ($NaoAntesDe) { $argumentos += ' --nao-antes-de {0}' -f $NaoAntesDe }
 $action = New-ScheduledTaskAction -Execute $python -Argument $argumentos -WorkingDirectory $PSScriptRoot
 
 # Gatilho no boot. O Delay nao e parametro do cmdlet: sai como propriedade.
@@ -184,6 +208,8 @@ $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccou
 # O limite de execucao tem de ser MAIOR que a janela de espera, senao o Windows
 # mata a tarefa no meio e o log fica pela metade sugerindo falha de rede.
 $limite = [Math]::Max(30, [int][Math]::Ceiling($Wait / 60.0) + 10)
+# A boot before -NaoAntesDe sleeps first: up to a day (a boot right after the time sleeps none).
+if ($NaoAntesDe) { $limite += 24 * 60 }
 $settings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
     -ExecutionTimeLimit (New-TimeSpan -Minutes $limite) `
@@ -199,7 +225,7 @@ if ($existente) {
 
 Register-ScheduledTask -TaskName $TaskName `
     -Action $action -Trigger $triggers -Principal $principal -Settings $settings `
-    -Description 'No boot da .11 e todo dia util de manha, manda Wake-on-LAN para o ALTSERVIDOR-IA (192.168.0.90) ate ele responder. O OrcaView sobe sozinho la.' | Out-Null
+    -Description 'No boot da .11 e todo dia util de manha, manda Wake-on-LAN para o ALTSERVIDOR-IA (192.168.0.90) ate ele responder, nunca antes das 06:44 (padrao). O OrcaView sobe sozinho la.' | Out-Null
 
 Write-Host "`nTarefa registrada."
 Write-Host "Ela NAO foi disparada agora de proposito: com o .90 ligado, o script"

@@ -6,14 +6,27 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-03] — O .90 liga às 06:45, não mais junto com a .11
+
+Pedido do Marcelo de 29/10, que tinha ficado só no web. **Pede ação na .11**: `git pull --ff-only` e rodar de
+novo `install_wol_task.ps1` como Administrador (a tarefa só muda quando é recriada).
+
+- `wake_altservidor_ia.py` volta a ser byte-idêntico ao do web: ganha `--nao-antes-de HH:MM` (antes do horário,
+  espera; depois, manda na hora).
+- `install_wol_task.ps1`: parâmetro novo `-NaoAntesDe` (padrão `06:44`), passado à tarefa. O boot das ~06:12 espera
+  até 06:44; boot depois disso (volta de queda de energia) manda na hora; boot de madrugada espera a manhã.
+- O gatilho diário foi de 06:15 para **06:44**: a repetição de +15 min do boot e do diário cairia na instância
+  ainda esperando (o `IgnoreNew` a descarta), então a segunda chance passa a ser a repetição do diário, às 06:59.
+- O limite de execução da tarefa ganha 24 h quando há horário, senão o Windows a mataria no meio da espera (o
+  limite era de 30 min). `-NaoAntesDe ''` volta ao comportamento antigo.
+
 ## [2026-11-03] — `wake_altservidor_ia.py`: comentários e docstrings em inglês
 
 - Cabeçalho, docstrings e comentários em inglês técnico, mesmo texto da cópia do web
   (`web_orcaview_V118/tools/wake_altservidor_ia.py`, V118.1463), no mesmo dia. Logs e `--help` seguem em PT-BR.
   Só comentário: a árvore sintática sem as docstrings é a mesma.
-- ⚠️ As duas cópias já não eram iguais antes disto: a opção `--nao-antes-de` (29/10, segurar o envio até 06:44)
-  entrou só no web, e a tarefa da .11 não a usa. Ficou como estava; trazê-la para cá muda o horário em que o .90
-  liga e é decisão do Marcelo.
+- As duas cópias já não eram iguais antes disto (o `--nao-antes-de` de 29/10 só no web): resolvido na entrada
+  acima.
 - Não pede deploy: basta `git pull --ff-only` na .11 quando for conveniente.
 
 ## [2026-10-29] — Levantamento de acessos da .11 (só leitura) + conserto do script do firewall da 8078
