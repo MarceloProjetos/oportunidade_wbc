@@ -309,7 +309,7 @@ def pedidos_wbc_buscar(
         False, "--integrados",
         help="Lista os pedidos JÁ processados (U_INO_ProcessWBC='Y') em vez dos pendentes — "
              "é onde um pedido vai parar depois de processado, e de onde sai um candidato a "
-             "reprocessar com --force.",
+             "reprocessar-integrados (nunca processar-novos --force, que duplica as OPs).",
     ),
 ):
     """Lista os pedidos de venda passíveis de gerar OPs (equivalente ao botão 'Buscar' do
@@ -342,12 +342,12 @@ def pedidos_wbc_buscar(
                 "[yellow]Nenhum pedido pendente de processamento no momento.[/yellow]\n"
                 "[dim]Lembre que um pedido sai desta lista assim que é processado (fica com "
                 "U_INO_ProcessWBC='Y'). Para ver os já processados — e escolher um para "
-                "reprocessar com --force — rode: pedidos-wbc buscar --integrados[/dim]"
+                "reprocessar com reprocessar-integrados — rode: pedidos-wbc buscar --integrados[/dim]"
             )
         raise typer.Exit(code=0)
 
     titulo = (
-        "Pedidos JÁ processados (reprocessáveis com --force)"
+        "Pedidos JÁ processados (reprocessáveis com reprocessar-integrados)"
         if integrados
         else "Pedidos passíveis de gerar OPs (modo 'Pedidos Novos')"
     )
@@ -808,7 +808,9 @@ def pedidos_wbc_processar_novos(
         help=(
             "Ignora a verificação de reprocessamento (pedido já com U_INO_ProcessWBC='Y' e/ou "
             "OP não cancelada já existente para o item) — checagem adicionada em 15/09/2026, "
-            "não existe no addon C# original (ver seção 7.4/9 do migration_guide.md)."
+            "não existe no addon C# original (ver seção 7.4/9 do migration_guide.md). "
+            "⚠️ Cria OPs DUPLICADAS por cima das existentes: não serve para retomar. Para "
+            "retomar: manutencao-op buscar → cancelar-ops → processar-novos sem --force."
         ),
     ),
     perfil: bool = typer.Option(
@@ -827,7 +829,9 @@ def pedidos_wbc_processar_novos(
 
     Por padrão, pula (sem gerar OP duplicada) pedidos já marcados como processados
     (`U_INO_ProcessWBC='Y'`) ou itens que já têm uma OP não cancelada para o mesmo pedido —
-    use `--force` para ignorar essa verificação e reprocessar/recriar mesmo assim.
+    `--force` ignora essa verificação e **duplica** as OPs por cima das existentes. Para
+    retomar um processamento que parou no meio: `manutencao-op buscar` → `cancelar-ops` →
+    `processar-novos` sem `--force`; para pedido já integrado, `reprocessar-integrados`.
     """
     em_producao = _avisa_ambiente("pedidos-wbc processar-novos")
     _confirma(

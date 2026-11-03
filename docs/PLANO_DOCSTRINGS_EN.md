@@ -109,8 +109,9 @@ enganavam:
 - `comparar_ops` dizia que o porte roda em HOMOLOG; desde 28/09 escreve onde `SL_COMPANY_DB` aponta.
 
 <span class="warn">Achado fora do escopo:</span> `controleproducao/cli.py` (linhas ~312/345/350)
-**diz ao operador** que pedido integrado é "reprocessável com `--force`" — e `--force` duplica OP.
-É texto de tela (código), não docstring.
+**dizia ao operador** que pedido integrado é "reprocessável com `--force`" — e `--force` duplica OP.
+✅ Corrigido em 03/11/2026 (commit à parte): as 3 mensagens apontam para `reprocessar-integrados`, e
+o `--help` do `--force` e do `processar-novos` avisa que ele duplica e diz como retomar.
 
 ## Decisões
 
