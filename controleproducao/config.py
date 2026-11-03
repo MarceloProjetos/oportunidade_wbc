@@ -1,8 +1,8 @@
-"""Configuração centralizada da aplicação.
+"""Centralized application settings.
 
-Substitui o `app.config` do addon C# (que guardava usuário/senha em texto puro —
-ver "Débitos técnicos", item 1, em docs/controleproducao/migration_guide.md). Todas as
-credenciais vêm de variáveis de ambiente (arquivo `.env`, nunca commitado).
+Replaces the C# addon's `app.config` (which kept user/password in clear text; see
+"Débitos técnicos", item 1, in docs/controleproducao/migration_guide.md). All
+credentials come from environment variables (`.env` file, never committed).
 
 Since 2026-09-28 this package lives beside `wbcpython/` in the ServidorIntegracaoSAP and
 shares its single `.env`: every credential reads the WBC name first and falls back to the
@@ -135,12 +135,13 @@ class Settings(BaseSettings):
 
     @property
     def is_production(self) -> bool:
-        """True se a company DB configurada para a Service Layer for a de produção.
+        """True if the Service Layer company DB is the production one.
 
-        É o que decide a faixa vermelha no topo de toda página e o aviso em log a cada
-        escrita (`controleproducao.core.guardas.aviso_de_escrita`). Entre 21 e 22/09/2026 foi também a
-        base da trava de escrita, removida a pedido do Anderson — hoje o efeito é
-        informar, não impedir.
+        Drives the red banner on every page and the per-write log warning
+        (`controleproducao.core.guardas.aviso_de_escrita`). Between 2026-09-21 and 22 it was
+        also the basis of a two-key write lock, removed at Anderson's request. Since
+        2026-09-28 a production target off the .11 raises `ProductionWriteBlocked`
+        (`aviso_de_escrita` and the SL client); on the .11 the flag only informs.
         """
         # Same comparison as the hard gate (strip + casefold): with an exact compare, a
         # differently-cased name showed "homologação" while the SL client refused as production.

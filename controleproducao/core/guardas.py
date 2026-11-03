@@ -1,11 +1,11 @@
-"""Aviso de ambiente e trava de escrita (21/09/2026 · revisto em 22/09 · 28/09/2026).
+"""Environment notice and write gate (21/09/2026 · revised 22/09 and 28/09/2026).
 
-Até 22/09/2026 este módulo era uma trava de duas chaves (`WBC_BLOCK_PRODUCTION_WRITES` no
-`.env` + `--producao` por execução, e na web a digitação do nome da company DB), removida
-a pedido do Anderson. O que ficou: a faixa vermelha no topo de toda página quando o alvo é
-produção (`core/templates.py` põe o ambiente como global do Jinja), a conferência em duas
-etapas com token de uso único (`core/confirmacao.py` — nunca foi a trava de produção, vale
-igual em homologação) e o aviso em log a cada escrita em produção.
+Until 22/09/2026 this module was a two-key lock (`WBC_BLOCK_PRODUCTION_WRITES` in `.env` +
+`--producao` per run, and on the web typing the company DB name), removed at Anderson's
+request. What stayed: the red banner on every page when the target is production
+(`core/templates.py` sets the environment as a Jinja global), the two-step confirmation with
+a single-use token (`core/confirmacao.py` — never the production gate, it applies equally in
+homologação) and the log notice on every production write.
 
 Since 2026-09-28 (package inside the SIS) a gate is back — keyed on the MACHINE, not on a
 `.env` switch. That is the SIS rule for production features: a switch vanishes in a `.env`
@@ -26,16 +26,16 @@ __all__ = ["ProductionWriteBlocked", "ambiente_descrito", "aviso_de_escrita"]
 
 
 def ambiente_descrito(settings: Settings) -> str:
-    """Rótulo curto do alvo da escrita, para banners e logs. Nunca inclui credenciais."""
+    """Short label of the write target for banners and logs. Never includes credentials."""
     destino = "PRODUÇÃO" if settings.is_production else "homologação"
     return f"{destino} — company DB '{settings.sl_company_db}'"
 
 
 def aviso_de_escrita(settings: Settings, operacao: str) -> str | None:
-    """Texto do aviso para uma operação de escrita, ou `None` fora de produção.
+    """Notice text for a write operation, or `None` outside production.
 
-    Homologação não ganha ruído — é onde se trabalha o dia inteiro, e um aviso que aparece
-    sempre deixa de ser lido justamente quando passa a importar.
+    Homologação gets no noise: a notice that always shows stops being read exactly when it
+    starts to matter.
 
     Raises:
         ProductionWriteBlocked: target is production and this is not the production

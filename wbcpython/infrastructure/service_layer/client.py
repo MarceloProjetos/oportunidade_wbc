@@ -1,26 +1,26 @@
-"""Cliente HTTP do SAP Business One Service Layer.
+"""HTTP client for the SAP Business One Service Layer.
 
-Substitui a conexão DI-API (`Company.Connect()`) do sistema legado por chamadas
-REST autenticadas por sessão.
+Replaces the legacy system's DI-API connection (`Company.Connect()`) with session-authenticated
+REST calls.
 
-Pontos de projeto:
+Design points:
 
-* **Uma única porta de saída para dados.** Toda requisição a dados passa por
-  `request()`, e é lá — e somente lá — que a trava de segurança é aplicada.
-  Nenhum outro módulo precisa lembrar de verificar o ambiente antes de gravar.
-  As duas exceções são `login()` e `logout()`, que falam direto com o transporte
-  por necessidade (passar por `request()` seria recursivo, já que é ele quem
-  dispara o login). Não são escrita de dados de negócio; qualquer método novo,
-  porém, deve passar por `request()`.
-* **Sessão renovada automaticamente.** O Service Layer expira a sessão por
-  inatividade; ao receber 401 o cliente refaz o login uma vez e repete a
-  requisição, de forma transparente.
-* **Login só quando há o que pedir.** Entrar no `with` não autentica: o login
-  acontece na primeira requisição (`request()`), e o `logout` na saída só se
-  houve login. Um ciclo do worker sem escrita — a maioria — não toca o Service
-  Layer (decisão do Marcelo, 08/09/2026: eram ~260 logins/dia só para descobrir
-  que não havia nada a fazer). A leitura das oportunidades vem do HANA.
-* **Credenciais nunca aparecem em log ou em mensagem de erro.**
+* **A single exit door for data.** Every data request goes through `request()`, and the
+  safety lock (`assert_http_call_allowed`: production writes only from the production machine
+  IP, see `wbcpython/safety.py`) is applied there and only there. No other module needs to
+  remember to check the environment before writing. The two exceptions are `login()` and
+  `logout()`, which talk to the transport directly out of necessity (going through
+  `request()` would be recursive, since it is what triggers the login). They write no
+  business data; any new method must still go through `request()`.
+* **Session renewed automatically.** The Service Layer expires the session on inactivity;
+  on a session-expired error the client logs in once more and repeats the request,
+  transparently.
+* **Login only when there is something to ask.** Entering the `with` does not authenticate:
+  login happens on the first request (`request()`), and `logout` on exit only if a login
+  happened. A worker cycle with no write (most of them) never touches the Service Layer
+  (Marcelo's decision, 2026-09-08: ~260 logins/day just to find there was nothing to do).
+  The opportunities read comes from HANA.
+* **Credentials never appear in logs or error messages.**
 """
 
 from __future__ import annotations
@@ -48,13 +48,16 @@ TAMANHO_DE_PAGINA = 100
 
 
 class ServiceLayerClient:
-    """Cliente de sessão do Service Layer.
+    """Service Layer session client.
 
-    Uso recomendado, como gerenciador de contexto (garante o logout):
+    Recommended use, as a context manager (guarantees the logout):
 
         with ServiceLayerClient(settings.service_layer,
                                 production_company_db=settings.production_company_db) as sl:
             dados = sl.get_json("OrcDetalhe", params={"$top": 1})
+
+    `block_production_writes` is `settings.block_production_writes` in real callers (True
+    unless running on the production machine); the default is the safe one.
     """
 
     def __init__(
@@ -89,7 +92,7 @@ class ServiceLayerClient:
         return self._settings.company_db
 
     def login(self) -> None:
-        """Autentica e guarda o cookie de sessão (B1SESSION/ROUTEID)."""
+        """Authenticates and keeps the session cookie (B1SESSION/ROUTEID)."""
         if not self._settings.username or not self._settings.password.get_secret_value():
             raise ServiceLayerLoginError(
                 "Usuário e/ou senha do Service Layer não configurados. "
@@ -119,7 +122,7 @@ class ServiceLayerClient:
         )
 
     def logout(self) -> None:
-        """Encerra a sessão. Nunca levanta exceção — é chamado no encerramento."""
+        """Ends the session. Never raises: it is called on shutdown."""
         if not self._autenticado:
             return
         try:
@@ -156,10 +159,10 @@ class ServiceLayerClient:
         json: Any | None = None,
         headers: dict[str, str] | None = None,
     ) -> httpx.Response:
-        """Executa uma requisição. **Única porta de saída HTTP do cliente.**
+        """Runs a request. **The client's only HTTP exit door.**
 
-        Aplica a trava de segurança, garante sessão ativa e renova a sessão
-        automaticamente em caso de expiração.
+        Applies the safety lock, ensures an active session and renews it automatically when
+        it expires.
         """
         metodo = metodo.upper()
 
@@ -231,12 +234,11 @@ class ServiceLayerClient:
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
     ) -> Any:
-        """Lê a resposta como JSON, traduzindo corpo inválido em erro legível.
+        """Reads the response as JSON, turning an invalid body into a readable error.
 
-        Um `200` que não seja JSON é sintoma clássico de `SL_BASE_URL` errado,
-        proxy ou portal cativo no caminho. Sem este tratamento, o `.json()`
-        estourava com `JSONDecodeError` cru — justamente no cenário em que a
-        pessoa mais precisa de uma pista do que está errado.
+        A `200` that is not JSON is the classic symptom of a wrong `SL_BASE_URL`, a proxy or
+        a captive portal in the path. Without this handling `.json()` blew up with a raw
+        `JSONDecodeError`, exactly when the person most needs a hint about what is wrong.
         """
         resposta = self.get(caminho, params=params, headers=headers)
         try:
@@ -276,20 +278,20 @@ class ServiceLayerClient:
         selecionar: str | None = None,
         tamanho_de_pagina: int = TAMANHO_DE_PAGINA,
     ) -> list[dict[str, Any]]:
-        """Consulta OData que **atravessa a paginação** do Service Layer.
+        """OData query that **walks through the Service Layer pagination**.
 
-        O SL entrega no máximo 20 registros por resposta, e `$top` não fura esse
-        limite: pedir `$top=100` devolve 20. Pior — quando o `$top` está na
-        consulta, o SL **omite** o `@odata.nextLink`, então a resposta parece
-        completa. Foi assim que o ciclo passou a varrer só as 20 oportunidades
-        mais recentes de uma janela com 1.785, sem nada no log indicando corte.
+        The SL returns at most 20 records per response and `$top` does not break that limit:
+        asking `$top=100` returns 20. Worse, when `$top` is in the query the SL **omits**
+        `@odata.nextLink`, so the response looks complete. That is how the cycle came to scan
+        only the 20 most recent opportunities of a window with 1,785, with nothing in the log
+        showing the cut.
 
-        A saída é o cabeçalho `Prefer: odata.maxpagesize`, que o SL respeita, e
-        um laço de `$skip` até a página vir curta. `$skip` sobre `$orderby` de
-        chave é estável: a ordenação é por identificador, não por data.
+        The way out is the `Prefer: odata.maxpagesize` header, which the SL honors, and a
+        `$skip` loop until a page comes back short. `$skip` over a key `$orderby` is stable:
+        the ordering is by identifier, not by date.
 
-        `top` continua sendo o **teto** de registros devolvidos — agora um teto
-        de verdade, e não um número que o servidor ignora em silêncio.
+        `top` stays the **ceiling** of returned records, now a real one instead of a number
+        the server silently ignores.
         """
         coletados: list[dict[str, Any]] = []
 
@@ -338,9 +340,9 @@ class ServiceLayerClient:
         )
 
     def testar_conexao(self) -> str:
-        """Smoke test de conectividade: faz login e uma leitura mínima.
+        """Connectivity smoke test: logs in and does a minimal read.
 
-        Devolve uma descrição curta do resultado, própria para exibir na CLI.
+        Returns a short description of the result, suited to display in the CLI.
         """
         self.login()
         self.listar("OrcDetalhe", top=1, selecionar="DocEntry")

@@ -1,9 +1,9 @@
-"""Configuração da aplicação, carregada de variáveis de ambiente / .env.
+"""Application settings, loaded from environment variables / .env.
 
-Princípio (ai_spec/04_environment_constraints.md, Regra 4): nenhum nome de
-company DB ou schema HANA pode ficar fixo no código — tudo vem daqui, para que
-trocar de ambiente seja mudança de configuração, e para que a regra de não
-escrever em produção seja verificável olhando a config, não auditando o código.
+Principle (ai_spec Rule 4, index at ``docs/wbc/ai_spec/00_index.md``): no company DB or
+HANA schema name may be hardcoded; everything comes from here, so switching environment
+is a config change. Production writes are not gated by config: since 2026-09-28 they are
+unlocked only by machine identity (``safety.is_production_machine()``).
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from wbcpython.safety import is_production, is_production_machine
 
 
 class ServiceLayerSettings(BaseSettings):
-    """Conexão com o SAP Business One Service Layer (REST)."""
+    """SAP Business One Service Layer (REST) connection."""
 
     model_config = SettingsConfigDict(
         env_prefix="SL_", env_file=".env", extra="ignore", case_sensitive=False,
@@ -50,14 +50,14 @@ class ServiceLayerSettings(BaseSettings):
 
     @property
     def verify(self) -> bool | str:
-        """Valor a passar para o parâmetro `verify` do httpx."""
+        """Value for the `verify` parameter of httpx (CA bundle path wins over the bool)."""
         if self.ca_bundle:
             return self.ca_bundle
         return self.verify_ssl
 
 
 class WbcSqlSettings(BaseSettings):
-    """Conexão com o SQL Server do WBC (banco WBCCAD)."""
+    """WBC SQL Server (WBCCAD database) connection. Read-only by Rule 5."""
 
     model_config = SettingsConfigDict(
         env_prefix="WBC_SQL_", env_file=".env", extra="ignore", case_sensitive=False,
@@ -77,7 +77,7 @@ class WbcSqlSettings(BaseSettings):
 
 
 class HanaSettings(BaseSettings):
-    """Conexão SQL direta ao HANA via hdbcli (views de leitura)."""
+    """Direct HANA SQL connection via hdbcli (read views)."""
 
     model_config = SettingsConfigDict(
         env_prefix="HANA_", env_file=".env", extra="ignore", case_sensitive=False,
@@ -96,7 +96,7 @@ class HanaSettings(BaseSettings):
 
 
 class TrackingSettings(BaseSettings):
-    """Banco próprio de acompanhamento, que alimenta o dashboard."""
+    """Own tracking DB that feeds the dashboard."""
 
     model_config = SettingsConfigDict(
         env_prefix="TRACKING_", env_file=".env", extra="ignore", case_sensitive=False
@@ -118,26 +118,20 @@ class TrackingSettings(BaseSettings):
 
 
 class Settings(BaseSettings):
-    """Configuração raiz da aplicação."""
+    """Root application settings."""
 
     model_config = SettingsConfigDict(
         env_prefix="WBC_", env_file=".env", extra="ignore", case_sensitive=False
     )
 
     def __init__(self, **dados: Any) -> None:
-        """Propaga o `_env_file` para as configurações aninhadas.
+        """Propagate ``_env_file=None`` to the nested settings.
 
-        Sem isto, `Settings(_env_file=None)` era uma promessa que o código não
-        cumpria: o `Settings` de cima ignorava o arquivo, mas
-        `ServiceLayerSettings`, `HanaSettings` e as demais nascem de
-        `default_factory` — sem argumento nenhum — e continuavam lendo o `.env`
-        do diretório corrente.
-
-        O efeito passou despercebido enquanto todo `.env` de máquina apontava
-        para homologação: o valor que vazava era igual ao esperado. Na virada
-        para produção, três testes de configuração ficaram vermelhos sem que uma
-        linha de código tivesse mudado — só porque a máquina passou a apontar
-        para outro lugar.
+        The nested classes are built by ``default_factory`` with no arguments, so without
+        this ``Settings(_env_file=None)`` still read the cwd's `.env` for them. It went
+        unnoticed while every machine's `.env` pointed at homologation (the leaked value
+        equalled the expected one); at the production cut-over three config tests went
+        red with no code change, only because the machine now pointed elsewhere.
         """
         if dados.get("_env_file", ...) is None:
             for campo, classe in (
@@ -163,13 +157,12 @@ class Settings(BaseSettings):
     @field_validator("production_company_db")
     @classmethod
     def _producao_nao_pode_ser_vazia(cls, valor: str) -> str:
-        """Um nome vazio aqui desligaria a trava de produção em silêncio.
+        """Reject an empty production name: it would silently disable production detection.
 
-        `is_production()` compara por igualdade: se o nome da produção for uma
-        string vazia, nenhum destino jamais é reconhecido como produção — e as
-        próprias ferramentas de diagnóstico passariam a reportar "homologação,
-        trava ATIVA" mesmo apontadas para a produção. Melhor recusar a
-        configuração no arranque do que operar com uma trava que não trava.
+        `is_production()` compares by equality, so with an empty name no target is ever
+        recognized as production: `targets_production` stays False (the painel's write
+        gate opens) and diagnostics report "homologação" even when pointed at production.
+        Better to refuse the config at startup than to run with a gate that gates nothing.
         """
         if not valor or not valor.strip():
             raise ValueError(
@@ -257,13 +250,11 @@ class Settings(BaseSettings):
     worker_horario_fim: time = Field(default=padroes.WORKER_HORARIO_FIM, alias="WORKER_HORARIO_FIM")
 
     def dentro_do_horario_do_worker(self, agora: time) -> bool:
-        """O relógio está dentro da janela de trabalho?
+        """Whether ``agora`` is inside the worker's working window.
 
-        Os limites são inclusivos nas duas pontas: às 06:30 em ponto o worker
-        já trabalha, e às 19:00 em ponto ainda trabalha. Um ciclo que comece
-        19:00 e termine 19:00:14 é levado até o fim — a janela decide se o ciclo
-        **começa**, e interromper um ciclo no meio é como se cria documento sem
-        vínculo.
+        Both ends are inclusive (06:30 and 19:00 sharp are in). The window only decides
+        whether a cycle **starts**: a cycle begun at 19:00 and ending at 19:00:14 runs to
+        the end, since interrupting one midway is how documents without a link get created.
         """
         inicio, fim = self.worker_horario_inicio, self.worker_horario_fim
         if inicio <= fim:
@@ -295,11 +286,10 @@ class Settings(BaseSettings):
     @field_validator("worker_dias_de_trabalho", mode="before")
     @classmethod
     def _dias_da_semana(cls, valor: Any) -> Any:
-        """Valida na partida: dia fora de 1–7 e lista vazia são recusados.
+        """Startup validation: a day outside 1-7 or an empty list is refused.
 
-        Recusar aqui é deliberado. Um `8` ignorado em silêncio viraria um
-        worker que não roda num dia e ninguém sabe por quê; uma lista vazia,
-        um worker que nunca roda parecendo estar rodando.
+        Deliberate: a silently ignored `8` would be a worker that skips a day for no
+        visible reason, and an empty list a worker that never runs while looking alive.
         """
         if not isinstance(valor, str):
             valor = ",".join(str(int(d)) for d in sorted(valor))
@@ -325,11 +315,11 @@ class Settings(BaseSettings):
 
     @property
     def dias_de_trabalho(self) -> frozenset[int]:
-        """Os dias já convertidos — validados no campo, então é só converter."""
+        """The working days as ints (already validated by the field, so just convert)."""
         return frozenset(int(p) for p in self.worker_dias_de_trabalho.split(","))
 
     def e_dia_de_trabalho(self, dia: date) -> bool:
-        """O worker trabalha neste dia da semana?"""
+        """Whether the worker works on this weekday."""
         return dia.isoweekday() in self.dias_de_trabalho
 
     #: Nomes dos dias, escritos aqui em vez de vir do `strftime`.
@@ -361,7 +351,7 @@ class Settings(BaseSettings):
 
     @property
     def dias_de_trabalho_por_extenso(self) -> str:
-        """Para o log dizer "seg, ter, qua, qui, sex" em vez de um conjunto."""
+        """For the log: "seg, ter, qua, qui, sex" instead of a set."""
         return ", ".join(self.DIAS_ABREVIADOS[d - 1] for d in sorted(self.dias_de_trabalho))
 
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
@@ -377,7 +367,7 @@ class Settings(BaseSettings):
 
     @property
     def caminho_do_log(self) -> Path | None:
-        """`None` quando o log em arquivo está desligado."""
+        """Log file path, or `None` when file logging is off."""
         return Path(self.log_file) if self.log_file.strip() else None
 
     #: Senha exigida pelo painel para executar qualquer comando que escreva.
@@ -442,46 +432,43 @@ class Settings(BaseSettings):
 
     @property
     def painel_exige_chave(self) -> bool:
-        """O painel pede a chave de acesso (há `OS_API_KEY` configurada)."""
+        """Whether the painel asks for the access key (an `OS_API_KEY` is configured)."""
         return bool(self.api_key.get_secret_value())
 
     @property
     def painel_exposto(self) -> bool:
-        """O painel aceita conexão de outra máquina.
+        """Whether the painel accepts connections from other machines.
 
-        Qualquer coisa que não seja um endereço de loopback expõe. `0.0.0.0` é
-        o caso comum, mas fixar um IP da rede (`192.168.1.70`) expõe do mesmo
-        jeito — e era o que um teste de `== "0.0.0.0"` deixaria passar calado.
+        Anything but a loopback address exposes it: `0.0.0.0` is the common case, but a
+        fixed LAN IP exposes it just the same, which an `== "0.0.0.0"` test would miss.
         """
         return self.painel_host.strip() not in ("127.0.0.1", "localhost", "::1")
 
     @property
     def painel_pode_escrever(self) -> bool:
-        """O painel só executa comando que escreve com senha **e** fora de produção.
+        """The painel runs writing commands only with a password **and** off production.
 
-        Em produção a execução é pelo terminal, com uma pessoa responsável na
-        frente. Ver `RISCOS_PRODUCAO.md`: o primeiro ciclo lá cancelaria 27
-        cotações e criaria 4 pedidos (R$ 170.973,41), tudo irreversível — isso
-        não pode depender de um clique numa tela sem autenticação.
+        In production execution goes through the terminal, with a responsible person at
+        the keyboard. See `RISCOS_PRODUCAO.md`: the first cycle there would cancel 27
+        quotes and create 4 orders (R$ 170,973.41), all irreversible, which must not hinge
+        on a click in a screen without user authentication.
         """
         return bool(self.painel_senha.get_secret_value()) and not self.targets_production
 
     @property
     def painel_pode_armar_janela(self) -> bool:
-        """Armar a janela é a exceção deliberada ao bloqueio de produção — só a ele.
+        """Arming the window is the deliberate exception to the production block, and only it.
 
-        A guarda acima existe para impedir que um clique **dispare** um ciclo de
-        escrita em produção. Armar não dispara nada: o worker já roda sozinho
-        ali a cada `WORKER_INTERVAL_SECONDS`, escrevendo no SAP, com ou sem
-        pedido. O que o pedido muda é **quão para trás** esse ciclo automático
-        olha — não se ele existe.
+        The guard above stops a click from **triggering** a write cycle in production.
+        Arming triggers nothing: the worker already runs by itself there every
+        `WORKER_INTERVAL_SECONDS`, writing to SAP, request or not. The request only changes
+        **how far back** that automatic cycle looks.
 
-        A senha, essa, continua. Ela saiu por um dia (14/09/2026, em nome da
-        simplicidade) e voltou no mesmo dia: sem o bloqueio de produção na
-        frente, ela é a **única** guarda de uma ação que provoca centenas de
-        escritas irreversíveis. Por isso é conferida como pré-condição, e não só
-        comparada — com `PAINEL_SENHA` vazia, `compare_digest("", "")` deixaria
-        passar quem não digitasse nada.
+        The password still applies. It was dropped for a day (2026-09-14) and restored the
+        same day: without the production block in front, it is the **only** guard on an
+        action that causes hundreds of irreversible writes. Hence it is checked as a
+        precondition, not just compared: with an empty `PAINEL_SENHA`,
+        `compare_digest("", "")` would let through whoever typed nothing.
         """
         return bool(self.painel_senha.get_secret_value())
 
@@ -492,14 +479,11 @@ class Settings(BaseSettings):
 
     @property
     def targets_production(self) -> bool:
-        """True se o Service Layer está apontado para a company DB de produção."""
+        """True if the Service Layer points at the production company DB."""
         return is_production(self.service_layer.company_db, self.production_company_db)
 
     def describe_environment(self) -> str:
-        """Resumo legível do ambiente — para logar no arranque do worker.
-
-        Nunca inclui credenciais.
-        """
+        """Human-readable environment summary, logged at worker startup. Never includes credentials."""
         trava = "ATIVA" if self.block_production_writes else "DESATIVADA"
         alvo = "PRODUÇÃO" if self.targets_production else "homologação"
         return (
@@ -512,8 +496,5 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Configuração da aplicação (memoizada).
-
-    Use `get_settings.cache_clear()` nos testes que precisarem recarregar.
-    """
+    """Application settings (memoized); tests that need a reload call `get_settings.cache_clear()`."""
     return Settings()

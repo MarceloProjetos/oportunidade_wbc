@@ -1,26 +1,23 @@
-"""Execução em segundo plano com acompanhamento (22/09/2026).
+"""Background execution with progress tracking (22/09/2026).
 
-Decisão do Anderson para a camada web: operação longa roda em segundo plano e o usuário
-acompanha. O motivo é concreto — `pedidos-wbc processar-novos` leva ~7s num orçamento
-médio (seção 7.14) e `manutencao-op encerrar --pedido` de 68 OPs faz cerca de 270
-chamadas à Service Layer, na casa de minutos. Nada disso cabe num request HTTP com o
-usuário esperando a página responder.
+Anderson's decision for the web layer: long operations run in the background and the user
+follows them. Concretely, `pedidos-wbc processar-novos` takes ~7 s on an average quote
+(section 7.14) and `manutencao-op encerrar --pedido` on 68 OPs makes ~270 Service Layer
+calls (minutes) — none of that fits in an HTTP request with the page waiting.
 
-**Escopo deliberado: em processo, em memória, sem fila externa.**
-
-A aplicação é de uso interno, com operações disparadas manualmente por uma pessoa de cada
-vez — é o modelo do addon legado, e a decisão de manter "botões manuais" foi tomada em
-14/09. Um Celery/RQ traria broker, worker e deploy próprios para um problema que não temos
-ainda.
+**Deliberate scope: in-process, in-memory, no external queue.** Internal app, operations
+triggered manually by one person at a time — the legacy addon's model, and the "manual
+buttons" decision dates from 14/09. Celery/RQ would add a broker, workers and their own
+deploy for a problem we do not have yet.
 
 Since 29/09/2026 a finished execution is also written to Supabase (``core/historico.py``,
 the last 30, on the .11 only), so a restart no longer empties the Execuções screen. The
 execution itself still lives only here: a restart in the middle of one loses its live
 progress (``deploy_update.bat`` refuses to stop the service while ``/health/ocupado`` = 1).
 
-⚠️ O que **não** fica só aqui: as tarefas escrevem no SAP. Este módulo não decide o que
-pode ser executado; ele executa o que lhe entregam. As travas (produção, confirmação de
-operação irreversível) ficam na camada que cria a tarefa.
+⚠️ Tasks write to the SAP, but this module does not decide what may run; it runs what it is
+given. The gates (production machine, confirmation of irreversible operations) live in the
+layer that creates the task.
 """
 from __future__ import annotations
 
@@ -30,7 +27,7 @@ import time
 import traceback
 import uuid
 from collections import deque
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -88,7 +85,7 @@ MARCA_PROBLEMA = "⚠"
 
 @dataclass
 class Tarefa:
-    """Uma execução em andamento ou terminada."""
+    """One execution, running or finished."""
 
     id: str
     nome: str
@@ -124,13 +121,12 @@ class Tarefa:
 
     @property
     def com_falhas(self) -> bool:
-        """A tarefa terminou sem estourar, mas o resultado traz erros.
+        """The task ended without raising, but its result carries errors.
 
-        Existe porque "concluída" só quer dizer que a corrotina não levantou exceção — e
-        uma tela verde escrita CONCLUÍDA sobre um resultado em que os quatro pedidos
-        falharam é pior que nenhum indicador: o usuário lê o verde, não o JSON.
-        Convenção do projeto: toda função de serviço devolve os fracassos numa lista
-        `com_erro` (mesmo formato em `muda_status`, `finalizar_ops`, `processar_*`).
+        "concluída" only means the coroutine raised nothing; a green CONCLUÍDA over a result
+        where all four pedidos failed is worse than no indicator (users read the colour, not
+        the JSON). Project convention: service functions return failures in a `com_erro`
+        list (same shape in `muda_status`, `finalizar_ops`, `processar_*`).
         """
         return bool(isinstance(self.resultado, dict) and self.resultado.get("com_erro"))
 
@@ -146,7 +142,7 @@ class Tarefa:
         return round((fim - self.iniciada_em).total_seconds(), 1)
 
     def anota(self, linha: str, *, problema: bool = False) -> None:
-        """Acrescenta uma linha ao acompanhamento. Visível ao usuário enquanto roda.
+        """Append a timestamped line to the live log, visible to the user while it runs.
 
         ``problema`` (errors and warnings, 29/09/2026) prefixes the line with ``MARCA_PROBLEMA``:
         the Execuções screen paints those lines red, and the mark survives the Supabase
@@ -158,7 +154,7 @@ class Tarefa:
     def avanca(
         self, passo: str, feitos: int | None = None, total: int | None = None, *, problema: bool = False
     ) -> None:
-        """Atualiza o passo atual e, opcionalmente, o progresso.
+        """Set the current step and, optionally, the progress counters.
 
         ``problema`` marks the log line like ``anota`` does (01/10/2026): a pedido's "ERRO" or
         "ATENÇÃO" step is also the step shown, and it used to reach the log without the mark.
@@ -198,12 +194,11 @@ class Tarefa:
 
 
 class RegistroDeTarefas:
-    """Guarda as tarefas e roda uma de cada vez por módulo.
+    """Holds the tasks and runs one at a time PER MODULE.
 
-    **Uma por módulo, não uma por vez no geral**: duas execuções do mesmo módulo em
-    paralelo disputariam os mesmos pedidos e OPs — é assim que se cria OP duplicada. Já
-    módulos diferentes são independentes, e serializar tudo faria o usuário esperar sem
-    motivo.
+    Per module, not globally: two runs of the same module in parallel would fight over the
+    same pedidos and OPs (that is how a duplicate OP is created), while different modules are
+    independent and serialising everything would make the user wait for nothing.
     """
 
     def __init__(self, historico: Any = None) -> None:
@@ -243,7 +238,7 @@ class RegistroDeTarefas:
         _ = self.historico
 
     def em_execucao(self, modulo: str) -> Tarefa | None:
-        """Tarefa ainda rodando naquele módulo, se houver."""
+        """The unfinished task of that module, if any."""
         tarefa_id = self._em_execucao.get(modulo)
         tarefa = self._tarefas.get(tarefa_id) if tarefa_id else None
         if tarefa and tarefa.terminada:
@@ -277,7 +272,12 @@ class RegistroDeTarefas:
         origem: str = ORIGEM_TELA,
         parada_combinada: bool = False,
     ) -> Tarefa:
-        """Registra e dispara a tarefa. Levanta `RuntimeError` se o módulo já tem uma."""
+        """Register and start the task.
+
+        Raises:
+            ValueError: `origem` is not one of `ORIGENS`.
+            RuntimeError: the module already has a running task (see `confere_livre`).
+        """
         if origem not in ORIGENS:
             raise ValueError(f"origem inválida: {origem!r} (esperado {', '.join(ORIGENS)})")
         self.confere_livre(modulo)
@@ -357,7 +357,7 @@ class RegistroDeTarefas:
         return await asyncio.to_thread(self.historico.obter, tarefa_id)
 
     def listar(self, limite: int = 20) -> list[Tarefa]:
-        """Mais recentes primeiro."""
+        """Most recent first."""
         ids = list(self._ordem)[-limite:]
         return [self._tarefas[i] for i in reversed(ids) if i in self._tarefas]
 
@@ -389,10 +389,10 @@ class RegistroDeTarefas:
         return rodando + terminadas[:limite], aviso
 
     async def cancelar(self, tarefa_id: str) -> bool:
-        """Pede o cancelamento. Devolve se havia o que cancelar.
+        """Request cancellation; returns whether there was anything to cancel.
 
-        ⚠️ Cancelar **não desfaz** o que já foi gravado no SAP. Interrompe entre passos;
-        documentos já criados continuam lá. Quem chama precisa deixar isso claro na tela.
+        ⚠️ Cancelling does NOT undo what was already written to the SAP: it interrupts between
+        steps and documents already created stay. The caller must make that clear on screen.
 
         A task created with ``parada_combinada`` is not cut: it is asked to stop, and stops
         before its next step (the closing of OPs: after the OP in progress). Asking twice is
@@ -419,7 +419,7 @@ class RegistroDeTarefas:
 
 
 class _PonteDeLog(logging.Handler):
-    """Espelha o log de um módulo para o acompanhamento de uma tarefa."""
+    """Mirrors a module's log into a task's live log."""
 
     def __init__(self, tarefa: Tarefa) -> None:
         super().__init__()
@@ -433,18 +433,17 @@ class _PonteDeLog(logging.Handler):
 
 
 @contextmanager
-def acompanha_log(tarefa: Tarefa, *modulos: str, nivel: int = logging.INFO):
-    """Faz o `logger.info` dos módulos indicados aparecer no acompanhamento da tarefa.
+def acompanha_log(tarefa: Tarefa, *modulos: str, nivel: int = logging.INFO) -> Iterator[None]:
+    """Make the `logger.info` of the given modules show up in the task's live log.
 
-    **Por que uma ponte e não chamadas de progresso novas.** Os serviços já narram o que
-    estão fazendo — "grupo 2/5", "criando OP do item X", "Gravando U_INO_OP em 6 linhas" —
-    com `logger.info`, e a CLI liga isso no console com `--perfil`. Duplicar essas
-    mensagens como `tarefa.anota(...)` criaria duas narrativas do mesmo processo que
-    divergem assim que alguém mexer numa delas. Aqui a web passa a ouvir a que já existe.
+    Why a bridge instead of new progress calls: the services already narrate what they do
+    ("grupo 2/5", "criando OP do item X") with `logger.info`, and the CLI shows it on the
+    console with `--perfil`. Duplicating those as `tarefa.anota(...)` would create two
+    narratives of the same process that drift apart; the web listens to the existing one.
 
-    O nível fica no handler, não no logger: mexer no nível do logger do módulo mudaria o
-    comportamento do processo inteiro, inclusive de outra tarefa rodando em paralelo em
-    outro módulo.
+    The level is set on the handler, not the logger: changing a module logger's level would
+    alter the whole process, including another task running in parallel in another module.
+    The logger level is lowered only when needed and restored on exit.
     """
     ponte = _PonteDeLog(tarefa)
     ponte.setLevel(nivel)

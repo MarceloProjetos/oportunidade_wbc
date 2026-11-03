@@ -1,12 +1,11 @@
-"""Acesso ao SQL Server externo do sistema WBC (banco `WBCCAD`).
+"""Access to the external WBC SQL Server (`WBCCAD` database).
 
-Equivalente direto de `Controllers/SQLConnection.cs` no addon original: mesma base de
-dados, mesmas tabelas `INTEGRACAO_*`, mesmo padrão de "monta string SQL e executa".
+Direct equivalent of `Controllers/SQLConnection.cs` in the original addon: same database,
+same `INTEGRACAO_*` tables, same "build the SQL string and run it" pattern.
 
-Diferença deliberada em relação ao legado (ver "Débitos técnicos", item 2, no
-migration_guide.md): aqui usamos **parâmetros** (`?`) em vez de concatenar valores vindos de
-tela diretamente na string SQL, para eliminar o risco de SQL injection que existia no C#
-original — sem mudar o texto/lógica das queries em si.
+Deliberate difference from the legacy (migration_guide.md, "Débitos técnicos", item 2): it
+uses **parameters** (`?`) instead of concatenating screen values into the SQL string,
+removing the SQL injection risk of the C# original, without changing the query text/logic.
 
 Driver since 29/09/2026 (F7 of PLANO_CONTROLE_PRODUCAO_11.md (removed 2026-10-06)): `pymssql`, the one the
 WBC worker already uses on the .11 against the same server — it replaced `pyodbc`, which
@@ -99,16 +98,16 @@ def _para_pyformat(sql: str, quantidade_params: int) -> str:
 
 
 class WbcSqlServerClient:
-    """Espelha os métodos de `SQLConnection.cs`:
+    """Mirrors the methods of `SQLConnection.cs`:
 
     - `ExecuteQuery` / `ExecuteReader` -> `fetch_all` (the write path was removed on
       30/09/2026: the WBC database is read-only for this package)
-    - leituras posicionais do C# (`GetValue(i)`) -> `fetch_all_values`
+    - C# positional reads (`GetValue(i)`) -> `fetch_all_values`
     - `ExecuteSelectNew`, `ExecuteSelect2`, `selectORCCAB`, `PegaEstruturaPrd`,
-      `PegaOrcamentosWBC` -> ficam nos módulos de negócio (`pedidos_wbc/queries.py`
-      e `service.py`), pois cada um monta um objeto de domínio específico
+      `PegaOrcamentosWBC` -> stay in the business modules (`pedidos_wbc/queries.py`
+      and `service.py`), since each builds a specific domain object
       (`NewOrcPrd`, `ORCPRD`, `ORCCAB`, `EstruturaPrd`, `OportunidadeDoc`)
-      — este cliente só executa e devolve linhas cruas.
+      — this client only executes and returns raw rows.
 
     **Reuses one connection per execution** (30/09/2026), like `HanaDirectReader` since
     16/09: it used to open a connection — a full SQL Server login — for EVERY query, and a
@@ -242,18 +241,17 @@ class WbcSqlServerClient:
                 raise WbcDatabaseError(f"Falha ao consultar o SQL Server WBC: {exc2}") from exc2
 
     def fetch_all(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
-        """Equivalente a rodar `ExecuteQuery`/`ExecuteReader` e iterar todas as linhas."""
+        """Equivalent to running `ExecuteQuery`/`ExecuteReader` and iterating all rows."""
         return self._consulta(sql, params, como_dict=True)
 
     def fetch_all_values(self, sql: str, params: tuple[Any, ...] = ()) -> list[list[Any]]:
-        """Como `fetch_all`, mas devolve cada linha como lista posicional em vez de `dict`.
+        """Like `fetch_all`, but returns each row as a positional list instead of a `dict`.
 
-        ⚠️ Adicionado em 15/09/2026 ao testar `pedidos-wbc processar-novos` contra a
-        homologação real: várias queries deste módulo (herdadas do C# original, que lia
-        por índice via `SqlDataReader.GetValue(i)`) têm **colunas repetidas sem alias**
-        (ex.: `NOVA_TABELA_QUOT`, com 35 `ISNULL(...)` seguidos sem `AS`). O driver
-        devolve nomes de coluna vazios/duplicados para essas expressões, e `fetch_all`
-        monta um `dict` via `zip(colunas, valores)` — colunas com nome repetido colidem
-        e o `dict` resultante perde valores. Use este método em qualquer query que já
-        dependia de acesso posicional."""
+        Added 2026-09-15 while testing `pedidos-wbc processar-novos` against real
+        homologation: several queries here (inherited from the C# original, which read by
+        index via `SqlDataReader.GetValue(i)`) have **repeated columns without alias**
+        (e.g. `NOVA_TABELA_QUOT`, 35 consecutive `ISNULL(...)` with no `AS`). The driver
+        returns empty/duplicate column names for those expressions, and `fetch_all` builds a
+        `dict` via `zip(columns, values)`, so colliding names lose values. Use this in any
+        query that already relied on positional access."""
         return self._consulta(sql, params, como_dict=False)

@@ -6,8 +6,8 @@ port, so whoever entered the painel is already in here — and vice versa. Each 
 own ``/entrar`` because the painel's login page only redirects to paths of its own port.
 
 Open without the key: ``/entrar``, ``/sair``, ``/favicon.ico``, ``/health*`` (the SIS
-``/status`` probe and the deploy guard), ``/painel-wbc``, ``/sincronizacao`` and ``/orcaview``
-(redirects), ``/static/*`` and ``/casa/*`` (the shared shell's CSS/JS — the key prompt wears
+``/status`` probe and the deploy guard), ``/painel-wbc``, ``/sincronizacao``, ``/inicio`` and
+``/orcaview`` (redirects), ``/static/*`` and ``/casa/*`` (the shared shell's CSS/JS — the key prompt wears
 it too).
 Everything else — pages, the task JSON the browser polls and ``POST /tarefas/{id}/cancelar``
 — needs the cookie or ``X-API-Key``. With no ``OS_API_KEY`` configured the screen is open for

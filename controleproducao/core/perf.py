@@ -1,22 +1,21 @@
-"""Medição de onde o tempo é gasto durante uma execução.
+"""Measures where the time goes during an execution.
 
-Criado em 16/09/2026 para diagnosticar a lentidão na criação das OPs (relatada pelo
-Anderson no orçamento 00125192). O objetivo é responder com número, e não com suposição,
-a pergunta "o que está demorando": abrir conexões, executar as queries, ou as chamadas à
-Service Layer.
+Created 16/09/2026 to diagnose slow OP creation (reported by Anderson on orçamento
+00125192): answer "what is taking long" with numbers — opening connections, running
+queries, or Service Layer calls.
 
-A distinção que mais importa é entre **abrir conexão** e **executar query**. Hoje
-`HanaDirectReader.fetch_all` e `WbcSqlServerClient.fetch_all` abrem uma conexão nova a cada
-chamada (autenticação completa; no SQL Server, com o Driver 18, também um handshake TLS) e
-fecham em seguida. Se o tempo estiver concentrado em "abrir conexão", a correção é reusar a
-conexão ao longo da execução; se estiver em "executar query", o problema é o peso das
-queries em si (várias herdadas do addon tinham `CommandTimeout` de 300-500s — ver item 9 da
-seção 8 do migration_guide.md). São correções bem diferentes, daí valer medir antes.
+The distinction that matters is **opening a connection** vs **running a query**. When this
+was written, `HanaDirectReader.fetch_all` and `WbcSqlServerClient.fetch_all` opened a new
+connection per call (full authentication, plus a TLS handshake on SQL Server); both readers
+now keep and reuse one connection (`_conexao_ativa`), so "abrir conexão" should show a few
+calls per run. If time concentrates there, reuse is not working; if it concentrates in
+"executar query", the queries themselves are heavy (several inherited from the addon had a
+`CommandTimeout` of 300-500 s — migration_guide.md section 8, item 9). Different fixes,
+hence measure first.
 
-Usa um registro global por processo. Não é elegante, mas aqui é adequado: a CLI é um
-processo por execução, e a alternativa (passar um objeto de perfil por toda a cadeia de
-funções de negócio) poluiria assinaturas que replicam o C# original. Fica DESLIGADO por
-padrão — `ativar()` é chamado só pela CLI, com `--perfil`.
+Uses a process-global registry: the CLI is one process per run, and passing a profile object
+through every business function would pollute signatures that mirror the original C#. OFF by
+default — only the CLI calls `ativar()`, with `--perfil`.
 """
 from __future__ import annotations
 
@@ -64,7 +63,7 @@ class Perfil:
         return time.perf_counter() - self.inicio
 
     def resumo_categorias(self) -> list[tuple[str, int, float]]:
-        """(categoria, chamadas, segundos), da mais cara para a mais barata."""
+        """(category, calls, seconds), most expensive first."""
         return sorted(
             ((cat, a.chamadas, a.segundos) for cat, a in self.por_categoria.items()),
             key=lambda item: item[2],
@@ -72,7 +71,7 @@ class Perfil:
         )
 
     def resumo_operacoes(self, limite: int = 15) -> list[tuple[str, str, int, float]]:
-        """(categoria, rótulo, chamadas, segundos) das operações mais caras no total."""
+        """(category, label, calls, seconds) of the `limite` most expensive operations overall."""
         itens = (
             (cat, rotulo, a.chamadas, a.segundos)
             for (cat, rotulo), a in self.por_operacao.items()
@@ -89,13 +88,12 @@ _ESPACOS = re.compile(r"\s+")
 
 
 def forma_sql(sql: str, tamanho: int = 90) -> str:
-    """Reduz uma query à sua "forma", para agrupar execuções da mesma query.
+    """Reduce a query to its "shape" so executions of the same query group together.
 
-    As queries deste projeto trazem os valores embutidos no texto (herança do
-    `String.Format` do C#), então agrupar pelo texto cru geraria uma entrada por chamada.
-    Trocando literais e números por `?` e colapsando espaços, todas as execuções da mesma
-    query caem na mesma linha do relatório — que é o que revela o "esta query rodou 340
-    vezes" que interessa aqui.
+    Queries here carry values embedded in the text (legacy of the C# `String.Format`), so
+    grouping by raw text would give one entry per call. Replacing literals and numbers with
+    `?` and collapsing whitespace puts every run of a query on one report line — which is
+    what reveals "this query ran 340 times".
     """
     forma = _LITERAL_TEXTO.sub("?", sql)
     forma = _NUMERO.sub("?", forma)

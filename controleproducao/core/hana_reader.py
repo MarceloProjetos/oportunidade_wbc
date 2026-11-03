@@ -1,19 +1,18 @@
-"""Acesso direto (somente leitura) ao HANA via `hdbcli`.
+"""Direct read-only access to HANA via `hdbcli`.
 
-**Caminho preferencial de LEITURA** do projeto, conforme a decisão revista em 16/09/2026
-(seção 6.4 do migration_guide.md): as leituras vêm por aqui por padrão — tanto as queries
-pesadas herdadas do `Querys.resx` quanto as simples. A Service Layer entra na leitura só
-quando este caminho não resolve, tipicamente quando é preciso o objeto de negócio montado
-pelo B1 em vez de linhas de tabela (ex.: ler um `Order` com suas `DocumentLines`).
+**Preferred READ path** of the project (decision revised 2026-09-16, migration_guide.md
+section 6.4): reads go through here by default, both the heavy queries inherited from
+`Querys.resx` and the simple ones. The Service Layer is used for reads only when this path
+cannot do it, typically when the B1-assembled business object is needed rather than table
+rows (e.g. an `Order` with its `DocumentLines`).
 
-⚠️ A decisão ORIGINAL (14/09/2026) era o inverso — Service Layer primeiro, `hdbcli` só como
-ponte temporária a ser substituída por Calculation Views. Se encontrar em algum lugar do
-código um comentário mandando "substituir por uma View quando possível", ele é resquício
-daquela regra e está obsoleto.
+The ORIGINAL decision (2026-09-14) was the opposite: Service Layer first, `hdbcli` only as a
+temporary bridge until Calculation Views replaced it. A leftover comment saying "replace with
+a View when possible" comes from that rule and is obsolete.
 
-Nunca usar este módulo para ESCRITA — toda escrita no SAP continua passando pela Service
-Layer (auditoria, triggers de campo calculado e validações de negócio do próprio B1
-dependem disso). Isso NÃO mudou na revisão da decisão.
+Never use this module to WRITE: every SAP write goes through the Service Layer (the B1's own
+audit, calculated-field triggers and business validations depend on it). Unchanged by the
+revision. Read-only is enforced by `exige_leitura`, not by the driver (hdbcli autocommits).
 """
 from __future__ import annotations
 
@@ -33,21 +32,19 @@ logger = logging.getLogger(__name__)
 
 
 class HanaDirectReader:
-    """Leitor do HANA que **reaproveita a conexão** entre consultas.
+    """HANA reader that **reuses the connection** across queries.
 
-    ⚠️ Otimização de 16/09/2026. Antes, cada consulta abria uma conexão nova (autenticação
-    completa + `SET SCHEMA`) e fechava em seguida. O perfil da execução do orçamento 00125192
-    mostrou **62 conexões somando 3,7s (20% do tempo total, ~60 ms cada)** para 0,9s de
-    queries de fato — ou seja, gastava-se 4x mais abrindo conexão do que consultando. Com o
-    reúso, essas 62 aberturas viram 1.
+    2026-09-16 optimization: each query used to open a new connection (full auth +
+    `SET SCHEMA`). Profiling quote 00125192 showed 62 connections adding up to 3.7 s (20% of
+    the total, ~60 ms each) for 0.9 s of actual queries; with reuse those 62 opens become 1.
 
-    A conexão é aberta na primeira consulta (preguiçosa: instanciar o leitor não conecta) e
-    fica viva até `close()` ou o fim do processo. Se ela morrer no meio (timeout do servidor,
-    queda de rede), a consulta seguinte **reconecta e tenta uma vez** de forma transparente —
-    sem isso, o reúso trocaria lentidão por fragilidade em execuções longas, que é justamente
-    o caso de uso aqui.
+    The connection is opened lazily on the first query (instantiating does not connect) and
+    kept until `close()` or process end. If it died mid-way (server timeout, network drop),
+    the next query reconnects and retries once, transparently; a SQL error on a live
+    connection is raised without retry.
 
-    Continua sendo somente leitura: não há `commit`/`rollback` e nenhum método de escrita.
+    Read-only: no `commit`/`rollback` and no write method; every statement passes
+    `exige_leitura`.
     """
 
     def __init__(self, settings: Settings):
@@ -82,7 +79,7 @@ class HanaDirectReader:
         return self._conexao
 
     def _descarta_conexao(self) -> None:
-        """Fecha e esquece a conexão atual, para a próxima consulta reabrir."""
+        """Closes and forgets the current connection so the next query reopens it."""
         if self._conexao is not None:
             try:
                 self._conexao.close()
@@ -99,8 +96,8 @@ class HanaDirectReader:
             return False
 
     def close(self) -> None:
-        """Encerra a conexão reaproveitada. A CLI chama no fim de cada comando; um servidor
-        web precisa chamar ao descartar o leitor, senão a conexão fica aberta à toa."""
+        """Closes the reused connection. The CLI calls it at the end of each command; a web
+        server must call it when dropping the reader, or the connection stays open."""
         self._descarta_conexao()
 
     def __enter__(self) -> HanaDirectReader:
@@ -112,13 +109,13 @@ class HanaDirectReader:
     # ------------------------------------------------------------------
     # Consultas
     # ------------------------------------------------------------------
-    def _consulta(self, sql: str, params: tuple[Any, ...], como_dict: bool):
+    def _consulta(self, sql: str, params: tuple[Any, ...], como_dict: bool) -> list[Any]:
         from hdbcli import dbapi
 
         # hdbcli autocommits by default: the guard, not the driver, keeps this read-only.
         exige_leitura(sql)
 
-        def _executa():
+        def _executa() -> list[Any]:
             cursor = self._conexao_ativa().cursor()
             try:
                 with PERFIL.medir("HANA · executar query", forma_sql(sql)):
@@ -152,8 +149,9 @@ class HanaDirectReader:
         return self._consulta(sql, params, como_dict=True)
 
     def fetch_all_values(self, sql: str, params: tuple[Any, ...] = ()) -> list[list[Any]]:
-        """Como `fetch_all`, mas devolve cada linha como lista posicional em vez de
-        `dict` — ver docstring do equivalente em `sqlserver_client.py` (mesmo problema:
-        queries com colunas repetidas/sem alias, ex. `max(...)`/`max(...)`/`max(...)` em
-        `BUSCA_MAX_ITEM_LINHA`, perdem valores no `dict(zip(colunas, valores))`)."""
+        """Like `fetch_all`, but returns each row as a positional list instead of a `dict`.
+
+        See the `sqlserver_client.py` equivalent: queries with repeated/unaliased columns
+        (e.g. the three `max(...)` in `BUSCA_MAX_ITEM_LINHA`) lose values in
+        `dict(zip(columns, values))`."""
         return self._consulta(sql, params, como_dict=False)

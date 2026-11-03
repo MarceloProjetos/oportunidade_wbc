@@ -1,22 +1,20 @@
-"""Travas de segurança de ambiente.
+"""Environment safety guards shared by the three SAP writers (worker, CP, OP status).
 
-Implementa, em código executável, as regras descritas em
-`ai_spec/04_environment_constraints.md`:
+Two rules, originally from the WBC spec (``docs/wbc/ai_spec/00_index.md``):
 
-Regra 1 — produção é imutável:
-    Nenhuma operação de ESCRITA (POST/PATCH/PUT/DELETE, ou SQL de escrita) pode
-    atingir a company DB de produção (SBOALTAMIRAPROD). Todo desenvolvimento e
-    teste usa exclusivamente SBOALTAMIRAHOMOLOG.
+Rule 1 — production writes only from the .11:
+    A write (POST/PATCH/PUT/DELETE/MERGE, or write SQL) aimed at the production company DB
+    (SBOALTAMIRAPROD) is blocked unless this process runs on :data:`PRODUCTION_MACHINE_IP`.
+    The original "production is immutable" rule was revoked at go-live (2026-09-02); since
+    2026-09-28 the switch is machine identity, not a ``.env`` key — callers pass
+    ``block_production_writes=not is_production_machine()``.
 
-Regra 5 — o SQL Server do WBC é somente leitura:
-    Nenhuma operação de escrita pode ser executada no SQL Server do WBC, em
-    ambiente nenhum. A integração apenas consome dados do WBC; quem escreve no
-    WBC é o próprio sistema WBC. Diferentemente da Regra 1, esta trava **não
-    tem chave de desligamento** — a diretiva é absoluta.
+Rule 5 — the WBC SQL Server is read-only:
+    No write ever runs on the WBC SQL Server, in any environment; only the WBC itself writes
+    there. Unlike Rule 1 this guard has **no off switch**.
 
-As regras ficam aqui, num único ponto, para que os adaptadores de
-infraestrutura (Service Layer, SQL Server, HANA) não precisem cada um
-reimplementar a verificação — e para que sejam testáveis isoladamente.
+The checks live here, once, so the infrastructure adapters (Service Layer, SQL Server, HANA)
+do not each reimplement them and so they can be tested in isolation.
 """
 
 from __future__ import annotations
@@ -56,23 +54,22 @@ _SQL_WRITE_KEYWORDS: frozenset[str] = frozenset(
 
 
 class SafetyViolation(RuntimeError):
-    """Base das violações de regra de segurança do projeto.
+    """Base of the project's safety-rule violations.
 
-    Estas exceções NÃO devem ser capturadas e silenciadas por código de
-    aplicação: sinalizam violação de uma regra do projeto, não falha
-    transitória passível de retry.
+    Never catch and swallow these in application code: they signal a broken project rule,
+    not a transient failure worth retrying.
     """
 
 
 class ProductionWriteBlocked(SafetyViolation):
-    """Levantada quando uma operação de escrita tentaria atingir a produção."""
+    """A write would reach production from a machine that is not the .11."""
 
 
 class ReadOnlyViolation(SafetyViolation):
-    """Levantada quando se tenta escrever numa fonte declarada somente leitura.
+    """A write was attempted on a source declared read-only.
 
-    Hoje se aplica ao SQL Server do WBC (Regra 5) e, por precaução, ao acesso
-    direto ao HANA, que na arquitetura atual só consome views de leitura.
+    Applies to the WBC SQL Server (Rule 5) and, as a precaution, to direct HANA access, which
+    only reads views.
     """
 
 
@@ -97,10 +94,10 @@ def is_production_machine() -> bool:
 
 
 def is_production(target: str | None, production_company_db: str) -> bool:
-    """Diz se `target` (company DB ou schema) é o ambiente de produção.
+    """True if ``target`` (company DB or schema) is production.
 
-    A comparação é case-insensitive e ignora espaços em volta, porque o mesmo
-    nome aparece com grafias diferentes entre config, URL e SQL.
+    Case-insensitive and whitespace-trimmed: the same name is spelled differently across
+    config, URL and SQL.
     """
     if target is None:
         return False
@@ -114,25 +111,23 @@ def assert_write_allowed(
     block_production_writes: bool = True,
     operation: str = "escrita",
 ) -> None:
-    """Garante que uma operação de escrita não está mirando a produção.
+    """Refuse a write aimed at production while the guard is on.
 
-    A trava **falha fechada**: se não dá para saber com segurança qual é o
-    destino, ou qual nome conta como produção, a operação é recusada. O
-    contrário — deixar passar quando a configuração está incompleta — já foi o
-    comportamento deste código e é justamente a forma mais silenciosa de
-    contornar a regra: bastava `WBC_PRODUCTION_COMPANY_DB` vazio, ou um erro de
-    digitação nele, para nenhum destino ser reconhecido como produção.
+    Fails **closed**: when the target, or the name that counts as production, is unknown, the
+    write is refused. This code used to let it pass on incomplete config, which was the quietest
+    bypass of all — an empty or mistyped ``WBC_PRODUCTION_COMPANY_DB`` made no target look like
+    production.
 
     Args:
-        target_company_db: company DB (ou schema HANA) que a operação vai atingir.
-        production_company_db: nome da company DB tratada como produção.
-        block_production_writes: trava ligada (padrão). Só deve ser desligada
-            mediante autorização explícita e consciente — ver ai_spec/04.
-        operation: descrição curta da operação, usada na mensagem de erro.
+        target_company_db: Company DB (or HANA schema) the write would hit.
+        production_company_db: Name treated as production.
+        block_production_writes: Guard on (default). Callers derive it from the machine
+            (``not is_production_machine()``), never from the environment.
+        operation: Short label for the error message.
 
     Raises:
-        ProductionWriteBlocked: se a operação atingiria a produção, ou se a
-            configuração não permite afirmar que ela **não** atinge.
+        ProductionWriteBlocked: The write would hit production, or the config cannot prove
+            it does **not**.
     """
     if not block_production_writes:
         return
@@ -169,11 +164,9 @@ def assert_http_call_allowed(
     production_company_db: str,
     block_production_writes: bool = True,
 ) -> None:
-    """Aplica a trava a uma chamada HTTP do Service Layer.
+    """Apply :func:`assert_write_allowed` to a Service Layer HTTP call.
 
-    Leituras (GET) contra produção são permitidas — a regra do projeto proíbe
-    alterações, não consultas. Qualquer método de escrita contra produção é
-    bloqueado.
+    Reads (GET) against production always pass; only :data:`WRITE_METHODS` are checked.
     """
     if method.strip().upper() not in WRITE_METHODS:
         return
@@ -186,28 +179,16 @@ def assert_http_call_allowed(
 
 
 def _strip_noise(sql: str) -> str:
-    """Remove comentários, literais e identificadores citados do SQL.
+    """Drop comments, literals and quoted identifiers, keeping only the statement structure.
 
-    Sobra apenas a estrutura do comando, que é o que interessa para decidir se
-    há escrita. Isso evita o falso positivo clássico
-    ``SELECT * FROM t WHERE obs = 'favor update'``, em que ``update`` aparece só
-    dentro de um literal.
+    Avoids the classic false positive ``SELECT * FROM t WHERE obs = 'favor update'``.
 
-    Precisa ser um **scanner de estado**, e não uma sequência de expressões
-    regulares. Uma versão anterior removia comentários antes dos literais, e por
-    isso um `--` dentro de um literal apagava o resto do comando — o que deixava
-    passar coisas como::
+    Must be a **state scanner**, not a chain of regexes: an earlier version stripped comments
+    before literals, so a ``--`` inside a literal erased the rest of the statement and let
+    ``SELECT 'a--b' FROM t; DROP TABLE Alvo`` through with the ``DROP`` invisible.
 
-        SELECT 'a--b' FROM t; DROP TABLE Alvo
-
-    O `DROP` ficava invisível para a análise. Percorrer o texto uma vez,
-    sabendo a cada caractere se está dentro de literal, de comentário de linha,
-    de comentário de bloco ou de identificador citado, elimina essa classe de
-    problema de uma vez.
-
-    Identificadores entre aspas duplas (comuns no HANA, ex.: ``"VW_ALGO"``)
-    viram um marcador neutro, para que um identificador que por acaso se chame
-    ``insert`` não seja confundido com o comando.
+    Double-quoted identifiers (common in HANA, e.g. ``"VW_ALGO"``) become a neutral marker so
+    an identifier named ``insert`` is not mistaken for the verb. Returns casefolded text.
     """
     NORMAL, LITERAL, COMENTARIO_LINHA, COMENTARIO_BLOCO, IDENTIFICADOR = range(5)
 
@@ -282,16 +263,11 @@ def _tokens(texto: str) -> list[str]:
 
 
 def looks_like_write_sql(sql: str) -> bool:
-    """Heurística: diz se um comando SQL contém alguma operação de escrita.
+    """Heuristic: True if any statement in ``sql`` writes.
 
-    Usada para proteger os acessos a SQL Server e HANA. É deliberadamente
-    conservadora — na dúvida, classifica como escrita —, porque o custo de um
-    falso positivo (um SELECT recusado) é muito menor que o de um falso
-    negativo (uma escrita indevida).
-
-    Trata cada comando separado por ``;`` de forma independente: basta um ser
-    de escrita para o conjunto ser considerado escrita. Isso bloqueia tentativas
-    do tipo ``SELECT 1; DROP TABLE T``.
+    Deliberately conservative — when unsure, it says write: a refused SELECT costs far less
+    than an unwanted write. Each ``;``-separated statement is judged on its own, so
+    ``SELECT 1; DROP TABLE T`` is a write. A statement starting with an unknown verb is a write.
     """
     limpo = _strip_noise(sql)
     if not limpo:
@@ -326,14 +302,10 @@ def looks_like_write_sql(sql: str) -> bool:
 
 
 def assert_read_only_sql(sql: str, *, fonte: str = "SQL Server do WBC") -> None:
-    """Garante que um comando SQL é de leitura numa fonte somente leitura.
-
-    Aplica a Regra 5 de `ai_spec/04_environment_constraints.md`. Diferente das
-    demais travas, **não aceita desligamento**: a diretiva é que a integração
-    nunca escreve no SQL Server do WBC, em ambiente nenhum.
+    """Rule 5: refuse any write SQL on a read-only source. Has no off switch.
 
     Raises:
-        ReadOnlyViolation: se o comando contiver qualquer operação de escrita.
+        ReadOnlyViolation: ``sql`` contains any write.
     """
     if looks_like_write_sql(sql):
         raise ReadOnlyViolation(
@@ -352,11 +324,9 @@ def assert_sql_allowed(
     production_company_db: str,
     block_production_writes: bool = True,
 ) -> None:
-    """Aplica a trava a um comando SQL (SQL Server ou HANA).
+    """Apply :func:`assert_write_allowed` to write SQL (SQL Server or HANA); reads always pass.
 
-    Bloqueia SQL de escrita cujo destino seja o schema/base de produção.
-    SELECTs continuam permitidos — as views HANA de leitura dependem disso
-    (ver ai_spec/02_data_model.md, seção 3).
+    The HANA read views run against the production schema, so SELECT must never be blocked.
     """
     if not looks_like_write_sql(sql):
         return

@@ -1,13 +1,12 @@
-"""Exceções próprias da aplicação."""
+"""Application-specific exceptions."""
 
 
 class ServiceLayerError(Exception):
-    """Erro genérico ao falar com a SAP Service Layer.
+    """Generic error talking to the SAP Service Layer.
 
-    Guarda o status HTTP e o corpo da resposta de erro (a Service Layer devolve
-    JSON com `error.code` e `error.message.value`) para facilitar diagnóstico —
-    equivalente ao `Company.GetLastErrorDescription()` usado no addon C# original
-    (ex.: `Form2.msgSAP = Program.getCompany().GetLastErrorDescription();`).
+    Keeps the HTTP status and the error body (the SL answers JSON with `error.code` and
+    `error.message.value`) for diagnosis — the equivalent of `Company.GetLastErrorDescription()`
+    in the original C# addon (e.g. `Form2.msgSAP = Program.getCompany().GetLastErrorDescription();`).
     """
 
     def __init__(self, message: str, status_code: int | None = None, payload: dict | None = None):
@@ -17,8 +16,8 @@ class ServiceLayerError(Exception):
 
 
 class ServiceLayerAuthError(ServiceLayerError):
-    """Sessão expirada ou credenciais inválidas — deve disparar novo login."""
+    """`/Login` rejected (bad credentials); session expiry is a 401 handled by the single re-login."""
 
 
 class WbcDatabaseError(Exception):
-    """Erro ao consultar/gravar no SQL Server externo do sistema WBC."""
+    """Failure reading from the external WBC SQL Server or from HANA (both paths are read-only)."""

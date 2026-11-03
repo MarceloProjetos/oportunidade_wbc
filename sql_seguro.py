@@ -1,18 +1,18 @@
-"""SQL do HANA montado com t-string (PEP 750, Python 3.14): valor vira parâmetro, nunca texto.
+"""HANA SQL built from a t-string (PEP 750, Python 3.14): values become parameters, never text.
 
-Antes, cada consulta que recebia um número de fora (o NPED que chega pela URL) fazia
-``coerce_positive_int`` e colava o inteiro no texto com f-string — seguro por disciplina,
-um ``int()`` esquecido de virar injeção. Com ``sql(t"...")`` a regra mora no tipo:
+Before, each query taking an outside number (the NPED from the URL) ran
+``coerce_positive_int`` and pasted the integer with an f-string: safe by discipline, one
+forgotten ``int()`` away from injection. With ``sql(t"...")`` the rule lives in the type:
 
-- ``{valor}``           → ``?`` + parâmetro (o driver manda o dado separado do SQL);
-- ``{nome:ident}``      → identificador (``VIEW``, ``"SCHEMA"."VIEW"``) conferido por regex e
-  colado — nome de objeto não pode ser parâmetro no SQL;
-- ``{n:int}``           → literal inteiro colado, para onde o HANA não aceita ``?``
-  (``LIMIT``). Só ``int`` de verdade; ``bool`` e string são recusados.
-- ``{lista:ints}``      → lista NÃO vazia de ``int`` colada como ``1,2,3`` (para ``IN (...)``),
-  com a mesma regra do ``:int`` em cada elemento.
+- ``{value}``           -> ``?`` + parameter (the driver sends data apart from the SQL);
+- ``{name:ident}``      -> identifier (``VIEW``, ``"SCHEMA"."VIEW"``) checked by regex and
+  pasted; an object name cannot be a SQL parameter;
+- ``{n:int}``           -> pasted integer literal, where HANA rejects ``?`` (``LIMIT``).
+  Real ``int`` only; ``bool`` and strings are refused;
+- ``{items:ints}``      -> NON-empty list of ``int`` pasted as ``1,2,3`` (for ``IN (...)``),
+  same rule as ``:int`` per element.
 
-Qualquer outro formato (ou conversão ``!r``/``!s``) é erro: não existe "cole como veio".
+Any other format (or ``!r``/``!s`` conversion) is an error: there is no "paste as is".
 
     consulta, params = sql(t'SELECT * FROM {base:ident} WHERE "N_PED" = {nped}')
     df = extrator.execute_query(consulta, params)
@@ -32,14 +32,14 @@ _NOME_SIMPLES = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def nome_simples(nome: str, *, what: str = "identificador") -> str:
-    """Nome SEM aspas nem ponto (ex.: o ``SAP_SCHEMA``), para quem o põe entre aspas no SQL."""
+    """Validate a bare name (no quotes, no dot; e.g. ``SAP_SCHEMA``) for callers that quote it in SQL."""
     if not isinstance(nome, str) or not _NOME_SIMPLES.match(nome):
         raise ValueError(f"{what} inválido (esperado letras, dígitos e _): {nome!r}")
     return nome
 
 
 def sql(consulta: Template) -> tuple[str, list[Any]]:
-    """Devolve ``(texto_com_?, parametros)`` para ``execute_query``/``cursor.execute``."""
+    """Return ``(text_with_?, params)`` for ``execute_query``/``cursor.execute``."""
     if not isinstance(consulta, Template):
         raise TypeError("sql() recebe uma t-string: sql(t'...'), não str nem f-string.")
     partes: list[str] = []

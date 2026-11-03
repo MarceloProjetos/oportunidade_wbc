@@ -1,13 +1,13 @@
-"""Cliente HTTP para a SAP Service Layer.
+"""HTTP client for the SAP Service Layer.
 
-Substitui, de forma geral, o papel do `SAPbobsCOM.Company` (DI API) no addon original:
-login/sessão, CRUD de documentos de negócio e chamadas a UDOs via `GeneralService`.
+Broadly replaces the role of `SAPbobsCOM.Company` (DI API) in the original addon:
+login/session, CRUD of business documents and UDO calls via `GeneralService`.
 
-Mapeamento de conceitos (ver seção 6.3 do migration_guide.md):
+Concept mapping (see section 6.3 of migration_guide.md):
 
 | DI API (C#)                                            | Service Layer (Python)                          |
 |---------------------------------------------------------|--------------------------------------------------|
-| `Company.Connect()`                                      | `ServiceLayerClient.login()`                      |
+| `Company.Connect()`                                      | `ServiceLayerClient.login()` (lazy, on first request) |
 | `oComp.GetBusinessObject(oOrders).Update()`               | `PATCH /Orders({DocEntry})`                        |
 | `oComp.GetBusinessObject(oSalesOpportunities).Update()`   | `PATCH /SalesOpportunities({DocEntry})`            |
 | `oComp.GetBusinessObject(oItems).Add()`                   | `POST /Items`                                      |
@@ -16,11 +16,11 @@ Mapeamento de conceitos (ver seção 6.3 do migration_guide.md):
 | `sCmp.GetGeneralService("X").GetByParams(...)`            | `GET /X('{key}')`                                  |
 | `sCmp.GetGeneralService("X").Update(...)`                 | `PATCH /X('{key}')`                                |
 | `sCmp.GetGeneralService("X").Add(...)`                    | `POST /X`                                          |
-| `Recordset.DoQuery(sql)`                                  | `POST /SQLQueries('nome')/List` (view no HANA) ou  |
-|                                                            | `GET /Entidade?$filter=...` para casos simples     |
+| `Recordset.DoQuery(sql)`                                  | `POST /SQLQueries('name')/List` (HANA view) or     |
+|                                                            | `GET /Entity?$filter=...` for simple cases         |
 
-Este cliente é deliberadamente fino — cada módulo de negócio (pedidos_wbc, manutencao_op, ...)
-decide quais entidades/UDOs chamar; este arquivo só cuida de sessão, headers e tratamento de erro.
+Deliberately thin: each business module (pedidos_wbc, manutencao_op, ...) decides which
+entities/UDOs to call; this file only handles session, headers and error handling.
 """
 from __future__ import annotations
 
@@ -47,17 +47,15 @@ _CHAVE_NA_ROTA = re.compile(r"\([^)]*\)")
 
 
 def _json_safe(value: Any) -> Any:
-    """Converte tipos que `httpx`/`json.dumps` não sabem serializar, vindos das
-    leituras cruas do HANA/SQL Server (`hdbcli`/`pyodbc` devolvem `Decimal` para
-    colunas numéricas, e `date`/`datetime` para colunas de data) antes de montar o
-    corpo de uma requisição à Service Layer.
+    """Converts types `httpx`/`json.dumps` cannot serialize, coming from raw HANA/SQL Server
+    reads (`hdbcli`/`pymssql` return `Decimal` for numeric columns and `date`/`datetime` for
+    date columns), before building a Service Layer request body.
 
-    ⚠️ Adicionado em 15/09/2026 ao testar `pedidos-wbc processar-novos` contra a
-    homologação real: `cria_ordem_producao` monta `PlannedQuantity` a partir de um
-    valor lido direto do HANA (`Decimal`), que o `json.dumps` padrão do `httpx` não
-    serializa (`TypeError: Object of type Decimal is not JSON serializable`). Não
-    existe equivalente no C# original (a DI API aceita `decimal`/`DateTime` nativamente
-    nas propriedades COM, sem passar por serialização JSON)."""
+    Added 2026-09-15 while testing `pedidos-wbc processar-novos` against real homologation:
+    `cria_ordem_producao` builds `PlannedQuantity` from a value read straight from HANA
+    (`Decimal`), which the default `json.dumps` of `httpx` rejects (`TypeError: Object of
+    type Decimal is not JSON serializable`). The C# original had no equivalent (the DI API
+    takes `decimal`/`DateTime` natively on the COM properties, with no JSON step)."""
     if isinstance(value, Decimal):
         return float(value)
     if isinstance(value, (datetime, date)):
@@ -70,15 +68,15 @@ def _json_safe(value: Any) -> Any:
 
 
 def _verificacao_tls(settings: Settings) -> bool | str:
-    """O que passar ao `verify` do httpx.
+    """What to pass as httpx's `verify`.
 
-    ⚠️ 24/09/2026 — preparando a implantação em Windows. `SL_CA_BUNDLE` estava documentado
-    no `.env.example` desde o início, mas o cliente o ignorava: só `SL_VERIFY_SSL` valia.
-    No Windows isso importa mais, porque o Python não usa o repositório de certificados do
-    sistema — ele confia só no pacote `certifi`. Uma Service Layer com certificado da CA
-    interna da empresa deixava como única saída `SL_VERIFY_SSL=false`, isto é, desligar a
-    verificação. Agora, com `SL_CA_BUNDLE` apontando para o `.pem` da CA, a conexão é
-    verificada contra ela. `SL_VERIFY_SSL=false` continua desligando tudo (e vence).
+    2026-09-24, preparing the Windows deployment: `SL_CA_BUNDLE` had been documented in
+    `.env.example` since the start but the client ignored it (only `SL_VERIFY_SSL` counted).
+    On Windows it matters more because Python does not use the system certificate store, only
+    the `certifi` bundle: a Service Layer with an internal-CA certificate left
+    `SL_VERIFY_SSL=false` (verification off) as the only way out. With `SL_CA_BUNDLE` pointing
+    to the CA `.pem` the connection is verified against it. `SL_VERIFY_SSL=false` still turns
+    everything off (and wins).
     """
     if not getattr(settings, "sl_verify_ssl", True):
         return False
@@ -89,9 +87,10 @@ def _verificacao_tls(settings: Settings) -> bool | str:
 
 
 class ServiceLayerClient:
-    """Cliente assíncrono com relogin automático em caso de sessão expirada.
+    """Async client: lazy login on the first request, a single re-login on 401 (expired
+    session) and `/Logout` on `aclose()`.
 
-    Uso típico:
+    Typical use:
         async with ServiceLayerClient(settings) as sl:
             data = await sl.get("SalesOpportunities", params={"$filter": "..."})
     """
@@ -154,11 +153,10 @@ class ServiceLayerClient:
     # Sessão
     # ------------------------------------------------------------------
     async def login(self) -> None:
-        """Equivalente a `SAPbobsCOM.Company.Connect()`.
+        """Equivalent to `SAPbobsCOM.Company.Connect()`; normally implicit via `_ensure_login`.
 
-        A Service Layer devolve os cookies `B1SESSION`/`ROUTEID`, que o httpx guarda
-        automaticamente no `AsyncClient` (cookie jar) — não precisamos manipulá-los
-        manualmente daqui em diante.
+        The Service Layer returns the `B1SESSION`/`ROUTEID` cookies, which httpx keeps in the
+        `AsyncClient` cookie jar; nothing to handle manually.
         """
         payload = {
             "CompanyDB": self._settings.sl_company_db,
@@ -240,26 +238,25 @@ class ServiceLayerClient:
     async def _via_batch(
         self, metodo: str, entity_path: str, body: dict[str, Any] | None = None, *, _relogin: bool = True
     ) -> dict[str, Any] | None:
-        """Manda a requisição dentro de um `$batch`, onde a URL viaja no CORPO.
+        """Sends the request inside a `$batch`, where the URL travels in the BODY.
 
-        **Por que isto existe.** Códigos de item do cliente contêm barra
-        (`PPA3CPAB-1FF/D100220`). Percent-encodar é obrigatório e está correto
-        (`Items('PPA3CPAB-1FF%2FD100220')`), mas quem recusa não é a Service Layer: é o
-        servidor web à frente dela, que por padrão bloqueia barra codificada no caminho e
-        devolve `404 Not Found` **em HTML** — a página de erro é o que denuncia o culpado,
-        porque a Service Layer erra em JSON. Descoberto em 22/09/2026 no pedido 84391.
+        **Why this exists.** Customer item codes contain a slash (`PPA3CPAB-1FF/D100220`).
+        Percent-encoding is mandatory and correct (`Items('PPA3CPAB-1FF%2FD100220')`), but what
+        rejects it is not the Service Layer: it is the web server in front of it, which by
+        default blocks an encoded slash in the path and answers `404 Not Found` **in HTML**;
+        the HTML error page is what gives the culprit away, since the Service Layer errors in
+        JSON. Found 2026-09-22 on order 84391.
 
-        No `$batch` a URL da operação é uma linha do corpo multipart. O servidor web vê
-        apenas `POST /$batch`, sem nada a inspecionar no caminho, e a Service Layer recebe
-        a URI inteira e a decodifica ela mesma. Nenhuma configuração de servidor muda.
+        In a `$batch` the operation URL is a line of the multipart body. The web server sees
+        only `POST /$batch`, with nothing to inspect in the path, and the Service Layer gets
+        the whole URI and decodes it itself. No server configuration changes.
 
-        Escolhido em vez de `AllowEncodedSlashes` no servidor porque não depende de
-        alterar a instalação da Service Layer — mas as duas resolvem, e se a configuração
-        for aplicada um dia este desvio simplesmente deixa de ser acionado.
+        Chosen over `AllowEncodedSlashes` on the server because it does not depend on altering
+        the Service Layer installation; both work, and if that setting is applied one day this
+        detour simply stops being triggered.
 
-        ⚠️ Não é o `$batch` de agrupar várias chamadas para ganhar tempo (adiado por
-        decisão de 16/09): aqui é **uma** operação por lote, e o motivo é endereçamento,
-        não desempenho.
+        Not the `$batch` that groups several calls to save time (postponed by decision of
+        16/09): here it is **one** operation per batch, for addressing, not performance.
         """
         self._assegura_escrita(metodo)
         await self._ensure_login()
@@ -311,29 +308,29 @@ class ServiceLayerClient:
 
     @property
     def _prefixo(self) -> str:
-        """Caminho base da Service Layer (`/b1s/v1`), exigido nas URIs dentro do `$batch`."""
+        """Service Layer base path (`/b1s/v1`), required in the URIs inside the `$batch`."""
         return httpx.URL(self._settings.sl_base_url).path.rstrip("/")
 
     # ------------------------------------------------------------------
     # Helpers de alto nível usados pelos módulos de negócio
     # ------------------------------------------------------------------
     async def get_by_key(self, entity: str, key: str | int, chave_texto: bool = False) -> dict[str, Any]:
-        """Equivalente a `oObj.GetByKey(key)` seguido de leitura dos campos.
+        """Equivalent to `oObj.GetByKey(key)` followed by reading the fields.
 
-        `chave_texto=True` para entidades de chave string (`Items`, UDOs com `Code`) —
-        ver `_formata_chave`."""
+        `chave_texto=True` for string-key entities (`Items`, UDOs with `Code`) — see
+        `_formata_chave`."""
         return await self.get(f"{entity}({_formata_chave(key, chave_texto)})")
 
     async def update_entity(
         self, entity: str, key: str | int, fields: dict[str, Any], chave_texto: bool = False
     ) -> None:
-        """Equivalente a `oObj.GetByKey(key); oObj.UserFields...Value = ...; oObj.Update();`.
+        """Equivalent to `oObj.GetByKey(key); oObj.UserFields...Value = ...; oObj.Update();`.
 
-        `chave_texto=True` para entidades de chave string (`Items`, UDOs com `Code`)."""
+        `chave_texto=True` for string-key entities (`Items`, UDOs with `Code`)."""
         await self.patch(f"{entity}({_formata_chave(key, chave_texto)})", fields)
 
     async def create_entity(self, entity: str, body: dict[str, Any]) -> dict[str, Any]:
-        """Equivalente a `oObj.Add()` preenchendo os campos antes."""
+        """Equivalent to `oObj.Add()` after filling in the fields."""
         return await self.post(entity, body)
 
 
@@ -352,10 +349,10 @@ def _precisa_de_batch(caminho: str) -> bool:
 def _monta_corpo_batch(
     limite: str, metodo: str, uri: str, body: dict[str, Any] | None, escrita: bool
 ) -> str:
-    """Um lote com uma única operação, no formato multipart da Service Layer.
+    """A batch with a single operation, in the Service Layer's multipart format.
 
-    Quebras de linha CRLF: é o exigido por MIME, e a Service Layer é rigorosa quanto a
-    isso — com `\n` puro ela devolve erro de parsing sem dizer onde.
+    CRLF line breaks: required by MIME, and the Service Layer is strict about it — with bare
+    LF it returns a parsing error without saying where.
     """
     corpo_json = json.dumps(body, ensure_ascii=False) if body is not None else None
     pedido = [f"{metodo} {uri} HTTP/1.1"]
@@ -400,11 +397,11 @@ def _monta_corpo_batch(
 
 
 def _le_resposta_batch(texto: str) -> tuple[int | None, Any, str]:
-    """Extrai `(status, payload, bruto)` da primeira operação do lote.
+    """Extracts `(status, payload, raw)` from the first operation of the batch.
 
-    A resposta é multipart e pode ter um changeset aninhado, então em vez de desmontar as
-    fronteiras procuramos a primeira linha de status HTTP — há uma só operação por lote
-    (ver `_via_batch`), e essa linha é o que interessa.
+    The response is multipart and may nest a changeset, so instead of parsing the boundaries
+    we look for the first HTTP status line — there is a single operation per batch (see
+    `_via_batch`), and that line is what matters.
     """
     achado = re.search(r"^HTTP/1\.[01] (\d{3})", texto, flags=re.MULTILINE)
     status = int(achado.group(1)) if achado else None
@@ -424,23 +421,22 @@ def _le_resposta_batch(texto: str) -> tuple[int | None, Any, str]:
 
 
 def _formata_chave(chave: str | int, texto: bool = False) -> str:
-    """Formata o valor de chave para a URL OData (`Entidade(chave)`).
+    """Formats a key value for the OData URL (`Entity(key)`).
 
-    - `texto=True` → sempre literal entre aspas, mesmo que o valor pareça número. Use para
-      entidades cuja chave é string: `Items` (ItemCode) e UDOs com `Code` (ex.:
-      `INO_SETUPOBJ('1')` — o código é o texto `"1"`, e `INO_SETUPOBJ(1)` seria recusado).
-    - `texto=False` (padrão) → `int` ou string só de dígitos viram chave numérica sem
-      aspas (`Orders(19466)`); o resto vira literal entre aspas.
-    - Em ambos os casos, strings recebem percent-encoding:
+    - `texto=True` -> always a quoted literal, even if the value looks numeric. Use for
+      entities whose key is a string: `Items` (ItemCode) and UDOs with `Code` (e.g.
+      `INO_SETUPOBJ('1')` — the code is the text `"1"`, and `INO_SETUPOBJ(1)` would be refused).
+    - `texto=False` (default) -> `int` or an all-digits string becomes an unquoted numeric
+      key (`Orders(19466)`); anything else becomes a quoted literal.
+    - In both cases strings get percent-encoding:
       `Items('ESCESP00000SUP000000%231205%23210%230')`
 
-    ⚠️ O percent-encoding **não é opcional** neste projeto: códigos de item do cliente
-    contêm `#` (ex.: `ESCESP00000SUP000000#1205#210#0`), e numa URL o `#` inicia o
-    fragmento — sem encodar, o servidor recebe apenas
-    `PATCH /Items('ESCESP00000SUP000000` e responde `Unrecognized resource path`.
-    Descoberto em 15/09/2026 testando o pedido do orçamento 00120634; ver seção 7.13 do
-    migration_guide.md. Esse problema não existia no addon C#, que endereçava o objeto
-    pela DI API (`oItems.GetByKey(codigo)`), sem montar URL.
+    The percent-encoding is **not optional** in this project: customer item codes contain `#`
+    (e.g. `ESCESP00000SUP000000#1205#210#0`), and in a URL `#` starts the fragment — unencoded,
+    the server receives only `PATCH /Items('ESCESP00000SUP000000` and answers `Unrecognized
+    resource path`. Found 2026-09-15 testing the quote 00120634 order; see section 7.13 of
+    migration_guide.md. The C# addon never had this: it addressed the object through the DI
+    API (`oItems.GetByKey(code)`), building no URL.
     """
     if isinstance(chave, int) and not texto:
         return str(chave)
