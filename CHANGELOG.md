@@ -6,6 +6,19 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-04] — Processar e Reprocessar sincronizam sozinhos; aviso da proposta diz o que fazer
+
+**Pede deploy da .11** (`deploy_update.bat`).
+
+- **Sincronização automática:** ao terminar Processar ou Reprocessar pela tela ou pela API, o Controle de
+  Produção chama `POST /sync/ordens-servico` da API 8077 para cada pedido iniciado. Antes, a base de dados
+  ficava com as OPs antigas até alguém clicar em Sincronização (84530 e 84550). Falha na cópia sai como linha
+  `⚠` e em `resultado.sincronizacao`, sem mudar o desfecho. A CLI continua sem sincronizar.
+- **Aviso `proposta_desatualizada`:** o texto dizia "gerar a proposta", mas no 00125273 o PDF da revisão H já
+  existia e `INTEGRACAO_ORCIMP` seguia na G. Agora diz que é a tabela do WBC, que sincronizar não muda isso e
+  pede a impressão no modelo `padronizada-10`. Só o texto mudou: continua aviso, com a mesma comparação.
+- Contrato `API_PEDIDOS_WBC.md` atualizado. +11 testes (`tests/controleproducao/test_sincronizacao_automatica.py`).
+
 ## [2026-11-04] — Todo pedido enviado pela API tem status
 
 **Pede ação**: deploy na .11 (`deploy_update.bat`) e a outra equipe ajustar o projeto dela

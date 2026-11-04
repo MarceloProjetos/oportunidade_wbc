@@ -20,6 +20,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
+
 from controleproducao.config import get_settings
 from controleproducao.core import service_layer_client
 from controleproducao.core.confirmacao import PLANOS, ConfirmacaoInvalida, Plano
@@ -73,6 +75,11 @@ RESUMO_FORCADO = "forçado (ignora as checagens de reprocessamento)"
 #: Written after the pedido number in the execution description (kept in the Supabase history),
 #: and what the Execuções screens look for to show the "Nota espelho" pill.
 MARCA_ESPELHO = "nota espelho"
+
+#: The default `SYNC_LOTE_MAX` of the API 8077: a bigger batch gets a 413.
+LOTE_SINCRONIZACAO = 50
+#: Not a failure: the API copies nothing while the pedido has no live OP.
+SEM_OP_PARA_SINCRONIZAR = frozenset({"sem_os", "cancelada"})
 
 MSG_NENHUM_SELECIONADO = "Nenhum pedido selecionado."
 MSG_LISTA_VAZIA = "Nenhum pedido neste modo."
@@ -374,6 +381,7 @@ async def _roda_pedidos_com(
     wbc: WbcSqlServerClient,
 ) -> dict:
     """Body of `_roda_pedidos`, with both readers opened (and closed) by the caller."""
+    iniciados: list[str] = []
     async with ServiceLayerClient(settings) as sl:
         # One pedido at a time, not the whole list at once, so the follow-up says where it
         # stopped: the service's aggregate result does not say which pedido was running when
@@ -390,6 +398,7 @@ async def _roda_pedidos_com(
                 break
             rotulo = f"Pedido {doc_num} (WBC {orc_num})"
             tarefa.avanca(f"{rotulo} ({i}/{len(alvos)})…", i - 1)
+            iniciados.append(doc_num)
             # Every OP created, item registered and allocation resource already goes to the
             # service's `logger.info`; the bridge puts it on the screen while it runs.
             with acompanha_log(tarefa, service.__name__, service_layer_client.__name__):
@@ -458,7 +467,54 @@ async def _roda_pedidos_com(
         # Asked while the last pedido was already running: nothing was left out.
         tarefa.parada_pedida = False
         tarefa.anota("Interrupção pedida com o último pedido já em andamento — nenhum ficou de fora.")
+    # Every started pedido, failed ones included: there is no rollback, so a failed Processar may
+    # have left OPs, and the mirror only ever copies what the SAP has.
+    if iniciados:
+        agregado["sincronizacao"] = await sincroniza_espelho(tarefa, settings, iniciados)
     return agregado
+
+
+async def sincroniza_espelho(tarefa: Tarefa, settings: Any, doc_nums: list[str]) -> list[dict]:
+    """Copy the pedidos that just ran to the OS mirror, through the API 8077 of this machine.
+
+    Without it the mirror stayed on the OPs of before until someone clicked Sincronização, and
+    the other team's tree read the old rows. Through the API, not `extract_ordens_servico_engenharia`
+    directly, so it shares the API's lock, diagnosis and sync log.
+
+    Never raises: the pedidos are already done in the SAP, so a failed copy is a warning for the
+    log and the result, not a failed execution.
+    """
+    url = f"http://127.0.0.1:{settings.os_api_port}/sync/ordens-servico"
+    cabecalho = {"X-API-Key": settings.os_api_key.get_secret_value()}
+    resultados: list[dict] = []
+    for inicio in range(0, len(doc_nums), LOTE_SINCRONIZACAO):
+        lote = doc_nums[inicio:inicio + LOTE_SINCRONIZACAO]
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(60.0 + 15.0 * len(lote), connect=5.0)) as cliente:
+                resposta = await cliente.post(url, headers=cabecalho, json={"npeds": [int(d) for d in lote]})
+            resposta.raise_for_status()
+            por_pedido = {str(r["nped"]): r for r in resposta.json()["results"]}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Sincronização automática dos pedidos %s falhou: %s", lote, exc)
+            por_pedido = {}
+        for doc_num in lote:
+            r = por_pedido.get(str(doc_num), {})
+            resultados.append({"doc_num": doc_num, "ok": bool(r.get("ok")), "tipo": r.get("tipo"),
+                               "motivo": r.get("motivo") or (None if r else "A API 8077 não respondeu.")})
+            _anota_sincronizacao(tarefa, resultados[-1])
+    return resultados
+
+
+def _anota_sincronizacao(tarefa: Tarefa, r: dict) -> None:
+    if r["ok"]:
+        tarefa.anota(f"Pedido {r['doc_num']}: sincronizado com a base de dados.")
+    elif r["tipo"] in SEM_OP_PARA_SINCRONIZAR:
+        tarefa.anota(f"Pedido {r['doc_num']}: nada a sincronizar agora ({r['motivo']}).")
+    else:
+        tarefa.anota(
+            f"Pedido {r['doc_num']}: NÃO sincronizado com a base de dados ({r['motivo']}). "
+            "Sincronize pela tela Sincronização.", problema=True,
+        )
 
 
 def dispara(

@@ -85,7 +85,8 @@ class TestPlano:
         assert aviso["codigo"] == "proposta_desatualizada"
         assert (aviso["revisao"], aviso["revisao_proposta"]) == ("C", "B")
         assert f"Pedido {lista[0].doc_num} (WBC {orc})" in aviso["mensagem"]
-        assert "gerar a proposta da revisão C no WBC" in aviso["mensagem"]
+        assert "solicitar no WBC a impressão da proposta (modelo padronizada-10) na revisão C" in aviso["mensagem"]
+        assert "Sincronizar não muda isso" in aviso["mensagem"]
 
     def test_sem_proposta_antiga_sem_aviso(self, lista) -> None:  # noqa: F811
         plano = acoes.monta_plano(lista, [str(lista[0].opp_id)], False)

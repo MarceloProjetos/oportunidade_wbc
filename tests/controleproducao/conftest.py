@@ -30,6 +30,7 @@ import pytest
 
 from controleproducao.config import Settings, get_settings
 from controleproducao.core.tarefas import TAREFAS
+from controleproducao.modules.pedidos_wbc import acoes as acoes_pedidos_wbc
 from wbcpython import safety
 
 # Same list as tests/wbc/conftest.py plus `CP_` (this package's own knobs). The SIS prefixes
@@ -59,6 +60,16 @@ def _ambiente_neutro(monkeypatch: pytest.MonkeyPatch, tmp_path):
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _sem_sincronizacao_real(monkeypatch: pytest.MonkeyPatch):
+    """An execution ends by calling the API 8077 on 127.0.0.1: never a real one from a test.
+    `test_sincronizacao_automatica.py` keeps its own reference to exercise the real function."""
+    async def _nada(_tarefa, _settings, _doc_nums):
+        return []
+
+    monkeypatch.setattr(acoes_pedidos_wbc, "sincroniza_espelho", _nada)
 
 
 @pytest.fixture(autouse=True)

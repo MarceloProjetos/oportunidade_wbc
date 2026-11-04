@@ -158,6 +158,7 @@ Regra com teste = 1 linha + o teste que a protege; sem teste = o porquê junto.
 - `processar-novos` não tem rollback (marca `ProcessWBC='Y'` antes da 1ª OP). Retomada:
   `manutencao-op buscar` → `cancelar-ops` → `processar-novos` **sem `--force`** (duplica OP).
 - `reprocessar-integrados` cancela toda OP planejada e não recria. — `tests/controleproducao/test_cancelar_ops.py`
+- Processar/Reprocessar pela tela ou API terminam sincronizando cada pedido pela API 8077 (`acoes.sincroniza_espelho`), sem mudar o desfecho; a CLI não sincroniza. — `tests/controleproducao/test_sincronizacao_automatica.py`
 - Processar recusa (`409 ops_orfas`, também na execução e com "forçar") pedido cujo orçamento tem pedido
   **cancelado** com OP P/R viva. — `tests/controleproducao/test_ops_orfas.py`
 - Processar recusa (`409 nota_espelho`, também na execução e com "forçar") pedido com
