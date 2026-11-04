@@ -80,7 +80,7 @@
       <table class="ov-table">
         <thead>
           <tr>
-            {% if selecionavel %}<th></th>{% endif %}<th class="centro">Pedido</th><th class="centro">Oportunidade</th><th>WBC</th>
+            {% if selecionavel %}<th></th>{% endif %}<th class="centro">Pedido</th><th class="centro">Oportunidade</th><th>WBC</th><th class="centro">Versão</th>
             <th>Cliente</th><th class="num">Total</th><th>Criado</th>
           </tr>
         </thead>
@@ -94,12 +94,13 @@
                 title="Pedido marcado como Nota Espelho no SAP (U_U_INO_NotaEspelho = Sim)">Nota espelho</span>{% endif %}</td>
             <td class="num centro">{{ p.opp_id }}</td>
             <td><span class="ov-pill is-aberto">{{ p.orc_num_masc }}</span></td>
+            <td class="centro">{{ p.versao or "—" }}</td>
             <td>{{ p.cod_cliente }} — {{ p.nome_cliente }}</td>
             <td class="num">{{ p.total_pedido | moeda }}</td>
             <td class="data">{{ p.data_lancamento[:10] }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="{{ 7 if selecionavel else 6 }}" class="vazio">
+          <tr><td colspan="{{ 8 if selecionavel else 7 }}" class="vazio">
             {% if buscou %}Nenhum pedido neste modo.{% else %}Escolha "Pedidos novos" ou "Pedidos integrados" para carregar a lista.{% endif %}
           </td></tr>
           {% endfor %}

@@ -190,6 +190,8 @@ class PedidoParaIntegrar(BaseModel):
     nome_cliente: str
     total_pedido: float
     data_lancamento: str
+    # Current revision of the quote in the WBC; empty on the first one or with the WBC down.
+    versao: str = ""
     orc_num_masc: str
     #: `ORDR.U_U_INO_NotaEspelho = 'Y'` — a mirror order; the screen flags it.
     nota_espelho: bool = False

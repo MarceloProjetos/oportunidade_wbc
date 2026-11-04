@@ -8,14 +8,24 @@ from __future__ import annotations
 
 import asyncio
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from controleproducao.modules.pedidos_wbc import acoes, service
 from controleproducao.modules.pedidos_wbc import queries as q
+from tests.controleproducao.test_api_pedidos_wbc import (  # noqa: F401 - pytest fixtures
+    API,
+    CABECALHO,
+    _limpa_registros,
+    ambiente,
+    c,
+    lista,
+)
 
 ORC = "00125273"
+PREENCHE_VERSOES = acoes.preenche_versoes
 
 
 def _proposta(revisao="G") -> list:
@@ -105,7 +115,7 @@ def test_sem_a_variavel_fica_o_unico_valor_que_existe() -> None:
 def test_le_a_revisao_pela_chave_com_a_letra() -> None:
     wbc = _wbc()
     _header(wbc)
-    chaves = {c.args[0]: c.args[1] for c in wbc.fetch_all.call_args_list}
+    chaves = {chamada.args[0]: chamada.args[1] for chamada in wbc.fetch_all.call_args_list}
     assert chaves[q.CADASTRO_DA_REVISAO] == (f"{ORC}H",) and chaves[q.TEXTOS_DA_REVISAO] == (f"{ORC}H",)
     assert chaves[q.VALORES_DO_ORCAMENTO] == (ORC,)
 
@@ -153,6 +163,62 @@ def test_consultas_novas_so_leem() -> None:
 
 def test_plano_nao_traz_mais_a_proposta() -> None:
     assert not hasattr(acoes, "avisos_do_plano") and not hasattr(acoes, "le_propostas_desatualizadas")
+
+
+class TestColunaVersao:
+    REAL = PREENCHE_VERSOES
+
+    def _pedido(self, orc):
+        return SimpleNamespace(orc_num_masc=orc, versao="")
+
+    def test_le_a_revisao_de_cada_orcamento_sem_repetir(self) -> None:
+        wbc = MagicMock()
+        wbc.fetch_all = MagicMock(
+            return_value=[{"ORCNUM": ORC, "REVISAO": "H "}, {"ORCNUM": "00120000", "REVISAO": None}]
+        )
+        assert service.revisoes_dos_orcamentos(wbc, [ORC, ORC, "00120000"]) == {ORC: "H", "00120000": ""}
+        sql, params = wbc.fetch_all.call_args.args
+        assert sql.lstrip().upper().startswith("SELECT") and list(params) == [ORC, "00120000"]
+
+    def test_pagina_vazia_nao_consulta(self) -> None:
+        wbc = MagicMock()
+        assert service.revisoes_dos_orcamentos(wbc, []) == {}
+        wbc.fetch_all.assert_not_called()
+
+    def test_preenche_os_pedidos(self) -> None:
+        pedidos = [self._pedido(ORC), self._pedido("00120000")]
+        cliente = MagicMock()
+        cliente.__enter__.return_value = MagicMock(fetch_all=MagicMock(return_value=[{"ORCNUM": ORC, "REVISAO": "H"}]))
+        with patch(f"{acoes.__name__}.WbcSqlServerClient", return_value=cliente):
+            type(self).REAL(pedidos)
+        assert [p.versao for p in pedidos] == ["H", ""]
+
+    def test_wbc_fora_nao_derruba_a_lista(self) -> None:
+        pedidos = [self._pedido(ORC)]
+        with patch(f"{acoes.__name__}.WbcSqlServerClient", side_effect=OSError("WBC fora")):
+            type(self).REAL(pedidos)
+        assert pedidos[0].versao == ""
+
+
+def _com_versao(pedidos) -> None:
+    pedidos[0].versao = "H"
+
+
+def test_tela_mostra_a_coluna_e_traco_sem_versao(c, ambiente) -> None:  # noqa: F811
+    with patch.object(acoes, "le_pedidos", AsyncMock(return_value=ambiente)), \
+         patch.object(acoes, "preenche_versoes", _com_versao):
+        tela = c.get("/pedidos-wbc?buscar=1").text
+
+    assert ">Versão</th>" in tela
+    assert '<td class="centro">H</td>' in tela and '<td class="centro">—</td>' in tela
+
+
+def test_api_traz_a_versao(c, ambiente) -> None:  # noqa: F811
+    with patch.object(acoes, "le_pedidos", AsyncMock(return_value=ambiente)), \
+         patch.object(acoes, "preenche_versoes", _com_versao):
+        pedidos = c.get(f"{API}/pedidos", headers=CABECALHO).json()["pedidos"]
+
+    assert pedidos[0]["versao"] == "H" and pedidos[1]["versao"] == ""
 
 
 class TestCarimboDaRevisao:

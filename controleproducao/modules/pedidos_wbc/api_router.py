@@ -170,6 +170,7 @@ def _pedido(p) -> dict:
         "pedido": p.doc_num,
         "oportunidade": p.opp_id,
         "wbc": p.orc_num_masc,
+        "versao": p.versao,
         "cliente_codigo": p.cod_cliente,
         "cliente_nome": p.nome_cliente,
         "cliente": f"{p.cod_cliente} — {p.nome_cliente}",
@@ -250,6 +251,7 @@ def listar(modo: str = "novos", pagina: str = "1"):
         return _sap_fora(f"lista de pedidos ({modo})", exc)
 
     folha = acoes.pagina(pedidos, int(pagina))
+    acoes.preenche_versoes(folha.itens)
     rodando = TAREFAS.em_execucao(acoes.MODULO)
     return {
         "ok": True,

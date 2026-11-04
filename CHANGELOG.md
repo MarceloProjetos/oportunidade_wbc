@@ -6,6 +6,13 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-04] — Coluna Versão em Pedidos WBC
+
+**Pede deploy da .11** (`deploy_update.bat`).
+
+A lista de Pedidos WBC (tela e `GET /api/pedidos-wbc`, campo `versao`) mostra a última revisão do orçamento no WBC,
+lida só para a página aberta. Com o WBC fora, a lista abre normalmente com "—" nessa coluna.
+
 ## [2026-11-04] — A proposta vai para o SAP sempre na última revisão, sem impressão
 
 **Pede deploy da .11** (`deploy_update.bat`).

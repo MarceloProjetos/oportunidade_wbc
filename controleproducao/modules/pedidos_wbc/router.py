@@ -23,6 +23,7 @@ PLANO_API_PEDIDOS_WBC.md (removed 2026-10-06)); this file only reads the form an
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Form, Request
@@ -104,6 +105,7 @@ async def pagina_inicial(
             erro_busca = acoes.MSG_BUSCA_AUTOMATICA_FALHOU
 
     folha = acoes.pagina(pedidos, pagina)
+    await asyncio.to_thread(acoes.preenche_versoes, folha.itens)
     return templates.TemplateResponse(
         request, "pedidos_wbc.html",
         {

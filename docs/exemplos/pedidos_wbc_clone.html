@@ -415,14 +415,15 @@ async function telaDaLista(avisoDeErro) {
       el("td", { class: "num" }, el("strong", {}, p.pedido)),
       el("td", { class: "num" }, p.oportunidade),
       el("td", {}, el("span", { class: "pilula is-aberto" }, p.wbc)),
+      el("td", {}, p.versao || "—"),
       el("td", {}, p.cliente),
       el("td", { class: "num" }, moeda(p.total)),
       el("td", { class: "data" }, p.criado));
   });
-  if (!linhas.length) linhas.push(el("tr", {}, el("td", { colspan: 7, class: "vazio" }, dados.vazio || "Nenhum pedido neste modo.")));
+  if (!linhas.length) linhas.push(el("tr", {}, el("td", { colspan: 8, class: "vazio" }, dados.vazio || "Nenhum pedido neste modo.")));
 
   corpo.append(el("section", { class: "tabela-cartao" }, el("div", { class: "rola" }, el("table", {},
-    el("thead", {}, el("tr", {}, el("th"), ["Pedido", "Oportunidade", "WBC", "Cliente"].map((t) => el("th", {}, t)),
+    el("thead", {}, el("tr", {}, el("th"), ["Pedido", "Oportunidade", "WBC", "Versão", "Cliente"].map((t) => el("th", {}, t)),
       el("th", { class: "num" }, "Total"), el("th", {}, "Criado"))),
     el("tbody", {}, linhas)))));
 

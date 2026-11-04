@@ -115,6 +115,20 @@ async def le_pedidos(leitor: HanaDirectReader, integrados: bool) -> list:
     return await service.buscar_pedidos_para_integrar(leitor, integrados=integrados)
 
 
+def preenche_versoes(pedidos: list) -> None:
+    """Fill the "Versão" of the rows about to be shown. Blocking: call it in a thread, because a
+    slow WBC (15 s login timeout) must not freeze the process whose /health/ocupado the deploy
+    probes. A WBC that fails costs the column, never the list."""
+    try:
+        with WbcSqlServerClient(get_settings()) as wbc:
+            revisoes = service.revisoes_dos_orcamentos(wbc, [p.orc_num_masc for p in pedidos])
+    except Exception:  # noqa: BLE001
+        logger.warning("Pedidos WBC: versão dos orçamentos não lida no WBC.", exc_info=True)
+        return
+    for p in pedidos:
+        p.versao = revisoes.get(p.orc_num_masc, "")
+
+
 @dataclass(frozen=True)
 class Pagina:
     itens: list

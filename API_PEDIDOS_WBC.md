@@ -359,7 +359,7 @@ integração e fica fora.
 | L7 | Nota ao lado dos rádios | "Carregando…" | fixo | enquanto a chamada não volta (rádios travados) |
 | L8 | KPI 1 (borda coral) | "3" / "NOVOS" | `kpi.valor` / `kpi.rotulo` | depois que a lista carregou |
 | L9 | KPI 2 (borda azul) | "1/1" / "PÁGINA" | `pagina`/`paginas` | depois que a lista carregou |
-| L10 | Cabeçalho da tabela | PEDIDO · OPORTUNIDADE · WBC · CLIENTE · TOTAL · CRIADO | fixo | sempre |
+| L10 | Cabeçalho da tabela | PEDIDO · OPORTUNIDADE · WBC · VERSÃO · CLIENTE · TOTAL · CRIADO | fixo | sempre |
 | L11 | Linha do pedido | ☐ · **84460** · 15397 · ●00125718 · C002960 — VETNIL… · 104.652,95 · 2026-10-02 | `pedidos[]` | um por pedido |
 | L12 | Pílula amarela sob o número | "Nota espelho" | `pedidos[].nota_espelho` = `true` | só pedido Nota Espelho |
 | L13 | Linha única da tabela | "Nenhum pedido neste modo." | `vazio` | lista vazia |
@@ -431,19 +431,19 @@ Resposta real (06/10/2026, 13:19):
   "ultimo": 3,
   "pedidos": [
     {
-      "pedido": 84464, "oportunidade": 15433, "wbc": "00125737",
+      "pedido": 84464, "oportunidade": 15433, "wbc": "00125737", "versao": "B",
       "cliente_codigo": "C004271", "cliente_nome": "TAKII DO BRASIL LTDA",
       "cliente": "C004271 — TAKII DO BRASIL LTDA",
       "total": 7700, "criado": "2026-10-06", "nota_espelho": false
     },
     {
-      "pedido": 84463, "oportunidade": 15609, "wbc": "00125869",
+      "pedido": 84463, "oportunidade": 15609, "wbc": "00125869", "versao": "B",
       "cliente_codigo": "C002421", "cliente_nome": "POLY BLOW INDUSTRIA E COMERCIO LTDA",
       "cliente": "C002421 — POLY BLOW INDUSTRIA E COMERCIO LTDA",
       "total": 1383.55, "criado": "2026-10-05", "nota_espelho": false
     },
     {
-      "pedido": 84460, "oportunidade": 15397, "wbc": "00125718",
+      "pedido": 84460, "oportunidade": 15397, "wbc": "00125718", "versao": "B",
       "cliente_codigo": "C002960", "cliente_nome": "VETNIL INDUSTRIA E COM DE PROD VETERIN LTDA",
       "cliente": "C002960 — VETNIL INDUSTRIA E COM DE PROD VETERIN LTDA",
       "total": 104652.95, "criado": "2026-10-02", "nota_espelho": false
@@ -1011,6 +1011,7 @@ Cada linha da tela mostra três números, e cada um serve a uma coisa:
 | `pedido` | `84445` | Nº do **pedido de venda no SAP** (DocNum) | É o que a pessoa procura no SAP. É o que a tela destaca em negrito. |
 | `oportunidade` | `14232` | Nº da **oportunidade de venda no SAP** | É o que você **manda** para selecionar (`oportunidades`). É o valor da caixa de seleção da tela. |
 | `wbc` | `00124882` | Nº do **orçamento no WBC** (8 dígitos) | É o que o processamento usa por dentro. Aparece como etiqueta laranja. |
+| `versao` | `H` | Última revisão do orçamento no WBC | É a revisão que vai para o SAP ao processar. Vem `""` na primeira versão do orçamento, sem letra, ou se o WBC não responder: a tela mostra "—". Desde 04/11/2026. |
 
 Não troque um pelo outro: a seleção é **sempre** pela `oportunidade`.
 
@@ -1540,6 +1541,7 @@ KPIs que dividem o resto. No celular, um embaixo do outro.
 | Pedido | `pedido` | centralizado, **negrito**, algarismos alinhados |
 | Oportunidade | `oportunidade` | centralizado |
 | WBC | `wbc` | pílula laranja (acento) |
+| Versão | `versao` | centralizado; "—" quando vazio |
 | Cliente | `cliente` | texto |
 | Total | `total` | à direita, `867.100,00` |
 | Criado | `criado` | `2026-09-29`, cor apagada, **sem quebrar** |

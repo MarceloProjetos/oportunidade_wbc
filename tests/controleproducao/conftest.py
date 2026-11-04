@@ -70,6 +70,8 @@ def _sem_sincronizacao_real(monkeypatch: pytest.MonkeyPatch):
         return []
 
     monkeypatch.setattr(acoes_pedidos_wbc, "sincroniza_espelho", _nada)
+    # The list also reads the WBC for its "Versão" column.
+    monkeypatch.setattr(acoes_pedidos_wbc, "preenche_versoes", lambda _pedidos: None)
 
 
 @pytest.fixture(autouse=True)

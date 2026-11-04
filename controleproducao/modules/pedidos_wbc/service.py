@@ -569,6 +569,14 @@ def _revisao_nova_do_orcamento(wbc: WbcSqlServerClient, orc_num: str, header: Ne
     return None if revisao == proposta else revisao
 
 
+def revisoes_dos_orcamentos(wbc: WbcSqlServerClient, orc_nums: list[str]) -> dict[str, str]:
+    """The current revision of each quote, by quote number (the "Versão" column of the list)."""
+    if not orc_nums:
+        return {}
+    rows = wbc.fetch_all(*ligar(q.REVISOES_DOS_ORCAMENTOS, orc_nums=list(dict.fromkeys(orc_nums))))
+    return {str(r["ORCNUM"]).strip(): str(r["REVISAO"] or "").strip() for r in rows}
+
+
 def _texto_wbc(valor: object) -> str:
     """The line breaks of a WBC variable, as the print writes them in `INTEGRACAO_ORCIMP`."""
     return str(valor or "").replace("\r\n", "[CR]").replace("\n", "[CR]").replace("\r", "[CR]")

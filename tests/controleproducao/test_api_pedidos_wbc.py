@@ -259,7 +259,7 @@ def test_lista_novos_traz_a_pagina_o_kpi_e_o_botao_da_tela(c, ambiente):
     assert (corpo["primeiro"], corpo["ultimo"]) == (1, 15)
     assert len(corpo["pedidos"]) == 15
     assert corpo["pedidos"][0] == {
-        "pedido": 84201, "oportunidade": 4301, "wbc": "00120001", "cliente_codigo": "C0001",
+        "pedido": 84201, "oportunidade": 4301, "wbc": "00120001", "versao": "", "cliente_codigo": "C0001",
         "cliente_nome": "Cliente 1", "cliente": "C0001 — Cliente 1", "total": 1235.5,
         "criado": "2026-09-02", "nota_espelho": False,
     }

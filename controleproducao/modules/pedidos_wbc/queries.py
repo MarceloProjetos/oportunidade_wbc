@@ -362,6 +362,10 @@ ORDER BY R."U_INO_COTWBC", R."DocNum", W."DocNum"
 # the same data, per revision, from where the WBC keeps it. Measured on 300 current proposals.
 REVISAO_DO_ORCAMENTO = "SELECT ISNULL(REVISAO, '') AS REVISAO FROM dbo.INTEGRACAO_ORCLST WHERE ORCNUM = ?"
 
+REVISOES_DOS_ORCAMENTOS = """
+SELECT ORCNUM, ISNULL(REVISAO, '') AS REVISAO FROM dbo.INTEGRACAO_ORCLST WHERE ORCNUM IN ({orc_nums})
+""".strip()
+
 # Key = quote number + revision letter (no letter on the first one).
 CADASTRO_DA_REVISAO = """
 SELECT C.orccab_total, C.OrcCabPrecoLista, C.ORCCAB_CONTATO_EMAIL, C.orccab_fone, C.orccab_municipio,
