@@ -6,6 +6,20 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-04] — Revisão nova do WBC não embaralha mais a árvore de pedido com OP
+
+**Pede ação**: deploy na .11 (`deploy_update.bat`; reinicia o worker). Os pedidos já afetados não se corrigem
+sozinhos (84550, 83913, 84375 entre os abertos): cada um depende de decidir qual revisão vale.
+
+- **Worker WBC**: ao atualizar pedido com OP viva (ou contagem desconhecida), `U_INO_ORCAMENTO` fica como está.
+  O caso 84550: as OPs apontam para as linhas do detalhe **por posição** e a `VW_OS_INTEGRACAO` junta essa posição
+  com o detalhe do pedido; o detalhe novo da revisão G levou o pedido de 1094 para 61 linhas alinhadas de 1094. A
+  view e a sync estavam certas. Detalhe em `docs/INCIDENTES.md`.
+- O pedido continua recebendo o resto do cabeçalho (o carimbo `U_INO_VERSAOWBC` inclusive) e o snapshot da revisão
+  continua gravado em `@INO_ORCAM`. O acompanhamento registra `detalhe_mantido_pelas_ops`, com aviso no log.
+- **Não muda**: o Processar continua gravando o detalhe junto com as OPs que cria. As OPs seguem na árvore de antes
+  da revisão; refazê-las continua sendo decisão de uma pessoa.
+
 ## [2026-11-03] — Resultado que dizia "concluído" com parte do trabalho faltando
 
 Achados da revisão de código de 03/11 (comparação com uma revisão isolada). **Pede ação**: deploy na .11

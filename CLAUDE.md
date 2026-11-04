@@ -141,6 +141,9 @@ Regra com teste = 1 linha + o teste que a protege; sem teste = o porquê junto.
   do pedido; Liberada/Encerrada ou contagem `None` → para e pede gente (log ERROR); toda troca relê as OPs e
   consulta `127.0.0.1:CP_PORTA/health/ocupado` antes de cancelar o pedido. O `/health/ocupado` não vê o
   `processar-novos` rodado à mão pela CLI. — `tests/wbc/domain/test_troca_com_ops.py`, `tests/wbc/test_processar_troca_com_ops.py`
+- Pedido com OP viva (ou contagem desconhecida) não troca `U_INO_ORCAMENTO`: `WOR1.U_INO_DESC` é a posição no detalhe
+  em que as OPs nasceram, e a `VW_OS_INTEGRACAO` junta por ela. Árvore embaralhada = testar qual detalhe alinha, antes
+  de culpar a view. — `tests/wbc/test_processar.py` (`TestDetalheDoPedidoComOp`)
 - **Parada limpa do worker é por arquivo** (`state\wbc_worker.stop`, depois `nssm stop`). — `tests/wbc/host/test_parada_por_arquivo.py`
 - ⚠️⚠️ **O worker chama o `python.exe` por caminho absoluto** (NSSM `Application`); os outros 5 pegam o
   do PATH. Trocar o Python da máquina **não alcança o worker**, calado. Depois de trocar:

@@ -1827,6 +1827,74 @@ class TestPedidoCongelado:
         assert criadas[-1][2].get("DocumentLines")
 
 
+class TestDetalheDoPedidoComOp:
+    """OP lines point at the order's detail by position (`WOR1.U_INO_DESC` = `LineId`).
+
+    Order 84550 (03/11/2026): the update moved `U_INO_ORCAMENTO` to a newer detail after its 451
+    OPs existed, and `VW_OS_INTEGRACAO` went from 1094 to 61 matching lines out of 1094.
+    """
+
+    def _atualizar(self, *, ops, congelado: bool = True):
+        docs = DocumentosFalso(
+            tem_cotacao=True,
+            tem_pedido=True,
+            revisoes={TipoDocumento.PEDIDO: "A"},
+            congelados=[TipoDocumento.PEDIDO] if congelado else [],
+            ops=ops,
+        )
+        orcdet = OrcDetalheFalso()
+        repo = RepositorioTracking.a_partir_da_url("sqlite:///:memory:")
+        _processador(
+            repo,
+            WbcFalso(_orcamento(sitcode=60, revisao="D")),
+            docs,
+            OportunidadesFalso(),
+            orcdet,
+        ).processar(_oportunidade())
+        corpo = [c for c in docs.chamadas if c[0] == "atualizar"][-1][2]
+        regras = [e.regra for e in repo.eventos("00123316")]
+        return corpo, regras, orcdet
+
+    @pytest.mark.parametrize("ops", [(451, 0), (0, 3), (2, 1)])
+    def test_op_viva_mantem_o_detalhe(self, ops) -> None:
+        corpo, regras, _ = self._atualizar(ops=ops)
+
+        assert "U_INO_ORCAMENTO" not in corpo
+        assert "detalhe_mantido_pelas_ops" in regras
+
+    def test_o_carimbo_da_revisao_continua_indo(self) -> None:
+        """Without the stamp the cycle would retry this update forever."""
+        corpo, _, _ = self._atualizar(ops=(451, 0))
+
+        assert corpo["U_INO_VERSAOWBC"] == "D"
+
+    def test_contagem_desconhecida_mantem_o_detalhe(self) -> None:
+        """The Service Layer read carries no count: never read it as zero."""
+        corpo, regras, _ = self._atualizar(ops=None)
+
+        assert "U_INO_ORCAMENTO" not in corpo
+        assert "detalhe_mantido_pelas_ops" in regras
+
+    def test_sem_op_o_detalhe_novo_vai(self) -> None:
+        corpo, regras, _ = self._atualizar(ops=(0, 0))
+
+        assert corpo["U_INO_ORCAMENTO"] == 513888
+        assert "detalhe_mantido_pelas_ops" not in regras
+
+    def test_vale_tambem_para_pedido_nao_congelado(self) -> None:
+        """Rebuilding the lines does not touch the OPs: their positions still need the old detail."""
+        corpo, _, _ = self._atualizar(ops=(5, 0), congelado=False)
+
+        assert corpo.get("DocumentLines")
+        assert "U_INO_ORCAMENTO" not in corpo
+
+    def test_o_snapshot_da_revisao_continua_gravado(self) -> None:
+        """The revision stays on record in `@INO_ORCAM`, just not linked to the order."""
+        _, _, orcdet = self._atualizar(ops=(451, 0))
+
+        assert len(orcdet.snapshots) == 1
+
+
 class TestConferenciaDaCotacaoAtualizada:
     """Um `204 No Content` não prova que as linhas mudaram.
 

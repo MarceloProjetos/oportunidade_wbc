@@ -125,3 +125,26 @@ firewall só depois de a auditoria mostrar quem usa. Escrita de agente virou ped
 (`POST /aprovacoes`) que uma pessoa aprova. Na F5 (web V118.439) o .90 decide com a credencial
 `orcaview-90` (+`aprovar`) só pelo `aprovar 4821` do dono no grupo da Mira, e a Mira PEDE com
 `mira-agente` (`--agente`).
+
+## Pedido com OP não troca o Detalhe do Orçamento (84550, 03/11/2026)
+
+A árvore do 84550 saiu trocada no app do PCP (aço e tinta no lugar das peças). A causa não era a view (`CREATE_TIME`
+de 06/08) nem a sync (view e espelho iguais nas 1.094 linhas).
+
+A junção é **por posição**: `@INO_ORC_LINHA.DocEntry = ORDR.U_INO_ORCAMENTO AND LineId = TO_INT(WOR1.U_INO_DESC)`. O
+usuário do SIS não lê o texto da view (`SYS.VIEWS.DEFINITION` vem NULL); a regra saiu de uma réplica com linhas
+idênticas à view em 84550, 84530 e 83913. O `U_INO_DESC` é gravado na criação da OP e a OP não guarda de qual detalhe.
+
+Em 03/11: 10:26–10:30, Processar cria 451 OPs sobre o detalhe 547698 (1094 de 1094 alinhadas). 16:51, revisão G no
+WBC: o worker grava o detalhe 547730 (1101 linhas) e leva o pedido congelado para ele. Fica 61 de 1094. As linhas do
+pedido não mudam (congelado), mas o cabeçalho vai, e o ponteiro vai junto. O `ADOC` não registrou essa gravação: a
+versão 65 ainda mostra 547698.
+
+Varredura de 04/11 em 1.546 pedidos com OP viva, desde 2025: 1.510 alinhados e 36 com divergência. Abertos com o
+sintoma: 84550, 83913 (OPs casam 179 de 179 com o detalhe 485658) e 84375 (gravado pelo usuário 130, não pelo
+`orcaview`; a origem provável é o addon C# legado). 84494 e 83950 têm 1 linha divergente em qualquer detalhe: é outro
+assunto.
+
+Recuperar um pedido afetado é decisão de negócio: a revisão nova pode ter mudado o projeto (no 84550, 24 de 227
+combinações de item e código de nível 1, como a prateleira do item 65, de 1200x920 para 1060x700). Ou se refazem as
+OPs (Processar) ou o `U_INO_ORCAMENTO` volta para o detalhe em que elas nasceram.

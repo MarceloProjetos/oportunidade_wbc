@@ -1040,13 +1040,44 @@ class ProcessadorDeOrcamento:
         if acao is Acao.ATUALIZAR_PEDIDO:
             doc_entry = self._documentos.doc_entry(tipo, orcamento.orcnum)
             if doc_entry is not None:
+                corpo = self._respeitar_congelamento(orcamento.orcnum, snapshot.no_payload(dados))
                 self._documentos.atualizar(
-                    tipo,
-                    doc_entry,
-                    self._respeitar_congelamento(orcamento.orcnum, snapshot.no_payload(dados)),
+                    tipo, doc_entry, self._manter_detalhe_das_ops(estado, orcamento, corpo)
                 )
             return None, None
         return None, None
+
+    def _manter_detalhe_das_ops(
+        self, estado: EstadoIntegracao, orcamento: OrcamentoWbc, dados: dict[str, Any]
+    ) -> dict[str, Any]:
+        """An order that has, or may have, live OPs keeps its `U_INO_ORCAMENTO`.
+
+        OP lines point at quote lines by position: `WOR1.U_INO_DESC` is the `LineId` in the detail
+        the OPs were built from, and `VW_OS_INTEGRACAO` joins that position to the detail in
+        `ORDR.U_INO_ORCAMENTO`. Moving the order to a newer detail makes every position name another
+        part: on 03/11/2026 order 84550 went from 1094 to 61 matching lines out of 1094, and the
+        tree of the OS screens came out wrong. A new detail only goes in with its own OPs, through
+        Processar. Unknown count = may have OPs, same as the partner swap. The worst case of keeping
+        it on an order with no OPs is a stale link, which the next Processar rewrites.
+        """
+        planejadas, em_producao = estado.ops_planejadas_pedido, estado.ops_em_producao_pedido
+        if "U_INO_ORCAMENTO" not in dados or (planejadas == 0 and em_producao == 0):
+            return dados
+        ops = (
+            "OPs desconhecidas"
+            if planejadas is None or em_producao is None
+            else f"{planejadas + em_producao} OP(s) viva(s)"
+        )
+        texto = (
+            f"Pedido atualizado para a revisão {orcamento.revisao} do WBC com {ops}: Detalhe do "
+            f"Orçamento mantido. As OPs continuam na árvore de antes; se a revisão mudou o projeto, "
+            f"precisa de uma pessoa para refazê-las."
+        )
+        logger.warning("Orçamento %s: %s", orcamento.orcnum, texto)
+        self._tracking.registrar_evento(
+            orcamento.orcnum, regra="detalhe_mantido_pelas_ops", mensagem=texto
+        )
+        return {k: v for k, v in dados.items() if k != "U_INO_ORCAMENTO"}
 
     def _respeitar_congelamento(self, orcnum: str, dados: dict[str, Any]) -> dict[str, Any]:
         """`U_INO_Congelado = 'Y'` on the order: send the header, not the lines.
