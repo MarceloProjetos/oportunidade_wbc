@@ -38,6 +38,7 @@ Guias dos pacotes: `docs/wbc/README.md` (+ `DECISOES.md`) e `docs/controleproduc
 | `extract_vendas_bi.py` | VENDAS BI: `VW_PEDIDO_ALTA` + `VW_FATO_FATURAMENTO` → `bi_vendas_*` |
 | `extract_orcamentos_espelho.py` | Espelho de `VW_EVOL_ORCAMENTO_ALT` (agendado) |
 | `arquivo_pedidos.py` | Só na .11, 2 em 2 min: `ADOC` → `pedidos_sap_alteracoes` antes do teto de 99 (classifica `operacao/historico_pedido.py`); `--simular` só lê |
+| `ultimo_status_pedido.py` | Último status de cada pedido (SQLite em `state/`), para a API nunca enviar pedido sem status. Só saída: decisão nenhuma lê isso. `docs/API_SITUACAO_PEDIDOS_STATUS.md` |
 | `situacao_pedidos.py` · `sap_montagem_labels.py` | **Portes** do web, diffáveis (`test_situacao_pedidos_diffavel.py`) |
 | `situacao_pedidos_hana.py` | Leitura HANA + cache + endereço de entrega das rotas `/pedidos/*` |
 | `pedidos_compra_hana.py` | Itens dos pedidos de compra (`VW_ALTA_PEDIDOS_COMPRA_ITENS`, cache 120 s) → `GET /compras/pedidos-itens` (escopo `leitura`); contrato `API_PEDIDOS_COMPRA.md` |

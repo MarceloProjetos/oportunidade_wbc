@@ -112,6 +112,7 @@ import ordens_producao_sl as op_sl
 import pedidos_compra_hana as pedidos_compra
 import situacao_pedidos as sit_ped
 import situacao_pedidos_hana as sit_ped_hana
+import ultimo_status_pedido
 import windows_update
 from casa import acesso as casa_acesso
 from casa import destinos
@@ -120,6 +121,7 @@ from extract_ordens_servico_engenharia import (
     consultar_status_pedido,
     diagnosticar_nped,
     listar_pedidos_com_os,
+    listar_status_dos_pedidos,
 )
 from extract_ordens_servico_engenharia import (
     main as sync_os,
@@ -732,12 +734,19 @@ def _sync_one(nped: int) -> dict:
             'motivo': 'Nao foi possivel sincronizar.'}
 
 
+def _com_status_garantido(resultado: dict) -> dict:
+    """A sync result with the order's status filled; a number SAP does not have stays without one."""
+    if resultado.get('tipo') == 'pedido_nao_encontrado':
+        return resultado
+    return {**resultado, **_status_garantido(resultado['nped'], resultado.get('status_pedido'))}
+
+
 def _sincronizar(npeds: list[int]) -> tuple[Any, int]:
     """Sync the NPEDs (serialized) and return ``(json, http_status)``."""
     resultados = []
     with _sync_lock:
         for n in npeds:
-            resultados.append(_sync_one(n))
+            resultados.append(_com_status_garantido(_sync_one(n)))
 
     sucesso = sum(1 for r in resultados if r['ok'])
     total = len(resultados)
@@ -1087,6 +1096,8 @@ def os_disponiveis() -> Response | tuple[Response, int]:
         return jsonify(ok=False, error='falha ao listar a lista de pedidos'), 502
     if pedidos is None:
         return jsonify(ok=False, error='SAP indisponivel'), 502
+    for item in pedidos:
+        item.update(_status_garantido(item['nped'], item.get('status_pedido')))
     return jsonify(ok=True, items=pedidos)
 
 
@@ -1169,8 +1180,8 @@ def _status_pedido_ordr(nped: int) -> dict:
         logger.error("Erro ao consultar o status do pedido %s na ORDR: %s", nped, exc)
         info = None
     if info is None:
-        return {'status_pedido': None, 'pedido_cancelado': None, **_faturamento_de(None)}
-    out = {'status_pedido': info.get('pedido_status'),
+        return {**_status_garantido(nped, None), 'pedido_cancelado': None, **_faturamento_de(None)}
+    out = {**_status_garantido(nped, info.get('pedido_status')),
            'pedido_cancelado': info.get('pedido_cancelado'),
            **_faturamento_de(info)}
     if info.get('pedido_cancelado'):
@@ -1208,7 +1219,7 @@ def os_sincronizar(nped: str) -> tuple[Response, int]:
         return limitado
 
     with _sync_lock:
-        resultado = _sync_one(n)
+        resultado = _com_status_garantido(_sync_one(n))
 
     payload = {'ok': bool(resultado.get('ok')), 'nped': n, 'resultado': resultado}
     if resultado.get('ok'):
@@ -2057,7 +2068,7 @@ def op_status(numero: str) -> Response | tuple[Response, int]:
 # Contrato congelado em 2026-08-24: PLANO_SITUACAO_PEDIDOS_MCP.md (removido em 2026-09-29) secao 5.
 
 
-def _resposta_situacao_erro(exc: Exception) -> tuple[Any, int]:
+def _resposta_situacao_erro(exc: Exception, **extra: Any) -> tuple[Any, int]:
     """Domain error -> HTTP answer. **503 and 422 do not mix.**
 
     ``SAPIndisponivel`` is 503 (not the caller's fault, and worth retrying); ``ValidationError``
@@ -2066,7 +2077,7 @@ def _resposta_situacao_erro(exc: Exception) -> tuple[Any, int]:
     """
     if isinstance(exc, sit_ped_hana.SAPIndisponivel):
         logger.warning("[SIT_PED] indisponivel: %s", exc)
-        return jsonify(ok=False, error=str(exc)), 503
+        return jsonify(ok=False, error=str(exc), **extra), 503
     logger.info("[SIT_PED] parametro recusado: %s", exc)
     return jsonify(ok=False, error=str(exc)), 422
 
@@ -2115,6 +2126,13 @@ def _aplicar_faturamento(pedidos: list, linhas: list) -> None:
         p.update(sit_ped_hana.faturamento(por_docentry.get(p.get('doc_entry')) or {}))
 
 
+#: ``status_origem``: the status did not come from SAP now. Absent = it did.
+STATUS_ULTIMO_CONHECIDO = 'ultimo_conhecido'
+STATUS_SEM_HISTORICO = 'sem_historico'
+#: The only status that says nothing: SAP silent and the order never seen.
+STATUS_DESCONHECIDO = 'Desconhecido'
+
+
 def _resumir(pedidos: list) -> list:
     """The core's ``resumir()`` + the 3 delivery fields and the invoicing keys, already resolved.
 
@@ -2136,7 +2154,42 @@ def _resumir(pedidos: list) -> list:
         # Why a pedido closed in SAP still reads "Aberto" (PLANO_ENTREGA_FUTURA).
         for k in _CAMPOS_FATURAMENTO:
             r[k] = p.get(k)
+        r.update(_status_da_linha(p))
     return resumidos
+
+
+def _status_garantido(numero: int, status: str | None, campo: str = 'doc_num',
+                      doc_entry: int | None = None) -> dict:
+    """The status keys of an order's answer: SAP's value, else the last known, never empty.
+
+    ``status_origem``/``status_em`` come only when the value is NOT SAP's answer of now. Output
+    only: every decision of the API keeps reading SAP's value (``None`` included), so a remembered
+    status can never gate a write. A number confirmed not to exist in SAP is not an order and does
+    not come through here.
+    """
+    if status:
+        if campo == 'doc_num':
+            ultimo_status_pedido.registrar(numero, status, doc_entry)
+        return {'status_pedido': status}
+    conhecido = ultimo_status_pedido.ler(numero, campo)
+    if conhecido:
+        return {'status_pedido': conhecido['status'], 'status_origem': STATUS_ULTIMO_CONHECIDO,
+                'status_em': conhecido['visto_em']}
+    return {'status_pedido': STATUS_DESCONHECIDO, 'status_origem': STATUS_SEM_HISTORICO, 'status_em': None}
+
+
+def _status_da_linha(pedido: dict) -> dict:
+    """The status keys of a row that already went through :func:`_garantir_status_da_lista`."""
+    return {k: pedido[k] for k in ('status_pedido', 'status_origem', 'status_em') if k in pedido}
+
+
+def _garantir_status_da_lista(pedidos: list) -> None:
+    """Remember the status of the whole cut, and fill a row that came without one (in place)."""
+    ultimo_status_pedido.registrar_muitos(
+        (p.get('doc_num'), p.get('doc_entry'), p.get('status_pedido')) for p in pedidos)
+    for p in pedidos:
+        if not p.get('status_pedido') and p.get('doc_num') is not None:
+            p.update(_status_garantido(p['doc_num'], None))
 
 
 def _situacao_recorte() -> tuple[dict, list]:
@@ -2151,6 +2204,7 @@ def _situacao_recorte() -> tuple[dict, list]:
     _aplicar_endereco(dashboard['pedidos'], linhas)
     _aplicar_liberacao_e_nf(dashboard['pedidos'], linhas)
     _aplicar_faturamento(dashboard['pedidos'], linhas)
+    _garantir_status_da_lista(dashboard['pedidos'])
     return dashboard, sit_ped.com_alerta(dashboard['pedidos'])
 
 
@@ -2269,10 +2323,11 @@ def situacao_pedido_unico(numero: str) -> Response | tuple[Response, int]:
     try:
         _, pedidos = _situacao_recorte()
     except (sit_ped_hana.SAPIndisponivel, sit_ped.ValidationError) as exc:
-        return _resposta_situacao_erro(exc)
+        return _resposta_situacao_erro(exc, **_status_garantido(n, None, campo))
     except Exception as exc:
         logger.error("[SIT_PED] falha inesperada no pedido %s: %s", n, exc)
-        return jsonify(ok=False, error='falha ao consultar a situacao do pedido'), 502
+        return jsonify(ok=False, error='falha ao consultar a situacao do pedido',
+                       **_status_garantido(n, None, campo)), 502
 
     achados = [p for p in pedidos if p.get(campo) == n]
     if not achados:
@@ -2294,7 +2349,7 @@ def situacao_pedido_unico(numero: str) -> Response | tuple[Response, int]:
                    gerado_em=sit_ped.now_br().isoformat(timespec='seconds'),
                    cache_idade_s=sit_ped_hana.idade_do_cache_s(),
                    fonte='view',
-                   status_pedido=achados[0].get('status_pedido'),
+                   **_status_da_linha(achados[0]),
                    pedido_cancelado=False,  # a view exclui cancelado: se esta aqui, nao e'
                    **faturamento,  # filled for pedidos closed in SAP (read with the view)
                    **extra,
@@ -2415,7 +2470,7 @@ def _situacao_fora_da_view(n: int, campo: str) -> Response | tuple[Response, int
                        gerado_em=sit_ped.now_br().isoformat(timespec='seconds'),
                        cache_idade_s=sit_ped_hana.idade_do_cache_s(),
                        fonte='ordr',
-                       status_pedido=info.get('pedido_status') if situacao == 'Entrega futura' else situacao,
+                       **_status_garantido(n, info.get('pedido_status') if situacao == 'Entrega futura' else situacao),
                        pedido_cancelado=cancelado,
                        **_faturamento_de(info),
                        aviso=aviso,
@@ -2431,9 +2486,12 @@ def _situacao_fora_da_view(n: int, campo: str) -> Response | tuple[Response, int
     else:
         motivo, status, cancelado = 'pedido_nao_encontrado', None, False
     logger.info("[SIT_PED] pedido %s (%s) sem situacao na view: %s.", n, campo, motivo)
+    # A DocNum that SAP confirms does not exist is not an order: it has no status to keep.
+    chaves_status = ({'status_pedido': None} if motivo == 'pedido_nao_encontrado'
+                     else _status_garantido(n, status, campo))
     return jsonify(
         ok=False, motivo=motivo, error=SIT_PED_MOTIVOS[motivo].format(n=n),
-        pedido=n, chave=campo, status_pedido=status, pedido_cancelado=cancelado,
+        pedido=n, chave=campo, **chaves_status, pedido_cancelado=cancelado,
         **_faturamento_de(info),
     ), 404
 
@@ -2611,7 +2669,7 @@ def _bloco_entrega(n: int, linhas: list, pedido: dict | None, *, sap_disponivel:
                 and aberto and bloco['data_referencia'] is None):
             bloco['atrasado'] = None
     # Phase 2: who must decide the pending request (outside the ported core, which stays byte-equal).
-    return {'ok': True, 'pedido': n, 'status_pedido': status, 'sap_disponivel': sap_disponivel,
+    return {'ok': True, 'pedido': n, **_status_garantido(n, status), 'sap_disponivel': sap_disponivel,
             'cache_idade_s': sit_ped_hana.idade_do_cache_s() if sap_disponivel else None, **bloco,
             'aguarda': entrega.aguarda(bloco.get('pendente'))}
 
@@ -3158,6 +3216,15 @@ def rh_colaboradores() -> Response | tuple[Response, int]:
     )
 
 
+def _semear_ultimo_status() -> None:
+    """Give every order of SAP a last known status, even one nobody asked about yet."""
+    try:
+        total = ultimo_status_pedido.semear(listar_status_dos_pedidos())
+        logger.info("[ULTIMO_STATUS] carga inicial: %d pedido(s) do SAP.", total)
+    except Exception as exc:
+        logger.error("[ULTIMO_STATUS] carga inicial falhou: %s", exc)
+
+
 def main() -> None:
     """Start the server (waitress in production; Flask dev as fallback)."""
     _configure_logging()
@@ -3185,6 +3252,8 @@ def main() -> None:
     ronda_90.iniciar()
     # F4 (one owner per action): an approved action cut by a crash must not hold its target.
     aprovacoes.varrer_orfaos()
+    # On a thread and here, not on import: the whole ORDR must not delay the start nor reach the tests.
+    threading.Thread(target=_semear_ultimo_status, name='ultimo-status', daemon=True).start()
     # Rotulo do Tipo de Montagem passa a vir do SAP (UFD1) em vez do fallback
     # embutido. Aqui e NAO no import, pelo mesmo motivo da linha acima: no import, a
     # suite de testes acabaria falando com o HANA de verdade.

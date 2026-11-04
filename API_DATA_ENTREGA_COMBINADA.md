@@ -125,6 +125,9 @@ e `remessa` `"nenhuma"` ou `"parcial"` (desde 16/10/2026) — ele segue em produ
 do Comercial (o caso comum), a solicitação de nova data funciona como em qualquer pedido aberto. Se já saiu da
 tela, o POST é recusado com `409 entrega_futura`.
 
+Com o SAP fora, `status_pedido` vem com o último status conhecido, com `status_origem` e `status_em`
+(`docs/API_SITUACAO_PEDIDOS_STATUS.md`). `sap_disponivel: false` continua dizendo que o SAP não respondeu.
+
 ## 7. `GET /pedidos/data-entrega/solicitacoes`
 
 - `?situacao=pendente` (padrão: todas as pendentes) | `decididas` (aprovadas, recusadas e canceladas nos

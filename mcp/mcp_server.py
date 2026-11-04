@@ -354,8 +354,9 @@ def detalhe_pedido_os(nped: int, incluir_linhas: bool = False) -> dict[str, Any]
     ``pedido_cancelado`` (nível de topo) vêm da ORDR ao vivo; a OS sincronizada de um
     pedido cancelado continua existindo, com OPs e ``exped_disponivel: true``. Quando
     cancelado, vem também ``aviso: {"tipo": "pedido_cancelado", "motivo": ...}`` — diga
-    que o pedido está cancelado, não que "vai para solda". ``null`` nos dois = SAP não
-    respondeu; não conclua nada sobre cancelamento nesse caso.
+    que o pedido está cancelado, não que "vai para solda". ``pedido_cancelado`` ``null`` = SAP
+    não respondeu; não conclua nada sobre cancelamento nesse caso. Aí ``status_pedido`` traz o
+    último status conhecido, com ``status_origem`` e ``status_em``: diga que é a última informação.
 
     Args:
         nped: número do pedido (ex.: 84080).
@@ -781,7 +782,8 @@ def situacao_pedido(pedido: int, chave: str = "docnum") -> dict[str, Any]:
     ``status_pedido``), ``pedido_nao_encontrado`` (não existe DocNum assim) ou
     ``indeterminado`` (o SAP não respondeu agora). Nenhum dos três quer dizer que o
     pedido esteja sem bloqueio: quer dizer que **NÃO** dá para responder por aqui. Não
-    invente "está liberado" nesses casos.
+    invente "está liberado" nesses casos. Com ``status_origem``, o ``status_pedido`` é o último
+    conhecido (data em ``status_em``), não a resposta do SAP de agora.
 
     O campo ``alerta_liberacao`` traz o texto "Mais de 10 dias preso no financeiro (N
     dias)" quando o pedido estourou o limite, e ``null`` quando não estourou.

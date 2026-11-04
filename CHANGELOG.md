@@ -6,6 +6,19 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-04] — Todo pedido enviado pela API tem status
+
+**Pede ação**: deploy na .11 (`deploy_update.bat`) e a outra equipe ajustar o projeto dela
+(`docs/API_SITUACAO_PEDIDOS_STATUS.md`).
+
+- **`GET /pedidos/situacao`**: o perfil `resumo`, o padrão, enviava os pedidos sem `status_pedido` (97 de 97 na
+  conferência de 04/11). Agora o campo vem em todo pedido.
+- **Sem resposta do SAP**, as rotas `/pedidos/*` e `/ordens-servico/*` enviam o último status conhecido, com
+  `status_origem` e `status_em`. Pedido nunca visto sai `Desconhecido`. Só número que não existe no SAP fica `null`.
+- O último status fica em `state/ultimo_status_pedido.db` (`ultimo_status_pedido.py`), com carga inicial da `ORDR`
+  ao subir a API. É só saída: nenhuma decisão da API lê esse valor.
+- **Não muda**: códigos HTTP, etapas, `pedido_cancelado` e o recorte da lista.
+
 ## [2026-11-04] — Revisão nova do WBC não embaralha mais a árvore de pedido com OP
 
 **Pede ação**: deploy na .11 (`deploy_update.bat`; reinicia o worker). Os pedidos já afetados não se corrigem

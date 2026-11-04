@@ -175,7 +175,7 @@ Agora os dois endpoints leem `ORDR.CANCELED` ao vivo:
 
 | Endpoint | Campos novos |
 | --- | --- |
-| `GET /ordens-servico/disponiveis` | em cada item: `status_pedido` (`"Aberto"` \| `"Cancelado"` \| `"Fechado"` \| `null`) e `pedido_cancelado` (`true` \| `false` \| `null`) |
+| `GET /ordens-servico/disponiveis` | em cada item: `status_pedido` (`"Aberto"` \| `"Cancelado"` \| `"Fechado"` \| `"Desconhecido"`; sem resposta do SAP, o último conhecido, com `status_origem` e `status_em`: `docs/API_SITUACAO_PEDIDOS_STATUS.md`) e `pedido_cancelado` (`true` \| `false` \| `null`) |
 | `GET /ordens-servico/{nped}` | no nível de topo: os mesmos dois, e **quando cancelado** também `aviso: {"tipo": "pedido_cancelado", "motivo": "..."}` |
 
 **Desde 16/10/2026**, os dois endpoints também trazem `faturamento`, `remessa` e `faturado_em`

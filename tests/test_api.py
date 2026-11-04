@@ -1514,12 +1514,13 @@ def test_os_detalhe_pedido_aberto_sem_aviso(client, monkeypatch):
 
 
 def test_os_detalhe_sap_fora_nao_derruba_o_detalhe(client, monkeypatch):
-    """ORDR indisponivel (None ou excecao) → chaves null, detalhe responde 200 igual."""
+    """ORDR down (None or exception): the detail still answers 200, with a status that says so."""
     monkeypatch.setattr(apimod, '_fetch_os_detalhe', lambda n, **kw: list(_FAKE_OS_ROWS))
     monkeypatch.setattr(apimod, 'consultar_status_pedido', lambda n: None)
     body = client.get('/ordens-servico/84080').get_json()
     assert body['ok'] is True
-    assert body['status_pedido'] is None and body['pedido_cancelado'] is None
+    assert body['status_pedido'] == 'Desconhecido' and body['status_origem'] == 'sem_historico'
+    assert body['pedido_cancelado'] is None
     assert 'aviso' not in body
 
     def _boom(n):

@@ -238,6 +238,32 @@ def _doc_entry(valor: object) -> int | None:
         return None
 
 
+def listar_status_dos_pedidos() -> list[tuple[int, int, str]]:
+    """``(DocNum, DocEntry, status)`` of every order in ``ORDR``, for ``ultimo_status_pedido``.
+
+    Reads no NF, on purpose: this is only the starting point of orders never asked about. One
+    closed by a future-delivery NF reads ``Fechado`` here, until the first real answer replaces it.
+    Returns ``[]`` when SAP cannot answer.
+    """
+    settings = get_settings()
+    if not settings.sap_ready():
+        return []
+    sap = SAPExtractor(
+        settings.sap_host, settings.sap_port, settings.sap_user,
+        settings.sap_password, settings.sap_database,
+    )
+    if not sap.connect():
+        return []
+    ordr = build_view_query('ORDR', settings.sap_schema)
+    df = sap.execute_query(*sql(t'SELECT "DocNum", "DocEntry", "CANCELED", "DocStatus" FROM {ordr:ident}'))
+    sap.close()
+    if df is None:
+        return []
+    return [(int(num), int(entry), classificar_pedido(cancelado, status)[1])
+            for num, entry, cancelado, status
+            in zip(df['DocNum'], df['DocEntry'], df['CANCELED'], df['DocStatus'])]
+
+
 def consultar_status_pedido(nped: object) -> dict | None:
     """Pedido status straight from ``ORDR`` (one row, own connection, no OWOR).
 

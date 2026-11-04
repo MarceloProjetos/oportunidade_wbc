@@ -31,7 +31,9 @@ from config import reset_settings  # noqa: E402
 #: portado; sao acrescentados em `api._resumir`.
 CAMPOS_ENTREGA_RESUMO = {"entrega_linha", "entrega_cidade_uf", "entrega_difere",
                          # PLANO_ENTREGA_FUTURA: why a pedido closed in SAP reads "Aberto"
-                         "faturamento", "remessa", "faturado_em"}
+                         "faturamento", "remessa", "faturado_em",
+                         # Every order on the list carries its status (2026-11-04)
+                         "status_pedido"}
 
 
 def _row(**over: Any) -> dict[str, Any]:

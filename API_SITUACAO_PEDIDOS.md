@@ -14,6 +14,10 @@ vai** (§2.7):
 
 As duas leem exatamente a mesma coisa; a MCP é uma camada fina sobre a REST.
 
+> **Novidade de 04/11/2026:** todo pedido enviado tem `status_pedido`, também no perfil `resumo`. Se o SAP não
+> responder, vem o último status conhecido, com `status_origem` e `status_em`.
+> Guia: [`docs/API_SITUACAO_PEDIDOS_STATUS.md`](docs/API_SITUACAO_PEDIDOS_STATUS.md).
+
 > **Novidade de 21/10/2026:** bloco `controle_montagem` em `GET /pedidos/<numero>/situacao` —
 > Início, Fim e Observações do Processo da montagem, digitados pelo Comercial no OrçaView.
 > Guia: [`docs/API_SITUACAO_PEDIDOS_CONTROLE_MONTAGEM.md`](docs/API_SITUACAO_PEDIDOS_CONTROLE_MONTAGEM.md).
@@ -141,6 +145,10 @@ Sobrou `404` para o que realmente não dá para afirmar — e ele **nunca vem mu
 
 A diferença importa: tratar 404 como "liberado" faz um sistema afirmar que um pedido está
 livre quando ninguém sabe. A própria mensagem de erro diz isso, com essas palavras.
+
+**O corpo do erro traz o status** (desde 04/11/2026). Nos `404` de `fora_do_recorte` e `indeterminado` e no `503`
+de `GET /pedidos/<numero>/situacao`, `status_pedido` vem preenchido: a resposta do SAP ou, sem ela, o último status
+conhecido, com `status_origem` e `status_em` (§5.1). Só `pedido_nao_encontrado` vem `null`: esse número não é um pedido.
 
 ### 2.4 Bloqueado hoje ≠ bloqueado algum dia
 
@@ -401,7 +409,9 @@ são **o mesmo par** de `GET /ordens-servico/<nped>`, com o mesmo sentido:
 
 | Campo | Valores | Para quê |
 | --- | --- | --- |
-| `status_pedido` | `"Aberto"` \| `"Fechado"` \| `"Cancelado"` \| `null` | O estado do pedido no SAP. `null` = não se sabe |
+| `status_pedido` | `"Aberto"` \| `"Fechado"` \| `"Cancelado"` \| `"Desconhecido"` \| `null` | O estado do pedido no SAP; sem resposta dele, o último conhecido. `"Desconhecido"` = SAP mudo e pedido nunca visto. `null` = só para número que não existe no SAP |
+| `status_origem` | `"ultimo_conhecido"` \| `"sem_historico"` \| *ausente* | Vem só quando o status **não** é a resposta do SAP de agora. Ausente = é a resposta do SAP |
+| `status_em` | data e hora \| `null` \| *ausente* | Quando o último status conhecido foi visto. Vem junto com `status_origem` |
 | `pedido_cancelado` | `true` \| `false` \| `null` | **Cheque antes de oferecer "Liberar"**. `null` **não** é "não cancelado" |
 | `fonte` | `"view"` \| `"ordr"` | De onde veio a situação. `"ordr"` = pedido cancelado, fechado ou de entrega futura, lido ao vivo (2.2) |
 | `faturamento`, `remessa`, `faturado_em` | ver 2.2 | Como o pedido fechado no SAP foi faturado. `null` em pedido aberto comum |
@@ -512,14 +522,14 @@ interessa e deixa a resposta mais rápida.
 
 ## 6. Dicionário de campos
 
-### 6.1 Perfil `resumo` — 14 campos
+### 6.1 Perfil `resumo` — 15 campos
 
 São as colunas da tela, mais o alerta e o endereço de entrega. É o default da lista,
 e serve para quase tudo.
 
 `data_pedido` · `card_name` · `doc_num` · `sinal` · `financeiro` · `producao` ·
 `entrega` · `prazo_entrega` · `atrasado` · `pymnt_group` · `alerta_liberacao` ·
-**`entrega_linha`** · **`entrega_cidade_uf`** · **`entrega_difere`**
+**`entrega_linha`** · **`entrega_cidade_uf`** · **`entrega_difere`** · **`status_pedido`**
 
 | Campo | Tipo | O que é |
 | --- | --- | --- |
@@ -551,7 +561,7 @@ ou — em pedido cancelado no SAP — `"Cancelado"` (2.2).
 | `sinal` | bool | O pedido exige sinal |
 | `ddo` | bool | Condição 100% DDP, **sem** sinal |
 | `integrar` | bool | Marcado para integração |
-| `status_pedido` | str | `"Aberto"` \| `"Fechado"` (como o SAP escreve) \| `"Cancelado"` (2.2) |
+| `status_pedido` | str | `"Aberto"` \| `"Fechado"` (como o SAP escreve) \| `"Cancelado"` (2.2). Linha sem status na view sai com o último conhecido, e aí vêm `status_origem` e `status_em` (§5.1) |
 | `prazo_entrega` | str | **TEXTO, sem ano.** Ex.: `"21/09 A 25/09"` — ver 2.5 |
 | `prazo_fim` | str \| null | Fim da janela, ISO. **Use este para conta** |
 | `data_entrega` | str \| null | Data de entrega registrada, ISO |
