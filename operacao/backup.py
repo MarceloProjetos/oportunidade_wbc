@@ -100,14 +100,20 @@ def validar(corpo: Any) -> dict[str, Any]:
         "jobs": [{"nome": _texto(j.get("nome")), "tipo": _texto(j.get("tipo"), 40),
                   "habilitado": bool(j.get("habilitado")) if j.get("habilitado") is not None else None,
                   "resultado": _texto(j.get("resultado"), 40), "estado": _texto(j.get("estado"), 40),
-                  "inicio": _data(j.get("inicio")), "fim": _data(j.get("fim"))}
+                  "inicio": _data(j.get("inicio")), "fim": _data(j.get("fim")),
+                  "destino": _texto(j.get("destino")), "proxima": _data(j.get("proxima")),
+                  "objetos": _numero(j.get("objetos"))}
                  for j in _lista(corpo.get("jobs"), "jobs", cortes)],
         "replicas": [{"job": _texto(r.get("job")), "vm": _texto(r.get("vm")),
                       "ultimo_ponto": _data(r.get("ultimo_ponto"))}
                      for r in _lista(corpo.get("replicas"), "replicas", cortes)],
         "repositorios": [{"nome": _texto(r.get("nome")), "total_gb": _numero(r.get("total_gb")),
-                          "livre_gb": _numero(r.get("livre_gb"))}
+                          "livre_gb": _numero(r.get("livre_gb")), "caminho": _texto(r.get("caminho")),
+                          "maquina": _texto(r.get("maquina"))}
                          for r in _lista(corpo.get("repositorios"), "repositorios", cortes)],
+        "copias": [{"job": _texto(c.get("job")), "vm": _texto(c.get("vm")),
+                    "ultimo_ponto": _data(c.get("ultimo_ponto"))}
+                   for c in _lista(corpo.get("copias"), "copias", cortes)],
         "servicos": [{"nome": _texto(s.get("nome"), 60), "estado": _texto(s.get("estado"), 30)}
                      for s in _lista(corpo.get("servicos"), "servicos", cortes)],
         "erros": [_texto(e, MENSAGEM_MAX) for e in (erros or [])[:10] if isinstance(e, (str, int, float))],

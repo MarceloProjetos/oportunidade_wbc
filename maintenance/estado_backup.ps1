@@ -18,7 +18,7 @@ param(
     [switch]$SoMostrar
 )
 
-$VERSAO = 2
+$VERSAO = 3
 $ITENS_MAX = 60
 $ErrorActionPreference = 'Stop'
 $saida = [ordered]@{
@@ -28,6 +28,7 @@ $saida = [ordered]@{
     jobs = @()
     replicas = @()
     repositorios = @()
+    copias = @()
     servicos = @()
     erros = @()
 }
@@ -44,6 +45,16 @@ function ParaIso($valor) {
     try { $d = [datetime]$valor } catch { return $null }
     if ($d.Year -lt 2000) { return $null }
     return $d.ToString('s')
+}
+
+function ProximaIso($job) {
+    # NextRun is a culture-formatted string, and it keeps a date on a job whose schedule is off.
+    if (-not $job.IsScheduleEnabled) { return $null }
+    try {
+        $texto = [string]$job.GetScheduleOptions().NextRun
+        if (-not $texto) { return $null }
+        return ([datetime]::Parse($texto, [Globalization.CultureInfo]::CurrentCulture)).ToString('s')
+    } catch { return $null }
 }
 
 # 1. The Veeam services on this machine (they answer even when the module does not load).
@@ -78,7 +89,10 @@ if ($moduloOk) {
                 tipo = [string]$j.JobType
                 habilitado = [bool]$j.IsScheduleEnabled
                 resultado = $null; estado = $null; inicio = $null; fim = $null
+                destino = $null; proxima = (ProximaIso $j); objetos = $null
             }
+            try { $item.destino = [string]$j.FindTargetRepository().Name } catch { $item.destino = $null }
+            try { $item.objetos = @($j.GetObjectsInJob()).Count } catch { $item.objetos = $null }
             if ($s) {
                 $item.resultado = [string]$s.Result
                 $item.estado = [string]$s.State
@@ -118,13 +132,31 @@ if ($moduloOk) {
                 nome = [string]$r.Name
                 total_gb = [math]::Round([double]$c.CachedTotalSpace.InGigabytes, 1)
                 livre_gb = [math]::Round([double]$c.CachedFreeSpace.InGigabytes, 1)
+                caminho = [string]$r.FriendlyPath
+                maquina = [string]$r.GetHost().Name
             }
         }
     } catch { Erro 'repositorios' $_ }
+
+    # 6. The newest copy of each VM per backup job. A renamed job keeps its old backup name, so the job
+    # is matched by id; a backup without a current job (a deleted one) is history, not state.
+    try {
+        $nomes = @{}
+        foreach ($j in (Get-VBRJob -WarningAction SilentlyContinue)) { $nomes[[string]$j.Id] = [string]$j.Name }
+        foreach ($b in (Get-VBRBackup)) {
+            $job = $nomes[[string]$b.JobId]
+            if (-not $job -or [string]$b.JobType -notmatch 'Backup') { continue }
+            foreach ($grupo in (@(Get-VBRRestorePoint -Backup $b) | Group-Object -Property Name)) {
+                $ultimo = $grupo.Group | Sort-Object -Property CreationTime -Descending | Select-Object -First 1
+                $saida.copias += [ordered]@{ job = $job; vm = [string]$grupo.Name
+                                             ultimo_ponto = (ParaIso $ultimo.CreationTime) }
+            }
+        }
+    } catch { Erro 'copias' $_ }
 }
 
 # The .11 accepts at most $ITENS_MAX items per list: cut here and say so, never lose the whole report.
-foreach ($lista in 'jobs', 'replicas', 'repositorios', 'servicos') {
+foreach ($lista in 'jobs', 'replicas', 'repositorios', 'copias', 'servicos') {
     if ($saida[$lista].Count -gt $ITENS_MAX) {
         $saida.erros += ($lista + ': ' + $saida[$lista].Count + ' itens, so os primeiros ' + $ITENS_MAX + ' foram')
         $saida[$lista] = @($saida[$lista] | Select-Object -First $ITENS_MAX)

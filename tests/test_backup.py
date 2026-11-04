@@ -121,3 +121,30 @@ def test_rota_recusa_escopo_origem_tamanho_e_forma(api):
 def test_rota_tem_teto_de_2_por_minuto(api):
     c, relator, _ = api
     assert [_post(c, relator, RELATO).status_code for _ in range(3)] == [200, 200, 429]
+
+
+def test_validar_guarda_destino_proxima_caminho_e_copias():
+    """The rotation card needs them: which disk a job writes to, its next run and each VM's newest copy."""
+    relato = backup.validar({
+        "versao_do_script": 3,
+        "jobs": [{"nome": "Backup VMs - HD1", "habilitado": True, "destino": "HD-EXT",
+                  "proxima": "2026-11-04T21:00:00", "objetos": 6, "lixo": "x"}],
+        "repositorios": [{"nome": "HD-EXT", "total_gb": 11175.0, "livre_gb": 6079.0, "caminho": r"Z:\Backups",
+                          "maquina": "ALTSAP"}],
+        "copias": [{"job": "Backup VMs - HD1", "vm": "RDS", "ultimo_ponto": "2026-11-03T21:00:59", "lixo": "x"}],
+    })
+    assert relato["jobs"][0]["destino"] == "HD-EXT"
+    assert relato["jobs"][0]["proxima"] == "2026-11-04T21:00:00"
+    assert relato["jobs"][0]["objetos"] == 6
+    assert "lixo" not in relato["jobs"][0]
+    assert relato["repositorios"][0]["caminho"] == r"Z:\Backups"
+    assert relato["repositorios"][0]["maquina"] == "ALTSAP"
+    assert relato["copias"] == [{"job": "Backup VMs - HD1", "vm": "RDS", "ultimo_ponto": "2026-11-03T21:00:59"}]
+
+
+def test_validar_relato_antigo_sem_os_campos_novos():
+    """A v2 script still on the ALTHOST must keep working until the new one is copied."""
+    relato = backup.validar({"versao_do_script": 2, "jobs": [{"nome": "J"}], "repositorios": [{"nome": "R"}]})
+    assert relato["jobs"][0]["destino"] is None
+    assert relato["repositorios"][0]["caminho"] is None
+    assert relato["copias"] == []
