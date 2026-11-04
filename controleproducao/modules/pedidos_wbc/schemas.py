@@ -88,7 +88,8 @@ class OrcPrdLinha(BaseModel):
 
 class NewOrcPrd(BaseModel):
     """Equivalent to `Models/NewOrcPrd.cs` — quote header from `INTEGRACAO_ORCIMP` (query
-    `NOVA_TABELA_QUOT`), used by `preencheTabela` to build the header fields of the UDO
+    `NOVA_TABELA_QUOT`) or, when that row is on another revision, from `_cabecalho_da_revisao`; used by
+    `preencheTabela` to build the header fields of the UDO
     `OrcDetalhe`. On the fallback path each instance also carries its own `linhas` (see
     `OrcPrdLinha`).
     """

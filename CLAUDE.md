@@ -158,6 +158,7 @@ Regra com teste = 1 linha + o teste que a protege; sem teste = o porquê junto.
 - `processar-novos` não tem rollback (marca `ProcessWBC='Y'` antes da 1ª OP). Retomada:
   `manutencao-op buscar` → `cancelar-ops` → `processar-novos` **sem `--force`** (duplica OP).
 - `reprocessar-integrados` cancela toda OP planejada e não recria. — `tests/controleproducao/test_cancelar_ops.py`
+- O detalhe do pedido sai sempre na revisão do orçamento: `INTEGRACAO_ORCIMP` só avança com impressão, então, em outra revisão, `_cabecalho_da_revisao` lê das tabelas por revisão (nunca pedir impressão ao vendedor). — `tests/controleproducao/test_proposta_ultima_revisao.py`
 - Processar/Reprocessar pela tela ou API terminam sincronizando cada pedido pela API 8077 (`acoes.sincroniza_espelho`), sem mudar o desfecho; a CLI não sincroniza. — `tests/controleproducao/test_sincronizacao_automatica.py`
 - Processar recusa (`409 ops_orfas`, também na execução e com "forçar") pedido cujo orçamento tem pedido
   **cancelado** com OP P/R viva. — `tests/controleproducao/test_ops_orfas.py`

@@ -32,7 +32,6 @@ def test_estrutura_vazia_nao_marca_o_pedido_como_processado():
              "DocEntry": 1, "CardCode": "C1", "DocNum": 84500, "NotaEspelho": "N"})), \
          patch.object(svc, "ops_vivas_de_pedidos_cancelados", AsyncMock(return_value={})), \
          patch.object(svc, "_verifica_process_wbc", AsyncMock(return_value="N")), \
-         patch.object(svc, "propostas_desatualizadas", AsyncMock(return_value={})), \
          patch.object(svc, "busca_estrutura_produto", AsyncMock(return_value=[])), \
          patch.object(svc, "preenche_tabela", preenche), \
          patch.object(svc, "atualiza_pedido_tabela", atualiza), \

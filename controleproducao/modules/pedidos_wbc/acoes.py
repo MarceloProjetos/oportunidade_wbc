@@ -151,7 +151,6 @@ def monta_plano(
     opp_ids: list[str],
     integrados: bool,
     force: bool = False,
-    propostas: dict[str, dict] | None = None,
 ) -> Plano:
     """The checked plan of Processar (``integrados=False``) or Reprocessar.
 
@@ -162,9 +161,6 @@ def monta_plano(
 
     Processar also refuses `nota_espelho` and `ops_orfas`, ``force`` included; Reprocessar
     skips both checks. ``force`` is ignored for Reprocessar and travels in the plan (`_force`).
-
-    ``propostas`` is `le_propostas_desatualizadas` — quotes whose printed proposal is an older
-    revision. It only adds warnings to the plan (`avisos_do_plano`); nothing is refused by it.
 
     Raises:
         Recusa: `invalido` (empty selection), `fora_da_lista`, `nota_espelho`, `ops_orfas`.
@@ -189,7 +185,6 @@ def monta_plano(
 
     operacao = operacao_do_modo(integrados)
     force = bool(force) and not integrados
-    propostas = {} if integrados else (propostas or {})
     plano = PLANOS.criar(
         operacao=operacao.nome,
         resumo={RESUMO_SELECIONADOS: len(selecionados),
@@ -200,8 +195,7 @@ def monta_plano(
              "Total": numero_br(p.total_pedido),
              # Underscored keys are not shown by the screen; the API returns the raw values.
              "_cliente_codigo": p.cod_cliente, "_cliente_nome": p.nome_cliente,
-             "_total": p.total_pedido, "_nota_espelho": p.nota_espelho,
-             "_proposta": propostas.get(p.orc_num_masc)}
+             "_total": p.total_pedido, "_nota_espelho": p.nota_espelho}
             for p in selecionados
         ],
         tipo=operacao.tipo,
@@ -210,36 +204,6 @@ def monta_plano(
     # the mode that was checked.
     plano.resumo["_force"] = force
     return plano
-
-
-async def le_propostas_desatualizadas(elegiveis: list, opp_ids: list[str], integrados: bool) -> dict:
-    """`service.propostas_desatualizadas` for the selected pedidos of a Processar plan.
-
-    Reprocessar gets none (the warning is Processar's). A failed WBC read returns ``{}``:
-    the warning must never cost the plan, and the run checks again before each pedido.
-    """
-    escolhidos = {str(i) for i in opp_ids}
-    orc_nums = [p.orc_num_masc for p in elegiveis if str(p.opp_id) in escolhidos]
-    if integrados or not orc_nums:
-        return {}
-    try:
-        with WbcSqlServerClient(get_settings()) as wbc:
-            return await service.propostas_desatualizadas(wbc, orc_nums)
-    except Exception:  # noqa: BLE001
-        logger.warning("Plano do Processar: revisão da proposta no WBC não conferida.", exc_info=True)
-        return {}
-
-
-def avisos_do_plano(plano: Plano) -> list[dict]:
-    """The plan's warnings (not refusals), one per pedido — the screen's yellow notices and the
-    API's ``plano.avisos``."""
-    return [
-        {"codigo": "proposta_desatualizada", "pedido": i["Pedido"], "wbc": i["WBC"],
-         "revisao": i["_proposta"]["revisao"],
-         "revisao_proposta": i["_proposta"]["revisao_proposta"],
-         "mensagem": service.mensagem_proposta_desatualizada(i["Pedido"], i["WBC"], i["_proposta"])}
-        for i in plano.itens if i.get("_proposta")
-    ]
 
 
 def _recusa_nota_espelho(selecionados: list) -> None:
@@ -427,19 +391,12 @@ async def _roda_pedidos_com(
             # SAP weight off the WBC tree — usually a quantity changed by hand in the SAP; the
             # cause (who, when) is in `resultado.pesos_diferentes` and in the line above.
             pesos = parcial.get("pesos_diferentes", [])
-            # Proposal printed in an older revision: finish/colour texts of the old one.
-            propostas = parcial.get("proposta_desatualizada", [])
             # A failed pedido is not "concluído": saying both in a row made the log look like
             # the failure had been worked around.
             if erros:
                 tarefa.avanca(f"{rotulo}: ERRO — {erros[0].get('motivo')}", i, problema=True)
-            elif sem_op or sem_rateio or pesos or propostas:
+            elif sem_op or sem_rateio or pesos:
                 ressalvas = []
-                for p in propostas:
-                    ressalvas.append(
-                        f"proposta do WBC na revisão {p['revisao_proposta']}, orçamento na "
-                        f"{p['revisao']} (acabamento/cor da proposta antiga — veja acima)"
-                    )
                 if pesos:
                     ressalvas.append(
                         f"{len(pesos)} linha(s) com peso diferente da árvore do WBC"

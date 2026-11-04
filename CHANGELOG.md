@@ -6,6 +6,20 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-04] — A proposta vai para o SAP sempre na última revisão, sem impressão
+
+**Pede deploy da .11** (`deploy_update.bat`).
+
+`INTEGRACAO_ORCIMP` só avança quando alguém imprime a proposta (84530: orçamento H, tabela G). Processar e Reprocessar
+agora comparam a revisão e, se a tabela estiver em outra, montam o cabeçalho do detalhe direto da revisão do orçamento,
+só com SELECT no WBC (`ORCCAB`, `OrcTipVen`, `OrcPrc`, `varusrorc`, `OrcVar`, `INTEGRACAO_ORCCAB`, `INTEGRACAO_ORCITM`).
+Com a tabela em dia, nada muda. Se a revisão não puder ser lida, o pedido falha antes de gravar.
+- Conferido nos dados reais: em 300 propostas em dia, acabamento, transporte e montagem saem idênticos (300 de 300).
+- Saiu o aviso `proposta_desatualizada`: `plano.avisos` fica no contrato, sempre `[]`.
+- Pedido congelado corrigido à mão (o worker nunca carimba): o Processar grava `U_INO_VERSAOWBC`, e a API passa a
+  dizer a última revisão. As linhas e o valor do pedido não mudam.
+- O snapshot do worker (`wbcpython`) continua lendo `INTEGRACAO_ORCIMP`.
+
 ## [2026-11-04] — Processar e Reprocessar sincronizam sozinhos; aviso da proposta diz o que fazer
 
 **Pede deploy da .11** (`deploy_update.bat`).

@@ -357,16 +357,45 @@ WHERE R."CANCELED" = 'Y'
 ORDER BY R."U_INO_COTWBC", R."DocNum", W."DocNum"
 """.strip()
 
-# WBC (SQL Server): the quote's revision next to the revision of its printed proposal.
-# `INTEGRACAO_ORCIMP` (finish/colour, assembly, freight, payment texts → the order-detail header)
-# is only rewritten when the seller prints the proposal again; the tree is rewritten on every
-# save. A real case on 21/10/2026: quote C with the tree in white, proposal still B saying "Cinza".
-REVISOES_DA_PROPOSTA = """
-SELECT DISTINCT A.ORCNUM AS ORCNUM, ISNULL(A.REVISAO, '') AS REVISAO,
-       ISNULL(B.ORCIMP_REVISAO, '') AS REVISAO_PROPOSTA
-FROM dbo.INTEGRACAO_ORCLST A
-INNER JOIN dbo.INTEGRACAO_ORCIMP B ON B.ORCNUM = A.ORCNUM
-WHERE A.ORCNUM IN ({orc_nums})
+# The proposal row (`INTEGRACAO_ORCIMP`) only advances when someone prints the proposal, so it can
+# stay on an older revision than the quote (00125273, 04/11/2026: quote H, proposal G). These read
+# the same data, per revision, from where the WBC keeps it. Measured on 300 current proposals.
+REVISAO_DO_ORCAMENTO = "SELECT ISNULL(REVISAO, '') AS REVISAO FROM dbo.INTEGRACAO_ORCLST WHERE ORCNUM = ?"
+
+# Key = quote number + revision letter (no letter on the first one).
+CADASTRO_DA_REVISAO = """
+SELECT C.orccab_total, C.OrcCabPrecoLista, C.ORCCAB_CONTATO_EMAIL, C.orccab_fone, C.orccab_municipio,
+       C.orccab_UF, T.TIPOVENDA, P.lista_precos
+FROM dbo.ORCCAB C
+LEFT JOIN dbo.OrcTipVen T ON T.numeroOrcamento = C.numeroOrcamento
+LEFT JOIN dbo.OrcPrc P ON P.numeroOrcamento = C.numeroOrcamento
+WHERE C.numeroOrcamento = ?
+""".strip()
+
+VALORES_DO_ORCAMENTO = """
+SELECT ORCVALINV, ORCVALLUC, ORCVALEXP, ORCVALCOM, ORCPERCOM, REPCOD, CLICOD, CLINOM, CLICONCOD, CLICON,
+       ORCVALTRP, ORCVALEMB, ORCVALMON, PGTCOD, TIPMONCOD, PRZENT, ORCBAS1, ORCBAS2, ORCBAS3, ORCPGT
+FROM dbo.INTEGRACAO_ORCCAB
+WHERE ORCNUM = ?
+""".strip()
+
+TEXTOS_DA_REVISAO = "SELECT varusrcodigo, varusrvalor FROM dbo.varusrorc WHERE numeroOrcamento = ?"
+
+CALCULO_DA_REVISAO = "SELECT Variavel, Valor FROM dbo.OrcVar WHERE numeroOrcamento = ?"
+
+# Same columns as `NOVA_TABELA_QUOT_LINHA`, from the table that follows the quote.
+NOVA_TABELA_QUOT_LINHA_ATUAL = """
+SELECT '', ISNULL(GRPCOD,0), '', '', '', '', ISNULL(ORCVAL,0), '', '', ISNULL(ORCITM,0), ISNULL(ORCTXT,0)
+FROM [dbo].[INTEGRACAO_ORCITM]
+WHERE ORCNUM = ?
+""".strip()
+
+# Only the worker stamps a new revision on a frozen order, and it leaves alone an order corrected
+# by hand (`pedido_corrigido_a_mao` of `wbcpython/domain/sitcode.py`).
+PEDIDO_CORRIGIDO_A_MAO = """
+SELECT COUNT(*) AS N FROM OPR1 L
+INNER JOIN OOPR O ON O."OpprId" = L."OpprId"
+WHERE L."DocId" = {doc_entry} AND L."ObjType" = 17 AND IFNULL(O."U_INO_PN_Correc", '') <> '' AND IFNULL(O."U_INO_Update", '') <> 'Y'
 """.strip()
 
 # `SELECT *` proposital: esta é uma query de auditoria, e usar `*` evita depender dos nomes

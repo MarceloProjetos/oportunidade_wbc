@@ -1227,7 +1227,7 @@ No Reprocessar, `aviso.destaque` vem vazio e `aviso.texto` é o aviso completo:
 | --- | --- |
 | `operacao` | O título: "Confirmar: `{operacao}`". |
 | `aviso` | A faixa vermelha: `destaque` em **negrito**, seguido de `texto` (sem espaço entre os dois — o texto já começa com a vírgula). |
-| `avisos` | Faixas **amarelas** logo abaixo da vermelha, uma por item, com o `mensagem`. **Não impedem** a execução: o botão continua valendo. Lista vazia = nada a avisar ([abaixo](#aviso-proposta-desatualizada)). |
+| `avisos` | Faixas **amarelas** logo abaixo da vermelha, uma por item, com o `mensagem`. **Não impedem** a execução. Hoje vem sempre `[]` ([abaixo](#aviso-proposta-desatualizada)). |
 | `resumo_tela` | As linhas do resumo: `valor` em negrito + `rotulo`. |
 | `itens` | A tabela: Pedido, Oportunidade, WBC, Cliente, Total (use `total_texto`, já formatado). |
 | `valido_ate` | "Esta conferência vale até **2026-10-01 14:29:59**" (troque o `T` por espaço). |
@@ -1243,27 +1243,11 @@ Só no Processar (desde 26/10/2026), **também com "forçar"**: pedido com Nota 
 `409 nota_espelho`, com os números dos pedidos em `nota_espelho`. O lote inteiro é recusado. O Reprocessar
 continua aceitando o pedido (só cancela OP planejada, nunca cria).
 
-<a id="aviso-proposta-desatualizada"></a>**Aviso (não é recusa), só no Processar, desde 21/10/2026:** o
-orçamento está numa revisão mais nova que a da **tabela da proposta** no WBC (`INTEGRACAO_ORCIMP`; ex.: orçamento C,
-proposta B). O PDF gerado sozinho na troca de situação nem sempre atualiza essa tabela, e sincronizar não muda nada aqui. Os textos da proposta — acabamento/cor, montagem, transporte, pagamento — vão para o SAP como
-estavam na revisão antiga, enquanto a estrutura e as OPs já seguem a nova (caso real de 21/10/2026: estrutura
-branca, acabamento "Cinza"). O plano sai normalmente, com um item em `avisos`:
-
-```json
-"avisos": [
-  {
-    "codigo": "proposta_desatualizada",
-    "pedido": 84000,
-    "wbc": "00120000",
-    "revisao": "C",
-    "revisao_proposta": "B",
-    "mensagem": "Pedido 84000 (WBC 00120000): o orçamento está na revisão C, mas a tabela da proposta no WBC ainda está na revisão B. Os textos da proposta (acabamento/cor, montagem, transporte, pagamento) vão para o SAP como estavam na revisão B; a estrutura e as OPs já seguem a C. Sincronizar não muda isso, e o PDF gerado sozinho na troca de situação nem sempre atualiza essa tabela. Para tudo sair igual, peça ao vendedor para solicitar no WBC a impressão da proposta (modelo padronizada-10) na revisão C antes de processar."
-  }
-]
-```
-
-Mostre o `mensagem` e deixe a pessoa decidir: confirmar assim mesmo, ou cancelar e pedir ao vendedor a
-impressão da proposta na revisão nova. Se o WBC não responder na conferência, `avisos` vem vazio — a execução confere de novo.
+<a id="aviso-proposta-desatualizada"></a>**A proposta sai sempre na última revisão do orçamento, desde
+04/11/2026, sem nenhuma ação de quem processa ou do vendedor.** A tabela da proposta no WBC (`INTEGRACAO_ORCIMP`) só
+avança quando alguém imprime a proposta, então pode ficar numa revisão anterior. Nesse caso, Processar e Reprocessar
+leem os dados direto da revisão atual do orçamento. O aviso `proposta_desatualizada` deixou de existir, e `avisos`
+vem sempre `[]`: o campo fica no contrato para não quebrar quem já o lê.
 
 ### 7.3 `POST /processar/executar` e `/reprocessar/executar`
 
@@ -1414,7 +1398,6 @@ O que pode vir em `resultado`:
 | `sem_rateio` | Processar | OPs criadas **sem a linha de rateio** (recurso recusado pelo SAP). |
 | `nao_iniciados` | as duas | Pedidos que **não começaram** porque alguém interrompeu. |
 | `pesos_diferentes` | Processar | Linhas do pedido com o **peso no SAP diferente** da árvore do WBC + 10%, com a **causa** — quem mudou a linha no SAP ([7.4.1](#741-peso-diferente-e-a-causa)). |
-| `proposta_desatualizada` | Processar | Pedidos que passaram das checagens e foram processados com a **tabela da proposta numa revisão anterior** à do orçamento (`revisao`, `revisao_proposta`, `motivo` — que diz o que fazer agora). É aviso: a linha do log sai com `⚠ … ATENÇÃO` e o desfecho continua `ok` ([7.2](#aviso-proposta-desatualizada)). |
 
 | `sincronizacao` | as duas | Desde 04/11/2026: ao terminar, a execução sincroniza sozinha cada pedido iniciado com a base de dados (a mesma carga da tela Sincronização), uma linha por pedido (`doc_num`, `ok`, `tipo`, `motivo`). Pedido sem OP viva vem com `ok: false` e `tipo` `sem_os` ou `cancelada`: nada foi copiado, e isso não é problema. Outra falha sai como linha `⚠` no log, e o desfecho não muda. |
 
