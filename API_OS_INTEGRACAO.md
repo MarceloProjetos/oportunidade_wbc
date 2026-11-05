@@ -209,6 +209,31 @@ Regras para quem consome:
 
 **Ao sincronizar**, a resposta pode trazer avisos em vez de erro (todos `HTTP 200`): `sem_os` (OS ainda não gerada), `pedido_cancelado`, `pedido_nao_encontrado`, `cancelada`. O `502` é falha real de sincronização.
 
+### 3.6 ⭐ Sincronizar traz as mudanças do orçamento para as OPs (desde 05/11/2026)
+
+`POST /ordens-servico/{nped}/sincronizar` agora confere, antes de copiar, se a árvore do orçamento no WBC mudou em relação à árvore usada pelas OPs do pedido.
+
+| Situação | O que acontece | Resposta (sempre `HTTP 200`) |
+| --- | --- | --- |
+| Nada mudou | Só copia, como sempre | `ok: true`, com `resumo` |
+| Mudou, e nenhuma OP começou | Cancela as OPs planejadas e cria as novas, em segundo plano. No fim, sincroniza sozinho | `ok: false`, `resultado.tipo: "refazendo_ops"`, `resultado.motivo`, `execucao` |
+| Mudou, e alguma OP já começou | **Não refaz.** Copia o que está no SAP e avisa | `ok: false`, `resultado.tipo: "ja_produzido"`, `resultado.motivo`, `resumo` |
+| Mudou, mas o pedido não pode ir para a produção (Nota Espelho ou OP viva em pedido cancelado do mesmo orçamento) | **Não refaz.** Copia e avisa | `ok: false`, `resultado.tipo: "revisao_nao_aplicada"`, `resultado.motivo`, `resumo` |
+| Mudou, mas o Controle de Produção está com outra execução | **Não refaz.** Copia e pede para tentar de novo | `ok: false`, `resultado.tipo: "ocupado"`, `resultado.motivo`, `resumo` |
+
+**"Começou"** quer dizer: OP Liberada ou Encerrada, ou com alguma baixa de material ou quantidade concluída. Só OP Planejada, sem baixa, pode ser refeita.
+
+Regras para quem consome:
+
+- **Mostre o `resultado.motivo` sempre que `ok` vier `false`.** É assim que a pessoa sabe o que aconteceu.
+- **`refazendo_ops` leva alguns minutos.** Nesse tempo, sincronizar de novo responde o mesmo aviso, sem refazer de novo. Depois, responde `ok: true` com a árvore nova.
+- **Refazer não tem desfazer:** as OPs antigas ficam canceladas e as novas ganham outros números. O andamento fica em `execucao.estado`, na porta 8080, com a mesma chave.
+- **Campo opcional no corpo:** `{"solicitante": "nome"}` registra quem pediu no histórico de Execuções. Sem ele, o histórico mostra o nome da chave.
+- **`?so_atualizar=1` só copia,** sem conferir nem refazer. Chave de agente sempre só copia. Pedido que ainda não está no espelho também só copia: buscar um pedido não cancela OP.
+- Se o Controle de Produção não responder, a cópia acontece normalmente, com `ok: true` e um campo `aviso`.
+
+`POST /sync/ordens-servico` e `POST /sync/ordens-servico/{nped}` continuam só copiando.
+
 > ⏱️ A sincronização de um pedido grande leva **~10 s**. Se seu cliente HTTP tiver timeout curto, ele pode estourar **mesmo com a sincronização dando certo** no servidor — confira com `GET /ordens-servico/{nped}` antes de concluir que falhou.
 
 ---

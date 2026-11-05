@@ -1279,7 +1279,7 @@ def sincronizar_pedido_os(nped: int, confirmar: bool = False) -> dict[str, Any]:
             efeito = "Sincroniza a OS deste pedido pela 1ª vez (se houver OS gerada no SAP)."
         return {"preview": True, "acao": "sincronizar_pedido_os", "nped": n,
                 "estado_atual": estado, "efeito": efeito, "instrucao": _INSTRUCAO_CONFIRMAR}
-    return _post(f"/ordens-servico/{n}/sincronizar")
+    return _post(f"/ordens-servico/{n}/sincronizar", {"so_atualizar": "1"})
 
 
 @mcp.tool(annotations=_ANOTACAO_ESCRITA)

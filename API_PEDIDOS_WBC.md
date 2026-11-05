@@ -1090,6 +1090,9 @@ Todas exigem `X-API-Key`. Respostas de sucesso trazem `"ok": true`; erros trazem
 | "Confirmar e executar" (do Reprocessar) | `POST /api/pedidos-wbc/reprocessar/executar` |
 | A tela de execução, que se atualiza sozinha | `GET /api/pedidos-wbc/execucoes/{id}` |
 | "Interromper" | `POST /api/pedidos-wbc/execucoes/{id}/cancelar` |
+| (sem botão nesta tela) Sincronizar pela API 8077 quando o orçamento mudou | `POST /api/pedidos-wbc/refazer/{pedido}` |
+
+**`POST /api/pedidos-wbc/refazer/{pedido}`** é chamada pela própria API 8077 ao sincronizar (`API_OS_INTEGRACAO.md` §3.6); não é preciso chamá-la direto. Corpo: `{"solicitante": "nome"}`. Sem token: a decisão é lida do SAP e do WBC na hora. Responde `situacao`: `em_dia`, `ja_produzido`, `revisao_nao_aplicada` ou `refazendo` (`202` quando começa, com `execucao`). Quando começa, faz Reprocessar e Processar numa execução só, e não tem desfazer.
 
 ### 7.1 `GET /pedidos` — a lista
 

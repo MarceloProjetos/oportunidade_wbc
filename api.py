@@ -100,6 +100,7 @@ from logging.handlers import TimedRotatingFileHandler
 from typing import Any
 from urllib.parse import quote, urlsplit
 
+import httpx
 from flask import Flask, Response, g, jsonify, redirect, request, send_from_directory
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -1193,6 +1194,60 @@ def _status_pedido_ordr(nped: int) -> dict:
     return out
 
 
+_TEMPO_REFAZER_S = 30.0
+_AVISO_SEM_CONFERENCIA = ('Sincronizado, mas nao foi possivel conferir se o orcamento mudou: '
+                          'o Controle de Producao nao respondeu.')
+
+
+def _refaz_ops_se_mudou(nped: int) -> dict:
+    """Ask the Controle de Producao to redo this order's OPs if the WBC tree moved past them.
+
+    Everything that writes to the OPs lives in that process (one-run lock, Service Layer), so this
+    only asks. Returns ``{}`` when the sync is a plain copy:
+
+    - ``?so_atualizar=1`` and agent credentials: an agent's approved request said "sync", and
+      Reprocessar does not exist for agents (``operacao/acoes_agente.py``);
+    - an order not in the mirror yet: consumers also call this route by themselves when a search
+      misses (Altamira View), and looking an order up must not cancel OPs.
+
+    A Controle de Producao that cannot answer costs the check, never the copy.
+    """
+    cliente = _cliente()
+    if request.args.get('so_atualizar') == '1' or (cliente is not None and cliente.agente):
+        return {}
+    try:
+        if not _fetch_os_detalhe(nped):
+            return {}
+    except Exception as exc:
+        logger.warning("Refazer OPs do NPED %s: espelho nao lido (%s). So copia.", nped, exc)
+        return {}
+    s = get_settings()
+    corpo = request.get_json(silent=True)
+    informado = corpo.get('solicitante') if isinstance(corpo, dict) else None
+    nome = cliente.nome if cliente is not None else 'aberto'
+    solicitante = (f'{informado.strip()} via API 8077' if isinstance(informado, str) and informado.strip()
+                   else f'API 8077 ({nome})')
+    try:
+        resposta = httpx.post(
+            f'http://127.0.0.1:{s.cp_porta}/api/pedidos-wbc/refazer/{nped}',
+            headers={'X-API-Key': s.os_api_key or ''},
+            json={'solicitante': solicitante[:80]},
+            timeout=_TEMPO_REFAZER_S,
+        )
+        dados = resposta.json()
+    except Exception as exc:
+        logger.warning("Refazer OPs do NPED %s: Controle de Producao nao respondeu (%s).", nped, exc)
+        return {'aviso': _AVISO_SEM_CONFERENCIA}
+    if resposta.status_code == 409 and dados.get('tipo') == 'ocupado':
+        return {'situacao': 'ocupado',
+                'motivo': 'O orcamento mudou, mas o Controle de Producao esta com outra execucao em '
+                          'andamento. As OPs nao foram refeitas: sincronize de novo em alguns minutos.'}
+    if not dados.get('ok'):
+        logger.warning("Refazer OPs do NPED %s: HTTP %s, %s", nped, resposta.status_code, dados.get('motivo'))
+        return {'aviso': _AVISO_SEM_CONFERENCIA}
+    return dados
+
+
 @app.post('/ordens-servico/<nped>/sincronizar')
 @requer_chave('os:sincronizar')
 def os_sincronizar(nped: str) -> tuple[Response, int]:
@@ -1208,6 +1263,10 @@ def os_sincronizar(nped: str) -> tuple[Response, int]:
     success it re-reads the table and includes a fresh ``resumo`` (customer, status,
     row/OP counts, last sync).
 
+    Since 05/11/2026 it first brings the WBC's changes to the OPs (``_refaz_ops_se_mudou``,
+    ``API_OS_INTEGRACAO.md`` §3.6): nothing started → redoes them and answers ``refazendo_ops``;
+    something started → copies and answers ``ja_produzido``. ``?so_atualizar=1`` only copies.
+
     Status: ``200`` (synced **or** a business notice sem_os/cancelada) · ``409`` (another
     process is already syncing this pedido) · ``429`` (anti-loop guard) · ``502`` (sync
     failure) · ``400`` invalid NPED · ``401`` no credential · ``403`` no scope.
@@ -1217,6 +1276,13 @@ def os_sincronizar(nped: str) -> tuple[Response, int]:
     limitado = _checar_rate('sync_os', _RATE_SYNC_OS_MAX)
     if limitado is not None:
         return limitado
+
+    ops = _refaz_ops_se_mudou(n)
+    if ops.get('situacao') == 'refazendo':
+        # The run syncs the mirror when it ends; copying now would mirror half the OPs.
+        resultado = _com_status_garantido({'nped': n, 'ok': False, 'tipo': 'refazendo_ops',
+                                           'motivo': ops.get('motivo')})
+        return jsonify(ok=False, nped=n, resultado=resultado, execucao=ops.get('execucao')), 200
 
     with _sync_lock:
         resultado = _com_status_garantido(_sync_one(n))
@@ -1231,6 +1297,14 @@ def os_sincronizar(nped: str) -> tuple[Response, int]:
                 payload['resumo'] = _resumo_os(linhas)
         except Exception as exc:  # the sync happened; we just could not re-read the summary
             logger.error("Sync OK mas falha ao reler o resumo do NPED %s: %s", n, exc)
+        if ops.get('situacao') in ('ja_produzido', 'revisao_nao_aplicada', 'ocupado'):
+            # The copy happened, the revision did not: `ok: false` is what makes a client show
+            # the `motivo`, and a green result here is the complaint this exists to end.
+            payload['ok'] = False
+            payload['resultado'] = {**resultado, 'ok': False, 'sincronizado': True,
+                                    'tipo': ops['situacao'], 'motivo': ops.get('motivo')}
+        elif ops.get('aviso'):
+            payload['aviso'] = ops['aviso']
 
     # business notices (sem_os / cancelada / pedido_cancelado / pedido_nao_encontrado)
     # respond 200; 'ocupado' = another process is already syncing this pedido (409, same

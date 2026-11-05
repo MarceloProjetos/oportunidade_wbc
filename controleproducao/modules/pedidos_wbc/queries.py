@@ -499,3 +499,42 @@ DETALHE_DO_PEDIDO = 'SELECT "U_INO_ORCAMENTO" FROM "ORDR" WHERE "DocEntry" = {do
 # Query transcrita e não usada é pior que ausente: quem lê presume que algum caminho a
 # executa e vai procurar onde. O texto original está no `Querys.resx` do addon.
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Redoing an order's OPs from the sync (refazer.py, 05/11/2026). Reads only.
+# ---------------------------------------------------------------------------
+SITUACAO_PARA_REFAZER = """
+SELECT "U_INO_COTWBC" AS "Orcamento", "U_INO_ORCAMENTO" AS "Detalhe",
+       IFNULL("U_INO_ProcessWBC",'N') AS "ProcessWBC", "DocStatus", "CANCELED",
+       IFNULL("U_U_INO_NotaEspelho",'N') AS "NotaEspelho"
+FROM ORDR
+WHERE "DocNum" = {doc_num}
+""".strip()
+
+ARVORE_DO_DETALHE = """
+SELECT "U_INO_PROD" AS "Descricao", "U_INO_COR" AS "Cor", "U_INO_NIVEL" AS "Nivel",
+       "U_INO_Qtde" AS "Quantidade"
+FROM "@INO_ORC_LINHA"
+WHERE "DocEntry" = {detalhe}
+""".strip()
+
+OPS_VIVAS_DO_PEDIDO = """
+SELECT T0."DocNum", T0."Status", IFNULL(T0."CmpltQty",0) AS "Concluida",
+       (SELECT IFNULL(SUM(T1."IssuedQty"),0) FROM WOR1 T1 WHERE T1."DocEntry" = T0."DocEntry") AS "Baixada"
+FROM OWOR T0
+WHERE T0."OriginNum" = {doc_num} AND T0."Status" <> 'C'
+ORDER BY T0."DocNum"
+""".strip()
+
+SITUACAO_NO_WBC = """
+SELECT ISNULL(REVISAO,'') AS REVISAO, ISNULL(SITCOD,0) AS SITCOD
+FROM INTEGRACAO_ORCLST
+WHERE ORCNUM = '{orc_num}'
+""".strip()
+
+ARVORE_NO_WBC = """
+SELECT PRDDSC AS Descricao, CORCOD AS Cor, ORCPRDARV_NIVEL AS Nivel, ORCQTD AS Quantidade
+FROM INTEGRACAO_ORCPRDARV
+WHERE ORCNUM = '{orc_num}'
+""".strip()

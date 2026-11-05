@@ -160,6 +160,7 @@ Regra com teste = 1 linha + o teste que a protege; sem teste = o porquê junto.
 - `reprocessar-integrados` cancela toda OP planejada e não recria. — `tests/controleproducao/test_cancelar_ops.py`
 - O detalhe do pedido sai sempre na revisão do orçamento: `INTEGRACAO_ORCIMP` só avança com impressão, então, em outra revisão, `_cabecalho_da_revisao` lê das tabelas por revisão (nunca pedir impressão ao vendedor). — `tests/controleproducao/test_proposta_ultima_revisao.py`
 - Processar/Reprocessar pela tela ou API terminam sincronizando cada pedido pela API 8077 (`acoes.sincroniza_espelho`), sem mudar o desfecho; a CLI não sincroniza. — `tests/controleproducao/test_sincronizacao_automatica.py`
+- ⚠️ `POST /ordens-servico/<n>/sincronizar` pode **cancelar e recriar OPs** (árvore do WBC mudou e nada começou; `refazer.py`). Quem só quer copiar passa `?so_atualizar=1` ou usa `/sync/ordens-servico`; chave de agente e pedido fora do espelho nunca refazem. — `tests/test_api_sincronizar_refaz_ops.py`, `tests/controleproducao/test_refazer_ops.py`
 - Processar recusa (`409 ops_orfas`, também na execução e com "forçar") pedido cujo orçamento tem pedido
   **cancelado** com OP P/R viva. — `tests/controleproducao/test_ops_orfas.py`
 - Processar recusa (`409 nota_espelho`, também na execução e com "forçar") pedido com

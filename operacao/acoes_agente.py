@@ -113,7 +113,7 @@ def _previa_os(p: dict) -> dict:
 
 
 def _executar_os(p: dict, _previa: dict, ctx: Contexto) -> tuple[bool, dict]:
-    http, corpo = _chamar(_api(), "POST", f"/ordens-servico/{p['nped']}/sincronizar", ctx=ctx, tempo=150)
+    http, corpo = _chamar(_api(), "POST", f"/ordens-servico/{p['nped']}/sincronizar?so_atualizar=1", ctx=ctx, tempo=150)
     return http == 200 and bool(corpo.get("ok")), {"http": http, **corpo}
 
 

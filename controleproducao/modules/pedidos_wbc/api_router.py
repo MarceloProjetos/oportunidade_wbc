@@ -36,7 +36,7 @@ from controleproducao.core.hana_reader import HanaDirectReader
 from controleproducao.core.recusa import Recusa
 from controleproducao.core.tarefas import ORIGEM_API, TAREFAS, Tarefa
 from controleproducao.core.web import avisa_escrita
-from controleproducao.modules.pedidos_wbc import acoes
+from controleproducao.modules.pedidos_wbc import acoes, refazer
 
 logger = logging.getLogger(__name__)
 
@@ -329,6 +329,49 @@ async def executar_processar(request: Request, corpo: Any = Body(default=None)):
 async def executar_reprocessar(request: Request, corpo: Any = Body(default=None)):
     """Runs a checked Reprocessar plan. IRREVERSIBLE: cancels the planned OPs, recreates none."""
     return await _consome_e_executa(request, corpo, acoes.TIPO_REPROCESSAR)
+
+
+@router.post("/refazer/{pedido}")
+async def refazer_ops(request: Request, pedido: int, corpo: Any = Body(default=None)):
+    """What the sync of API 8077 calls before copying: redoes the OPs when the WBC tree changed.
+
+    IRREVERSIBLE when it starts a run: cancels the planned OPs and recreates them. No token: the
+    decision is read from the SAP and the WBC right here, not from what a screen showed.
+    """
+    try:
+        solicitante = _solicitante(_objeto(corpo))
+    except Recusa as recusa:
+        return _de_recusa(recusa)
+
+    # First: mid-run the detail already matches the WBC, and a plain copy would mirror half the OPs.
+    rodando = TAREFAS.em_execucao(acoes.MODULO)
+    if rodando and rodando.nome == refazer.NOME_REFAZER and rodando.descricao == refazer.descricao(pedido):
+        return {"ok": True, "situacao": refazer.REFAZENDO, "motivo": refazer.motivo_refazendo(pedido),
+                "execucao": _execucao(rodando)}
+
+    try:
+        avaliacao = await asyncio.to_thread(refazer.avalia_agora, pedido)
+    except Exception as exc:  # noqa: BLE001 - see listar
+        return _sap_fora(f"avaliacao do pedido {pedido}", exc)
+    if avaliacao.situacao != refazer.REFAZER:
+        return {"ok": True, "situacao": avaliacao.situacao, "motivo": avaliacao.motivo,
+                "revisao": avaliacao.revisao, "ops": avaliacao.ops}
+
+    avisa_escrita(f"{refazer.NOME_REFAZER} (API)")
+    try:
+        tarefa = acoes.dispara(
+            refazer.NOME_REFAZER, refazer.descricao(pedido),
+            refazer.corrotina(pedido, avaliacao.orc_num),
+            solicitante=solicitante, origem=ORIGEM_API, ip=_ip(request),
+        )
+    except Recusa as recusa:
+        return _de_recusa(recusa)
+    return JSONResponse(
+        {"ok": True, "situacao": refazer.REFAZENDO,
+         "motivo": refazer.motivo_refazendo(pedido, avaliacao.revisao),
+         "revisao": avaliacao.revisao, "ops": avaliacao.ops, "execucao": _execucao(tarefa)},
+        status_code=202,
+    )
 
 
 async def _execucao_do_modulo(tarefa_id: str) -> tuple[Tarefa | None, JSONResponse | None]:

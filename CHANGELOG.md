@@ -6,6 +6,21 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-05] — Sincronizar traz as mudanças do orçamento para as OPs
+
+**Pede deploy da .11** (`deploy_update.bat`), **depois** do V118.1577 no ar no .90 (restart do OrçaView).
+
+Caso do 84544: as OPs nasceram às 09:32 com o distanciador de 300 mm, o WBC foi para 400 mm às 10:28, e sincronizar só
+recopiava os 300 mm. Decisão do Marcelo: sincronizar é trazer o que há de novo.
+- `POST /ordens-servico/{n}/sincronizar` compara a árvore do WBC com a árvore das OPs. Se mudou e nenhuma OP começou,
+  faz Reprocessar + Processar em segundo plano (`tipo: refazendo_ops`). Se alguma OP começou, só copia e avisa
+  (`tipo: ja_produzido`). OP Liberada conta como começada, mesmo sem baixa: Reprocessar só cancela planejada.
+- Nota Espelho e OP viva em pedido cancelado são recusadas **antes** de cancelar, porque o Processar as recusaria depois.
+- Só copiam, como antes: `?so_atualizar=1` (Mira, MCP, ações aprovadas), chave de agente, pedido fora do espelho
+  (a busca do Altamira View chama a mesma rota) e `/sync/ordens-servico`.
+- Medido nos 91 pedidos abertos e processados de 05/11: 85 em dia, 5 com aviso de produção e 1 para refazer (o 84544).
+  Contrato em `API_OS_INTEGRACAO.md` §3.6.
+
 ## [2026-11-04] — Coluna Versão em Pedidos WBC
 
 **Pede deploy da .11** (`deploy_update.bat`).
