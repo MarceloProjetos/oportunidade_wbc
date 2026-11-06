@@ -7,7 +7,7 @@ Guia para agentes: achar o arquivo certo sem varrer o repo. Para a maioria das t
 ## O que é
 
 Integração SAP B1 → Supabase **e** Integração WBC → SAP. Produção na `192.168.7.11`
-(`C:\Python\ServidorIntegracaoSAP`, **Python 3.14.7** do sistema, sem venv), 6 serviços NSSM:
+(`C:\Python\ServidorIntegracaoSAP`, **Python 3.14.10** do sistema, sem venv), 6 serviços NSSM:
 
 - **API HTTP** 8077 (`OrcaView-OS-API`) — gatilhos, consultas e Painel de Sincronização
   (`GET /sincronizar`); `GET /` leva ao painel WBC (`web/entrada.html`).

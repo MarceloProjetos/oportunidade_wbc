@@ -6,6 +6,14 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-06] — .11 no Python 3.14.10, com as bibliotecas de segurança
+
+**Pede deploy da .11** (`deploy_update.bat`). O hash dos requirements muda e o pip roda, mas não troca nenhuma versão: a lista instalada na .11 já atende a todos.
+
+Python 3.14.7 → 3.14.10 e lotes 1 a 3 instalados pelos scripts de `maintenance/python_11/`: `certifi` 2026.10.23, `urllib3` 2.8.0, `PyJWT` 2.15.1, `python-multipart` 0.0.33, `multidict` 7.2.1, `werkzeug` 3.1.9, `filelock` 4.2.9, `fastapi` 0.162.0, `starlette` 1.10.0, `uvicorn` 0.54.0 (`opentelemetry-api` 1.45.2 entra pelo FastAPI). `mcp` fica em 1.30.0 e `hdbcli` em 2.29.23. No OSV.dev, sobra só o `pytest` 8.3.5, que não está nos lotes e só serve para testes.
+
+`requirements.txt` e `mcp/requirements.txt` passam a pedir essas versões como mínimo; a Starlette entra declarada, e as dependências indiretas ganham piso de segurança. Conferido na .11: 6 serviços no ar, ciclo do worker sem erro às 09:10 (1 escrita no SAP), leitura real do SAP e endereço com contrabarra sem abrir nada.
+
 ## [2026-11-06] — Scripts para atualizar o Python e as bibliotecas da .11
 
 **Pede deploy da .11** (`deploy_update.bat`), depois `maintenance\python_11\0_medir.ps1`.
