@@ -32,7 +32,7 @@ if ($bundle.Count -eq 0) {
 }
 $comPath = @($hklm + $hkcu | Where-Object { $_.DisplayName -like '*Add to Path*' }).Count -gt 0
 $comLauncher = @(Get-ChildItem "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall" -ErrorAction SilentlyContinue | ForEach-Object { Get-ItemProperty $_.PSPath } | Where-Object { $_.DisplayName -eq 'Python Launcher' }).Count -gt 0
-$opcoes = @('/quiet', "InstallAllUsers=$([int]$todosUsuarios)", "PrependPath=$([int]$comPath)", "Include_launcher=$([int]$comLauncher)", "InstallLauncherAllUsers=$([int]$comLauncher)", "TargetDir=$alvo", '/log', (Join-Path $script:PastaPy 'install.log'))
+$opcoes = @('/quiet', "InstallAllUsers=$([int]$todosUsuarios)", "PrependPath=$([int]$comPath)", "Include_launcher=$([int]$comLauncher)", "InstallLauncherAllUsers=$([int]$comLauncher)", "TargetDir=`"$alvo`"", '/log', (Join-Path $script:PastaPy 'install.log'))
 
 Exigir-CpLivre
 Registrar 'inicio' "$env:USERNAME em $env:COMPUTERNAME - Python $($script:Versao)"
