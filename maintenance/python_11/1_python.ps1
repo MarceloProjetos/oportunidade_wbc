@@ -48,15 +48,16 @@ try {
         $p = Start-Process -FilePath $script:Instalador -ArgumentList $opcoes -Wait -PassThru
         Registrar 'instalador' "exit=$($p.ExitCode)"
         $dll = (Get-Item (Join-Path $alvo 'python314.dll')).VersionInfo.FileVersion
-        $versao = (& $pythonExe --version 2>&1) -join ''
-        Registrar 'versao' "$versao dll=$dll"
+        # Not $versao: at this level it is the same variable as $script:Versao, which it would overwrite.
+        $instalada = (& $pythonExe --version 2>&1) -join ''
+        Registrar 'versao' "$instalada dll=$dll"
         Registrar 'pipcheck' ((& $pythonExe -m pip check 2>&1) -join ' ;; ')
         $importa = & $pythonExe "$PSScriptRoot\lotes_11.py" importar 2>&1
         $importaOk = ($LASTEXITCODE -eq 0)
         Registrar 'importar' ($importa -join ' ;; ')
         $pathIgual = ((Get-Item $chaveMaquina).GetValue('Path', $null, 'DoNotExpandEnvironmentNames') -eq $pathAntes)
         Registrar 'path' "PATH da maquina igual: $pathIgual"
-        $ok = ($p.ExitCode -eq 0) -and ($versao -eq "Python $($script:Versao)") -and ($dll -eq $script:Versao) -and $importaOk -and $pathIgual
+        $ok = ($p.ExitCode -eq 0) -and ($instalada -eq "Python $($script:Versao)") -and ($dll -eq $script:Versao) -and $importaOk -and $pathIgual
     }
 } catch {
     Registrar 'erro' $_.Exception.Message

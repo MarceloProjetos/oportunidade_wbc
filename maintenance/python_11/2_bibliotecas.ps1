@@ -15,7 +15,9 @@ $workerAtivo = Parar-Stack
 try {
     if (-not (Exigir-SemPython)) { throw 'ainda ha Python rodando' }
     foreach ($lote in '1', '2', '3') {
-        $alvos = @(& python "$PSScriptRoot\lotes_11.py" alvos $lote)
+        # An empty lot prints one blank line, which pip would take as a requirement.
+        $alvos = @(& python "$PSScriptRoot\lotes_11.py" alvos $lote | Where-Object { $_ })
+        if ($alvos.Count -eq 0) { Registrar 'pip' "lote $lote sem pacote nesta maquina"; continue }
         $antes = Join-Path $script:PastaPy "freeze_antes_lote$lote.txt"
         & python -m pip freeze 2>$null | Set-Content -Encoding Ascii $antes
         $saida = & python -m pip install --quiet --disable-pip-version-check @alvos 2>&1
