@@ -6,6 +6,12 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-06] — Scripts para atualizar o Python e as bibliotecas da .11
+
+**Pede deploy da .11** (`deploy_update.bat`), depois `maintenance\python_11\0_medir.ps1`.
+
+`maintenance/python_11/`: `0_medir.ps1` (só leitura), `1_python.ps1` (3.14.10) e `2_bibliotecas.ps1` (lotes 1 a 3, com volta automática do lote que quebrar). Cada etapa registra o resultado em `logs/deploy.log`, lido pelo `ultimo_deploy`. Os requirements só mudam depois da atualização, em outro commit, porque o deploy instalaria tudo sozinho ao ver o hash novo. Testes novos provam que o endereço com contrabarra não abre nada sem chave na Starlette 1.x; as telas daqui liberam por lista, então o código não precisou mudar.
+
 ## [2026-11-05] — Sincronizar traz as mudanças do orçamento para as OPs
 
 **Pede deploy da .11** (`deploy_update.bat`), **depois** do V118.1577 no ar no .90 (restart do OrçaView).

@@ -281,3 +281,18 @@ class TestHealth:
         assert aberto.get("/health/ocupado").text == "1"
         corpo = aberto.get("/health").json()
         assert corpo["ocupado"] is True and corpo["gravacoes_pendentes"] == 1 and corpo["tarefas_ativas"] == 0
+
+
+@pytest.mark.parametrize(
+    "caminho",
+    [
+        r"/api\pedidos-wbc",
+        "/api%5Cpedidos-wbc",
+        "/manutencao-op\\",
+        r"/static/..\..\main.py",
+        "/static/..%5C..%5Cmain.py",
+    ],
+)
+def test_contrabarra_nao_abre_nada_sem_chave(fechado: TestClient, caminho: str) -> None:
+    """Starlette 1.x encodes a backslash in ``request.url.path``: the gate allows by list, so it must stay shut."""
+    assert fechado.get(caminho, follow_redirects=False).status_code != 200

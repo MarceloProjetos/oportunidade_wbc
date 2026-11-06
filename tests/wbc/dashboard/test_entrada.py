@@ -323,3 +323,9 @@ class TestCaminhoParaOControleDeProducao:
     def test_abre_mesmo_com_chave_exigida(self, fechado: TestClient) -> None:
         """The redirect is open; the other screen checks the same cookie by itself."""
         assert fechado.get("/controle-producao", follow_redirects=False).status_code == 302
+
+
+@pytest.mark.parametrize("caminho", ["/\\", "/%5C", r"/static/..\..\web.py", "/static/..%5C..%5Cweb.py"])
+def test_contrabarra_nao_abre_nada_sem_chave(fechado: TestClient, caminho: str) -> None:
+    """Starlette 1.x encodes a backslash in ``request.url.path``: the gate allows by list, so it must stay shut."""
+    assert fechado.get(caminho, follow_redirects=False).status_code != 200
