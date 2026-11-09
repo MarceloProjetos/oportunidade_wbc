@@ -6,6 +6,13 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-09] — Fim da liberação forçada do pedido 84326
+
+**Pede deploy da .11** (`deploy_update.bat`). O teste da outra equipe (romaneio/OS) acabou: sai a
+`LIBERACAO_FORCADA_DOCNUM` de `situacao_pedidos_hana.py`, ligada em 09/10. A API e as tools MCP voltam
+a mostrar o 84326 como o SAP mostra (Financeiro, Produção e Entrega reais). SAP, web e app nunca foram
+afetados.
+
 ## [2026-11-06] — .11 no Python 3.14.10, com as bibliotecas de segurança
 
 **Pede deploy da .11** (`deploy_update.bat`). O hash dos requirements muda e o pip roda, mas não troca nenhuma versão: a lista instalada na .11 já atende a todos.
