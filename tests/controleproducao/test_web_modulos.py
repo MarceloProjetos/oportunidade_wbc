@@ -1270,7 +1270,7 @@ def test_css_da_linha_do_topo_e_da_barra_no_celular():
                      r'grid-template-areas: "marca direita" "nav nav";', casa_css)
     assert ".ov-opcao:has(input:disabled)" in css
     base = (_RAIZ_SIS / "controleproducao/templates/base.html").read_text(encoding="utf-8")
-    assert "style.css?v=14" in base
+    assert "style.css?v=15" in base
     # 29/09/2026: the mode choice of the search card is larger than the other options.
     assert re.search(r"\.ov-linha-topo \.ov-opcao input\[type=\"radio\"\] \{\s*width: 20px; height: 20px;", css)
 
@@ -1278,16 +1278,13 @@ def test_css_da_linha_do_topo_e_da_barra_no_celular():
 def test_navegador_sem_color_mix_ainda_pinta_os_botoes():
     """30/09/2026: on an older Windows 10 PC the buttons had NO fill — color-mix() is
     Chrome/Edge 111+, and inside a var() declaration an unknown function turns the
-    background transparent instead of falling back. The @supports block repaints them
-    with plain colors, and it must not use color-mix() itself."""
+    background transparent instead of falling back. Since 09/11/2026 the stylesheet has no
+    color-mix() at all (tints come from rgb(var(--x-rgb) / a)), so there is no @supports patch."""
     css = (_RAIZ_SIS / "controleproducao/static/style.css").read_text(encoding="utf-8")
-    marca = "@supports not (color: color-mix(in srgb, red 50%, white)) {"
-    assert marca in css
-    bloco = css[css.index(marca) + len(marca):]
-    assert "color-mix(" not in bloco
-    for seletor in (".ov-btn {", ".ov-btn-ghost {", "--ov-a13:"):
-        assert seletor in bloco, seletor
-    assert "var(--ov-btn-cor, var(--ov-accent));" in bloco
+    assert "color-mix(" not in css
+    assert "@supports not" not in css
+    assert "rgb(var(--ov-btn-rgb) /" in css
+    assert "var(--ov-btn-cor, var(--ov-accent));" in css
 
 
 def test_escrita_recusada_no_navegador_mostra_a_pagina_de_erro(cliente):

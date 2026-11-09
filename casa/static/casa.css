@@ -13,6 +13,14 @@
  *   Produção zooms its shell), and the bar must measure the same on every screen.
  */
 
+/* ── Fonts ───────────────────────────────────────────────────────────────── */
+/* Inter, served from this folder: the .11 screens are LAN-only (no CDN), so without these
+   faces the stack silently fell through to Segoe UI. The url() is relative to this file. */
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/Inter-Regular.ttf") format("truetype"); }
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 500; font-display: swap; src: url("fonts/Inter-Medium.ttf") format("truetype"); }
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 600; font-display: swap; src: url("fonts/Inter-SemiBold.ttf") format("truetype"); }
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 700; font-display: swap; src: url("fonts/Inter-Bold.ttf") format("truetype"); }
+
 /* ── Palette ─────────────────────────────────────────────────────────────── */
 /* The OrçaView palette the painel and the Controle de Produção already shared (coral accent,
    neutral greys). `--casa-acento-texto` is the accent as TEXT: lighter in dark for contrast. */
@@ -34,9 +42,16 @@
   --casa-a20: rgb(218 119 86 / .20);
   --casa-a40: rgb(218 119 86 / .40);
   --casa-ok: #48b77f;
-  --casa-perigo: #f2726a;
-  --casa-perigo-fundo: rgb(242 114 106 / .13);
-  --casa-perigo-borda: rgb(242 114 106 / .45);
+  /* Danger (error / delay / critical) and neutral (default badge): house-wide semantic ink.
+     The *-rgb triplets feed `rgb(var(--x-rgb) / a)` tints, since color-mix is off limits here. */
+  --casa-perigo: #ef4444;
+  --casa-perigo-rgb: 239 68 68;
+  --casa-perigo-fundo: rgb(239 68 68 / .13);
+  --casa-perigo-borda: rgb(239 68 68 / .45);
+  --casa-neutro: #a2a2ad;
+  --casa-neutro-rgb: 162 162 173;
+  --casa-acento-rgb: 218 119 86;
+  --casa-acento-texto-rgb: 232 149 110;
   --casa-sombra-barra: 0 1px 0 rgb(0 0 0 / .35), 0 6px 16px rgb(0 0 0 / .22);
   /* Height of the top bar on desktop: what a sticky row of a page sits under. */
   --casa-barra-altura: 62px;
@@ -44,7 +59,7 @@
 }
 :root[data-theme="light"] {
   color-scheme: light;
-  --casa-pagina: #eef1f5;
+  --casa-pagina: #dde3ec;
   --casa-painel: #ffffff;
   --casa-cartao: #ffffff;
   --casa-superficie: #ebeff5;
@@ -59,9 +74,14 @@
   --casa-a20: rgb(196 90 58 / .20);
   --casa-a40: rgb(196 90 58 / .38);
   --casa-ok: #1f8a4c;
-  --casa-perigo: #b42318;
-  --casa-perigo-fundo: rgb(180 35 24 / .08);
-  --casa-perigo-borda: rgb(180 35 24 / .35);
+  --casa-perigo: #a11f17;
+  --casa-perigo-rgb: 161 31 23;
+  --casa-perigo-fundo: rgb(161 31 23 / .08);
+  --casa-perigo-borda: rgb(161 31 23 / .35);
+  --casa-neutro: #37435a;
+  --casa-neutro-rgb: 55 67 90;
+  --casa-acento-rgb: 196 90 58;
+  --casa-acento-texto-rgb: 169 74 46;
   --casa-sombra-barra: 0 1px 0 rgb(15 23 42 / .06), 0 6px 18px rgb(15 23 42 / .06);
 }
 
@@ -143,7 +163,7 @@ a.casa-marca[aria-current="page"] .casa-marca__simbolo {
 .casa-ambiente {
   display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px 4px 9px;
   border-radius: 999px; border: 1px solid var(--casa-borda);
-  background: var(--casa-superficie); color: var(--casa-texto-2);
+  background: var(--casa-superficie); color: var(--casa-neutro);
   font-size: 11.5px; font-weight: 700; letter-spacing: .06em; white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -167,7 +187,7 @@ a.casa-marca[aria-current="page"] .casa-marca__simbolo {
 .casa-tema {
   display: grid; place-items: center; width: 38px; height: 38px; padding: 0;
   border-radius: 50%; border: 1px solid var(--casa-borda); cursor: pointer;
-  background: var(--casa-cartao); color: var(--casa-acento-texto);
+  background: var(--casa-cartao); color: var(--casa-acento-texto); font: inherit;
   transition: border-color .15s ease;
 }
 .casa-tema:hover { border-color: var(--casa-acento); }

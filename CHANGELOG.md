@@ -6,6 +6,17 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-09] — Pedidos WBC no padrão visual do OrçaView (fonte Inter, vermelho e neutro novos)
+
+**Pede deploy da .11** (`deploy_update.bat`) — só estático, mas o `casa.versao` (4 → 5) e o `style.css?v=15`
+mudam o HTML servido. Parte da padronização visual do OrçaView (`web_orcaview_V118/docs/PLANO_PADRONIZACAO_VISUAL.md`):
+- A Inter declarada nunca carregava (não havia `@font-face`): os 4 pesos vão para `casa/static/fonts/` (servidos
+  em `/casa/fonts/`, licença OFL junto). Antes caía em Segoe UI/Arial.
+- Vermelho de erro/perigo e selo neutro nos valores do sistema: claro `#a11f17` / escuro `#ef4444` e claro
+  `#37435a` / escuro `#a2a2ad`, como tokens no `casa.css` e no tema por `casa_tema`.
+- `style.css` deixa de usar `color-mix()` (o `casa.css` proíbe por causa dos navegadores antigos do chão de
+  fábrica): tons translúcidos agora por `rgb(var(--x-rgb) / a)`; o teste do `@supports` foi atualizado.
+
 ## [2026-11-09] — Fim da liberação forçada do pedido 84326
 
 **Pede deploy da .11** (`deploy_update.bat`). O teste da outra equipe (romaneio/OS) acabou: sai a
