@@ -13,7 +13,9 @@ o mês, mova as entradas do mês que fechou para lá).
 `entrega` e `sinal`, e a lista ganha `etapas_em`. A fonte é a mesma da tela "Situação dos Pedidos": o CP lê a
 API 8077 desta máquina (`/pedidos/situacao`, uma chamada por página, e `/pedidos/<n>/situacao` para quem está
 fora do recorte da view, como o pedido fechado por entrega futura). 8077 fora = os quatro campos `null`, e a
-lista continua. Contratos: `API_PEDIDOS_WBC.md` (7.1) e `docs/ENTREGA_FUTURA_PARA_EQUIPE_API.md` (3.3).
+lista continua. Contratos: `API_PEDIDOS_WBC.md` (7.1) e o guia de implementação da equipe,
+`docs/GUIA_EQUIPE_API_PEDIDOS_WBC.md` (antes `ENTREGA_FUTURA_PARA_EQUIPE_API.md`).
+Conferido na .11 em 11/11: 116 pedidos nas duas listas, 0 diferenças da API de situação, sem chave = 401.
 
 ## [2026-11-11] — Condição de pagamento longa no Detalhe do Orçamento (`U_PGTCOD2`)
 
