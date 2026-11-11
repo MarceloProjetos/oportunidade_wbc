@@ -222,7 +222,9 @@
   <label class="ov-opcao" for="pf-atrasados"><input type="checkbox" id="pf-atrasados" name="atrasados" value="1"
     {% if fechados_atrasados %}checked{% endif %}> Incluir pedidos atrasados</label>
   <button type="submit" class="ov-btn">{{ icone('buscar') }} Consultar pedidos fechados com OPs abertas</button>
-  {% if fechados is not defined %}
+  {% if fechados_erro %}
+  <p class="ov-nota" role="alert"><strong>Lista não montada.</strong> {{ fechados_erro }} Tente de novo em alguns minutos.</p>
+  {% elif fechados is not defined %}
   <p class="ov-nota">Lista os pedidos com status Fechado que ainda têm Ordem de Produção Planejada ou
     Liberada. Por padrão, só os que não estão atrasados.</p>
   {% elif not fechados %}

@@ -12,10 +12,13 @@ two never disagree. Read-only.
 """
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable
 from typing import Any
 
 from controleproducao.core.hana_reader import HanaDirectReader
+
+logger = logging.getLogger(__name__)
 
 
 class _ComoDataFrame:
@@ -37,10 +40,14 @@ def pendentes(leitor: HanaDirectReader, doc_entries: Iterable[int]) -> set[int] 
     entries = sorted({int(e) for e in doc_entries})
     if not entries:
         return set()
-    from faturamento_pedido import ler_faturamento  # lazy: root module, only when needed
+    try:
+        from faturamento_pedido import ler_faturamento  # lazy: root module, only when needed
 
-    # Empty schema: the reader already ran `SET SCHEMA` on its connection.
-    faturamento = ler_faturamento(_ComoDataFrame(leitor), "", entries)
+        # Empty schema: the reader already ran `SET SCHEMA` on its connection.
+        faturamento = ler_faturamento(_ComoDataFrame(leitor), "", entries)
+    except Exception:  # noqa: BLE001 - an import or read failure is "unknown", never "not future delivery"
+        logger.exception("Entrega futura: não foi possível ler o faturamento dos pedidos %s.", entries)
+        return None
     if faturamento is None:
         return None
     return {entry for entry, f in faturamento.items() if f.pendente}

@@ -158,8 +158,8 @@ async def buscar_pedidos_para_integrar(
     """
     sql = q.BUSCA_PEDIDOS_INTEGRADOS if integrados else q.BUSCA_PEDIDOS_PARA_INTEGRAR
     rows = hana_reader.fetch_all(*ligar(sql, filtro=""))
-    fechados = [] if integrados else _fechados_por_entrega_futura(hana_reader)
-    entrega_futura = {int(row["Nº Pedido"]) for row in fechados}
+    fechados = _fechados_por_entrega_futura(hana_reader, integrados)
+    de_entrega_futura = {int(row["Nº Pedido"]) for row in fechados}
     rows = [*rows, *fechados]
     # "Pedidos novos" only: that is where Processar would plan the items a second time.
     orfas = (
@@ -183,7 +183,7 @@ async def buscar_pedidos_para_integrar(
             data_lancamento=str(row["Data Lancamento"]),
             orc_num_masc=str(row["Nº Oportunidade"]),
             nota_espelho=str(row.get("Nota Espelho") or "").strip().upper() == "Y",
-            entrega_futura=int(row["Nº Pedido"]) in entrega_futura,
+            entrega_futura=int(row["Nº Pedido"]) in de_entrega_futura,
             ops_orfas=orfas.get(str(row["Nº Oportunidade"]), []),
         )
         for row in rows
@@ -196,15 +196,18 @@ async def buscar_pedidos_para_integrar(
     return pedidos
 
 
-def _fechados_por_entrega_futura(hana_reader: HanaDirectReader) -> list[dict]:
-    """Closed orders that still go to "Pedidos novos": closed by the future-delivery NF while the
-    remessa is still pending (`core.entrega_futura`), never processed into an OP.
+def _fechados_por_entrega_futura(hana_reader: HanaDirectReader, integrados: bool) -> list[dict]:
+    """Closed orders that still go to the list of the mode: closed by the future-delivery NF while
+    the remessa is still pending (`core.entrega_futura`). To the production they are open orders,
+    so "Pedidos integrados" lists them too: Reprocessar is the screen's way back from a Processar
+    that stopped midway.
 
     Fails closed: when the read or the invoicing rule fails, none is listed (logged) and the open
     orders are listed as before.
     """
+    sql = q.BUSCA_PEDIDOS_FECHADOS_INTEGRADOS if integrados else q.BUSCA_PEDIDOS_FECHADOS_PARA_INTEGRAR
     try:
-        rows = hana_reader.fetch_all(*ligar(q.BUSCA_PEDIDOS_FECHADOS_PARA_INTEGRAR))
+        rows = hana_reader.fetch_all(*ligar(sql))
         futuras = entrega_futura.pendentes(hana_reader, [int(r["DocEntry"]) for r in rows])
     except Exception:  # noqa: BLE001 - the open orders must still be listed
         logger.exception("Pedidos fechados por entrega futura: leitura falhou — nenhum entra na lista.")
@@ -551,7 +554,7 @@ def _monta_body_orc_detalhe(orc_num: str, header: NewOrcPrd, linhas_udo: list[di
         "U_ORCBAS1": float(header.orc_bas1),
         "U_ORCBAS2": float(header.orc_bas2),
         "U_ORCBAS3": float(header.orc_bas3),
-        "U_ORCPGT": _ate_254(orc_num, "U_ORCPGT", header.orc_pgt),
+        "U_ORCPGT": header.orc_pgt,
         "U_ORCIMP_REVISAO": header.orc_imp_revisao,
         "U_ORCIMP_EMAIL": header.orc_imp_email,
         "U_ORCIMP_FONE": header.orc_imp_fone,
@@ -573,24 +576,41 @@ def _monta_body_orc_detalhe(orc_num: str, header: NewOrcPrd, linhas_udo: list[di
         campos_header["U_ORCIMP_ACABAMENTO"] = acabamento[:254]
         campos_header["U_ORCIMP_ACABAMENTO2"] = acabamento[254:]
 
-    return {**campos_header, _UDO_ORC_DETALHE_CHILD: linhas_udo}
+    _corta_textos(orc_num, [campos_header], _TAMANHO_TEXTO_CABECALHO)
+    linhas = [dict(linha) for linha in linhas_udo]
+    _corta_textos(orc_num, linhas, _TAMANHO_TEXTO_LINHA)
+    return {**campos_header, _UDO_ORC_DETALHE_CHILD: linhas}
 
 
-def _ate_254(orc_num: str, campo: str, valor: object) -> str:
-    """``valor`` cut to the 254 characters of an alphanumeric UDF, with a warning when cut.
+# Size of the free-text alphanumeric UDFs of `@INO_ORCAM` / `@INO_ORC_LINHA` (CUFD in production,
+# 11/11/2026; the memo ones, `ACABAMENTO2` included, have no such limit). One value over it made the
+# Service Layer refuse the whole `OrcDetalhe` ("Value too long in property 'U_ORCPGT'", 84584) and
+# the order kept the previous Detalhe. Codes and keys are left whole on purpose: a cut code is a
+# wrong code, and their refusal stays visible.
+_TAMANHO_TEXTO_CABECALHO = {
+    "U_CLINOM": 50, "U_CLICON": 50, "U_ORCPGT": 254, "U_ORCIMP_EMAIL": 254, "U_ORCIMP_FONE": 254,
+    "U_ORCIMP_CIDADE": 154, "U_ORCIMP_UF": 154, "U_ORCIMP_TIPO_VENDA": 254, "U_ORCIMP_TRANSPORTE": 154,
+    "U_ORCIMP_MONTAGEM": 254, "U_TABELA_PRECO": 100, "U_ORCIMP_RETORNO": 50,
+    "U_ORCIMP_INDICE_VENDAS": 50, "U_ORCIMP_NEGOCIACAO": 20,
+}
+_TAMANHO_TEXTO_LINHA = {"U_INO_PROD": 200, "U_INO_COR": 50}
 
-    A long payment text (many instalments) made the Service Layer refuse the whole
-    `OrcDetalhe` ("Value too long in property 'U_ORCPGT'"), so the order kept the previous
-    Detalhe (84584, 11/11/2026). The full text stays in the WBC.
-    """
-    texto = str(valor or "")
-    if len(texto) <= 254:
-        return texto
-    logger.warning(
-        "    %s do orçamento %s tem %d caracteres: gravado só até o 254º (o texto inteiro fica no WBC).",
-        campo, orc_num, len(texto),
-    )
-    return texto[:254]
+
+def _corta_textos(orc_num: str, registros: list[dict], tamanhos: dict[str, int]) -> None:
+    """Cut, in place, the free texts longer than their UDF; one warning per field (the full text
+    stays in the WBC)."""
+    for campo, limite in tamanhos.items():
+        cortados = [r for r in registros if isinstance(r.get(campo), str) and len(r[campo]) > limite]
+        if not cortados:
+            continue
+        maior = max(len(r[campo]) for r in cortados)
+        for r in cortados:
+            r[campo] = r[campo][:limite]
+        logger.warning(
+            "    %s do orçamento %s passa de %d caracteres (%d registro(s), o maior com %d): gravado só "
+            "até o %dº (o texto inteiro fica no WBC).",
+            campo, orc_num, limite, len(cortados), maior, limite,
+        )
 
 
 _CAMPOS_DO_RESUMO = {
@@ -980,10 +1000,12 @@ async def _update_tab_pedido_cong(
         # executado em 22/09. O `diag patch-parcial` provou que as linhas não enviadas
         # sobrevivem e que um objeto de linha parcial é aceito — é o que sustenta isto.
         pedido_atual = await sl.get_by_key("Orders", doc_entry)
+        # A closed line refuses any UDF write (-1029) and would fail the whole PATCH: it keeps its
+        # `U_INO_OP`, which `BUSCA_MAX_ITEM_LINHA` ignores on closed lines.
         linhas_do_corpo = [
             {"LineNum": linha["LineNum"], "U_INO_OP": 0}
             for linha in pedido_atual.get("DocumentLines", [])
-            if linha.get("LineNum") is not None
+            if linha.get("LineNum") is not None and linha.get("LineStatus") != "bost_Close"
         ]
         if linhas_do_corpo:
             campos["DocumentLines"] = linhas_do_corpo

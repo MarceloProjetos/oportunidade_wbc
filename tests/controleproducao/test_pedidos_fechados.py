@@ -152,11 +152,13 @@ def test_pedidos_vazios_ou_invalidos_sao_recusados():
     assert fechados.le_pedidos(["84104", 84106, 84104]) == [84104, 84106]
 
 
-def test_consulta_passa_o_filtro_de_atrasados_e_traduz_as_linhas():
+def test_consulta_passa_o_filtro_de_atrasados_e_traduz_as_linhas(monkeypatch):
+    # Future-delivery exclusion: tests/controleproducao/test_entrega_futura.py.
+    monkeypatch.setattr(fechados.entrega_futura, "pendentes", lambda *_a: set())
     leitor = MagicMock()
     leitor.fetch_all.return_value = [{"Pedido": 84104, "Cliente": "X", "Entrega": "2026-10-01 00:00:00",
                                       "Atrasado": "N", "Total_OS": 17, "Total_OS_Fechadas": 0,
-                                      "Abertas": 17, "Planejadas": 3}]
+                                      "DocEntry": 20001, "Abertas": 17, "Planejadas": 3}]
     linhas = fechados.pedidos_fechados_com_op(leitor, incluir_atrasados=False)
     assert leitor.fetch_all.call_args.args[1] == (0,)
     assert linhas[0] == {"pedido": 84104, "cliente": "X", "entrega": "2026-10-01", "atrasado": False,
@@ -282,6 +284,17 @@ def test_consultar_lista_com_checkbox(cliente, isolado):
     html = cliente.get("/manutencao-op/pedidos-fechados").text
     assert 'name="pedidos" value="84104"' in html and 'name="pedidos" value="84106"' in html
     assert "Encerrar selecionados" in html and 'placeholder="0,01"' in html
+
+
+def test_consulta_que_falha_diz_no_card_em_vez_de_500(cliente, isolado):
+    """Unknown invoicing (future delivery) or the SAP down: said in the card, never a bare 500."""
+    from controleproducao.core.exceptions import WbcDatabaseError
+
+    with patch(f"{M}.fechados.pedidos_fechados_com_op", side_effect=WbcDatabaseError("Faturamento ilegível.")):
+        resposta = cliente.get("/manutencao-op/pedidos-fechados")
+    assert resposta.status_code == 200
+    assert "Lista não montada." in resposta.text and "Faturamento ilegível." in resposta.text
+    assert 'id="form-fechados"' not in resposta.text
 
 
 def test_lista_vazia_aponta_o_caminho(cliente, isolado):

@@ -54,17 +54,18 @@ ERROS_DE_CONEXAO = ("Server disconnected", "Connection reset", "timed out")
 
 # The SQL the owner runs in the SAP (28/10/2026), joined with the OPs that are really still
 # open in OWOR: the view's Total_OS counts are kept for reference, the action uses OWOR.
-# `OriginAbs` is the order's DocEntry, for the future-delivery check (`pedidos_fechados_com_op`).
+# The order's DocEntry comes from the view itself, for the future-delivery check
+# (`pedidos_fechados_com_op`): never from the OPs, which a hand-made OP may leave without it.
 PEDIDOS_FECHADOS_COM_OP = """
 SELECT V."DocNum" "Pedido", V."CardName" "Cliente", V."Data_Entrega" "Entrega",
        V."Atrasado" "Atrasado", V."Total_OS" "Total_OS", V."Total_OS_Fechadas" "Total_OS_Fechadas",
-       MAX(T."OriginAbs") "DocEntry",
+       V."DocEntry" "DocEntry",
        COUNT(T."DocEntry") "Abertas",
        SUM(CASE WHEN T."Status" = 'P' THEN 1 ELSE 0 END) "Planejadas"
 FROM "VW_STATUS_PEDIDO" V
   INNER JOIN OWOR T ON T."OriginNum" = V."DocNum" AND T."Status" IN ('P', 'R')
 WHERE V."StatusPedido" = 'Fechado' AND (V."Atrasado" = 'N' OR ? = 1)
-GROUP BY V."DocNum", V."CardName", V."Data_Entrega", V."Atrasado", V."Total_OS", V."Total_OS_Fechadas"
+GROUP BY V."DocNum", V."DocEntry", V."CardName", V."Data_Entrega", V."Atrasado", V."Total_OS", V."Total_OS_Fechadas"
 ORDER BY V."DocNum"
 """.strip()
 
@@ -114,7 +115,8 @@ def pedidos_fechados_com_op(leitor: HanaDirectReader, incluir_atrasados: bool = 
     (``WbcDatabaseError``, the "SAP unavailable" answer) instead of listing them.
     """
     linhas = leitor.fetch_all(PEDIDOS_FECHADOS_COM_OP, (1 if incluir_atrasados else 0,))
-    futuras = entrega_futura.pendentes(leitor, [int(x["DocEntry"]) for x in linhas if x.get("DocEntry")])
+    sem_doc_entry = [x["Pedido"] for x in linhas if not x.get("DocEntry")]
+    futuras = None if sem_doc_entry else entrega_futura.pendentes(leitor, [int(x["DocEntry"]) for x in linhas])
     if futuras is None:
         raise WbcDatabaseError(
             "Não foi possível conferir quais pedidos são de entrega futura ainda não remetida; "

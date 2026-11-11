@@ -6,6 +6,21 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-11] — Entrega futura: ajustes da revisão isolada
+
+**Pede deploy da .11** (`deploy_update.bat`, o mesmo do item abaixo; um deploy só leva os dois).
+- "Pedidos integrados" também traz o pedido fechado de entrega futura com remessa pendente (14 hoje), para o
+  Reprocessar ser o caminho de volta de um Processar que parou no meio. O Reprocessar e o `cancelar-ops` deixam
+  de escrever `U_INO_OP` na linha fechada (o SAP recusaria e a volta falharia), e a busca da linha do grupo
+  ignora o `U_INO_OP` velho de linha fechada. "Pedidos novos" deixa de exigir "nenhuma OP viva" (como no
+  pedido aberto; a guarda de OP repetida por item continua): a lista de hoje não muda (84537 e 84584).
+- "Pedidos fechados com OPs abertas": o DocEntry vem da própria view (antes, da OP, que pode não ter); pedido sem
+  ele ou faturamento ilegível = lista não montada. Na tela isso vira aviso no card, não erro 500; na API é
+  `502 sap_indisponivel` (o contrato dizia 503 por engano).
+- Corte dos textos do Detalhe do Orçamento pelos tamanhos reais do SAP (CUFD, 11/11): nome e contato do cliente
+  50, transporte/cidade/UF 154, pagamento/montagem/e-mail/telefone 254, descrição do item 200, cor 50, e mais
+  três. Códigos não se cortam.
+
 ## [2026-11-11] — Processar pedido fechado pela NF de entrega futura (84537, 84584)
 
 **Pede deploy da .11** (`deploy_update.bat`; o `style.css?v=16` muda o HTML servido). O SAP fecha o pedido

@@ -60,6 +60,35 @@ def test_adaptador_entrega_dataframe_com_os_parametros_do_sql_seguro():
     assert [int(r["Pedido"]) for _, r in df.iterrows()] == [21043]
 
 
+def test_regra_de_verdade_sobre_o_leitor_do_cp():
+    """The real `ler_faturamento` through the adapter (the other tests replace it): 84584 with its
+    future NF and no remessa is pending; a fully shipped one is not."""
+    from datetime import datetime
+    from decimal import Decimal
+
+    def fetch_all(sql, params=()):
+        if '"UltimaNF"' in sql:
+            return [{"Pedido": 21043, "UltimaNF": datetime(2026, 11, 10), "Futura": Decimal("60635.00")},
+                    {"Pedido": 18000, "UltimaNF": datetime(2026, 4, 2), "Futura": Decimal("1000.00")}]
+        if '"Devolvido"' in sql:
+            return []
+        if '"Remessa"' in sql:
+            return [{"Pedido": 18000, "Remessa": 7001, "Valor": Decimal("1000.00")}]
+        raise AssertionError(sql)
+
+    leitor = MagicMock()
+    leitor.fetch_all = MagicMock(side_effect=fetch_all)
+    assert entrega_futura.pendentes(leitor, [21043, 18000]) == {21043}
+
+
+def test_falha_de_import_ou_leitura_vira_desconhecido(monkeypatch):
+    def quebra(*_a):
+        raise ImportError("pipeline_core")
+
+    monkeypatch.setattr(fat, "ler_faturamento", quebra)
+    assert entrega_futura.pendentes(MagicMock(), [21043]) is None
+
+
 # ---------------------------------------------------------------------------
 # "Pedidos novos" lists the closed future-delivery order
 # ---------------------------------------------------------------------------
@@ -97,13 +126,14 @@ def test_novos_traz_o_fechado_de_entrega_futura_pendente_com_selo(monkeypatch):
     assert [(p.doc_num, p.entrega_futura) for p in pedidos] == [(84600, False), (84584, True)]
 
 
-def test_integrados_nao_le_os_fechados(monkeypatch):
-    chamadas = _faturamento(monkeypatch, {21043: FUTURA_PENDENTE})
+def test_integrados_tambem_traz_o_fechado_pendente(monkeypatch):
+    """Reprocessar is the screen's way back from a Processar that stopped midway (review, 11/11)."""
+    _faturamento(monkeypatch, {21043: FUTURA_PENDENTE})
     leitor = _leitor_da_busca([_linha(84600, 9001, "00126100")], [_linha(84584, 15500, "00126063", 21043)])
     pedidos = asyncio.run(svc.buscar_pedidos_para_integrar(leitor, integrados=True))
-    assert [p.doc_num for p in pedidos] == [84600]
-    assert chamadas == []
-    assert all("\"DocStatus\" = 'C'" not in c.args[0] for c in leitor.fetch_all.call_args_list)
+    assert [(p.doc_num, p.entrega_futura) for p in pedidos] == [(84600, False), (84584, True)]
+    lidos = [c.args[0] for c in leitor.fetch_all.call_args_list if "\"DocStatus\" = 'C'" in c.args[0]]
+    assert lidos == [svc.q.BUSCA_PEDIDOS_FECHADOS_INTEGRADOS]
 
 
 @pytest.mark.parametrize("falha", ["faturamento", "leitura"])
@@ -114,10 +144,13 @@ def test_falha_deixa_o_fechado_fora_e_os_abertos_na_lista(monkeypatch, falha):
     assert [p.doc_num for p in asyncio.run(svc.buscar_pedidos_para_integrar(leitor))] == [84600]
 
 
-def test_sql_dos_fechados_exige_nf_futura_e_nenhuma_op_viva():
-    sql = svc.q.BUSCA_PEDIDOS_FECHADOS_PARA_INTEGRAR
-    for trecho in ("\"DocStatus\" = 'C'", "\"CANCELED\" = 'N'", "U_INO_ProcessWBC", "U_INO_Integrar",
-                   "NOT EXISTS (SELECT 1 FROM OWOR", "'5922','6922'", "\"DocEntry\" as \"DocEntry\""):
+@pytest.mark.parametrize(("sql", "processado"), [
+    (svc.q.BUSCA_PEDIDOS_FECHADOS_PARA_INTEGRAR, "N"), (svc.q.BUSCA_PEDIDOS_FECHADOS_INTEGRADOS, "Y"),
+])
+def test_sql_dos_fechados_exige_nf_futura_viva(sql, processado):
+    for trecho in ("\"DocStatus\" = 'C'", "\"CANCELED\" = 'N'",
+                   f"IFNULL(ORDR.\"U_INO_ProcessWBC\",'N') = '{processado}'",
+                   "\"CFOPCode\" IN ('5922','6922')", "I.\"CANCELED\" = 'N'", "\"DocEntry\" as \"DocEntry\""):
         assert trecho in sql
 
 
@@ -141,6 +174,23 @@ def test_pedido_todo_fechado_nao_manda_patch():
     assert sl.update_entity.await_count == 0
 
 
+def test_reprocessar_nao_zera_u_ino_op_da_linha_fechada():
+    sl = AsyncMock()
+    sl.get_by_key = AsyncMock(return_value={"DocumentLines": [
+        {"LineNum": 0, "LineStatus": "bost_Close"}, {"LineNum": 1, "LineStatus": "bost_Open"},
+    ]})
+    asyncio.run(svc._update_tab_pedido_cong(sl, [], "00126063", "21043", 0, "N"))
+    assert sl.update_entity.await_args.args[2] == {
+        "U_INO_ProcessWBC": "N", "DocumentLines": [{"LineNum": 1, "U_INO_OP": 0}],
+    }
+
+
+def test_linha_fechada_nao_conta_como_ja_tendo_op_e_nao_e_limpa():
+    # It keeps the U_INO_OP of an OP made while the order was open: SAP refuses to zero it.
+    assert "OR T0.\"LineStatus\" = 'C'" in svc.q.BUSCA_MAX_ITEM_LINHA
+    assert "T0.\"LineStatus\" <> 'C'" in svc.q.LINHAS_COM_OP
+
+
 # ---------------------------------------------------------------------------
 # U_ORCPGT: 254 characters
 # ---------------------------------------------------------------------------
@@ -158,6 +208,17 @@ def test_texto_de_pagamento_longo_vai_cortado_em_254():
     assert curto["U_ORCPGT"] == "30 DDP"
 
 
+def test_textos_livres_cortados_no_tamanho_do_campo_e_codigos_inteiros():
+    nome = "POLI FILTRO INDUSTRIA E COMERCIO DE PECAS PARA AUTOS LTDA"          # 57 > 50
+    linha = {"U_INO_PROD": "P" * 230, "U_INO_COR": "C" * 60, "U_INO_CODIGO": "X" * 70}
+    body = svc._monta_body_orc_detalhe("00126063", _cabecalho(cli_nom=nome, rep_cod="R" * 30), [linha])
+    assert body["U_CLINOM"] == nome[:50]
+    assert body["U_REPCOD"] == "R" * 30                       # a code: never cut
+    filha = body[svc._UDO_ORC_DETALHE_CHILD][0]
+    assert (len(filha["U_INO_PROD"]), len(filha["U_INO_COR"]), len(filha["U_INO_CODIGO"])) == (200, 50, 70)
+    assert linha["U_INO_PROD"] == "P" * 230                    # the caller's dict is not changed
+
+
 # ---------------------------------------------------------------------------
 # Manutenção de OP: "Pedidos fechados com OPs abertas" leaves them out
 # ---------------------------------------------------------------------------
@@ -171,7 +232,16 @@ def test_quadro_de_fechados_nao_oferece_entrega_futura_pendente(monkeypatch):
     leitor = MagicMock()
     leitor.fetch_all = MagicMock(return_value=[_linha_fechado(84584, 21043), _linha_fechado(84500, 20500)])
     assert [p["pedido"] for p in fechados.pedidos_fechados_com_op(leitor)] == [84500]
-    assert '"OriginAbs") "DocEntry"' in fechados.PEDIDOS_FECHADOS_COM_OP
+    assert 'V."DocEntry" "DocEntry"' in fechados.PEDIDOS_FECHADOS_COM_OP
+
+
+def test_quadro_de_fechados_sem_doc_entry_nao_monta_a_lista(monkeypatch):
+    """No DocEntry = the future-delivery check cannot run: unknown, never "offer to Encerrar"."""
+    _faturamento(monkeypatch, {})
+    leitor = MagicMock()
+    leitor.fetch_all = MagicMock(return_value=[{**_linha_fechado(84500, 20500), "DocEntry": None}])
+    with pytest.raises(WbcDatabaseError):
+        fechados.pedidos_fechados_com_op(leitor)
 
 
 def test_quadro_de_fechados_sem_faturamento_nao_monta_a_lista(monkeypatch):

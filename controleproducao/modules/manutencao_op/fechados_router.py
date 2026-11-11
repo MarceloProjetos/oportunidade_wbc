@@ -8,10 +8,13 @@ pedido": consult (read) → check the plan (read, token) → Sim/Não → backgr
 """
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
 from controleproducao.config import get_settings
+from controleproducao.core.exceptions import WbcDatabaseError
 from controleproducao.core.hana_reader import HanaDirectReader
 from controleproducao.core.recusa import Recusa
 from controleproducao.core.tarefas import TAREFAS
@@ -19,6 +22,8 @@ from controleproducao.core.templates import templates
 from controleproducao.core.web import avisa_escrita
 from controleproducao.modules.manutencao_op import fechados, service
 from controleproducao.modules.manutencao_op import router as tela
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/manutencao-op/pedidos-fechados", tags=["manutencao_op"])
 
@@ -43,15 +48,19 @@ def consultar(request: Request, atrasados: str = ""):
     """The page as `/manutencao-op` renders it, plus the card's list (read-only)."""
     incluir = _marcado(atrasados)
     leitor = _leitor()
+    erro = None
     try:
         lista = fechados.pedidos_fechados_com_op(leitor, incluir)
+    except Exception as exc:  # noqa: BLE001 - said in the card, not a bare 500
+        logger.error("Pedidos fechados com OPs abertas: consulta falhou: %s", exc)
+        lista, erro = [], (str(exc) if isinstance(exc, WbcDatabaseError) else "O SAP não respondeu à consulta.")
     finally:
         leitor.close()
     return templates.TemplateResponse(
         request, "manutencao_op.html",
         {"ops": [], "doc_num": "", "buscou": False,
          "em_execucao": TAREFAS.em_execucao(tela.MODULO), "status_op": service.STATUS_OP,
-         "fechados": lista, "fechados_atrasados": incluir},
+         "fechados": lista, "fechados_atrasados": incluir, "fechados_erro": erro},
     )
 
 

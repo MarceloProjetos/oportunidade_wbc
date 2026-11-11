@@ -864,8 +864,8 @@ com OPs abertas" da tela. Por padrão a lista deixa de fora os pedidos atrasados
 Desde 11/11/2026 a lista também deixa de fora o pedido que o SAP fechou na **NF de entrega futura**
 (simples faturamento, CFOP 5922/6922) enquanto a mercadoria ainda não saiu toda: a view o chama de
 "Fechado", mas a produção dele ainda está por fazer, e encerrar daria baixa de material numa produção que
-não começou. Se não der para conferir o faturamento, a lista não é montada e a resposta é `503`
-(a mesma do SAP fora do ar).
+não começou. Se não der para conferir o faturamento, a lista não é montada e a resposta é
+`502 sap_indisponivel` (a mesma do SAP fora do ar).
 
 **Listar** (só lê):
 
@@ -1473,4 +1473,4 @@ trazer mais passos.
 | 29/09/2026 | Replanejar recusa também OP com produto apontado (`entrada_lancada`) |
 | 29/09/2026 | Aberta a qualquer um com a chave, inclusive páginas web de outra origem (CORS); respostas declaram `charset=utf-8` (acentos corretos no PowerShell 5.1); documento reescrito como guia, com receitas e exemplos |
 | 28/10/2026 | Pedidos fechados com OPs abertas: listar, conferir e encerrar só os pedidos escolhidos, com custo padrão 0,01 para insumo sem custo (seção 5.6) |
-| 11/11/2026 | Pedidos fechados com OPs abertas: pedido de entrega futura ainda não remetido fica fora da lista; faturamento ilegível = `503` (seção 5.6). Os campos não mudaram |
+| 11/11/2026 | Pedidos fechados com OPs abertas: pedido de entrega futura ainda não remetido fica fora da lista; faturamento ilegível = `502 sap_indisponivel` (seção 5.6). Os campos não mudaram |

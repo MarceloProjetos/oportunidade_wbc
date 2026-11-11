@@ -32,9 +32,9 @@ WHERE IFNULL(OOPR."U_INO_IntegrouWBC",'N') = 'Y'
 """.strip()
 
 # Not in the C#: SAP closes the order at the future-delivery NF (CFOP 5922/6922), which can be
-# issued before anyone processed it (84537, 84584 in 11/2026). Same filter as above, closed instead
-# of open, never processed into an OP, with a live future NF; `service` then keeps only the ones
-# whose remessa is still pending (`faturamento_pedido`, the rule of PLANO_ENTREGA_FUTURA).
+# issued before anyone processed it (84537, 84584 in 11/2026). The same two filters, closed instead
+# of open, with a live future NF; `service` then keeps only the ones whose remessa is still pending
+# (`core.entrega_futura`): to the production they are open orders, in both modes.
 BUSCA_PEDIDOS_FECHADOS_PARA_INTEGRAR = """
 SELECT DISTINCT 'N' AS "Selecionar", OPR1."OpprId" as "Num Oportunidade", ORDR."DocNum" as "Nº Pedido",
        ORDR."CardCode" as "Cod.Cliente", ORDR."CardName" as "Nome Cliente", ORDR."DocTotal" as "Total Pedido",
@@ -48,7 +48,23 @@ WHERE IFNULL(OOPR."U_INO_IntegrouWBC",'N') = 'Y'
   AND ORDR."DocStatus" = 'C' AND ORDR."CANCELED" = 'N'
   AND OOPR."U_ORCNUM_MASC" <> ''
   AND ORDR."U_INO_Integrar" = 'Y'
-  AND NOT EXISTS (SELECT 1 FROM OWOR W WHERE W."OriginAbs" = ORDR."DocEntry" AND W."Status" <> 'C')
+  AND EXISTS (SELECT 1 FROM INV1 L INNER JOIN OINV I ON I."DocEntry" = L."DocEntry"
+              WHERE L."BaseType" = 17 AND L."BaseEntry" = ORDR."DocEntry" AND I."CANCELED" = 'N'
+                AND L."CFOPCode" IN ('5922','6922'))
+""".strip()
+
+BUSCA_PEDIDOS_FECHADOS_INTEGRADOS = """
+SELECT DISTINCT 'N' AS "Selecionar", OPR1."OpprId" as "Num Oportunidade", ORDR."DocNum" as "Nº Pedido",
+       ORDR."CardCode" as "Cod.Cliente", ORDR."CardName" as "Nome Cliente", ORDR."DocTotal" as "Total Pedido",
+       ORDR."DocDate" as "Data Lancamento", OOPR."U_ORCNUM_MASC" as "Nº Oportunidade",
+       IFNULL(ORDR."U_U_INO_NotaEspelho",'N') as "Nota Espelho", ORDR."DocEntry" as "DocEntry"
+FROM ORDR
+  INNER JOIN OPR1 ON OPR1."DocId" = ORDR."DocEntry" AND OPR1."ObjType" = 17
+  INNER JOIN OOPR ON OPR1."OpprId" = OOPR."OpprId"
+WHERE IFNULL(OOPR."U_INO_IntegrouWBC",'N') = 'Y'
+  AND IFNULL(ORDR."U_INO_ProcessWBC",'N') = 'Y'
+  AND ORDR."DocStatus" = 'C' AND ORDR."CANCELED" = 'N'
+  AND OOPR."U_ORCNUM_MASC" <> ''
   AND EXISTS (SELECT 1 FROM INV1 L INNER JOIN OINV I ON I."DocEntry" = L."DocEntry"
               WHERE L."BaseType" = 17 AND L."BaseEntry" = ORDR."DocEntry" AND I."CANCELED" = 'N'
                 AND L."CFOPCode" IN ('5922','6922'))
@@ -214,10 +230,12 @@ ORDER BY ORDR."DocEntry" DESC
 # 1) isso não aparecia. Com a regra nova (quantidade = nº de módulos), a OP recebe a
 # quantidade de OUTRA linha: no 84274 três OPs saíram com 255 (a quantidade da linha 6)
 # para linhas de 8, 1 e 18. O pedido é identificado pelo DocEntry, não pelo DocNum (7.43).
+# A closed line never loses its `U_INO_OP` (SAP refuses the write, -1029), so it is never taken
+# as "already has an OP" here: an order closed by the future-delivery NF keeps finding its lines.
 BUSCA_MAX_ITEM_LINHA = """
 SELECT max(T0."LineNum"), max(T0."Quantity"), max(T0."LineTotal")
 FROM RDR1 T0
-WHERE T0."DocEntry" = {doc_entry} AND IFNULL(T0."U_INO_OP",0) = 0
+WHERE T0."DocEntry" = {doc_entry} AND (IFNULL(T0."U_INO_OP",0) = 0 OR T0."LineStatus" = 'C')
   AND T0."ItemCode" = '{item_code}' AND T0."U_INO_ORCITM" IN ({orc_itens})
 GROUP BY T0."ItemCode", T0."LineNum", T0."LineTotal"
 ORDER BY T0."LineNum" DESC
@@ -460,9 +478,10 @@ WHERE T0."DocNum" = '{doc_num}'
 
 # Linhas do pedido que têm OP vinculada — usada pela limpeza (`limpa_vinculos_do_pedido`)
 # para zerar só o que precisa, em vez de reescrever todas as linhas do documento.
+# Closed lines stay out: SAP refuses the write (-1029) and would fail the header reset with them.
 LINHAS_COM_OP = """
 SELECT T0."LineNum" FROM RDR1 T0
-WHERE T0."DocEntry" = {doc_entry} AND IFNULL(T0."U_INO_OP",0) <> 0
+WHERE T0."DocEntry" = {doc_entry} AND IFNULL(T0."U_INO_OP",0) <> 0 AND T0."LineStatus" <> 'C'
 ORDER BY T0."LineNum"
 """.strip()
 
