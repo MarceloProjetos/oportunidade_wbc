@@ -63,7 +63,7 @@ a view diz `Producao = 'Bloqueada'` e `Data_Lib_Prod` vazio. Separando pelo moti
 - `acoes.etapas_dos_pedidos`: uma chamada à 8077 (`/pedidos/situacao`) por página e uma por pedido fora do recorte da
   view (o fechado por entrega futura). 8077 fora = campos `null`; a lista continua.
 - Nas duas listas. Testes (`test_etapas_na_api.py`), contrato `API_PEDIDOS_WBC.md` 7.1 e texto da equipe 3.3.
-- Conferência na .11 (script só leitura, pela API com a chave): todas as páginas de novos (1) e
+- Conferência na .11 (script só leitura, pela API com a chave): sem chave = 401 (conferido à parte); todas as páginas de novos (1) e
   integrados (8); cada pedido comparado com `/pedidos/<n>/situacao` da 8077 → **116 pedidos, 0 diferenças, 0 nulos**.
 - <span>O que mordeu:</span> o 84584 entrou na view depois de ganhar OPs e passou a vir com as etapas reais
   (Liberado), não "Entrega futura" como o texto da equipe dizia; corrigido.
