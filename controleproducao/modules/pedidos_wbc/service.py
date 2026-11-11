@@ -406,13 +406,15 @@ async def _busca_orcamentos_wbc(wbc: WbcSqlServerClient, orc_num: str) -> list[O
 # 1. preenche_tabela  <- ProcessDefault.preencheTabela
 # ---------------------------------------------------------------------------
 async def preenche_tabela(
-    sl: ServiceLayerClient, wbc: WbcSqlServerClient, hana_reader: HanaDirectReader, orc_num: str
+    sl: ServiceLayerClient, wbc: WbcSqlServerClient, hana_reader: HanaDirectReader, orc_num: str,
+    falha: list[str] | None = None,
 ) -> int:
     """Write the quote "mirror" to the `OrcDetalhe` UDO (+ child `INO_ORC_LINHA`) and return the
     `DocEntry` of the record created.
 
     Always creates a new record (never updates one). Any failure is logged (including to `INO_LOG`)
-    and swallowed: it returns 0, as does a quote with no header in the WBC.
+    and swallowed: it returns 0, as does a quote with no header in the WBC. The reason goes into
+    ``falha`` when given: Processar refuses the order on a 0 (see `processar_pedidos_novos`).
 
     Two paths, exactly as in the C# (`ProcessDefault.preencheTabela`, ProcessDefault.cs ~1458):
 
@@ -482,6 +484,8 @@ async def preenche_tabela(
         cabecalhos = await _busca_nova_tabela_quot_com_linhas(wbc, orc_num)
         if not cabecalhos:
             logger.warning("    Nenhum cabeçalho de orçamento no WBC — espelho não criado.")
+            if falha is not None:
+                falha.append("nenhum cabeçalho do orçamento no WBC")
             return 0
         primeiro = cabecalhos[0]  # réplica do `return` dentro do foreach original
         linhas_udo = [
@@ -509,6 +513,8 @@ async def preenche_tabela(
     except Exception as exc:  # noqa: BLE001 - replica o catch externo (retorna 0) do C#
         logger.exception("Erro em preenche_tabela para orc_num=%s", orc_num)
         await preenche_log(sl, orc_num, "Pedido", "Erro", "Integração", str(exc))
+        if falha is not None:
+            falha.append(str(exc))
         return 0
 
 
@@ -2172,7 +2178,23 @@ async def processar_pedidos_novos(
             # Adicionado em 16/09/2026 porque a execução pode levar minutos sem dar sinal,
             # e era impossível saber em que etapa ela estava.
             logger.info("Pedido %s (DocNum %s): montando a tabela do orçamento...", orc_num, doc_num)
-            tab = await preenche_tabela(sl, wbc, hana_reader, orc_num)
+            falha_do_detalhe: list[str] = []
+            tab = await preenche_tabela(sl, wbc, hana_reader, orc_num, falha_do_detalhe)
+            if not tab:
+                # Refused BEFORE the first order write. The OP lines point at the Detalhe do
+                # Orçamento by position (`WOR1.U_INO_DESC`), and the OS views read solda, pintura,
+                # compras and expedição from the detail the order points at. Going on without a
+                # fresh one left 84584 (11/11/2026) on the worker's older snapshot: compras with 10
+                # of its lines, expedição without 4 items, wrong bolt quantities.
+                motivo = (
+                    f"o Detalhe do Orçamento do pedido {doc_num} não foi gravado no SAP "
+                    f"({'; '.join(falha_do_detalhe) or 'sem resposta do SAP'}). Nada foi criado: sem ele as "
+                    "OPs nasceriam ligadas ao detalhe antigo, e as OS de solda, pintura, compras e "
+                    "expedição sairiam erradas. Corrija a causa e processe de novo."
+                )
+                logger.error("Pedido %s: %s", orc_num, motivo)
+                com_erro.append({"orc_num": orc_num, "motivo": motivo, "detalhe_nao_gravado": True})
+                continue
             await atualiza_pedido_tabela(
                 sl, wbc, hana_reader, listaOport, orc_num, card_code, doc_num, doc_entry, tab, "Y"
             )

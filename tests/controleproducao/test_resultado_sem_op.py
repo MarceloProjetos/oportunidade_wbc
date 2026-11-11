@@ -43,6 +43,37 @@ def test_estrutura_vazia_nao_marca_o_pedido_como_processado():
     assert preenche.await_count == 0          # nor the OrcDetalhe snapshot
 
 
+def test_detalhe_nao_gravado_recusa_o_pedido_antes_de_qualquer_gravacao():
+    """84584 (11/11/2026): the OrcDetalhe POST failed, the run went on and the OPs were born against
+    the worker's older snapshot — the OS came out without solda/pintura, short on compras and
+    expedição. No fresh detail = no order write and no OP."""
+    atualiza, cria_op = AsyncMock(), AsyncMock()
+    sl = MagicMock()
+    sl.create_entity = AsyncMock(side_effect=ServiceLayerError("Value too long in property 'U_PGTCOD'"))
+    wbc = MagicMock()
+    wbc.fetch_all = MagicMock(return_value=[])            # no detailed structure: fallback path
+    with patch.object(svc, "_busca_orcamentos_wbc", AsyncMock(return_value=[])), \
+         patch.object(svc, "_get_id_orcamentos_pedido", AsyncMock(return_value={
+             "DocEntry": 21043, "CardCode": "C006321", "DocNum": 84584, "NotaEspelho": "N"})), \
+         patch.object(svc, "ops_vivas_de_pedidos_cancelados", AsyncMock(return_value={})), \
+         patch.object(svc, "_verifica_process_wbc", AsyncMock(return_value="N")), \
+         patch.object(svc, "busca_estrutura_produto", AsyncMock(return_value=[MagicMock()])), \
+         patch.object(svc, "_busca_nova_tabela_quot_com_linhas",
+                      AsyncMock(return_value=[SimpleNamespace(linhas=[])])), \
+         patch.object(svc, "_monta_body_orc_detalhe", return_value={}), \
+         patch.object(svc, "atualiza_pedido_tabela", atualiza), \
+         patch.object(svc, "cria_ordem_producao", cria_op), \
+         patch.object(svc, "preenche_log", AsyncMock()):
+        resultado = asyncio.run(svc.processar_pedidos_novos(sl, wbc, MagicMock(), ["00126063"]))
+
+    erro = resultado["com_erro"][0]
+    assert erro["detalhe_nao_gravado"] is True
+    assert "U_PGTCOD" in erro["motivo"] and "Nada foi criado" in erro["motivo"]
+    assert resultado["processados"] == []
+    assert atualiza.await_count == 0          # ProcessWBC='Y' never written
+    assert cria_op.await_count == 0           # and no OP
+
+
 def test_pedido_ja_processado_nao_manda_forcar():
     """Forcing duplicates the OPs; the refusal used to suggest it."""
     with patch.object(svc, "_busca_orcamentos_wbc", AsyncMock(return_value=[])), \

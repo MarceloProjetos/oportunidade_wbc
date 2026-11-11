@@ -6,6 +6,26 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-11] — OS do 84584 errada: Processar recusa o pedido sem Detalhe do Orçamento novo
+
+**Pede deploy da .11** (`deploy_update.bat`). As OS impressas do 84584 saíram com Solda e Pintura vazias, Compras com
+7 itens e Expedição sem 4 itens e com a quantidade de parafusos errada (2.216 anotado à mão). Três causas, medidas
+no SAP só com leitura:
+- **Detalhe do Orçamento antigo (corrigido aqui).** As OS saem do detalhe para o qual o pedido aponta. No Processar
+  de 11:33 o detalhe novo foi recusado (`U_PGTCOD` longo, corrigido logo depois em `b4dbc5a`), o processamento
+  seguiu e as 43 OPs nasceram com o pedido ainda no detalhe 547905, gravado pelo worker em 09/11, quando o WBC
+  ainda não tinha os produtos completos: só 10 linhas marcadas como compra e 8 códigos sem o sufixo de medida.
+  Agora o Processar **recusa o pedido antes de gravar qualquer coisa** quando o detalhe novo não é criado
+  (`com_erro` com `detalhe_nao_gravado: true` e o motivo do SAP). Vale para pedido aberto e fechado.
+- **Solda: a view do SAP só traz pedido aberto** (`VW_OS_SOLDA_DETALHE`: 88 pedidos, todos abertos). Todo pedido
+  de entrega futura perde a OS de Solda quando a NF fecha o pedido (84574, com 9 itens de solda, também). Não é
+  do código nem de hoje: precisa mudar a view.
+- **Pintura: a view do SAP exige a OP gravada na linha do pedido** (`VW_OS_PINTURA_V0`: 2.700+ pedidos, todos com
+  `RDR1.U_INO_OP`). Em pedido fechado o SAP recusa essa gravação, então pedido processado depois da NF sai sem
+  Pintura. Precisa mudar a view (ligar a OP ao pedido por `OWOR.OriginAbs`).
+Conserto do 84584: Reprocessar e Processar pela tela depois do deploy (detalhe novo → Compras, Expedição e
+Almoxarifado certos); Solda e Pintura dependem das duas views.
+
 ## [2026-11-11] — Vendas, Produção, Entrega e Sinal na lista da API de Pedidos WBC
 
 **Pede deploy da .11** (`deploy_update.bat`). Pedido da equipe da API (F3 do `docs/PLANO_SINAL_E_ETAPAS_NA_API.md`):

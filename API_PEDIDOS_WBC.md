@@ -825,6 +825,9 @@ O que a página mostra e por quê:
   ficado velha. O `motivo` é o mesmo texto; nada foi gravado para esse pedido.
 - **Desde 26/10/2026, um item de `com_erro` pode trazer `"nota_espelho": true`**: o pedido foi marcado como
   Nota Espelho depois da conferência (ou veio pela CLI). Nada foi gravado para esse pedido.
+- **Desde 11/11/2026, um item de `com_erro` pode trazer `"detalhe_nao_gravado": true`**: o SAP recusou o Detalhe do
+  Orçamento novo (o `motivo` traz a resposta do SAP). Nada foi gravado para esse pedido e ele continua em "Pedidos
+  novos". Antes disso o processamento seguia, e as OS de solda, pintura, compras e expedição saíam erradas.
 - **O que fazer depois:** volte à lista e veja onde o pedido está. Neste caso o 84454 continuou em
   "Pedidos novos" e foi processado de novo às 09:02, com sucesso. Se um pedido aparecer em
   "Pedidos integrados" com OP faltando, fale com o PCP antes de qualquer coisa ([6](#6-conceitos-que-você-precisa-conhecer), "O que Processar grava").
@@ -2141,4 +2144,5 @@ fictícios; só os nomes de pessoa e o servidor de exemplo foram ajustados. No S
 | 06/10/2026 | Seção nova [5. Caso real: o pedido 84460, do começo ao fim](#5-caso-real-o-pedido-84460-do-começo-ao-fim): o mapa de todos os objetos da tela (lista, conferência, execução) com o texto exato e de onde vem, as respostas reais da lista e da conferência, o log real de um Processar e de um Reprocessar explicado linha por linha, um erro real e o catálogo de todas as mensagens. As seções seguintes foram renumeradas (6 a 16) |
 | 26/10/2026 | Processar recusa pedido com Nota Espelho (`409 nota_espelho`, também com "forçar"), na conferência e de novo na execução (`com_erro` com `"nota_espelho": true`). Reprocessar não muda |
 | 11/11/2026 | Campo novo `pedidos[].entrega_futura`: os dois modos passam a trazer o pedido fechado pela NF de entrega futura com a remessa pendente — [Pedidos novos × Pedidos integrados](#pedidos-novos--pedidos-integrados). Dois avisos novos no log da execução (linha fechada, texto cortado), no [catálogo de mensagens](#510-todas-as-mensagens-da-integração-num-lugar-só). Os outros campos não mudaram |
+| 11/11/2026 | Processar recusa o pedido quando o Detalhe do Orçamento novo não é gravado (`com_erro` com `"detalhe_nao_gravado": true`), sem gravar nada — [5.8](#58-quando-o-pedido-dá-erro-um-caso-real) |
 | 11/11/2026 | Campos novos na lista ([7.1](#71-get-pedidos--a-lista)): `pedidos[].financeiro`, `producao`, `entrega` e `sinal` (as colunas Vendas, Produção, Entrega e Sinal da tela "Situação dos Pedidos") e `etapas_em`. Pedido da equipe da API. Os outros campos não mudaram |
