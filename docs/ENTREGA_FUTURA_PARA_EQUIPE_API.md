@@ -84,7 +84,8 @@ e a lista ganhou `etapas_em` (quando o SAP foi lido; a leitura vale até 2 minut
 
 - `null` em qualquer um = não deu para saber agora; a lista continua igual.
 - `sinal` diz se o pedido **tem** sinal, não se foi pago. Sinal ainda não pago aparece como Produção `"Bloqueado"`.
-- Pedido fechado por entrega futura (84537, 84584) vem com as três etapas em `"Entrega futura"`.
+- Pedido fechado por entrega futura vem com as etapas **reais** quando já está na view de status do SAP (o 84584,
+  depois de ganhar OPs: Liberado nas três) e com as três em `"Entrega futura"` quando ainda não está (o 84537).
 - Em 11/11/2026 dois pedidos aparecem bloqueados sem estar: **84589** (sinal pago, mas há um 2º adiantamento
   duplicado em aberto) e **84536** (o sinal foi pago na NF de entrega futura, e o adiantamento ficou em aberto). O
   Financeiro corrige no SAP, e a API mostra liberado sozinha. A API mostra o que o SAP diz, igual à tela.

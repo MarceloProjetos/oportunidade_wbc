@@ -1,7 +1,8 @@
 # Plano — Sinal e etapas na API de Pedidos WBC
 
-> **Status (11/11/2026):** F0 feita (só leitura). **F3 codada e no master, falta o deploy da .11** (D3 e D4 aprovadas
-> pelo Marcelo). F1 espera o Financeiro; F2 só se F1 mostrar repetição; D1 e D2 abertas.
+> **Status (11/11/2026):** F0 feita (só leitura). **F3 no ar (`3dcb0a0`) e conferida na .11**: 116 pedidos nas duas
+> listas, 0 sem etapas, 0 diferentes da API de situação, páginas em 0,1–2,0 s. F1 espera o Financeiro; F2 só se F1
+> mostrar repetição; D1 e D2 abertas.
 > Página: artifact publicado com o mesmo conteúdo (mesma url a cada atualização).
 
 **Começo → Meio → Fim:** separar os falsos bloqueios dos verdadeiros e corrigir no SAP → a regra do sinal pago
@@ -55,13 +56,17 @@ a view diz `Producao = 'Bloqueada'` e `Data_Lib_Prod` vazio. Separando pelo moti
   pedido cobre o sinal; adiantamento duplicado em aberto não bloqueia.
 - Onde: na view (D2). Medir antes, em produção e só leitura, quantos pedidos mudariam.
 
-### F3 — Etapas e sinal na API de Pedidos WBC <span>✅ codada 11/11 — falta deploy</span>
+### F3 — Etapas e sinal na API de Pedidos WBC <span>✅ no ar 11/11 (`3dcb0a0`), conferida</span>
 **Meta:** a equipe vê, em cada pedido da lista, Vendas, Produção, Entrega e Sinal, iguais à Situação dos Pedidos.
 - `pedidos[]` ganhou `financeiro`, `producao`, `entrega` (`"Liberado"`, `"Bloqueado"`, `"Fechado"` ou
   `"Entrega futura"`) e `sinal` (`true`/`false`); a lista ganhou `etapas_em`.
 - `acoes.etapas_dos_pedidos`: uma chamada à 8077 (`/pedidos/situacao`) por página e uma por pedido fora do recorte da
   view (o fechado por entrega futura). 8077 fora = campos `null`; a lista continua.
 - Nas duas listas. Testes (`test_etapas_na_api.py`), contrato `API_PEDIDOS_WBC.md` 7.1 e texto da equipe 3.3.
+- Conferência na .11 (script só leitura, pela API com a chave): sem chave = 401; todas as páginas de novos (1) e
+  integrados (8); cada pedido comparado com `/pedidos/<n>/situacao` da 8077 → **116 pedidos, 0 diferenças, 0 nulos**.
+- <span>O que mordeu:</span> o 84584 entrou na view depois de ganhar OPs e passou a vir com as etapas reais
+  (Liberado), não "Entrega futura" como o texto da equipe dizia; corrigido.
 
 ### F4 — No ar e avisar a equipe
 - Deploy da .11 (Marcelo); conferir pela API nos 12 pedidos e no 84537; atualizar o texto da equipe.
