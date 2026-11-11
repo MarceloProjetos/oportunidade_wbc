@@ -6,6 +6,17 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-11] — Longarina com a medida no código passa a ir para a Solda
+
+**Pede deploy da .11** (`deploy_update.bat`). Na OS de Solda do 84584 veio a garra e faltou a longarina. Não tem
+relação com entrega futura: a longarina SG de comprimento padrão tem a medida dentro do código
+(`PPLSIG18120L24002900`), e a `Solda.txt` só lista o código-base (`PPLSIG18120L24000000`). A comparação exata não
+casava, o item ficava no grupo 358 e fora da view de solda (que lê o grupo 332). Medido no cadastro: só duas
+famílias têm esse formato, a longarina (`PPLSIG`) e o perfil dela (`PPPSIG`), com 83 de 110 itens no 358 (27 já
+tinham sido passados para o 332 à mão). `listas_fixas.e_de_solda` reconhece o comprimento padrão dessas duas
+famílias quando o código-base está na lista; o Processar passa a pôr o item no 332 como já faz com os listados.
+Os itens já cadastrados só mudam quando um pedido com eles for processado (ou alterando o grupo no SAP).
+
 ## [2026-11-11] — OS do 84584 errada: Processar recusa o pedido sem Detalhe do Orçamento novo
 
 **Pede deploy da .11** (`deploy_update.bat`). As OS impressas do 84584 saíram com Solda e Pintura vazias, Compras com

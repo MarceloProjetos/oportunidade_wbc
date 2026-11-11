@@ -1509,7 +1509,7 @@ async def _cria_ou_atualiza_item(
     else:
         item.processado_itens = "Y"
 
-    if item.prd_arv in solda:
+    if listas_fixas.e_de_solda(item.prd_arv, solda):
         logger.info("  Item %s está na lista de solda: forçando grupo %s.", item.prd_code, GRUPO_ITEM_SOLDA)
         await _update_item_grupo_332(sl, item.prd_code)
 
@@ -1537,7 +1537,9 @@ async def _cria_item(sl: ServiceLayerClient, item: EstruturaPrd, nivel_top: int)
     else:
         body["MaterialType"] = "mt_Package"
         solda = listas_fixas.carregar_solda()
-        body["ItemsGroupCode"] = GRUPO_ITEM_SOLDA if item.prd_code in solda else GRUPO_ITEM_PADRAO
+        body["ItemsGroupCode"] = (
+            GRUPO_ITEM_SOLDA if listas_fixas.e_de_solda(item.prd_code, solda) else GRUPO_ITEM_PADRAO
+        )
 
     if item.nivel < nivel_top:
         body["ProcurementMethod"] = "bom_Make"

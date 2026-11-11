@@ -138,3 +138,25 @@ def carregar_solda() -> frozenset[str]:
         _SOLDA_PATH,
     )
     return SOLDA
+
+
+#: Families whose standard lengths carry the length INSIDE the code (`PPLSIG18120L24002900`)
+#: instead of after a `#` (`PPLSIG18120L24000000#2900#0#0`). `Solda.txt` only lists the base
+#: (`...000000`), so the exact match missed them: 83 of the 110 such items were in group 358 and
+#: out of the Solda OS (84584's longarina, 11/11/2026). Measured in OITM: only these two families
+#: have the pattern, so the rule is kept to them.
+FAMILIAS_COM_MEDIDA_NO_CODIGO = ("PPLSIG", "PPPSIG")
+
+
+def e_de_solda(codigo: str, solda: frozenset[str]) -> bool:
+    """Whether ``codigo`` goes to solda: listed in `Solda.txt`, or a standard length of a listed
+    base in one of `FAMILIAS_COM_MEDIDA_NO_CODIGO` (14-character base + 6-digit length)."""
+    codigo = str(codigo or "")
+    if codigo in solda:
+        return True
+    return (
+        codigo.startswith(FAMILIAS_COM_MEDIDA_NO_CODIGO)
+        and len(codigo) == 20
+        and codigo[14:].isdigit()
+        and codigo[:14] + "000000" in solda
+    )

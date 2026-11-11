@@ -28,6 +28,29 @@ def test_comparacao_e_exata_e_nao_por_prefixo():
     assert algum + "XYZ" not in solda
 
 
+def test_longarina_com_a_medida_no_codigo_e_de_solda():
+    """84584 (11/11/2026): the standard-length longarina `PPLSIG18120L24002900` and its profile were
+    left in group 358, out of the Solda OS, because `Solda.txt` only lists the base (`...000000`)."""
+    solda = lf.carregar_solda()
+    assert "PPLSIG18120L24000000" in solda and "PPLSIG18120L24002900" not in solda
+    assert lf.e_de_solda("PPLSIG18120L24002900", solda)          # longarina, length in the code
+    assert lf.e_de_solda("PPPSIG18120240002900", solda)          # its profile
+    assert lf.e_de_solda("PPLSIG18120L24000000", solda)          # listed: still exact
+
+
+def test_regra_da_medida_vale_so_para_as_duas_familias_e_para_base_listada():
+    solda = lf.carregar_solda()
+    fora_da_familia = next(
+        c for c in sorted(solda)
+        if len(c) == 20 and c.endswith("000000") and not c.startswith(lf.FAMILIAS_COM_MEDIDA_NO_CODIGO)
+    )
+    assert not lf.e_de_solda(fora_da_familia[:14] + "002900", solda)   # other family: exact match only
+    assert not lf.e_de_solda("PPLSIG99999X99002900", solda)            # base not in the list
+    assert not lf.e_de_solda("PPLSIG18120L2400290X", solda)            # not a 6-digit length
+    assert not lf.e_de_solda("PPLSIG18120L24002900#1#0#0", solda)      # '#' codes keep the exact rule
+    assert not lf.e_de_solda("", solda) and not lf.e_de_solda(None, solda)
+
+
 def test_prefixo_333_tem_precedencia_sobre_a_solda():
     """No `CriaItem`, o teste dos prefixos vem primeiro e vence: um item que contenha um
     prefixo de 333 nunca chega a ser avaliado para 332, mesmo estando na Solda. São 1.477
