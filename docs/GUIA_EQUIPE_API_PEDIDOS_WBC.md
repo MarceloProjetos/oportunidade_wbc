@@ -209,15 +209,15 @@ Se o 84537 não aparecer no passo 1, não tentem outro caminho: avisem a TI.
 
 ## 9. Cuidados
 
-- **OS de Solda e de Pintura em pedido de entrega futura (aberto em 11/11/2026).** As OS impressas saem de views do
-  SAP, e duas delas ainda não tratam o pedido fechado: a de **Solda** só traz pedido aberto, e a de **Pintura** só
-  traz pedido com o número da OP gravado na linha do pedido (o que o SAP não deixa gravar em pedido fechado). Até a
-  TI ajustar essas views, um pedido com `entrega_futura: true` pode imprimir a OS de Solda vazia, e a de Pintura
-  vazia se foi processado depois da NF. Não é erro da página de vocês: avisem a TI em vez de corrigir à mão.
+- **OS de Solda e de Pintura em pedido de entrega futura (resolvido em 11/11/2026).** As OS impressas saem de views
+  do SAP, e duas delas não tratavam o pedido fechado: a de Solda vinha vazia e a de Pintura também, quando o pedido
+  era processado depois da NF. A TI ajustou as duas views em 11/11. Se uma OS de pedido com `entrega_futura: true`
+  sair vazia ou incompleta, sincronizem a OS do pedido e avisem a TI em vez de corrigir à mão.
 - **`com_erro` com `"detalhe_nao_gravado": true`:** o SAP recusou o Detalhe do Orçamento e o pedido não foi
   processado (nada foi gravado). Mostrem o `motivo` e avisem a TI; o pedido continua em "Pedidos novos".
 
-- **Reprocessar um pedido fechado** ainda não foi usado de verdade no SAP. A primeira vez deve ser combinada com a TI.
+- **Reprocessar um pedido fechado** funciona: foi usado de verdade no 84584 em 11/11/2026, sem erro. Como em qualquer
+  pedido, ele cancela todas as OPs Planejadas, e o pedido precisa ser processado de novo.
 - **"Pedidos integrados" ficou maior:** traz também os pedidos de entrega futura já processados, alguns antigos
   (2023 a 2025), que para o SAP ainda não tiveram a remessa.
 - Não existe "forçar" na API. Pedido fechado por NF de venda normal nunca entra na lista, de propósito.

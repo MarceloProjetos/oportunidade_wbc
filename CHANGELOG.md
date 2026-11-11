@@ -26,6 +26,13 @@ no SAP só com leitura:
 Conserto do 84584: Reprocessar e Processar pela tela depois do deploy (detalhe novo → Compras, Expedição e
 Almoxarifado certos); Solda e Pintura dependem das duas views.
 
+**Fechado em 11/11, 16:51.** Views rodadas no HANA pelo Marcelo (Pintura 30.181 → 30.193 linhas, Solda 1.105 →
+1.139, nenhuma linha antiga mudou), deploy `738099c` e 84584 refeito pela tela (Reprocessar + Processar: o
+primeiro Reprocessar de pedido fechado, sem erro; a Oportunidade foi religada). Conferido no SAP: detalhe novo
+548023 com 105 linhas, 44 OPs Planejadas alinhadas 105/105 em código e quantidade, e as cinco listas na OS
+sincronizada: solda 4, pintura 19, almoxarifado 24, expedição 43 (com coluna, diagonal, travessas e chumbador;
+parafuso e porca 2.216, o número anotado à mão) e compras 64 (13 itens; eram 7).
+
 **Scripts das duas views** (`sql/hana/`, para o Marcelo rodar no HANA; nada aqui os executa), escritos a partir do
 texto que ele mandou e conferidos, só com leitura, contra as views no ar (`EXCEPT` nos dois sentidos):
 - `VW_OS_PINTURA_V0_2026-11-11.sql`: a OP pai também vale quando a linha do pedido está fechada e sem `U_INO_OP`
