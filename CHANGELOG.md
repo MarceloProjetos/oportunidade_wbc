@@ -6,6 +6,15 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-11] — Condição de pagamento longa no Detalhe do Orçamento (`U_PGTCOD2`)
+
+**Pede deploy da .11** (`deploy_update.bat`). O Processar do 84584 pela tela (11/11, depois do deploy de
+`366074f`) criou as 43 OPs nos três grupos, mas o Detalhe do Orçamento falhou de novo, agora em
+`U_PGTCOD` (`Value too long`): a condição de pagamento tem campo de continuação (`U_PGTCOD2`, memo), que o
+worker usa e o porte do CP não usava. Agora o que passa de 254 vai para o `U_PGTCOD2`, como o acabamento.
+O 84584 fica no detalhe que o worker gravou em 09/11 (mesma revisão C; a OS sincronizou com 102 linhas e
+as 43 OPs).
+
 ## [2026-11-11] — Entrega futura: ajustes da revisão isolada
 
 **Pede deploy da .11** (`deploy_update.bat`, o mesmo do item abaixo; um deploy só leva os dois).

@@ -575,6 +575,13 @@ def _monta_body_orc_detalhe(orc_num: str, header: NewOrcPrd, linhas_udo: list[di
     else:
         campos_header["U_ORCIMP_ACABAMENTO"] = acabamento[:254]
         campos_header["U_ORCIMP_ACABAMENTO2"] = acabamento[254:]
+    # The payment condition has a continuation field too (`PGTCOD2`, memo), as the worker writes it
+    # (`wbcpython/domain/mapeamento.py`). Without it a long condition made the Service Layer refuse
+    # the whole OrcDetalhe ("Value too long in property 'U_PGTCOD'", 84584, 11/11/2026).
+    pgt_cod = header.pgt_cod or ""
+    campos_header["U_PGTCOD"] = pgt_cod[:254]
+    if len(pgt_cod) > 254:
+        campos_header["U_PGTCOD2"] = pgt_cod[254:]
 
     _corta_textos(orc_num, [campos_header], _TAMANHO_TEXTO_CABECALHO)
     linhas = [dict(linha) for linha in linhas_udo]

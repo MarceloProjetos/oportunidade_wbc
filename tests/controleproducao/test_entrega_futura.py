@@ -209,6 +209,15 @@ def test_texto_de_pagamento_longo_vai_cortado_em_254():
     assert curto["U_ORCPGT"] == "30 DDP"
 
 
+def test_condicao_de_pagamento_longa_transborda_para_pgtcod2():
+    """84584, 2nd run: the long condition refused the OrcDetalhe on `U_PGTCOD` (254)."""
+    longa = "25% a 07 DDP / 40% a 59 DDP / 35% a 88 DDP;" * 8
+    body = svc._monta_body_orc_detalhe("00126063", _cabecalho(pgt_cod=longa), [])
+    assert body["U_PGTCOD"] == longa[:254] and body["U_PGTCOD2"] == longa[254:]
+    curta = svc._monta_body_orc_detalhe("00126063", _cabecalho(pgt_cod="1210"), [])
+    assert curta["U_PGTCOD"] == "1210" and "U_PGTCOD2" not in curta
+
+
 def test_textos_livres_cortados_no_tamanho_do_campo_e_codigos_inteiros():
     nome = "POLI FILTRO INDUSTRIA E COMERCIO DE PECAS PARA AUTOS LTDA"          # 57 > 50
     linha = {"U_INO_PROD": "P" * 230, "U_INO_COR": "C" * 60, "U_INO_CODIGO": "X" * 70}
