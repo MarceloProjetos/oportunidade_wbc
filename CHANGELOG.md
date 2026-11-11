@@ -15,8 +15,12 @@ o mês, mova as entradas do mês que fechou para lá).
   ignora o `U_INO_OP` velho de linha fechada. "Pedidos novos" deixa de exigir "nenhuma OP viva" (como no
   pedido aberto; a guarda de OP repetida por item continua): a lista de hoje não muda (84537 e 84584).
 - "Pedidos fechados com OPs abertas": o DocEntry vem da própria view (antes, da OP, que pode não ter); pedido sem
-  ele ou faturamento ilegível = lista não montada. Na tela isso vira aviso no card, não erro 500; na API é
-  `502 sap_indisponivel` (o contrato dizia 503 por engano).
+  ele ou faturamento ilegível = lista não montada. Na tela isso vira aviso fixo no card e na conferência do
+  "Encerrar selecionados", não erro 500; na API é `502 sap_indisponivel` (o contrato dizia 503 por engano).
+- A linha fechada só deixa de contar como "já tem OP" em pedido fechado inteiro: no pedido aberto com
+  faturamento parcial, a busca da linha do grupo continua como antes (2ª rodada da revisão).
+- Ainda não exercitado no SAP: o Reprocessar de um pedido fechado (a parte que religa a Oportunidade). O
+  primeiro uso deve ser acompanhado.
 - Corte dos textos do Detalhe do Orçamento pelos tamanhos reais do SAP (CUFD, 11/11): nome e contato do cliente
   50, transporte/cidade/UF 154, pagamento/montagem/e-mail/telefone 254, descrição do item 200, cor 50, e mais
   três. Códigos não se cortam.

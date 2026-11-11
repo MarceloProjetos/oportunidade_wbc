@@ -230,12 +230,13 @@ ORDER BY ORDR."DocEntry" DESC
 # 1) isso não aparecia. Com a regra nova (quantidade = nº de módulos), a OP recebe a
 # quantidade de OUTRA linha: no 84274 três OPs saíram com 255 (a quantidade da linha 6)
 # para linhas de 8, 1 e 18. O pedido é identificado pelo DocEntry, não pelo DocNum (7.43).
-# A closed line never loses its `U_INO_OP` (SAP refuses the write, -1029), so it is never taken
-# as "already has an OP" here: an order closed by the future-delivery NF keeps finding its lines.
+# On an order closed as a whole (future-delivery NF) a line never loses its `U_INO_OP` (SAP refuses
+# the write, -1029), so there it is never taken as "already has an OP". Only there: on an open order
+# a line closed by a partial invoice keeps the old rule.
 BUSCA_MAX_ITEM_LINHA = """
 SELECT max(T0."LineNum"), max(T0."Quantity"), max(T0."LineTotal")
-FROM RDR1 T0
-WHERE T0."DocEntry" = {doc_entry} AND (IFNULL(T0."U_INO_OP",0) = 0 OR T0."LineStatus" = 'C')
+FROM RDR1 T0 INNER JOIN ORDR P ON P."DocEntry" = T0."DocEntry"
+WHERE T0."DocEntry" = {doc_entry} AND (IFNULL(T0."U_INO_OP",0) = 0 OR P."DocStatus" = 'C')
   AND T0."ItemCode" = '{item_code}' AND T0."U_INO_ORCITM" IN ({orc_itens})
 GROUP BY T0."ItemCode", T0."LineNum", T0."LineTotal"
 ORDER BY T0."LineNum" DESC

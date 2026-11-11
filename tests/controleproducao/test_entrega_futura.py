@@ -187,7 +187,8 @@ def test_reprocessar_nao_zera_u_ino_op_da_linha_fechada():
 
 def test_linha_fechada_nao_conta_como_ja_tendo_op_e_nao_e_limpa():
     # It keeps the U_INO_OP of an OP made while the order was open: SAP refuses to zero it.
-    assert "OR T0.\"LineStatus\" = 'C'" in svc.q.BUSCA_MAX_ITEM_LINHA
+    # Only on an order closed as a whole: an open order's partially invoiced line keeps the old rule.
+    assert "OR P.\"DocStatus\" = 'C'" in svc.q.BUSCA_MAX_ITEM_LINHA
     assert "T0.\"LineStatus\" <> 'C'" in svc.q.LINHAS_COM_OP
 
 

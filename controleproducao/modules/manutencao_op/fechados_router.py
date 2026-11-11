@@ -14,7 +14,6 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
 from controleproducao.config import get_settings
-from controleproducao.core.exceptions import WbcDatabaseError
 from controleproducao.core.hana_reader import HanaDirectReader
 from controleproducao.core.recusa import Recusa
 from controleproducao.core.tarefas import TAREFAS
@@ -28,6 +27,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/manutencao-op/pedidos-fechados", tags=["manutencao_op"])
 
 COLUNAS_PLANO = ["#", "Pedido", "Cliente", "Entrega", "OPs abertas", "Planejadas (serão liberadas)"]
+# A fixed sentence: the exception text may carry the driver's own (logged instead).
+MSG_LISTA_NAO_CONFERIDA = ("Não foi possível conferir a lista no SAP (o SAP ou o faturamento de entrega futura "
+                           "não respondeu); nenhuma OP foi oferecida para encerrar.")
 
 
 def _voltar(incluir_atrasados: bool) -> str:
@@ -53,7 +55,7 @@ def consultar(request: Request, atrasados: str = ""):
         lista = fechados.pedidos_fechados_com_op(leitor, incluir)
     except Exception as exc:  # noqa: BLE001 - said in the card, not a bare 500
         logger.error("Pedidos fechados com OPs abertas: consulta falhou: %s", exc)
-        lista, erro = [], (str(exc) if isinstance(exc, WbcDatabaseError) else "O SAP não respondeu à consulta.")
+        lista, erro = [], MSG_LISTA_NAO_CONFERIDA
     finally:
         leitor.close()
     return templates.TemplateResponse(
@@ -80,6 +82,9 @@ def conferir(
         )
     except Recusa as recusa:
         return tela._recusa(request, recusa)
+    except Exception as exc:  # noqa: BLE001 - the plan re-reads the list: same answer as the card
+        logger.error("Pedidos fechados com OPs abertas: conferência falhou: %s", exc)
+        return tela._erro(request, MSG_LISTA_NAO_CONFERIDA, voltar=_voltar(_marcado(incluir_atrasados)))
     finally:
         leitor.close()
     return templates.TemplateResponse(

@@ -289,12 +289,19 @@ def test_consultar_lista_com_checkbox(cliente, isolado):
 def test_consulta_que_falha_diz_no_card_em_vez_de_500(cliente, isolado):
     """Unknown invoicing (future delivery) or the SAP down: said in the card, never a bare 500."""
     from controleproducao.core.exceptions import WbcDatabaseError
+    from controleproducao.modules.manutencao_op.fechados_router import MSG_LISTA_NAO_CONFERIDA
 
-    with patch(f"{M}.fechados.pedidos_fechados_com_op", side_effect=WbcDatabaseError("Faturamento ilegível.")):
+    falha = WbcDatabaseError("Falha ao consultar o HANA: texto do driver")
+    with patch(f"{M}.fechados.pedidos_fechados_com_op", side_effect=falha):
         resposta = cliente.get("/manutencao-op/pedidos-fechados")
+        conferir = cliente.post("/manutencao-op/pedidos-fechados/encerrar/conferir", data={"pedidos": ["84104"]})
     assert resposta.status_code == 200
-    assert "Lista não montada." in resposta.text and "Faturamento ilegível." in resposta.text
+    assert "Lista não montada." in resposta.text and "texto do driver" not in resposta.text
     assert 'id="form-fechados"' not in resposta.text
+    # "Encerrar selecionados" re-reads the list: the same fixed answer, never a bare 500.
+    assert conferir.status_code == 400 and "texto do driver" not in conferir.text
+    for texto in (resposta.text, conferir.text):
+        assert MSG_LISTA_NAO_CONFERIDA in texto
 
 
 def test_lista_vazia_aponta_o_caminho(cliente, isolado):
