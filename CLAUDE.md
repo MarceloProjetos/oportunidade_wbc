@@ -171,9 +171,10 @@ Regra com teste = 1 linha + o teste que a protege; sem teste = o porquê junto.
 - As OS (solda, pintura, compras, expedição, almox) saem do **Detalhe do Orçamento apontado pelo pedido**: Processar
   recusa o pedido, antes de gravar, se o `OrcDetalhe` novo não for criado (`detalhe_nao_gravado`; 84584 ficou no
   snapshot do worker e a OS saiu errada). — `tests/controleproducao/test_resultado_sem_op.py`
-- ⚠️ Views do SAP que o código não conserta (medido 11/11, sem acesso ao texto delas): `VW_OS_SOLDA_DETALHE` só traz
-  pedido **aberto** (88 de 88) e `VW_OS_PINTURA_V0` só traz pedido com `RDR1.U_INO_OP` gravado (2.700+ de 2.700+).
-  Pedido fechado por entrega futura perde a Solda; processado depois de fechar, perde também a Pintura.
+- ⚠️ Views do SAP que o código não conserta: `VW_OS_SOLDA_DETALHE` só trazia pedido **aberto** e `VW_OS_PINTURA_V0`
+  só pedido com `RDR1.U_INO_OP` gravado, então pedido fechado por entrega futura perdia a Solda e, processado depois
+  de fechar, também a Pintura. Scripts prontos e conferidos contra a view no ar em `sql/hana/VW_OS_*_2026-11-11.sql`
+  (rollback `*_antes_*`); quem roda é o Marcelo. Depois de rodar, sincronizar a OS dos pedidos para o espelho pegar.
 - Texto livre do `OrcDetalhe` maior que o UDF (nome 50, transporte 154, pagamento 254…) faz o SL recusar o detalhe
   inteiro e o pedido fica no antigo: `_monta_body_orc_detalhe` corta pelos tamanhos do CUFD; código nunca se corta. — idem
 - Processar recusa (`409 nota_espelho`, também na execução e com "forçar") pedido com

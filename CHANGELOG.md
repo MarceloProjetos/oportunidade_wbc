@@ -26,6 +26,15 @@ no SAP só com leitura:
 Conserto do 84584: Reprocessar e Processar pela tela depois do deploy (detalhe novo → Compras, Expedição e
 Almoxarifado certos); Solda e Pintura dependem das duas views.
 
+**Scripts das duas views** (`sql/hana/`, para o Marcelo rodar no HANA; nada aqui os executa), escritos a partir do
+texto que ele mandou e conferidos, só com leitura, contra as views no ar (`EXCEPT` nos dois sentidos):
+- `VW_OS_PINTURA_V0_2026-11-11.sql`: a OP pai também vale quando a linha do pedido está fechada e sem `U_INO_OP`
+  (OP viva do mesmo item e do mesmo item de orçamento). As 30.181 linhas de hoje ficam; só o 84584 ganha (12).
+- `VW_OS_SOLDA_DETALHE_2026-11-11.sql`: pedido fechado e não cancelado conta enquanto tiver OP Planejada ou
+  Liberada. As 1.105 linhas de hoje ficam; ganham 84584, 84574, 84444, 84433, 84425 e 84422. Só tirar o filtro
+  traria 3.723 pedidos antigos.
+- `*_antes_2026-11-11.sql` = a view como estava (rollback), conferida idêntica à que está no ar.
+
 ## [2026-11-11] — Vendas, Produção, Entrega e Sinal na lista da API de Pedidos WBC
 
 **Pede deploy da .11** (`deploy_update.bat`). Pedido da equipe da API (F3 do `docs/PLANO_SINAL_E_ETAPAS_NA_API.md`):
