@@ -904,6 +904,9 @@ Os textos que a pessoa pode ver nesta tela. "API" = vem pronto na resposta (use-
 | Execução | "Não havia execução em andamento para interromper." | depois do Interromper (`cancelada: false`) | fixo |
 | Execução | "Execução não encontrada. Ela pode ter saído do histórico (ficam as 30 mais recentes) ou o serviço foi reiniciado antes de ela ser guardada." | `404 nao_encontrada` | API `motivo` |
 | Execução | cada linha do log e o `passo` | sempre | API `linhas`, `passo` |
+| Lista | pílula "Entrega futura" sob o número do pedido | `pedidos[].entrega_futura: true` (desde 11/11/2026) | fixo + API `entrega_futura` |
+| Execução | "⚠ Linha(s) 0 do pedido 21043 fechada(s) no SAP: U_INO_OP=164414 não gravado nela(s) (o SAP recusa); a OP continua ligada ao pedido pela própria OP." | pedido de entrega futura, uma vez por grupo. **Esperado, não é erro**; o número depois de "pedido" é o DocEntry, não o nº do pedido | API `linhas` |
+| Execução | "⚠ U_CLINOM do orçamento 00126063 passa de 50 caracteres (1 registro(s), o maior com 57): gravado só até o 50º (o texto inteiro fica no WBC)." | texto do WBC maior que o campo do SAP (nome, transporte, descrição do item…). Esperado | API `linhas` |
 | Qualquer | "X-API-Key ausente ou incorreta." | `401 sem_chave` | API `motivo` |
 
 ### 5.11 O mesmo roteiro, em código
@@ -2129,4 +2132,4 @@ fictícios; só os nomes de pessoa e o servidor de exemplo foram ajustados. No S
 | 05/10/2026 | Linha nova no acompanhamento do Processar, depois da CAUSA: o que a integração faz com o peso reescalado — [7.4.1](#741-peso-diferente-e-a-causa). Os campos não mudaram |
 | 06/10/2026 | Seção nova [5. Caso real: o pedido 84460, do começo ao fim](#5-caso-real-o-pedido-84460-do-começo-ao-fim): o mapa de todos os objetos da tela (lista, conferência, execução) com o texto exato e de onde vem, as respostas reais da lista e da conferência, o log real de um Processar e de um Reprocessar explicado linha por linha, um erro real e o catálogo de todas as mensagens. As seções seguintes foram renumeradas (6 a 16) |
 | 26/10/2026 | Processar recusa pedido com Nota Espelho (`409 nota_espelho`, também com "forçar"), na conferência e de novo na execução (`com_erro` com `"nota_espelho": true`). Reprocessar não muda |
-| 11/11/2026 | Campo novo `pedidos[].entrega_futura`: os dois modos passam a trazer o pedido fechado pela NF de entrega futura com a remessa pendente — [Pedidos novos × Pedidos integrados](#pedidos-novos--pedidos-integrados). Os outros campos não mudaram |
+| 11/11/2026 | Campo novo `pedidos[].entrega_futura`: os dois modos passam a trazer o pedido fechado pela NF de entrega futura com a remessa pendente — [Pedidos novos × Pedidos integrados](#pedidos-novos--pedidos-integrados). Dois avisos novos no log da execução (linha fechada, texto cortado), no [catálogo de mensagens](#510-todas-as-mensagens-da-integração-num-lugar-só). Os outros campos não mudaram |
