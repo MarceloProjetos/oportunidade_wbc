@@ -6,6 +6,15 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-11] — Vendas, Produção, Entrega e Sinal na lista da API de Pedidos WBC
+
+**Pede deploy da .11** (`deploy_update.bat`). Pedido da equipe da API (F3 do `docs/PLANO_SINAL_E_ETAPAS_NA_API.md`):
+`GET /api/pedidos-wbc/pedidos` passa a trazer, em cada pedido, `financeiro` (a coluna Vendas), `producao`,
+`entrega` e `sinal`, e a lista ganha `etapas_em`. A fonte é a mesma da tela "Situação dos Pedidos": o CP lê a
+API 8077 desta máquina (`/pedidos/situacao`, uma chamada por página, e `/pedidos/<n>/situacao` para quem está
+fora do recorte da view, como o pedido fechado por entrega futura). 8077 fora = os quatro campos `null`, e a
+lista continua. Contratos: `API_PEDIDOS_WBC.md` (7.1) e `docs/ENTREGA_FUTURA_PARA_EQUIPE_API.md` (3.3).
+
 ## [2026-11-11] — Condição de pagamento longa no Detalhe do Orçamento (`U_PGTCOD2`)
 
 **Pede deploy da .11** (`deploy_update.bat`). O Processar do 84584 pela tela (11/11, depois do deploy de

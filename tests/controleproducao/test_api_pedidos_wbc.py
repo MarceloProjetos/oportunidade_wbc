@@ -117,7 +117,10 @@ def lista():
 @pytest.fixture
 def ambiente(lista):
     """Non-production target and no real HANA reader, for the API and the screen."""
+    from controleproducao.modules.pedidos_wbc.acoes import Etapas
+
     with patch("controleproducao.core.web.get_settings", return_value=_settings()), \
+         patch("controleproducao.modules.pedidos_wbc.acoes.etapas_dos_pedidos", return_value=Etapas({}, None)), \
          patch("controleproducao.modules.pedidos_wbc.api_router.HanaDirectReader", MagicMock()), \
          patch("controleproducao.modules.pedidos_wbc.router.HanaDirectReader", MagicMock()), \
          patch("controleproducao.modules.pedidos_wbc.router.get_settings", return_value=_settings()):
@@ -262,7 +265,10 @@ def test_lista_novos_traz_a_pagina_o_kpi_e_o_botao_da_tela(c, ambiente):
         "pedido": 84201, "oportunidade": 4301, "wbc": "00120001", "versao": "", "cliente_codigo": "C0001",
         "cliente_nome": "Cliente 1", "cliente": "C0001 — Cliente 1", "total": 1235.5,
         "criado": "2026-09-02", "nota_espelho": False, "entrega_futura": False,
+        # 8077 not answering (the fixture's default): the stages are "could not tell", the list stays.
+        "financeiro": None, "producao": None, "entrega": None, "sinal": None,
     }
+    assert corpo["etapas_em"] is None
     assert corpo["acao"] == {
         "tipo": "processar", "verbo": "Processar", "botao": "Processar selecionados…",
         "conferir": f"{API}/processar/conferir", "aviso": None,

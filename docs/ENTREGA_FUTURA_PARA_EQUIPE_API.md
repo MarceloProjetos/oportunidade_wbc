@@ -70,7 +70,26 @@ Cada item de `pedidos[]` em `GET /api/pedidos-wbc/pedidos` ganhou o campo `entre
 Sugestão para a página: uma pílula azul (informação) "Entrega futura" embaixo do número do pedido, como a tela
 da .11 faz. Não é obrigatório; nada quebra se a página ignorar o campo.
 
-### 3.3 O que NÃO mudou
+### 3.3 Vendas, Produção, Entrega e Sinal (pedido de vocês)
+
+Cada item de `pedidos[]` também traz as colunas da tela "Situação dos Pedidos", com os mesmos valores dela,
+e a lista ganhou `etapas_em` (quando o SAP foi lido; a leitura vale até 2 minutos):
+
+| Campo | Na tela | Valores |
+| --- | --- | --- |
+| `financeiro` | VENDAS | `"Liberado"`, `"Bloqueado"`, `"Fechado"`, `"Entrega futura"` |
+| `producao` | PRODUÇÃO | idem |
+| `entrega` | ENTREGA | idem (nunca liberada antes da Produção) |
+| `sinal` | SINAL | `true` = a condição de pagamento tem sinal; `false` = não tem |
+
+- `null` em qualquer um = não deu para saber agora; a lista continua igual.
+- `sinal` diz se o pedido **tem** sinal, não se foi pago. Sinal ainda não pago aparece como Produção `"Bloqueado"`.
+- Pedido fechado por entrega futura (84537, 84584) vem com as três etapas em `"Entrega futura"`.
+- Em 11/11/2026 dois pedidos aparecem bloqueados sem estar: **84589** (sinal pago, mas há um 2º adiantamento
+  duplicado em aberto) e **84536** (o sinal foi pago na NF de entrega futura, e o adiantamento ficou em aberto). O
+  Financeiro corrige no SAP, e a API mostra liberado sozinha. A API mostra o que o SAP diz, igual à tela.
+
+### 3.4 O que NÃO mudou
 
 - As rotas, os corpos e as respostas de **conferir**, **executar**, **acompanhar** e **interromper**.
 - A seleção continua por número de **Oportunidade** (`{"oportunidades": [15638]}`), não pelo número do pedido.
@@ -149,7 +168,7 @@ Se o 84537 **não** aparecer no passo 1, não tentem outro caminho (CLI, forçar
 
 ## 7. Perguntas rápidas
 
-**Preciso mudar alguma coisa para continuar funcionando?** Não. O campo é novo e o resto é igual. A única
+**Preciso mudar alguma coisa para continuar funcionando?** Não. Os campos são novos e o resto é igual. A única
 atenção é com os avisos do log (4.1) e com quem lê `RDR1.U_INO_OP` (4.2).
 
 **Como sei se um pedido é de entrega futura?** Pelo `entrega_futura: true` na lista. Pela API de situação da 8077

@@ -1,7 +1,7 @@
 # Plano — Sinal e etapas na API de Pedidos WBC
 
-> **Status (11/11/2026):** diagnóstico feito, só leitura no SAP de produção. **Nada codado.** Espera as decisões
-> D1–D4 e a conferência do Financeiro (F1).
+> **Status (11/11/2026):** F0 feita (só leitura). **F3 codada e no master, falta o deploy da .11** (D3 e D4 aprovadas
+> pelo Marcelo). F1 espera o Financeiro; F2 só se F1 mostrar repetição; D1 e D2 abertas.
 > Página: artifact publicado com o mesmo conteúdo (mesma url a cada atualização).
 
 **Começo → Meio → Fim:** separar os falsos bloqueios dos verdadeiros e corrigir no SAP → a regra do sinal pago
@@ -55,13 +55,13 @@ a view diz `Producao = 'Bloqueada'` e `Data_Lib_Prod` vazio. Separando pelo moti
   pedido cobre o sinal; adiantamento duplicado em aberto não bloqueia.
 - Onde: na view (D2). Medir antes, em produção e só leitura, quantos pedidos mudariam.
 
-### F3 — Etapas e sinal na API de Pedidos WBC
+### F3 — Etapas e sinal na API de Pedidos WBC <span>✅ codada 11/11 — falta deploy</span>
 **Meta:** a equipe vê, em cada pedido da lista, Vendas, Produção, Entrega e Sinal, iguais à Situação dos Pedidos.
-- Campos novos em `pedidos[]` (nomes em D3): `financeiro`, `producao`, `entrega` (`"Liberado"`, `"Bloqueado"`,
-  `"Fechado"` ou `"Entrega futura"`) e `sinal` (`true`/`false`), mais `etapas_em` (idade do dado).
-- Fonte: a mesma da Situação dos Pedidos, por loopback à 8077 (`/pedidos/situacao`, um pedido só por lista), D4.
-  8077 fora = campos `null` ("não deu para saber"); a lista continua.
-- Nas duas listas (novos e integrados). Testes + contrato `API_PEDIDOS_WBC.md` + página para a equipe.
+- `pedidos[]` ganhou `financeiro`, `producao`, `entrega` (`"Liberado"`, `"Bloqueado"`, `"Fechado"` ou
+  `"Entrega futura"`) e `sinal` (`true`/`false`); a lista ganhou `etapas_em`.
+- `acoes.etapas_dos_pedidos`: uma chamada à 8077 (`/pedidos/situacao`) por página e uma por pedido fora do recorte da
+  view (o fechado por entrega futura). 8077 fora = campos `null`; a lista continua.
+- Nas duas listas. Testes (`test_etapas_na_api.py`), contrato `API_PEDIDOS_WBC.md` 7.1 e texto da equipe 3.3.
 
 ### F4 — No ar e avisar a equipe
 - Deploy da .11 (Marcelo); conferir pela API nos 12 pedidos e no 84537; atualizar o texto da equipe.
@@ -72,9 +72,9 @@ a view diz `Producao = 'Bloqueada'` e `Data_Lib_Prod` vazio. Separando pelo moti
    entrega futura e foi pago); quem decide é o Financeiro.
 2. **D2 — Onde mora a regra do sinal pago.** *Recomendo:* **na view** — um lugar só, e tela, app, .11 e Mira passam
    a concordar sozinhos. Preciso do texto atual da view (o meu usuário não lê a definição).
-3. **D3 — Nome dos campos.** *Recomendo:* `financeiro`, `producao`, `entrega`, `sinal` — os mesmos da API de situação
+3. ✅ **D3 — Nome dos campos** (aprovada 11/11). `financeiro`, `producao`, `entrega`, `sinal` — os mesmos da API de situação
    (`API_SITUACAO_PEDIDOS.md`), e o guia diz que "Vendas" na tela = `financeiro`. Um vocabulário só.
-4. **D4 — Fonte das etapas no Controle de Produção.** *Recomendo:* loopback à 8077 (`/pedidos/situacao`), como o CP
+4. ✅ **D4 — Fonte das etapas no Controle de Produção** (aprovada 11/11). loopback à 8077 (`/pedidos/situacao`), como o CP
    já faz para sincronizar a OS: mesmo cache e mesma regra da tela; ler a view direto no CP duplicaria a regra.
 
 ---

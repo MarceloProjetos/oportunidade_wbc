@@ -129,6 +129,53 @@ def preenche_versoes(pedidos: list) -> None:
         p.versao = revisoes.get(p.orc_num_masc, "")
 
 
+#: The order's stages as the Situação dos Pedidos shows them (`situacao_pedidos.py` core): same
+#: names and values as the API 8077 (`API_SITUACAO_PEDIDOS.md`). "Vendas" on the screen = `financeiro`.
+CAMPOS_ETAPA = ("financeiro", "producao", "entrega", "sinal")
+
+
+@dataclass(frozen=True)
+class Etapas:
+    """``por_pedido``: DocNum → the four `CAMPOS_ETAPA`; absent = could not tell (the API sends
+    ``null``). ``gerado_em``: when the SAP was read (the 8077 cache, up to 120 s old)."""
+
+    por_pedido: dict[int, dict]
+    gerado_em: str | None
+
+
+def etapas_dos_pedidos(doc_nums: list[int]) -> Etapas:
+    """Vendas, Produção, Entrega and Sinal of the listed orders, through the API 8077 of this
+    machine — the same reading and rule as the Situação dos Pedidos, so the API never disagrees
+    with that screen (PLANO_SINAL_E_ETAPAS_NA_API, D4). Blocking: call it in a thread.
+
+    One call for the whole cut of the view (`/pedidos/situacao`, cached there) and one per order
+    missing from it (a page has at most `POR_PAGINA`): a closed order is out of the view, and the
+    single route still answers it ("Fechado", "Entrega futura"). Never raises: a failed read costs
+    the columns, never the list.
+    """
+    settings = get_settings()
+    base = f"http://127.0.0.1:{settings.os_api_port}"
+    cabecalho = {"X-API-Key": settings.os_api_key.get_secret_value()}
+    por_pedido: dict[int, dict] = {}
+    gerado_em = None
+    try:
+        with httpx.Client(base_url=base, headers=cabecalho, timeout=httpx.Timeout(20.0, connect=3.0)) as cliente:
+            corpo = cliente.get("/pedidos/situacao", params={"status": "todos", "campos": "resumo"}).json()
+            if corpo.get("ok"):
+                gerado_em = corpo.get("gerado_em")
+                for p in corpo.get("pedidos") or []:
+                    if p.get("doc_num") is not None:
+                        por_pedido[int(p["doc_num"])] = {c: p.get(c) for c in CAMPOS_ETAPA}
+            for doc_num in [d for d in doc_nums if d not in por_pedido]:
+                um = cliente.get(f"/pedidos/{int(doc_num)}/situacao").json()
+                if um.get("ok") and isinstance(um.get("pedido"), dict):
+                    por_pedido[int(doc_num)] = {c: um["pedido"].get(c) for c in CAMPOS_ETAPA}
+                    gerado_em = gerado_em or um.get("gerado_em")
+    except Exception:  # noqa: BLE001 - the list must still answer
+        logger.warning("Pedidos WBC: etapas dos pedidos não lidas na API 8077.", exc_info=True)
+    return Etapas({d: por_pedido[d] for d in doc_nums if d in por_pedido}, gerado_em)
+
+
 @dataclass(frozen=True)
 class Pagina:
     itens: list

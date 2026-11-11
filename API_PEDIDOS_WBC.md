@@ -1141,9 +1141,14 @@ X-API-Key: SUA_CHAVE
       "total": 867100,
       "criado": "2026-09-29",
       "nota_espelho": false,
-      "entrega_futura": false
+      "entrega_futura": false,
+      "financeiro": "Liberado",
+      "producao": "Bloqueado",
+      "entrega": "Bloqueado",
+      "sinal": true
     }
   ],
+  "etapas_em": "2026-11-11T12:04:00-03:00",
   "vazio": null,
   "acao": {
     "tipo": "processar",
@@ -1179,6 +1184,9 @@ embaixo da lista:
 | `pagina`/`paginas` | O 2º cartão ("2/7", rótulo "Página") e a paginação. |
 | `primeiro`/`ultimo`/`total` | "16–30 de 93 pedido(s)". |
 | `pedidos[]` | As linhas da tabela. `total` é número: formate em reais ([8.5](#85-formatação)). |
+| `pedidos[].financeiro` / `producao` / `entrega` | Desde 11/11/2026: as colunas **Vendas**, **Produção** e **Entrega** da tela "Situação dos Pedidos", com os mesmos valores: `"Liberado"`, `"Bloqueado"`, `"Fechado"` ou `"Entrega futura"`. "Vendas" na tela = `financeiro`. Vêm da mesma leitura e da mesma regra daquela tela (a API de situação, `API_SITUACAO_PEDIDOS.md`): Entrega nunca aparece liberada antes da Produção. `null` = não deu para saber agora (a lista continua). |
+| `pedidos[].sinal` | Desde 11/11/2026: `true` = a condição de pagamento tem sinal (coluna SINAL da tela); `false` = não tem; `null` = não deu para saber. Diz se **tem** sinal, não se ele foi pago: sinal não pago aparece como Produção `"Bloqueado"`. |
+| `etapas_em` | Quando o SAP foi lido para essas quatro colunas (a leitura é guardada por até 2 minutos). `null` quando não deu para ler. |
 | `vazio` | Com a lista vazia: o texto da linha única da tabela ("Nenhum pedido neste modo."). |
 | `acao.botao` / `acao.verbo` | O rótulo do botão; com seleção vira "`{verbo}` selecionados (`n`)…". |
 | `acao.conferir` | Para onde mandar a seleção. |
@@ -2133,3 +2141,4 @@ fictícios; só os nomes de pessoa e o servidor de exemplo foram ajustados. No S
 | 06/10/2026 | Seção nova [5. Caso real: o pedido 84460, do começo ao fim](#5-caso-real-o-pedido-84460-do-começo-ao-fim): o mapa de todos os objetos da tela (lista, conferência, execução) com o texto exato e de onde vem, as respostas reais da lista e da conferência, o log real de um Processar e de um Reprocessar explicado linha por linha, um erro real e o catálogo de todas as mensagens. As seções seguintes foram renumeradas (6 a 16) |
 | 26/10/2026 | Processar recusa pedido com Nota Espelho (`409 nota_espelho`, também com "forçar"), na conferência e de novo na execução (`com_erro` com `"nota_espelho": true`). Reprocessar não muda |
 | 11/11/2026 | Campo novo `pedidos[].entrega_futura`: os dois modos passam a trazer o pedido fechado pela NF de entrega futura com a remessa pendente — [Pedidos novos × Pedidos integrados](#pedidos-novos--pedidos-integrados). Dois avisos novos no log da execução (linha fechada, texto cortado), no [catálogo de mensagens](#510-todas-as-mensagens-da-integração-num-lugar-só). Os outros campos não mudaram |
+| 11/11/2026 | Campos novos na lista ([7.1](#71-get-pedidos--a-lista)): `pedidos[].financeiro`, `producao`, `entrega` e `sinal` (as colunas Vendas, Produção, Entrega e Sinal da tela "Situação dos Pedidos") e `etapas_em`. Pedido da equipe da API. Os outros campos não mudaram |

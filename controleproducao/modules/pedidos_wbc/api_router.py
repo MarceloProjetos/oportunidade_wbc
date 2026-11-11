@@ -164,8 +164,10 @@ def _texto_obrigatorio(dados: dict, campo: str, mensagem: str) -> str:
 # ---------------------------------------------------------------------------
 # Writing the answer
 # ---------------------------------------------------------------------------
-def _pedido(p) -> dict:
-    """One row of the list, with the screen's columns."""
+def _pedido(p, etapas: dict | None = None) -> dict:
+    """One row of the list, with the screen's columns, plus the order's stages as the Situação dos
+    Pedidos shows them (``null`` = could not tell; see `acoes.etapas_dos_pedidos`)."""
+    etapas = etapas or {}
     return {
         "pedido": p.doc_num,
         "oportunidade": p.opp_id,
@@ -178,6 +180,7 @@ def _pedido(p) -> dict:
         "criado": str(p.data_lancamento)[:10],
         "nota_espelho": p.nota_espelho,
         "entrega_futura": p.entrega_futura,
+        **{campo: etapas.get(campo) for campo in acoes.CAMPOS_ETAPA},
     }
 
 
@@ -253,6 +256,7 @@ def listar(modo: str = "novos", pagina: str = "1"):
 
     folha = acoes.pagina(pedidos, int(pagina))
     acoes.preenche_versoes(folha.itens)
+    etapas = acoes.etapas_dos_pedidos([p.doc_num for p in folha.itens])
     rodando = TAREFAS.em_execucao(acoes.MODULO)
     return {
         "ok": True,
@@ -264,7 +268,8 @@ def listar(modo: str = "novos", pagina: str = "1"):
         "por_pagina": acoes.POR_PAGINA,
         "primeiro": folha.primeiro,
         "ultimo": folha.ultimo,
-        "pedidos": [_pedido(p) for p in folha.itens],
+        "pedidos": [_pedido(p, etapas.por_pedido.get(p.doc_num)) for p in folha.itens],
+        "etapas_em": etapas.gerado_em,
         "vazio": acoes.MSG_LISTA_VAZIA if not folha.total else None,
         "acao": _acao(integrados),
         "execucao_em_andamento": _resumo_da_execucao(rodando) if rodando else None,
