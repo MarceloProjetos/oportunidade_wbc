@@ -30,6 +30,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
+from controleproducao.core import entrega_futura
 from controleproducao.core.audit_log import preenche_log
 from controleproducao.core.exceptions import ServiceLayerAuthError, ServiceLayerError
 from controleproducao.core.formato import numero_br
@@ -157,6 +158,9 @@ async def buscar_pedidos_para_integrar(
     """
     sql = q.BUSCA_PEDIDOS_INTEGRADOS if integrados else q.BUSCA_PEDIDOS_PARA_INTEGRAR
     rows = hana_reader.fetch_all(*ligar(sql, filtro=""))
+    fechados = [] if integrados else _fechados_por_entrega_futura(hana_reader)
+    entrega_futura = {int(row["Nº Pedido"]) for row in fechados}
+    rows = [*rows, *fechados]
     # "Pedidos novos" only: that is where Processar would plan the items a second time.
     orfas = (
         {} if integrados
@@ -179,6 +183,7 @@ async def buscar_pedidos_para_integrar(
             data_lancamento=str(row["Data Lancamento"]),
             orc_num_masc=str(row["Nº Oportunidade"]),
             nota_espelho=str(row.get("Nota Espelho") or "").strip().upper() == "Y",
+            entrega_futura=int(row["Nº Pedido"]) in entrega_futura,
             ops_orfas=orfas.get(str(row["Nº Oportunidade"]), []),
         )
         for row in rows
@@ -189,6 +194,25 @@ async def buscar_pedidos_para_integrar(
     # Mesma convenção já usada na busca do módulo 3 (`DocNum` decrescente).
     pedidos.sort(key=lambda p: p.doc_num, reverse=True)
     return pedidos
+
+
+def _fechados_por_entrega_futura(hana_reader: HanaDirectReader) -> list[dict]:
+    """Closed orders that still go to "Pedidos novos": closed by the future-delivery NF while the
+    remessa is still pending (`core.entrega_futura`), never processed into an OP.
+
+    Fails closed: when the read or the invoicing rule fails, none is listed (logged) and the open
+    orders are listed as before.
+    """
+    try:
+        rows = hana_reader.fetch_all(*ligar(q.BUSCA_PEDIDOS_FECHADOS_PARA_INTEGRAR))
+        futuras = entrega_futura.pendentes(hana_reader, [int(r["DocEntry"]) for r in rows])
+    except Exception:  # noqa: BLE001 - the open orders must still be listed
+        logger.exception("Pedidos fechados por entrega futura: leitura falhou — nenhum entra na lista.")
+        return []
+    if futuras is None:
+        logger.error("Pedidos fechados por entrega futura: faturamento indisponível — nenhum entra na lista.")
+        return []
+    return [r for r in rows if int(r["DocEntry"]) in futuras]
 
 
 async def ops_vivas_de_pedidos_cancelados(
@@ -527,7 +551,7 @@ def _monta_body_orc_detalhe(orc_num: str, header: NewOrcPrd, linhas_udo: list[di
         "U_ORCBAS1": float(header.orc_bas1),
         "U_ORCBAS2": float(header.orc_bas2),
         "U_ORCBAS3": float(header.orc_bas3),
-        "U_ORCPGT": header.orc_pgt,
+        "U_ORCPGT": _ate_254(orc_num, "U_ORCPGT", header.orc_pgt),
         "U_ORCIMP_REVISAO": header.orc_imp_revisao,
         "U_ORCIMP_EMAIL": header.orc_imp_email,
         "U_ORCIMP_FONE": header.orc_imp_fone,
@@ -550,6 +574,23 @@ def _monta_body_orc_detalhe(orc_num: str, header: NewOrcPrd, linhas_udo: list[di
         campos_header["U_ORCIMP_ACABAMENTO2"] = acabamento[254:]
 
     return {**campos_header, _UDO_ORC_DETALHE_CHILD: linhas_udo}
+
+
+def _ate_254(orc_num: str, campo: str, valor: object) -> str:
+    """``valor`` cut to the 254 characters of an alphanumeric UDF, with a warning when cut.
+
+    A long payment text (many instalments) made the Service Layer refuse the whole
+    `OrcDetalhe` ("Value too long in property 'U_ORCPGT'"), so the order kept the previous
+    Detalhe (84584, 11/11/2026). The full text stays in the WBC.
+    """
+    texto = str(valor or "")
+    if len(texto) <= 254:
+        return texto
+    logger.warning(
+        "    %s do orçamento %s tem %d caracteres: gravado só até o 254º (o texto inteiro fica no WBC).",
+        campo, orc_num, len(texto),
+    )
+    return texto[:254]
 
 
 _CAMPOS_DO_RESUMO = {
@@ -1943,9 +1984,24 @@ async def marca_op_nas_linhas(
         )
         return
 
+    # A closed line (an order closed by the future-delivery NF before its OPs) refuses any
+    # UDF write with "-1029 Field cannot be updated", and that aborted the whole order after
+    # its first group (84584, 11/11/2026). The OP stays linked through its own
+    # `OriginAbs`/`U_INO_LinhaRef`; only the line-side mark is skipped.
+    fechadas = sorted({int(row["LineNum"]) for row in linhas_rows if str(row.get("LineStatus") or "O") == "C"})
+    if fechadas:
+        logger.warning(
+            "  Linha(s) %s do pedido %s fechada(s) no SAP: U_INO_OP=%s não gravado nela(s) (o SAP "
+            "recusa); a OP continua ligada ao pedido pela própria OP.",
+            ", ".join(map(str, fechadas)), doc_entry, num_op,
+        )
     # Dedup por LineNum: dois itens de orçamento podem cair na mesma linha do pedido, e
     # repetir o mesmo `LineNum` no corpo confundiria a Service Layer.
-    line_nums = list(dict.fromkeys(int(row["LineNum"]) for row in linhas_rows))
+    line_nums = [
+        n for n in dict.fromkeys(int(row["LineNum"]) for row in linhas_rows) if n not in fechadas
+    ]
+    if not line_nums:
+        return
     linhas_do_corpo = [{"LineNum": line_num, "U_INO_OP": num_op} for line_num in line_nums]
 
     # Atualização PARCIAL das linhas: manda só `LineNum` + o campo que muda.

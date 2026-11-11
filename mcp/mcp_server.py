@@ -1392,7 +1392,8 @@ def pedidos_fechados_com_op(incluir_atrasados: bool = False) -> dict[str, Any]:
     É a lista do card "Pedidos fechados com OPs abertas" da Manutenção de OP. Cada pedido traz
     cliente, data de entrega, ``ops_abertas`` e ``planejadas``. Por padrão deixa de fora os
     pedidos atrasados; ``incluir_atrasados=True`` traz todos. Para encerrar, use
-    ``pedir_encerrar_ops_pedidos_fechados`` (uma pessoa aprova).
+    ``pedir_encerrar_ops_pedidos_fechados`` (uma pessoa aprova). Pedido fechado pela NF de entrega
+    futura com a mercadoria ainda por sair nunca aparece aqui: a produção dele não acabou.
 
     Args:
         incluir_atrasados: também os pedidos com entrega atrasada.

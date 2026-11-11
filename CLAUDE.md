@@ -163,6 +163,10 @@ Regra com teste = 1 linha + o teste que a protege; sem teste = o porquê junto.
 - ⚠️ `POST /ordens-servico/<n>/sincronizar` pode **cancelar e recriar OPs** (árvore do WBC mudou e nada começou; `refazer.py`). Quem só quer copiar passa `?so_atualizar=1` ou usa `/sync/ordens-servico`; chave de agente e pedido fora do espelho nunca refazem. — `tests/test_api_sincronizar_refaz_ops.py`, `tests/controleproducao/test_refazer_ops.py`
 - Processar recusa (`409 ops_orfas`, também na execução e com "forçar") pedido cujo orçamento tem pedido
   **cancelado** com OP P/R viva. — `tests/controleproducao/test_ops_orfas.py`
+- Pedido **fechado** pela NF de entrega futura (5922/6922) com remessa pendente e sem OP entra em "Pedidos novos"
+  (`entrega_futura`; regra de `faturamento_pedido` via `core/entrega_futura.py`, único import do CP na raiz) e sai de
+  "Pedidos fechados com OPs abertas". No SAP, pedido fechado aceita UDF de cabeçalho e OP ligada, mas **linha fechada
+  recusa UDF (-1029)**: `marca_op_nas_linhas` pula a linha `LineStatus='C'` (84584, 11/11). — `tests/controleproducao/test_entrega_futura.py`
 - Processar recusa (`409 nota_espelho`, também na execução e com "forçar") pedido com
   `ORDR.U_U_INO_NotaEspelho = 'Y'`: não confirmado, não vai para a produção. Reprocessar passa. — `tests/controleproducao/test_nota_espelho_bloqueio.py`
 - Só **Replanejar** recusa OP com saída ou entrada lançada (o lote inteiro, 409; baixada desconhecida

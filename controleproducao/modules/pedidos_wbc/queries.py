@@ -31,6 +31,29 @@ WHERE IFNULL(OOPR."U_INO_IntegrouWBC",'N') = 'Y'
   {filtro}
 """.strip()
 
+# Not in the C#: SAP closes the order at the future-delivery NF (CFOP 5922/6922), which can be
+# issued before anyone processed it (84537, 84584 in 11/2026). Same filter as above, closed instead
+# of open, never processed into an OP, with a live future NF; `service` then keeps only the ones
+# whose remessa is still pending (`faturamento_pedido`, the rule of PLANO_ENTREGA_FUTURA).
+BUSCA_PEDIDOS_FECHADOS_PARA_INTEGRAR = """
+SELECT DISTINCT 'N' AS "Selecionar", OPR1."OpprId" as "Num Oportunidade", ORDR."DocNum" as "Nº Pedido",
+       ORDR."CardCode" as "Cod.Cliente", ORDR."CardName" as "Nome Cliente", ORDR."DocTotal" as "Total Pedido",
+       ORDR."DocDate" as "Data Lancamento", OOPR."U_ORCNUM_MASC" as "Nº Oportunidade",
+       IFNULL(ORDR."U_U_INO_NotaEspelho",'N') as "Nota Espelho", ORDR."DocEntry" as "DocEntry"
+FROM ORDR
+  INNER JOIN OPR1 ON OPR1."DocId" = ORDR."DocEntry" AND OPR1."ObjType" = 17
+  INNER JOIN OOPR ON OPR1."OpprId" = OOPR."OpprId"
+WHERE IFNULL(OOPR."U_INO_IntegrouWBC",'N') = 'Y'
+  AND IFNULL(ORDR."U_INO_ProcessWBC",'N') = 'N'
+  AND ORDR."DocStatus" = 'C' AND ORDR."CANCELED" = 'N'
+  AND OOPR."U_ORCNUM_MASC" <> ''
+  AND ORDR."U_INO_Integrar" = 'Y'
+  AND NOT EXISTS (SELECT 1 FROM OWOR W WHERE W."OriginAbs" = ORDR."DocEntry" AND W."Status" <> 'C')
+  AND EXISTS (SELECT 1 FROM INV1 L INNER JOIN OINV I ON I."DocEntry" = L."DocEntry"
+              WHERE L."BaseType" = 17 AND L."BaseEntry" = ORDR."DocEntry" AND I."CANCELED" = 'N'
+                AND L."CFOPCode" IN ('5922','6922'))
+""".strip()
+
 BUSCA_PEDIDOS_INTEGRADOS = """
 SELECT DISTINCT 'N' AS "Selecionar", OPR1."OpprId" as "Num Oportunidade", ORDR."DocNum" as "Nº Pedido",
        ORDR."CardCode" as "Cod.Cliente", ORDR."CardName" as "Nome Cliente", ORDR."DocTotal" as "Total Pedido",
@@ -278,8 +301,9 @@ WHERE T0."ObjType" = '17' AND T0."DocEntry" = {doc_entry} AND T0."LineNum" = {li
 ORDER BY T0."LogInstanc"
 """.strip()
 
+# `LineStatus`: SAP refuses `U_INO_OP` on a closed line (-1029, 84584 on 11/11/2026).
 LINHAS_PEDIDO_POR_ORCITM = """
-SELECT T0."LineNum", T0."U_INO_ORCITM" FROM RDR1 T0
+SELECT T0."LineNum", T0."U_INO_ORCITM", T0."LineStatus" FROM RDR1 T0
 WHERE T0."DocEntry" = {doc_entry} AND T0."U_INO_ORCITM" IN ({orc_itens})
 ORDER BY T0."LineNum"
 """.strip()

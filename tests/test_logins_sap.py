@@ -94,15 +94,15 @@ def hana_falso(monkeypatch):
 def test_resumo_com_parametro_ligado_e_cache(hana_falso):
     consultas, respostas, _conexoes = hana_falso
     respostas['"USR5"'] = ROBO + GENTE
-    r = ls.ler("resumo", dia="2026-10-09") if date.today() >= date(2026, 10, 9) else None
-    if r is None:
-        pytest.skip("clock before the fixture day")
+    # Relative day: a fixed one (2026-10-09) left the 31-day window on 2026-11-10 and failed the gate.
+    dia = date.today() - timedelta(days=2)
+    r = ls.ler("resumo", dia=dia.isoformat())
     assert r["eventos"] == 13 and [g["usuario"] for g in r["parecem_robos"]] == ["financeiro04"]
     assert r["cache"] is False and r["truncado"] is False
     texto, params = consultas[0]
-    assert '"SBOALTAMIRAPROD"."USR5"' in texto and "?" in texto and params == (date(2026, 10, 9),)
+    assert '"SBOALTAMIRAPROD"."USR5"' in texto and "?" in texto and params == (dia,)
     assert f"LIMIT {ls.RESUMO_MAX_LINHAS + 1}" in texto
-    assert ls.ler("resumo", dia="2026-10-09")["cache"] is True and len(consultas) == 1
+    assert ls.ler("resumo", dia=dia.isoformat())["cache"] is True and len(consultas) == 1
 
 
 def test_eventos_e_escritas(hana_falso):

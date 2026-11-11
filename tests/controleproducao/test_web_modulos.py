@@ -913,7 +913,9 @@ def test_busca_monta_o_modelo_a_partir_da_linha_do_hana():
     # Two reads since PLANO_TROCA_PN_COM_OP F3: the pedidos, then the live OPs left on
     # cancelled orders of the same quotes.
     leitor.fetch_all = MagicMock(
-        side_effect=lambda sql, *a: list(orfas) if "OWOR" in sql else [linha]
+        side_effect=lambda sql, *a: (
+            [] if "\"DocStatus\" = 'C'" in sql else list(orfas) if "OWOR" in sql else [linha]
+        )
     )
 
     pedidos = asyncio.run(svc.buscar_pedidos_para_integrar(leitor))
@@ -1270,7 +1272,7 @@ def test_css_da_linha_do_topo_e_da_barra_no_celular():
                      r'grid-template-areas: "marca direita" "nav nav";', casa_css)
     assert ".ov-opcao:has(input:disabled)" in css
     base = (_RAIZ_SIS / "controleproducao/templates/base.html").read_text(encoding="utf-8")
-    assert "style.css?v=15" in base
+    assert "style.css?v=16" in base
     # 29/09/2026: the mode choice of the search card is larger than the other options.
     assert re.search(r"\.ov-linha-topo \.ov-opcao input\[type=\"radio\"\] \{\s*width: 20px; height: 20px;", css)
 

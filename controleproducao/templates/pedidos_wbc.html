@@ -91,7 +91,9 @@
               aria-label="Selecionar o pedido {{ p.doc_num }}"></td>{% endif %}
             <td class="num centro"><strong>{{ p.doc_num }}</strong>
               {%- if p.nota_espelho %}<br><span class="ov-pill is-warn ov-espelho"
-                title="Pedido marcado como Nota Espelho no SAP (U_U_INO_NotaEspelho = Sim)">Nota espelho</span>{% endif %}</td>
+                title="Pedido marcado como Nota Espelho no SAP (U_U_INO_NotaEspelho = Sim)">Nota espelho</span>{% endif %}
+              {%- if p.entrega_futura %}<br><span class="ov-pill is-info ov-selo"
+                title="Fechado no SAP pela NF de entrega futura; a mercadoria ainda não saiu. Pode ser processado.">Entrega futura</span>{% endif %}</td>
             <td class="num centro">{{ p.opp_id }}</td>
             <td><span class="ov-pill is-aberto">{{ p.orc_num_masc }}</span></td>
             <td class="centro">{{ p.versao or "—" }}</td>

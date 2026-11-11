@@ -1024,6 +1024,12 @@ Não troque um pelo outro: a seleção é **sempre** pela `oportunidade`.
 
 Os dois mostram o **mais recente primeiro**, 15 por página.
 
+Os dois listam pedido **aberto** no SAP. Desde 11/11/2026, "Pedidos novos" também traz o pedido que o SAP
+fechou na **NF de entrega futura** (simples faturamento, CFOP 5922/6922), enquanto a mercadoria ainda não
+saiu toda e o pedido não tem nenhuma OP, com `entrega_futura: true`. As linhas desse pedido estão fechadas, e o
+SAP não deixa gravar nelas o número da OP: as OPs são criadas, ligadas ao pedido, e o acompanhamento avisa
+que o número não foi gravado na linha. Pedido fechado por NF de venda normal continua fora.
+
 ### O que Processar grava (de verdade)
 
 Para cada pedido: monta a tabela do orçamento, garante os itens cadastrados, cria os recursos
@@ -1130,7 +1136,8 @@ X-API-Key: SUA_CHAVE
       "cliente": "C006973 — XCMG BRASIL INDUSTRIA LTDA",
       "total": 867100,
       "criado": "2026-09-29",
-      "nota_espelho": false
+      "nota_espelho": false,
+      "entrega_futura": false
     }
   ],
   "vazio": null,
@@ -1551,7 +1558,9 @@ KPIs que dividem o resto. No celular, um embaixo do outro.
 
 Com `nota_espelho: true` (pedido marcado como **Nota Espelho** no SAP, campo `U_U_INO_NotaEspelho`),
 a tela põe embaixo do número do pedido uma pílula amarela (aviso) escrita "Nota espelho". Desde 26/10/2026 o
-Processar recusa esse pedido (`409 nota_espelho`). Pedido e
+Processar recusa esse pedido (`409 nota_espelho`). Com `entrega_futura: true` (desde 11/11/2026, só em
+`modo=novos`), a pílula é azul (informação) e escrita "Entrega futura": o pedido está fechado no SAP pela NF
+de entrega futura e **pode** ser processado. Pedido e
 Oportunidade ficam centralizados (cabeçalho e valor).
 
 - Lista vazia: uma linha só, ocupando as 7 colunas, com o texto de `vazio` em cor apagada.
@@ -2119,3 +2128,4 @@ fictícios; só os nomes de pessoa e o servidor de exemplo foram ajustados. No S
 | 05/10/2026 | Linha nova no acompanhamento do Processar, depois da CAUSA: o que a integração faz com o peso reescalado — [7.4.1](#741-peso-diferente-e-a-causa). Os campos não mudaram |
 | 06/10/2026 | Seção nova [5. Caso real: o pedido 84460, do começo ao fim](#5-caso-real-o-pedido-84460-do-começo-ao-fim): o mapa de todos os objetos da tela (lista, conferência, execução) com o texto exato e de onde vem, as respostas reais da lista e da conferência, o log real de um Processar e de um Reprocessar explicado linha por linha, um erro real e o catálogo de todas as mensagens. As seções seguintes foram renumeradas (6 a 16) |
 | 26/10/2026 | Processar recusa pedido com Nota Espelho (`409 nota_espelho`, também com "forçar"), na conferência e de novo na execução (`com_erro` com `"nota_espelho": true`). Reprocessar não muda |
+| 11/11/2026 | Campo novo `pedidos[].entrega_futura`: "Pedidos novos" passa a trazer o pedido fechado pela NF de entrega futura com a remessa pendente e sem OP — [Pedidos novos × Pedidos integrados](#pedidos-novos--pedidos-integrados). Os outros campos não mudaram |

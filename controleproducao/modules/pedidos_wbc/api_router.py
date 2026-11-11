@@ -177,6 +177,7 @@ def _pedido(p) -> dict:
         "total": _numero(p.total_pedido),
         "criado": str(p.data_lancamento)[:10],
         "nota_espelho": p.nota_espelho,
+        "entrega_futura": p.entrega_futura,
     }
 
 

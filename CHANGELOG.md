@@ -6,6 +6,30 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-11] — Processar pedido fechado pela NF de entrega futura (84537, 84584)
+
+**Pede deploy da .11** (`deploy_update.bat`; o `style.css?v=16` muda o HTML servido). O SAP fecha o pedido
+na NF de simples faturamento (CFOP 5922/6922), e o 84537 e o 84584 foram faturados antes de alguém
+processá-los: ficaram fora de "Pedidos novos", sem OP. O teste no 84584 (CLI, 11/11) mostrou o que o SAP
+aceita em pedido fechado: UDF de cabeçalho e OP ligada a ele, sim; `U_INO_OP` em linha fechada, não
+(`-1029 Field cannot be updated`), e isso parou o pedido no 1º de 3 grupos (17 OPs, canceladas em seguida
+com `cancelar-ops`; o pedido voltou a "não processado").
+- "Pedidos novos" (tela, `/api/pedidos-wbc` e o pedido de aprovação da Mira) passa a trazer o pedido fechado
+  por entrega futura com a remessa pendente, sem nenhuma OP viva, com a pílula "Entrega futura" e o campo
+  `entrega_futura`. A regra é a de `faturamento_pedido` (a mesma da API de situação), lida por
+  `controleproducao/core/entrega_futura.py`. Hoje entram exatamente o 84537 e o 84584; os 4 fechados de
+  entrega futura já remetidos e os fechados por NF de venda continuam fora. Faturamento ilegível = nenhum
+  fechado na lista; os abertos aparecem como antes.
+- `marca_op_nas_linhas` pula a linha fechada (`LineStatus = 'C'`) com aviso no log, em vez de parar o pedido;
+  a OP continua ligada pelo `OriginAbs`/`U_INO_LinhaRef`.
+- O texto de pagamento (`U_ORCPGT`) vai cortado em 254 caracteres, com aviso: um texto de muitas parcelas
+  fazia o SAP recusar o "Detalhe do Orçamento" inteiro (`Value too long`), e o pedido ficava no detalhe
+  antigo. Valia também para pedido aberto.
+- "Pedidos fechados com OPs abertas" (Manutenção de OP, API e tool MCP) deixa de oferecer o pedido de
+  entrega futura não remetido, cuja produção ainda não acabou; faturamento ilegível = lista não montada (`503`).
+- `tests/test_logins_sap.py`: o dia fixo 09/10 saiu da janela de 31 dias em 10/11 e reprovava o gate;
+  agora é relativo a hoje.
+
 ## [2026-11-09] — Pedidos WBC no padrão visual do OrçaView (fonte Inter, vermelho e neutro novos)
 
 **Pede deploy da .11** (`deploy_update.bat`) — só estático, mas o `casa.versao` (4 → 5) e o `style.css?v=15`

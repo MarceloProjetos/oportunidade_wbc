@@ -31,7 +31,9 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from controleproducao.config import get_settings
+from controleproducao.core import entrega_futura
 from controleproducao.core.confirmacao import PLANOS, ConfirmacaoInvalida, Plano
+from controleproducao.core.exceptions import WbcDatabaseError
 from controleproducao.core.hana_reader import HanaDirectReader
 from controleproducao.core.recusa import Recusa
 from controleproducao.core.service_layer_client import ServiceLayerClient
@@ -52,9 +54,11 @@ ERROS_DE_CONEXAO = ("Server disconnected", "Connection reset", "timed out")
 
 # The SQL the owner runs in the SAP (28/10/2026), joined with the OPs that are really still
 # open in OWOR: the view's Total_OS counts are kept for reference, the action uses OWOR.
+# `OriginAbs` is the order's DocEntry, for the future-delivery check (`pedidos_fechados_com_op`).
 PEDIDOS_FECHADOS_COM_OP = """
 SELECT V."DocNum" "Pedido", V."CardName" "Cliente", V."Data_Entrega" "Entrega",
        V."Atrasado" "Atrasado", V."Total_OS" "Total_OS", V."Total_OS_Fechadas" "Total_OS_Fechadas",
+       MAX(T."OriginAbs") "DocEntry",
        COUNT(T."DocEntry") "Abertas",
        SUM(CASE WHEN T."Status" = 'P' THEN 1 ELSE 0 END) "Planejadas"
 FROM "VW_STATUS_PEDIDO" V
@@ -102,8 +106,23 @@ def _num(valor: Any) -> int:
 
 
 def pedidos_fechados_com_op(leitor: HanaDirectReader, incluir_atrasados: bool = False) -> list[dict]:
-    """The closed orders that still have Planejada/Liberada OPs (the screen list and the API)."""
+    """The closed orders that still have Planejada/Liberada OPs (the screen list and the API).
+
+    Leaves out the orders closed by the future-delivery NF whose remessa is still pending: the
+    view calls them ``Fechado``, but their goods have not been made or shipped, and Encerrar would
+    issue the materials of a production that has not started. Unknown invoicing raises
+    (``WbcDatabaseError``, the "SAP unavailable" answer) instead of listing them.
+    """
     linhas = leitor.fetch_all(PEDIDOS_FECHADOS_COM_OP, (1 if incluir_atrasados else 0,))
+    futuras = entrega_futura.pendentes(leitor, [int(x["DocEntry"]) for x in linhas if x.get("DocEntry")])
+    if futuras is None:
+        raise WbcDatabaseError(
+            "Não foi possível conferir quais pedidos são de entrega futura ainda não remetida; "
+            "a lista não foi montada para não oferecer as OPs deles para encerrar."
+        )
+    if futuras:
+        logger.info("Pedidos fechados com OPs abertas: %d de entrega futura não remetida ficaram fora.", len(futuras))
+    linhas = [x for x in linhas if int(x.get("DocEntry") or 0) not in futuras]
     return [
         {
             "pedido": _num(linha["Pedido"]),

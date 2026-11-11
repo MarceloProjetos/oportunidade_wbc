@@ -195,6 +195,9 @@ class PedidoParaIntegrar(BaseModel):
     orc_num_masc: str
     #: `ORDR.U_U_INO_NotaEspelho = 'Y'` — a mirror order; the screen flags it.
     nota_espelho: bool = False
+    #: Closed by the future-delivery NF with the remessa still pending ("Pedidos novos" only);
+    #: the screen flags it. Its lines are closed, so they never get `U_INO_OP`.
+    entrega_futura: bool = False
     #: Live OPs left on a CANCELLED order of the same quote, ``{"pedido", "op", "status"}``.
     #: Not empty = Processar is refused (`acoes.monta_plano`). Filled for "Pedidos novos" only.
     ops_orfas: list[dict] = []
