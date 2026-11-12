@@ -8,6 +8,10 @@ o mês, mova as entradas do mês que fechou para lá).
 
 ## [2026-11-12] — OS perde o grupo de OPs quando a linha do pedido é removida (scripts de view)
 
+**✅ Rodados por ele em 12/11 às 09:40 e conferidos** (só leitura, 17 pedidos, um a um: as três views no ar devolvem
+exatamente o que os scripts devolvem; 84574 com 88 linhas e as cinco marcas iguais à cópia de 06/11; a view lista
+852 pedidos; ~2 s por pedido). A OS desses pedidos já pode ser sincronizada.
+
 **Sem deploy: são três scripts para ele rodar no HANA, nesta ordem** (`sql/hana/VW_OS_OP_LINHA_PEDIDO_2026-11-12.sql`,
 `VW_OS_PINTURA_V0_2026-11-12.sql`, `VW_OS_INTEGRACAO_2026-11-12.sql`; volta: `VW_OS_INTEGRACAO_antes_2026-11-12.sql` e
 `VW_OS_PINTURA_V0_2026-11-11.sql`). A regra "qual é a linha do pedido de cada OP, e qual OP é a pai do grupo" mora
