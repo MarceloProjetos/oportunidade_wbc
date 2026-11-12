@@ -6,6 +6,23 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-12] — OS perde o grupo de OPs quando a linha do pedido é removida (scripts de view)
+
+**Sem deploy: são dois scripts para ele rodar no HANA** (`sql/hana/VW_OS_PINTURA_V0_2026-11-12.sql` e depois
+`sql/hana/VW_OS_INTEGRACAO_2026-11-12.sql`; volta: `VW_OS_INTEGRACAO_antes_2026-11-12.sql` e
+`VW_OS_PINTURA_V0_2026-11-11.sql`). A `VW_OS_INTEGRACAO` liga cada OP à linha do pedido do mesmo grupo
+(`RDR1.U_INO_ORCITM = OWOR.U_INO_LinhaRef`) com `INNER JOIN`. Quando o Comercial junta as linhas do pedido numa só
+depois do Processar (84574, 06/11), os outros grupos somem da OS com as OPs ainda Liberadas. Medido no SAP, só
+leitura: 9 pedidos de 2026 com OP Liberada nessa situação (84574, 84571, 84507, 84499, 84462, 84422, 83950, 83913,
+83912) e 29 com OP encerrada. A view nova usa a primeira linha do pedido quando o grupo não tem mais linha, e o
+número do grupo passa a vir da OP. A Pintura chegava à OP pai pelo carimbo na linha (`RDR1.U_INO_OP`) e perdia a
+marca desses grupos: ganhou um terceiro caminho, a OP pai do grupo (item do grupo 325). Conferido pedido a pedido
+em 17 pedidos: o corpo "antes" devolve exatamente a view no ar, o novo devolve todas as linhas de hoje, e o 84574
+volta às 88 linhas com as cinco marcas idênticas à cópia de 06/11, feita antes da remoção. As junções da view na
+base inteira vão de 58.075 para 59.765 linhas (849 → 852 pedidos). **Até os scripts rodarem, não sincronizar a OS
+desses pedidos**: a cópia de 84574, 84571, 84507, 84499 e 84462 ainda está inteira e a sincronização apagaria os
+grupos; a do 83913 já foi copiada sem eles.
+
 ## [2026-11-11] — Longarina com a medida no código passa a ir para a Solda
 
 **Pede deploy da .11** (`deploy_update.bat`). Na OS de Solda do 84584 veio a garra e faltou a longarina. Não tem
