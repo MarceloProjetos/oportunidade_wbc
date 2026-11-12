@@ -1,13 +1,12 @@
 -- VW_OS_INTEGRACAO — 12/11/2026. Run in SAP HANA (SBOALTAMIRAPROD) by the owner; nothing here runs it.
--- Two changes, both about the order line (RDR1) of the OP's group:
---   1. the join falls back to the first line of the order when no line carries the group's quote item
---      (U_INO_ORCITM = OWOR.U_INO_LinhaRef) any more;
+-- Run order: 1) VW_OS_OP_LINHA_PEDIDO_2026-11-12.sql  2) VW_OS_PINTURA_V0_2026-11-12.sql  3) this file
+-- Two changes:
+--   1. the order line of each OP is read from VW_OS_OP_LINHA_PEDIDO instead of being matched here; an OP group whose
+--      order line was removed (lines merged into one after the OPs were created, 84574) no longer
+--      vanishes from the OS;
 --   2. the group number in the 50th column comes from the OP (U_INO_LinhaRef), which equals the line's
 --      U_INO_ORCITM on every row that existed before.
--- Why: order lines merged into one after the OPs were created (84574, 06/11) made every other group
--- vanish from the OS while its OPs were still Released. Column list unchanged.
--- Run AFTER sql/hana/VW_OS_PINTURA_V0_2026-11-12.sql (the Pintura mark of the recovered groups needs it).
--- Rollback: sql/hana/VW_OS_INTEGRACAO_antes_2026-11-12.sql
+-- Column list unchanged. Rollback: sql/hana/VW_OS_INTEGRACAO_antes_2026-11-12.sql
 CREATE OR REPLACE VIEW "SBOALTAMIRAPROD"."VW_OS_INTEGRACAO" (
 	 "N_OP",
 	 "N_PED",
@@ -174,20 +173,12 @@ INNER JOIN ORDR T3 ON T0."OriginNum" = T3."DocNum"
 INNER JOIN "@INO_ORCAM" T5 ON T3."U_INO_ORCAMENTO" = T5."DocEntry"
 INNER JOIN "@INO_ORC_LINHA" T6 ON T5."DocEntry" = T6."DocEntry"
 and T6."LineId" = T1."U_INO_DESC"
--- 12/11/2026: the order line of the OP's group (U_INO_ORCITM = U_INO_LinhaRef) or, when that line no
--- longer exists (lines merged into one after the OPs were created, 84574), the first line of the
--- order. Without the fallback the whole group vanished from the OS while its OPs were still live.
-INNER JOIN RDR1 T4 ON T3."DocEntry" = T4."DocEntry"
-AND (T0."U_INO_LinhaRef" = T4."U_INO_ORCITM"
- OR (T4."LineNum" = (SELECT
-	 MIN(R."LineNum")
-		FROM RDR1 R
-		WHERE R."DocEntry" = T3."DocEntry")
- AND NOT EXISTS (SELECT
-	 1
-		FROM RDR1 R
-		WHERE R."DocEntry" = T3."DocEntry"
-		AND R."U_INO_ORCITM" = T0."U_INO_LinhaRef"))) 
+-- 12/11/2026: the order line of each OP comes from VW_OS_OP_LINHA_PEDIDO (the line of the OP's group
+-- or, when that line was removed, the first line of the order). The rule lives there, not here.
+INNER JOIN "SBOALTAMIRAPROD"."VW_OS_OP_LINHA_PEDIDO" L ON L."OPEntry" = T0."DocEntry"
+AND L."PedidoEntry" = T3."DocEntry"
+INNER JOIN RDR1 T4 ON T4."DocEntry" = L."PedidoEntry"
+AND T4."LineNum" = L."LineNum" 
 INNER JOIN "OUSR" T8 ON T0."UserSign" = T8."USERID"
 INNER JOIN OCRD T9 ON T0."CardCode" = T9."CardCode"
 INNER JOIN OSLP T10 ON T3."SlpCode" = T10."SlpCode"

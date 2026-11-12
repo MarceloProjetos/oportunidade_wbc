@@ -1,10 +1,9 @@
--- VW_OS_PINTURA_V0 — 12/11/2026 (second change; the first is VW_OS_PINTURA_V0_2026-11-11.sql).
--- Run in SAP HANA (SBOALTAMIRAPROD) by the owner; nothing here runs it.
--- One more fallback in the EXP_OP_NIVEL1 block: when the OP's group has no order line any more
--- (lines merged into one after the OPs were created, 84574), the lines of the group's parent OP
--- still count. Measured read-only on 17 orders: every live row stays; with VW_OS_INTEGRACAO_2026-11-12.sql
--- order 84574 returns the same 88 lines and five marks as its copy taken before the lines were merged.
--- Rollback: sql/hana/VW_OS_PINTURA_V0_2026-11-11.sql (the view as it is live today).
+-- VW_OS_PINTURA_V0 — 12/11/2026. Run in SAP HANA (SBOALTAMIRAPROD) by the owner; nothing here runs it.
+-- Run order: 1) VW_OS_OP_LINHA_PEDIDO_2026-11-12.sql  2) this file  3) VW_OS_INTEGRACAO_2026-11-12.sql
+-- One change, in the EXP_OP_NIVEL1 block: "is this the parent OP?" is no longer worked out here from the
+-- order lines; it is read from VW_OS_OP_LINHA_PEDIDO.OPPai. Same rows as today plus the parent OPs of groups whose
+-- order line was removed. Column list unchanged.
+-- Rollback: sql/hana/VW_OS_PINTURA_V0_2026-11-11.sql (the view as it was live on 12/11 morning).
 CREATE OR REPLACE VIEW "SBOALTAMIRAPROD"."VW_OS_PINTURA_V0" (
 	 "TIPO",
 	 "NPED",
@@ -121,7 +120,8 @@ CREATE OR REPLACE VIEW "SBOALTAMIRAPROD"."VW_OS_PINTURA_V0" (
 		INNER JOIN WOR1 T1 ON T0."DocEntry" = T1."DocEntry"
 		INNER JOIN OITM T2 ON T0."ItemCode" = T2."ItemCode"
 		INNER JOIN ORDR T3 ON T0."OriginNum" = T3."DocNum"
-		INNER JOIN RDR1 T4 ON T3."DocEntry" = T4."DocEntry"
+		INNER JOIN "SBOALTAMIRAPROD"."VW_OS_OP_LINHA_PEDIDO" L ON L."OPEntry" = T0."DocEntry"
+		AND L."PedidoEntry" = T3."DocEntry"
 		INNER JOIN "@INO_ORCAM" T5 ON T3."U_INO_ORCAMENTO" = T5."DocEntry"
 		INNER JOIN "@INO_ORC_LINHA" T6 ON T5."DocEntry" = T6."DocEntry"
 		AND T6."LineId" = T1."U_INO_DESC"
@@ -131,28 +131,8 @@ CREATE OR REPLACE VIEW "SBOALTAMIRAPROD"."VW_OS_PINTURA_V0" (
 		INNER JOIN OSLP T10 ON T3."SlpCode" = T10."SlpCode"
 		INNER JOIN OITM T11 ON T1."ItemCode" = T11."ItemCode"
 		WHERE T0."Status" <> 'C'
-		-- The parent OP is the one stamped on the order line (U_INO_OP). Two fallbacks:
-		-- 11/11/2026: the line is closed and SAP refused the stamp (order closed by the future-delivery
-		-- NF before its OPs, 84584): the live OP of that line's item and quote item.
-		-- 12/11/2026: the OP's group has no order line any more (lines merged into one after the OPs
-		-- were created, 84574): the group's parent OP, told apart by its item being a sales product
-		-- (OITM group 325; measured: every OP stamped on a line is 325 and no child OP is).
-		AND (T4."U_INO_OP" = T0."DocEntry"
-		 OR (T0."Status" IN ('P', 'R')
-		 AND T4."LineStatus" = 'C'
-		 AND IFNULL(T4."U_INO_OP", 0) = 0
-		 AND T4."ItemCode" = T0."ItemCode"
-		 AND T4."U_INO_ORCITM" = T0."U_INO_LinhaRef")
-		 OR (T2."ItmsGrpCod" = 325
-		 AND T4."LineNum" = (SELECT
-	 MIN(R."LineNum")
-				FROM RDR1 R
-				WHERE R."DocEntry" = T3."DocEntry")
-		 AND NOT EXISTS (SELECT
-	 1
-				FROM RDR1 R
-				WHERE R."DocEntry" = T3."DocEntry"
-				AND R."U_INO_ORCITM" = T0."U_INO_LinhaRef"))) 
+		-- 12/11/2026: only the group's parent OP, as VW_OS_OP_LINHA_PEDIDO tells it (the rule lives there).
+		AND L."OPPai" = 'Y' 
 		AND T6."U_INO_NIVEL" = '1'
 		AND SUBSTRING(T1."ItemCode",
 	 1,

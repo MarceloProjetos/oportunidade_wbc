@@ -8,17 +8,21 @@ o mês, mova as entradas do mês que fechou para lá).
 
 ## [2026-11-12] — OS perde o grupo de OPs quando a linha do pedido é removida (scripts de view)
 
-**Sem deploy: são dois scripts para ele rodar no HANA** (`sql/hana/VW_OS_PINTURA_V0_2026-11-12.sql` e depois
-`sql/hana/VW_OS_INTEGRACAO_2026-11-12.sql`; volta: `VW_OS_INTEGRACAO_antes_2026-11-12.sql` e
-`VW_OS_PINTURA_V0_2026-11-11.sql`). A `VW_OS_INTEGRACAO` liga cada OP à linha do pedido do mesmo grupo
+**Sem deploy: são três scripts para ele rodar no HANA, nesta ordem** (`sql/hana/VW_OS_OP_LINHA_PEDIDO_2026-11-12.sql`,
+`VW_OS_PINTURA_V0_2026-11-12.sql`, `VW_OS_INTEGRACAO_2026-11-12.sql`; volta: `VW_OS_INTEGRACAO_antes_2026-11-12.sql` e
+`VW_OS_PINTURA_V0_2026-11-11.sql`). A regra "qual é a linha do pedido de cada OP, e qual OP é a pai do grupo" mora
+numa **view auxiliar nova, `VW_OS_OP_LINHA_PEDIDO`** (pedido dele: a regra num lugar só, as outras confiam nela);
+a Integração e a Pintura leem dela em vez de cada uma refazer a conta. A `VW_OS_INTEGRACAO` liga cada OP à linha do pedido do mesmo grupo
 (`RDR1.U_INO_ORCITM = OWOR.U_INO_LinhaRef`) com `INNER JOIN`. Quando o Comercial junta as linhas do pedido numa só
 depois do Processar (84574, 06/11), os outros grupos somem da OS com as OPs ainda Liberadas. Medido no SAP, só
 leitura: 9 pedidos de 2026 com OP Liberada nessa situação (84574, 84571, 84507, 84499, 84462, 84422, 83950, 83913,
-83912) e 29 com OP encerrada. A view nova usa a primeira linha do pedido quando o grupo não tem mais linha, e o
-número do grupo passa a vir da OP. A Pintura chegava à OP pai pelo carimbo na linha (`RDR1.U_INO_OP`) e perdia a
-marca desses grupos: ganhou um terceiro caminho, a OP pai do grupo (item do grupo 325). Conferido pedido a pedido
-em 17 pedidos: o corpo "antes" devolve exatamente a view no ar, o novo devolve todas as linhas de hoje, e o 84574
-volta às 88 linhas com as cinco marcas idênticas à cópia de 06/11, feita antes da remoção. As junções da view na
+83912) e 29 com OP encerrada. A auxiliar devolve a linha do grupo ou, quando ela não existe mais, a primeira linha
+do pedido; na Integração o número do grupo passa a vir da OP. A Pintura chegava à OP pai pelo carimbo na linha
+(`RDR1.U_INO_OP`) e perdia a marca desses grupos: a auxiliar marca a OP pai (`OPPai`) pelo carimbo, pela linha
+fechada sem carimbo (84584) ou, no grupo sem linha, pelo item do grupo 325. Conferido pedido a pedido em 17
+pedidos, com o texto da auxiliar no lugar do nome (o usuário de leitura não cria view): o corpo "antes" devolve
+exatamente a view no ar, os novos devolvem todas as linhas de hoje, e o 84574 volta às 88 linhas com as cinco
+marcas idênticas à cópia de 06/11, feita antes da remoção. A auxiliar tem 78.179 linhas para 78.082 OPs vivas. As junções da view na
 base inteira vão de 58.075 para 59.765 linhas (849 → 852 pedidos). **Até os scripts rodarem, não sincronizar a OS
 desses pedidos**: a cópia de 84574, 84571, 84507, 84499 e 84462 ainda está inteira e a sincronização apagaria os
 grupos; a do 83913 já foi copiada sem eles.

@@ -178,7 +178,9 @@ Regra com teste = 1 linha + o teste que a protege; sem teste = o porquê junto.
 - ⚠️ `VW_OS_INTEGRACAO` liga a OP à linha do pedido do grupo (`RDR1.U_INO_ORCITM = OWOR.U_INO_LinhaRef`): linha
   removida depois do Processar (Comercial junta tudo numa linha, 84574) = o grupo some da OS com as OPs vivas, e
   sincronizar apaga o grupo do espelho. Antes de mandar sincronizar, comparar nº de linhas do espelho × view.
-  Correção em `sql/hana/VW_OS_INTEGRACAO_2026-11-12.sql` + `VW_OS_PINTURA_V0_2026-11-12.sql` (ele roda no HANA).
+  Correção (ele roda no HANA): a regra "linha do pedido de cada OP / qual é a OP pai" mora só na auxiliar
+  `VW_OS_OP_LINHA_PEDIDO`; Integração e Pintura leem dela (`sql/hana/*_2026-11-12.sql`). Regra nova desse tipo = na
+  auxiliar, nunca repetida em cada view.
 - Texto livre do `OrcDetalhe` maior que o UDF (nome 50, transporte 154, pagamento 254…) faz o SL recusar o detalhe
   inteiro e o pedido fica no antigo: `_monta_body_orc_detalhe` corta pelos tamanhos do CUFD; código nunca se corta. — idem
 - Processar recusa (`409 nota_espelho`, também na execução e com "forçar") pedido com
