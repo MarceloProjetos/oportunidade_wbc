@@ -27,6 +27,8 @@ agente (MCP)                 .11 (8077)                        pessoa
 | `sincronizar_os` (pedido) | `os:sincronizar` | qualquer pessoa identificada | 30/h |
 | `forcar_carga` | `oportunidades:carga` | qualquer pessoa identificada | 4/h |
 | `processar_pedido` (pedido) | `pedidos_wbc` | `pcp` ou `admin` | 10/h |
+| `encerrar_ops_pedidos_fechados` (até 20 pedidos fechados) | `manutencao_op` | `pcp` ou `admin` | 5/h |
+| `encerrar_ops_pedido` (1 pedido, qualquer situação; custo 0,01 se faltar) | `manutencao_op` | `pcp` ou `admin` | 5/h |
 | `reiniciar_servico` (um dos 6) | `servico:reiniciar` | só `admin` | 3/h |
 | `reiniciar_sap_servertools` (VM do SAP) | `sap:reiniciar` (só o Téo) | só `admin` | 2/h |
 

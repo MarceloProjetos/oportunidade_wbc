@@ -85,7 +85,8 @@ Comercial decide no OrçaView; `decidir_data_entrega` é a Produção aprovando 
 de data do Comercial (ou cancelando o seu); agente não tem acesso a elas. Para um agente,
 escrever é sempre PEDIR:
 `pedir_sincronizar_os`, `pedir_forcar_carga`, `pedir_processar_pedido`,
-`pedir_encerrar_ops_pedidos_fechados` e `pedir_reiniciar_servico` criam um pedido com um código
+`pedir_encerrar_ops_pedidos_fechados`, `pedir_encerrar_ops_pedido` e `pedir_reiniciar_servico`
+criam um pedido com um código
 de 4 dígitos e NÃO executam nada;
 uma pessoa aprova (na Central da .11, ou respondendo "aprovar <código>" no canal da Mira) e
 `acompanhar_aprovacao` diz o resultado. Você nunca aprova.
@@ -1423,6 +1424,31 @@ def pedir_encerrar_ops_pedidos_fechados(pedidos: list[int], custo: str = "", ati
     parametros = {"pedidos": [int(p) for p in pedidos], "custo": custo or None,
                   "ativar_inativos": bool(ativar_inativos)}
     return _pedir("encerrar_ops_pedidos_fechados", parametros, motivo, pedido_por, em_nome_de)
+
+
+@mcp.tool(annotations=_ANOTACAO_PEDIDO)
+def pedir_encerrar_ops_pedido(pedido: int, custo: str = "", ativar_inativos: bool = False,
+                              motivo: str = "", pedido_por: str = "", em_nome_de: str = "") -> dict[str, Any]:
+    """PEDE aprovação para ENCERRAR as OPs abertas de UM pedido, em qualquer situação (aberto, entrega
+    futura, fechado), com saída de insumo e entrada do produto no SAP — irreversível. NÃO executa.
+
+    Use quando o "Encerrar OPs do pedido" da Manutenção de OP falhou com ``10001287 Item cost not
+    found`` (insumo sem custo) ou quando o pedido não está em ``pedidos_fechados_com_op``. Se faltar
+    custo, o insumo recebe ``custo`` (vazio = 0,01) por reavaliação de estoque e o pedido é tentado
+    mais uma vez. Aprova: PCP ou administrador. Se as OPs abertas mudarem até a aprovação, a
+    execução é recusada. Encerrar OP NÃO se desfaz: confirme com a pessoa que a produção do pedido
+    acabou (ou que ela quer encerrar mesmo assim) antes de pedir.
+
+    Args:
+        pedido: número do pedido de venda (DocNum), ex.: 84537.
+        custo: custo para insumo sem custo; vazio = 0,01.
+        ativar_inativos: ativar itens inativos só durante o encerramento.
+        motivo: por que (aparece para quem aprova).
+        pedido_por: preenchido pelo servidor — não informe.
+        em_nome_de: preenchido pelo servidor — não informe.
+    """
+    parametros = {"pedido": int(pedido), "custo": custo or None, "ativar_inativos": bool(ativar_inativos)}
+    return _pedir("encerrar_ops_pedido", parametros, motivo, pedido_por, em_nome_de)
 
 
 @mcp.tool(annotations=_ANOTACAO_PEDIDO)

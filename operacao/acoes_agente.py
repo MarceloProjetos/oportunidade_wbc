@@ -198,6 +198,17 @@ def _executar_pedido(p: dict, previa: dict, ctx: Contexto) -> tuple[bool, dict]:
 PEDIDOS_FECHADOS_MAX = 20
 
 
+def _custo(p: dict) -> str | None:
+    custo = str(p.get("custo") if p.get("custo") is not None else "").strip().replace(",", ".")
+    if custo:
+        try:
+            if float(custo) <= 0:
+                raise ValueError
+        except ValueError as exc:
+            raise AcaoInvalida("'custo' deve ser um número maior que zero (vazio = 0,01).") from exc
+    return custo or None
+
+
 def _validar_fechados(p: dict) -> dict:
     valores = p.get("pedidos")
     if not isinstance(valores, list) or not valores:
@@ -209,21 +220,16 @@ def _validar_fechados(p: dict) -> dict:
             pedidos.append(numero)
     if len(pedidos) > PEDIDOS_FECHADOS_MAX:
         raise AcaoInvalida(f"No máximo {PEDIDOS_FECHADOS_MAX} pedidos por aprovação; recebidos {len(pedidos)}.")
-    custo = str(p.get("custo") if p.get("custo") is not None else "").strip().replace(",", ".")
-    if custo:
-        try:
-            if float(custo) <= 0:
-                raise ValueError
-        except ValueError as exc:
-            raise AcaoInvalida("'custo' deve ser um número maior que zero (vazio = 0,01).") from exc
-    return {"pedidos": sorted(pedidos), "custo": custo or None,
+    return {"pedidos": sorted(pedidos), "custo": _custo(p),
             "ativar_inativos": p.get("ativar_inativos") is True}
 
 
 def _conferir_fechados(p: dict) -> dict:
+    # `qualquer_pedido` only on encerrar_ops_pedido: one order in any status, off the closed list.
     http, corpo = _chamar(_cp(), "POST", "/api/manutencao-op/pedidos-fechados/encerrar/conferir",
                           corpo={"pedidos": p["pedidos"], "custo": p["custo"],
-                                 "ativar_inativos": p["ativar_inativos"]}, tempo=90)
+                                 "ativar_inativos": p["ativar_inativos"],
+                                 "qualquer_pedido": p.get("qualquer_pedido") is True}, tempo=90)
     if http != 200 or not corpo.get("ok"):
         raise AcaoInvalida(f"O Controle de Produção recusou conferir: {corpo.get('motivo') or corpo.get('erro')}")
     return corpo["plano"]
@@ -259,6 +265,31 @@ def _executar_fechados(p: dict, previa: dict, ctx: Contexto) -> tuple[bool, dict
     http, corpo = _chamar(_cp(), "POST", "/api/manutencao-op/pedidos-fechados/encerrar/executar",
                           corpo={"token": plano["token"], "solicitante": solicitante}, ctx=ctx, tempo=90)
     return http == 202 and bool(corpo.get("ok")), {"http": http, **corpo}
+
+
+# ---------------------------------------------------------------------------
+# encerrar_ops_pedido: ONE order in any status (18/11/2026, order 84537 — future delivery, so
+# off the closed list). Same CP plan, run and fixes (cost 0.01 + one retry) as the closed ones.
+# ---------------------------------------------------------------------------
+def _validar_um_pedido(p: dict) -> dict:
+    return {"pedidos": [_inteiro(p, "pedido")], "custo": _custo(p),
+            "ativar_inativos": p.get("ativar_inativos") is True, "qualquer_pedido": True}
+
+
+def _previa_um_pedido(p: dict) -> dict:
+    plano = _conferir_fechados(p)
+    item = (plano.get("itens") or [{}])[0]
+    custo = str(plano.get("resumo", {}).get("custo") or "0.01").replace(".", ",")
+    return {
+        "texto": (f"Encerrar as {item.get('ops_abertas')} OP(s) abertas do pedido {p['pedidos'][0]} "
+                  f"({item.get('cliente') or 'cliente não informado'}; {item.get('planejadas')} Planejada(s) "
+                  "serão liberadas antes) com saída de insumo e entrada do produto no SAP. IRREVERSÍVEL, e "
+                  "vale também para pedido ainda em produção. Se faltar custo, o insumo recebe "
+                  f"R$ {custo} (reavaliação de estoque) e o pedido é tentado mais uma vez. "
+                  + ("Itens inativos são ativados só durante o encerramento."
+                     if p["ativar_inativos"] else "Item inativo faz o pedido falhar.")),
+        "pedidos": p["pedidos"], "itens": _essencial_fechados(plano),
+    }
 
 
 def pedidos_fechados_com_op(incluir_atrasados: bool = False) -> tuple[int, dict]:
@@ -318,6 +349,9 @@ CATALOGO: dict[str, Acao] = {a.nome: a for a in (
     Acao("encerrar_ops_pedidos_fechados", "Encerrar as OPs de pedidos fechados (estoque no SAP)",
          "manutencao_op", PAPEIS_PCP, 5, _validar_fechados, _previa_fechados, _executar_fechados,
          alvo=lambda p: ",".join(map(str, p["pedidos"]))),
+    Acao("encerrar_ops_pedido", "Encerrar as OPs de um pedido, gravando custo 0,01 se faltar (estoque no SAP)",
+         "manutencao_op", PAPEIS_PCP, 5, _validar_um_pedido, _previa_um_pedido, _executar_fechados,
+         alvo=lambda p: str(p["pedidos"][0])),
     Acao("reiniciar_servico", "Reiniciar um serviço da .11", "servico:reiniciar", PAPEIS_ADMIN, 3,
          _validar_servico, _previa_servico, _executar_servico, alvo=lambda p: p["servico"]),
     # Its own scope: only the Téo's key (ti-agente) holds it -- the Téo is the one infrastructure agent.

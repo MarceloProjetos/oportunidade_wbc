@@ -65,6 +65,7 @@ ESCOPO_DA_FERRAMENTA: dict[str, str] = {
     # PLANO_ENCERRAR_OPS_PEDIDOS_FECHADOS F3: the list reads; the request needs the CP scope.
     "pedidos_fechados_com_op": "leitura",
     "pedir_encerrar_ops_pedidos_fechados": "manutencao_op",
+    "pedir_encerrar_ops_pedido": "manutencao_op",
     "pedir_reiniciar_servico": "servico:reiniciar",
     "acompanhar_aprovacao": "leitura",
     "estado_orcamento_wbc": "leitura",
@@ -93,7 +94,7 @@ ESCRITAS = frozenset({"os:sincronizar", "oportunidades:carga", "pedidos_wbc", "s
 #: Tools whose ``pedido_por``/``em_nome_de`` arguments the door overwrites with the truth.
 PEDIDOS = frozenset({"pedir_sincronizar_os", "pedir_forcar_carga", "pedir_processar_pedido",
                      "pedir_reiniciar_servico", "solicitar_data_entrega", "decidir_data_entrega",
-                     "pedir_encerrar_ops_pedidos_fechados"})
+                     "pedir_encerrar_ops_pedidos_fechados", "pedir_encerrar_ops_pedido"})
 #: The two direct writes that still take ``confirmar=True`` from people (rule 0); for an
 #: agent the model's ``confirmar`` no longer runs anything (F3, rule 1).
 DIRETAS = {"sincronizar_pedido_os": "pedir_sincronizar_os",

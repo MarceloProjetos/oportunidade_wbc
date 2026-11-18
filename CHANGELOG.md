@@ -6,6 +6,17 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-18] — Agente pode PEDIR "encerrar as OPs de um pedido" com custo 0,01 (pedido 84537)
+
+**Exige deploy na .11 (dele): CP, API e MCP.** O 84537 (entrega futura, ainda em produção) teve o "Encerrar OPs do
+pedido" parado em `10001287 Item cost not found`: um insumo da OP 164020 (`PAIPTATRSUP420000000`, depósito 01) estava
+com custo 0. O fluxo de pedidos fechados já grava 0,01 e tenta de novo, mas deixa de fora pedido de entrega futura, e
+o agente não tinha como pedir nada disso. Agora: `POST /api/manutencao-op/pedidos-fechados/encerrar/conferir` aceita
+`qualquer_pedido: true` com **um** pedido em qualquer situação (mesmo plano, token, execução e ajustes de custo e
+item inativo — `fechados.monta_plano_pedido`); ação nova `encerrar_ops_pedido` no catálogo (aprova PCP ou admin,
+5/h, alvo = o pedido) e ferramenta MCP `pedir_encerrar_ops_pedido(pedido, custo, ativar_inativos)`. O agente só PEDE;
+uma pessoa aprova, e a execução recusa se as OPs abertas mudaram desde o pedido. A tela não muda.
+
 ## [2026-11-18] — `wbcpython quantidades`: corrige a quantidade dos pedidos abertos antigos
 
 **Exige deploy na .11 (dele) e quem roda é ele.** Comando novo para os pedidos abertos criados antes da regra de

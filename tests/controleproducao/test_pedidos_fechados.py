@@ -386,3 +386,53 @@ def test_api_pedido_fora_da_lista_e_409(cliente, isolado):
     r = cliente.post("/api/manutencao-op/pedidos-fechados/encerrar/conferir", headers=H,
                      json={"pedidos": [12345]})
     assert r.status_code == 409 and r.json()["tipo"] == "fora_da_lista"
+
+
+# ---------------------------------------------------------------------------
+# One order outside the list (18/11/2026, order 84537: future delivery, zero-cost raw material)
+# ---------------------------------------------------------------------------
+OPS_84537 = [
+    {"doc_entry": 1, "doc_num": 163996, "status": "P", "planejada": 1, "apontada": 0},
+    {"doc_entry": 2, "doc_num": 164020, "status": "R", "planejada": 4, "apontada": 0},
+    {"doc_entry": 3, "doc_num": 164060, "status": "L", "planejada": 1, "apontada": 1},
+]
+
+
+def test_plano_de_um_pedido_conta_so_as_abertas():
+    leitor = MagicMock()
+    leitor.fetch_all.return_value = [{"Cliente": "AFTERCLICK", "Entrega": "2026-12-09 00:00:00"}]
+    with patch(f"{M}.fechados.service.levanta_ops", return_value=OPS_84537):
+        plano = fechados.monta_plano_pedido(leitor, 84537, Decimal("0.01"), False)
+    item = plano.itens[0]
+    assert plano.tipo == fechados.TIPO and "84537" in plano.operacao
+    assert (item["_pedido"], item["OPs abertas"], item["Planejadas (serão liberadas)"]) == (84537, 2, 1)
+    assert item["Entrega"] == "2026-12-09" and item["_custo"] == "0.01"
+
+
+@pytest.mark.parametrize("cabecalho, ops, tipo", [
+    ([], OPS_84537, "nao_encontrada"),
+    ([{"Cliente": "X", "Entrega": None}], OPS_84537[2:], "nada_a_encerrar"),
+])
+def test_plano_de_um_pedido_recusa_sem_pedido_ou_sem_op_aberta(cabecalho, ops, tipo):
+    leitor = MagicMock()
+    leitor.fetch_all.return_value = cabecalho
+    with patch(f"{M}.fechados.service.levanta_ops", return_value=ops), pytest.raises(Recusa) as erro:
+        fechados.monta_plano_pedido(leitor, 84537, Decimal("0.01"), False)
+    assert erro.value.tipo == tipo and not PLANOS._planos
+
+
+def test_api_qualquer_pedido_confere_fora_da_lista_e_executa(cliente, isolado):
+    from controleproducao.modules.manutencao_op import api_router
+    api_router.HanaDirectReader.return_value.fetch_all.return_value = [{"Cliente": "X", "Entrega": None}]
+    dois = cliente.post("/api/manutencao-op/pedidos-fechados/encerrar/conferir", headers=H,
+                        json={"pedidos": [84537, 84104], "qualquer_pedido": True})
+    assert dois.status_code == 400
+    with patch(f"{M}.fechados.service.levanta_ops", return_value=OPS_84537):
+        plano = cliente.post("/api/manutencao-op/pedidos-fechados/encerrar/conferir", headers=H,
+                             json={"pedidos": [84537], "qualquer_pedido": True}).json()
+    assert plano["ok"] and plano["plano"]["itens"][0]["ops_abertas"] == 2
+    r = cliente.post("/api/manutencao-op/pedidos-fechados/encerrar/executar", headers=H,
+                     json={"token": plano["plano"]["token"], "solicitante": "teste"})
+    assert r.status_code == 202
+    _espera(cliente, r.json()["execucao"]["id"])
+    assert [c.args[2] for c in isolado.await_args_list] == [84537]

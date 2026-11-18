@@ -224,6 +224,47 @@ def monta_plano(
     )
 
 
+# Header of one order, for the single-order plan (any status: open, future delivery or closed).
+CABECALHO_PEDIDO = """
+SELECT "CardName" "Cliente", "DocDueDate" "Entrega" FROM ORDR WHERE "DocNum" = ?
+""".strip()
+
+
+def monta_plano_pedido(leitor: HanaDirectReader, pedido: int, custo: Decimal, ativar_inativos: bool) -> Plano:
+    """The checked plan of ONE order outside the closed-orders list (18/11/2026, order 84537).
+
+    Same token type, run and per-order fixes as `monta_plano`, so an order still in production
+    (e.g. future delivery, which the list leaves out on purpose) can get the cost-and-retry
+    closing too. Only one order per plan: closing an order that is not "Fechado" is a decision
+    about that order, never a batch.
+    """
+    cabecalho = leitor.fetch_all(CABECALHO_PEDIDO, (pedido,))
+    if not cabecalho:
+        raise Recusa("nao_encontrada", f"Pedido {pedido} não existe no SAP.", titulo="Pedido não encontrado")
+    ops = [o for o in service.levanta_ops(leitor, doc_num_pedido=str(pedido))
+           if service.classifica_encerramento(o["status"], o["planejada"], o["apontada"])[1]]
+    if not ops:
+        raise Recusa("nada_a_encerrar", f"O pedido {pedido} não tem OP aberta para encerrar.",
+                     titulo="Nada a encerrar")
+    entrega = str(cabecalho[0].get("Entrega") or "")[:10] or "—"
+    return PLANOS.criar(
+        operacao=f"Encerrar OPs do pedido {pedido} (com ajustes)",
+        resumo={
+            "pedido(s) marcados": 1,
+            "OP(s) abertas nesses pedidos": len(ops),
+            "de custo para insumo sem custo": f"R$ {str(custo).replace('.', ',')}",
+            ("serão ativados só durante o encerramento" if ativar_inativos
+             else "não serão ativados (pedido com item inativo falha)"): "Itens inativos:",
+        },
+        itens=[{
+            "#": 1, "Pedido": pedido, "Cliente": str(cabecalho[0].get("Cliente") or ""), "Entrega": entrega,
+            "OPs abertas": len(ops), "Planejadas (serão liberadas)": sum(1 for o in ops if o["status"] == "P"),
+            "_pedido": pedido, "_custo": str(custo), "_ativar_inativos": bool(ativar_inativos),
+        }],
+        tipo=TIPO,
+    )
+
+
 def consome_plano(token: str) -> Plano:
     """Spend the token after checking the module is free (the order `acoes.consome_plano` uses)."""
     try:

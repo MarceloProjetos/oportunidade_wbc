@@ -98,3 +98,38 @@ def test_rota_8077_le_do_cp_e_exige_chave(monkeypatch):
 
     monkeypatch.setattr(apimod.acoes_agente, "pedidos_fechados_com_op", lambda _i: (0, {"erro": "sem resposta"}))
     assert c.get("/manutencao-op/pedidos-fechados", headers={"X-API-Key": "chave-mestra-de-teste"}).status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# encerrar_ops_pedido: one order in any status (18/11/2026, order 84537)
+# ---------------------------------------------------------------------------
+PLANO_UM = {"token": "t2", "resumo": {"pedidos": 1, "ops_abertas": 4, "custo": "0.01", "ativar_inativos": False},
+            "itens": [{"pedido": 84537, "cliente": "AFTERCLICK", "ops_abertas": 4, "planejadas": 4}]}
+
+
+def test_um_pedido_valida_e_pede_qualquer_pedido_ao_cp(monkeypatch):
+    v = a._validar_um_pedido({"pedido": "84537", "custo": "0,01"})
+    assert v == {"pedidos": [84537], "custo": "0.01", "ativar_inativos": False, "qualquer_pedido": True}
+    for ruim in ({}, {"pedido": "84a"}, {"pedido": 0}, {"pedido": 1, "custo": "-1"}):
+        with pytest.raises(a.AcaoInvalida):
+            a._validar_um_pedido(ruim)
+    chamadas = []
+
+    def chamar(base, metodo, caminho, **kw):
+        chamadas.append(kw.get("corpo"))
+        return 200, {"ok": True, "plano": PLANO_UM}
+
+    monkeypatch.setattr(a, "_chamar", chamar)
+    previa = a._previa_um_pedido(v)
+    assert chamadas[0]["qualquer_pedido"] is True and chamadas[0]["pedidos"] == [84537]
+    assert previa["itens"] == [[84537, 4]] and "IRREVERSÍVEL" in previa["texto"] and "0,01" in previa["texto"]
+
+
+def test_um_pedido_executa_pelo_mesmo_token_e_recusa_se_mudou(monkeypatch):
+    acao = a.CATALOGO["encerrar_ops_pedido"]
+    p = acao.validar({"pedido": 84537})
+    assert acao.alvo(p) == "84537" and acao.escopo == "manutencao_op" and not a.pode_aprovar(acao, "vendas")
+    mudou = {**PLANO_UM, "itens": [{"pedido": 84537, "ops_abertas": 3}]}
+    monkeypatch.setattr(a, "_chamar", lambda *_a, **_k: (200, {"ok": True, "plano": mudou}))
+    ok, corpo = acao.executar(p, {"itens": [[84537, 4]]}, CTX)
+    assert not ok and "mudaram" in corpo["motivo"]

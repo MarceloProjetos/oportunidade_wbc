@@ -66,21 +66,24 @@ def conferir(corpo: Any = Body(default=None)):
     """The checked plan of the marked orders and its single-use token. Reads only.
 
     Body: ``{"pedidos": [84104, ...], "custo": 0.01 (optional), "ativar_inativos": false,
-    "incluir_atrasados": false}``.
+    "incluir_atrasados": false, "qualquer_pedido": false}``. ``qualquer_pedido`` takes ONE order
+    in any status (open, future delivery) instead of requiring it on the closed-orders list.
     """
     try:
         dados = api._objeto(corpo)
         pedidos = fechados.le_pedidos(dados.get("pedidos"))
         custo = fechados.le_custo(dados.get("custo"))
+        qualquer = _verdadeiro(dados.get("qualquer_pedido"))
+        if qualquer and len(pedidos) != 1:
+            raise Recusa("invalido", "Com 'qualquer_pedido', informe exatamente um pedido.")
     except Recusa as recusa:
         return api._de_recusa(recusa)
 
     leitor = api._leitor()
     try:
-        plano = fechados.monta_plano(
-            leitor, pedidos, custo, _verdadeiro(dados.get("ativar_inativos")),
-            _verdadeiro(dados.get("incluir_atrasados")),
-        )
+        ativar = _verdadeiro(dados.get("ativar_inativos"))
+        plano = (fechados.monta_plano_pedido(leitor, pedidos[0], custo, ativar) if qualquer
+                 else fechados.monta_plano(leitor, pedidos, custo, ativar, _verdadeiro(dados.get("incluir_atrasados"))))
     except Recusa as recusa:
         return api._de_recusa(recusa)
     except Exception as exc:  # noqa: BLE001 - see listar

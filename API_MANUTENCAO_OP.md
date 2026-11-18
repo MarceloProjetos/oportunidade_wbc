@@ -897,6 +897,7 @@ curl -X POST "http://192.168.7.11:8080/api/manutencao-op/pedidos-fechados/encerr
 | `custo` | não | custo para **insumo sem custo** no SAP. Vazio ou `null` = **0,01**. Aceita `0.01` e `"0,01"` |
 | `ativar_inativos` | não | `true` ativa os itens inativos do pedido só durante o encerramento e os inativa de novo no fim. Padrão `false`: o pedido falha e o item aparece no erro |
 | `incluir_atrasados` | não | `true` aceita também pedidos atrasados |
+| `qualquer_pedido` | não | `true` aceita **um** pedido (exatamente um em `pedidos`) em qualquer situação — aberto, entrega futura ou fechado — sem exigir que ele esteja na lista. Mesmo plano, mesmo `token` e mesmos ajustes (custo e nova tentativa). Pedido inexistente = `404 nao_encontrada`; sem OP aberta = `409 nada_a_encerrar` |
 
 Pedido que não está mais na lista (já encerrado, ou não é mais Fechado) recusa a conferência
 inteira com `409 fora_da_lista`: consulte de novo e escolha outra vez.
