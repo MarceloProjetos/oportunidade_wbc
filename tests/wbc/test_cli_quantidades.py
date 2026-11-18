@@ -160,6 +160,19 @@ def test_linha_que_ja_foi_maior_e_alguem_voltou_para_um_nunca_e_desfeita(monkeyp
     assert "[84580]" in saida
 
 
+def test_pedido_com_desconto_no_cabecalho_e_pulado(monkeypatch: pytest.MonkeyPatch,
+                                                    capsys: pytest.CaptureFixture) -> None:
+    """84528: saving re-applied the 6.8182% header discount and the total fell for good."""
+    a = {**_pedido(84528, _linha(1, PROTETORES)), "DiscountPercent": 6.8182, "TotalDiscount": 558.12}
+    b = {**_pedido(84568, _linha(1, PROTETORES)), "DiscountPercent": -12.8181, "TotalDiscount": -67.99}
+    registro = _ambiente(monkeypatch, pedidos={84528: a, 84568: b})
+    assert main(["quantidades"]) == 0
+    assert registro["gravados"] == []
+    saida = capsys.readouterr().out
+    assert "Pedido 84528: tem desconto/acréscimo no cabeçalho — pulado" in saida
+    assert "[84528, 84568]" in saida
+
+
 def test_pedido_que_nao_esta_aberto(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
     _ambiente(monkeypatch, pedidos={84603: {**_pedido(84603), "DocumentStatus": "bost_Close"}})
     assert main(["quantidades", "--pedido", "84603"]) == 1

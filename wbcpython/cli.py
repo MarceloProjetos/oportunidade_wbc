@@ -1124,6 +1124,12 @@ def _cmd_quantidades(settings: Settings, *, pedido: int | None, simular: bool) -
                         alertar(f"{AVISO}Pedido {docnum}: o HANA lista, o Service Layer não achou — pulado.")
                         pulados.append(docnum)
                     continue
+                if float(doc.get("DiscountPercent") or 0) or float(doc.get("TotalDiscount") or 0):
+                    # 84528 (18/11/2026): the save re-applied the header discount over another base and the total
+                    # fell 558.12 for good. An order with a header discount or surcharge is left to a person.
+                    alertar(f"{AVISO}Pedido {docnum}: tem desconto/acréscimo no cabeçalho — pulado.")
+                    pulados.append(docnum)
+                    continue
                 mudancas, fora = quantidades_a_corrigir(doc.get("DocumentLines") or (), ja_maiores.get(docnum, set()))
                 for motivo in fora:
                     alertar(f"{AVISO}Pedido {docnum}: {motivo}.")

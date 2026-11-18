@@ -28,7 +28,11 @@ com preço de 4 casas fica (6 hoje). Medido: grava 91 linhas em 41 pedidos; fica
 84420, 84426, 84431, 84451, 84455, 84487); parou no **84488**: salvar o pedido refez os impostos e somou o ICMS-ST
 (STAL1950, +12.409,24; DocTotal 133.192,51 → 145.601,75), e o desfazer voltou as linhas mas **não o total** (imposto
 recalculado não volta por PATCH). O comando dizia "desfeito e conferido": agora confere o `DocTotal` também no desfazer.
-Previsto pelo motor do cálculo de parcelas (código atual × `RDR1.VatSum`): nenhum dos outros 47 pedidos muda imposto. ⚠️ Todo PATCH vira `VATFirst` para N (o SL não volta): 36 dos 52
+Previsto pelo motor do cálculo de parcelas (código atual × `RDR1.VatSum`): nenhum dos outros 47 pedidos muda imposto.
+2ª rodada: 84488 (70), 84492, 84494, 84496, 84504 e 84519 gravados; parou no **84528**, que o motor não previa: o
+desconto do cabeçalho (6,8182%, gravado pelo OrçaView em 29/10 com valores que o SAP não recalcula igual) foi
+reaplicado e o total caiu 558,12 de vez (8.185,79 → 7.627,67). **Pedido com desconto ou acréscimo no cabeçalho agora é
+pulado.** Dos que faltam só o 84568 tem (acréscimo de 12,8181%); nos outros o `VatSum` de cada linha bate com o RDR4. ⚠️ Todo PATCH vira `VATFirst` para N (o SL não volta): 36 dos 52
 estão com Y; decisão dele, 18/11, o fiscal confere o boleto na NF.
 
 ## [2026-11-18] — Worker WBC: toda linha lê a quantidade do texto, não só porta-paletes
