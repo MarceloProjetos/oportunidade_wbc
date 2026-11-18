@@ -1166,6 +1166,13 @@ def _cmd_quantidades(settings: Settings, *, pedido: int | None, simular: bool) -
                     documentos.atualizar_quantidades(TipoDocumento.PEDIDO, doc_entry, volta)
                     refeito = documentos.buscar_por_docnum(TipoDocumento.PEDIDO, docnum) or {}
                     sobrou = divergencias(volta, refeito.get("DocumentLines") or (), antes)
+                    # 84488 (18/11/2026): the lines came back but the save had re-run the taxes (ICMS-ST added),
+                    # and that never comes back. Saying "desfeito" there was wrong.
+                    total_refeito = float(refeito.get("DocTotal") or 0)
+                    if abs(total_refeito - total_antes) >= 0.005:
+                        sobrou.append(
+                            f"DocTotal ficou {total_refeito:.2f} (antes {total_antes:.2f}): imposto recalculado"
+                        )
                     for erro in sobrou:
                         log.error(f"{ERRO}Pedido {docnum} depois de desfazer: {erro}")
                     log.error(

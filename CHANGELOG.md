@@ -23,7 +23,12 @@ ninguém ter mexido (conferido no HANA: nada gravado). A ETag deste SL não serv
 preço velho e multiplicou total e peso por 88 (10.279,28 → 904.576,64; DocTotal 286.214,58 → 1.187.299,96); a
 conferência pegou, o comando desfez e parou, e o HANA confirmou o pedido igual ao original. Agora vai `Quantity` +
 `UnitPrice` (4 casas, como o passo 1 do `atualizar`) e depois `Weight1` sozinho. Linha cujo total não fecha ao centavo
-com preço de 4 casas fica (6 hoje). Medido: grava 91 linhas em 41 pedidos; ficam 18 de pessoa, 6 de centavo, 2 entregues. ⚠️ Todo PATCH vira `VATFirst` para N (o SL não volta): 36 dos 52
+com preço de 4 casas fica (6 hoje). Medido: grava 91 linhas em 41 pedidos; ficam 18 de pessoa, 6 de centavo, 2 entregues.
+**Rodada geral (18/11):** 14 pedidos gravados e conferidos (84603, 80074, 80076, 80186, 83862, 84299, 84348, 84404,
+84420, 84426, 84431, 84451, 84455, 84487); parou no **84488**: salvar o pedido refez os impostos e somou o ICMS-ST
+(STAL1950, +12.409,24; DocTotal 133.192,51 → 145.601,75), e o desfazer voltou as linhas mas **não o total** (imposto
+recalculado não volta por PATCH). O comando dizia "desfeito e conferido": agora confere o `DocTotal` também no desfazer.
+Previsto pelo motor do cálculo de parcelas (código atual × `RDR1.VatSum`): nenhum dos outros 47 pedidos muda imposto. ⚠️ Todo PATCH vira `VATFirst` para N (o SL não volta): 36 dos 52
 estão com Y; decisão dele, 18/11, o fiscal confere o boleto na NF.
 
 ## [2026-11-18] — Worker WBC: toda linha lê a quantidade do texto, não só porta-paletes

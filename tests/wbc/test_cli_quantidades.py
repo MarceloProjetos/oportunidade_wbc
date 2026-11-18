@@ -108,6 +108,19 @@ def test_divergencia_desfaz_e_para_antes_do_proximo_pedido(monkeypatch: pytest.M
     assert "Parado no pedido 84603 (desfeito e conferido)" in saida
 
 
+def test_doctotal_que_nao_volta_depois_de_desfazer_e_dito(monkeypatch: pytest.MonkeyPatch,
+                                                          capsys: pytest.CaptureFixture) -> None:
+    """84488: the save re-ran the taxes (ICMS-ST added); undoing the lines does not bring the total back."""
+    a = _pedido(84488, _linha(1, "PLANOS METÁLICOS PERFURADOS 70 Planos metálicos", total=65990.0))
+    com_st = {**_gravado(a, l1=70.0), "DocTotal": 1100.0}
+    linhas_de_volta = {**a, "DocTotal": 1100.0}
+    _ambiente(monkeypatch, pedidos={84488: a}, depois={84488: [com_st, linhas_de_volta]})
+    assert main(["quantidades"]) == 1
+    saida = capsys.readouterr().out
+    assert "DocTotal ficou 1100.00 (antes 1000.00): imposto recalculado" in saida
+    assert "NÃO voltou ao original" in saida and "desfeito e conferido" not in saida
+
+
 def test_outra_linha_danificada_ou_doctotal_mudado_tambem_desfaz(monkeypatch: pytest.MonkeyPatch,
                                                                  capsys: pytest.CaptureFixture) -> None:
     """A PATCH that matched the array by position would hit a line nobody asked for."""
