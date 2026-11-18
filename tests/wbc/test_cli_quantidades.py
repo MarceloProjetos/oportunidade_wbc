@@ -89,7 +89,7 @@ def test_grava_confere_e_segue(monkeypatch: pytest.MonkeyPatch, capsys: pytest.C
     registro = _ambiente(monkeypatch, pedidos={84603: a, 84604: b},
                          depois={84603: _gravado(a, l1=88.0), 84604: _gravado(b, l0=4.0)})
     assert main(["quantidades"]) == 0
-    assert registro["gravados"] == [(24603, [(1, 88)], 'W/"e"'), (24604, [(0, 4)], 'W/"e"')]
+    assert registro["gravados"] == [(24603, [(1, 88)], None), (24604, [(0, 4)], None)]
     assert "2 linha(s) gravada(s) em 2 pedido(s)" in capsys.readouterr().out
 
 
@@ -102,7 +102,7 @@ def test_divergencia_desfaz_e_para_antes_do_proximo_pedido(monkeypatch: pytest.M
     errado["DocumentLines"] = [dict(errado["DocumentLines"][0], LineTotal=904576.64)]
     registro = _ambiente(monkeypatch, pedidos={84603: a, 84604: b}, depois={84603: [errado, a]})
     assert main(["quantidades"]) == 1
-    assert registro["gravados"] == [(24603, [(1, 88)], 'W/"e"'), (24603, [(1, 1)], None)], "o 84604 não é tocado"
+    assert registro["gravados"] == [(24603, [(1, 88)], None), (24603, [(1, 1)], None)], "o 84604 não é tocado"
     saida = capsys.readouterr().out
     assert "total 904576.64, esperado 10279.28" in saida
     assert "Parado no pedido 84603 (desfeito e conferido)" in saida
@@ -141,7 +141,7 @@ def test_linha_que_ja_foi_maior_e_alguem_voltou_para_um_nunca_e_desfeita(monkeyp
     registro = _ambiente(monkeypatch, pedidos={84580: a}, depois={84580: _gravado(a, l1=88.0)},
                          ja_maiores={84580: {0}})
     assert main(["quantidades"]) == 0
-    assert registro["gravados"] == [(24580, [(1, 88)], 'W/"e"')]
+    assert registro["gravados"] == [(24580, [(1, 88)], None)]
     saida = capsys.readouterr().out
     assert "linha 0 (ORCITM 1) já teve quantidade maior e alguém voltou para 1: fica" in saida
     assert "[84580]" in saida

@@ -1142,14 +1142,16 @@ def _cmd_quantidades(settings: Settings, *, pedido: int | None, simular: bool) -
                     linhas_gravadas += len(mudancas)
                     gravados += 1
                     continue
-                etag, agora = documentos.estado_das_linhas(TipoDocumento.PEDIDO, doc_entry)
+                # No If-Match: the .11's SL answered 412/-2039 to it on untouched orders (80074, 84603, 18/11/2026).
+                # This re-read of the lines is the guard.
+                _, agora = documentos.estado_das_linhas(TipoDocumento.PEDIDO, doc_entry)
                 mexidas = [m.line_num for m in mudancas if agora.get(m.line_num) != (1.0, m.peso)]
                 if mexidas:
                     alertar(f"{AVISO}Pedido {docnum}: linha(s) {mexidas} mudaram desde a leitura — pulado.")
                     pulados.append(docnum)
                     continue
                 antes = retrato(doc.get("DocumentLines") or ())
-                documentos.atualizar_quantidades(TipoDocumento.PEDIDO, doc_entry, mudancas, etag=etag)
+                documentos.atualizar_quantidades(TipoDocumento.PEDIDO, doc_entry, mudancas)
                 depois = documentos.buscar_por_docnum(TipoDocumento.PEDIDO, docnum) or {}
                 erros = divergencias(mudancas, depois.get("DocumentLines") or (), antes)
                 total_antes, total_depois = float(doc.get("DocTotal") or 0), float(depois.get("DocTotal") or 0)
