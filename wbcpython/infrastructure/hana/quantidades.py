@@ -49,6 +49,8 @@ def linhas_ja_maiores_que_um(settings: Settings, *, fabrica_de_conexao: Any = No
 
     Someone lowered them on purpose: 14 of the 15 found on 18/11/2026 were `vendas01` turning porta-paletes
     "82 Módulos" into 1 after the integration created them right. The command must never undo a person's choice.
+    Only versions saved before `CRIADOS_ANTES_DE` count: a write of this very command that was undone (84603,
+    18/11/2026, quantity 88 then back to 1) is not a person's choice.
     """
     s = citar_identificador(settings.service_layer.company_db, descricao="SL_COMPANY_DB")
     conexao = (fabrica_de_conexao or (lambda: _abrir_conexao_hdbcli(settings.hana)))()
@@ -61,9 +63,12 @@ SELECT DISTINCT R."DocNum", L."LineNum"
 FROM {s}."ORDR" R
 INNER JOIN {s}."RDR1" L ON L."DocEntry" = R."DocEntry"
 INNER JOIN {s}."ADO1" A ON A."ObjType" = '17' AND A."DocEntry" = L."DocEntry" AND A."LineNum" = L."LineNum"
+INNER JOIN {s}."ADOC" V ON V."ObjType" = A."ObjType" AND V."DocEntry" = A."DocEntry"
+                       AND V."LogInstanc" = A."LogInstanc"
 WHERE R."CANCELED" = 'N' AND R."DocStatus" = 'O' AND L."LineStatus" = 'O' AND L."Quantity" = 1
-  AND A."Quantity" > 1
-"""
+  AND A."Quantity" > 1 AND V."UpdateDate" < ?
+""",
+                (CRIADOS_ANTES_DE,),
             )
             mudadas: dict[int, set[int]] = {}
             for docnum, line_num in cursor.fetchall():
