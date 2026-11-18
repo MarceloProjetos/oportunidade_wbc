@@ -132,33 +132,29 @@ class TestQuantidadeNoTexto:
 
     @pytest.mark.parametrize(
         "texto",
-        [
-            "PORTA-PALETES junção dupla",
-            "PORTA-PALETES 36 Sapatas para colunas de porta paletes",
-            "PORTA-PALETES - MODELO C 17 Modelos C medindo 2300 x 800",
-            "PORTA-PALETES 0 Módulos",
-            "",
-        ],
+        ["PORTA-PALETES junção dupla", "PORTA-PALETES 0 Módulos", ""],
     )
     def test_porta_paletes_sem_numero_devolve_none(self, texto: str) -> None:
         assert eh_porta_paletes(texto) or texto == ""
         assert quantidade_no_texto(texto) is None
 
     @pytest.mark.parametrize(
-        "texto",
+        ("texto", "esperado"),
         [
-            "ESTANTES METÁLICAS 15 módulos de estantes metálicas",
-            "MEZANINO 12 Módulos",
-            # Acessório que cita porta-paletes: não é a estrutura.
-            "STOPS TRASEIROS PARA PORTA-PALETES 24 Stops traseiros para 12 módulos",
-            "COLUNAS DE PORTA-PALETES 12 colunas de porta-paletes",
-            "PLANOS METÁLICOS 60 Planos metálicos para estruturas do tipo porta-paletes com 4 módulos",
-            "ESTANTES METÁLICAS - GAVETEIROS 16 Módulos de estantes, para os porta-paletes",
+            # Porta-paletes sem "Módulos": vale a regra geral (18/11/2026).
+            ("PORTA-PALETES 36 Sapatas para colunas de porta paletes", 36),
+            ("PORTA-PALETES - MODELO C 17 Modelos C medindo 2300 x 800", 17),
+            # Acessório que cita porta-paletes: não é a estrutura, e lê o próprio número.
+            ("STOPS TRASEIROS PARA PORTA-PALETES 24 Stops traseiros para 12 módulos", 24),
+            ("COLUNAS DE PORTA-PALETES 12 colunas de porta-paletes", 12),
+            ("PLANOS METÁLICOS 60 Planos metálicos para estruturas do tipo porta-paletes com 4 módulos", 60),
+            ("ESTANTES METÁLICAS - GAVETEIROS 16 Módulos de estantes, para os porta-paletes", 16),
+            ("ESTANTES METÁLICAS 15 módulos de estantes metálicas", 15),
         ],
     )
-    def test_o_que_nao_e_porta_paletes_fica_de_fora(self, texto: str) -> None:
-        assert not eh_porta_paletes(texto)
-        assert quantidade_no_texto(texto) is None
+    def test_o_que_nao_le_modulos_usa_a_regra_geral(self, texto: str, esperado: int) -> None:
+        assert quantidade_no_texto(texto) == esperado
+
 
     def test_a_quantidade_lida_vai_para_a_linha(self) -> None:
         r = _linhas(_orcamento(_item(texto="PORTA-PALETES 8 Módulos", valor=Decimal("1000"))))
@@ -190,17 +186,23 @@ class TestQuantidadeNoTexto:
         assert r.avisos == ()
 
     def test_porta_paletes_sem_numero_vira_nota_com_atencao(self) -> None:
-        r = _linhas(_orcamento(_item(texto="PORTA-PALETES 36 Sapatas")))
+        r = _linhas(_orcamento(_item(texto="PORTA-PALETES junção dupla")))
         assert r.linhas[0]["Quantity"] == 1
         assert len(r.notas) == 1
         assert r.notas[0].atencao
         assert 'sem "N Módulos"' in r.notas[0].texto
         assert r.avisos == (), "não é erro do orçamento: fica no log"
 
-    def test_estante_com_modulos_segue_calada(self) -> None:
+    def test_porta_paletes_sem_modulos_le_a_regra_geral_com_atencao(self) -> None:
+        r = _linhas(_orcamento(_item(texto="PORTA-PALETES 36 Sapatas")))
+        assert r.linhas[0]["Quantity"] == 36
+        assert r.notas[0].atencao
+        assert 'sem "N Módulos" — quantidade 36 lida do texto' in r.notas[0].texto
+
+    def test_estante_com_modulos_le_a_quantidade(self) -> None:
         r = _linhas(_orcamento(_item(grupo=1, texto="ESTANTES METÁLICAS 15 módulos")))
-        assert r.linhas[0]["Quantity"] == 1
-        assert r.notas == ()
+        assert r.linhas[0]["Quantity"] == 15
+        assert r.notas[0].texto.startswith("[quantidade] Item 1: quantidade 15")
 
     def test_o_peso_nao_divide_pela_quantidade_lida(self) -> None:
         """`Weight1` é o total da linha: com 8 módulos lidos, o peso da árvore
@@ -209,6 +211,55 @@ class TestQuantidadeNoTexto:
         r = _linhas(_orcamento(item), pesos={1: Decimal("800")})
         assert r.linhas[0]["Quantity"] == 8
         assert r.linhas[0]["Weight1"] == 880.0
+
+
+class TestQuantidadeEmQualquerLinha:
+    """Desde 18/11/2026 toda linha lê a quantidade do texto, não só porta-paletes.
+
+    Pedido 84603: "88 Protetores", "02 Protetores" e "04 Protetores" nasceram no SAP
+    com 1. Os textos abaixo são reais (pedidos WBC de 2026).
+    """
+
+    @pytest.mark.parametrize(
+        ("texto", "esperado"),
+        [
+            ("PROTETORES DE COLUNAS 88 Protetores de colunas medindo 300 mm de altura", 88),
+            ("PROTETOR DE MONTANTE 02 Protetores de montante  medindo 1000 x 400 mm", 2),
+            ("LONGARINAS 04 Pares de longarinas medindo 2000 mm, aptos a suportar 500 kgf", 4),
+            ("ESTANTES  MÉTALICAS  02 Módulos de estantes metálicas medindo 1500 x 600 x 2000  mm", 2),
+            ("MEZANINO 01 Conjunto de estruturas metálicas do tipo mezanino desmontável", 1),
+            (" 10 prateleiras metálicas para estantes medindo cada uma 920 x 420 mm", 10),
+            # Medida antes da quantidade: pulada.
+            ("TUBO ESPAÇADOR - 300/600/800/1000 mm 9229 Tubos espaçadores, sendo: - 351 Tubos", 9229),
+            # Número dentro do título em caixa alta: rótulo, não quantidade.
+            ("REF 79979/26 ESTANTES  MÉTALICAS 03 Módulos de estantes metálicas", 3),
+            ("REF: COTAÇÃO 483399 ESTANTES  METÁLICAS 03 Módulos de estantes", 3),
+            ("ÁREA 1 COMPONENTES DE PORTA-PALETES 01 coluna de porta-paletes medindo 1840 mm", 1),
+            ("LIMITADOR - ESTOQUE DEPÓSITO 1º PAVIMENTO 03 Limitadores para estruturas", 3),
+            ("LIMITADORES - 1350/2300 ESTOQUE MEZANINO 32 Limitadores para estruturas", 32),
+        ],
+    )
+    def test_le_a_primeira_quantidade(self, texto: str, esperado: int) -> None:
+        assert quantidade_no_texto(texto) == esperado
+
+    @pytest.mark.parametrize("texto", ["PROTETORES", "medindo 2300 x 1000 mm, 2000 kgf", "LONGARINAS 0 Pares"])
+    def test_texto_sem_quantidade_fica_em_um(self, texto: str) -> None:
+        assert quantidade_no_texto(texto) is None
+        assert _linhas(_orcamento(_item(grupo=1, texto=texto))).linhas[0]["Quantity"] == 1
+
+    def test_a_quantidade_lida_vai_para_a_linha_com_nota_e_o_total_intacto(self) -> None:
+        texto = "PROTETORES DE COLUNAS 88 Protetores de colunas"
+        r = _linhas(_orcamento(_item(grupo=1, texto=texto, valor=Decimal("10279.28"))))
+        assert r.linhas[0]["Quantity"] == 88
+        assert Decimal(str(r.linhas[0]["LineTotal"])) == Decimal("10279.28")
+        assert len(r.notas) == 1 and not r.notas[0].atencao
+        assert r.notas[0].texto.startswith("[quantidade] Item 1: quantidade 88 lida do texto")
+        assert r.avisos == ()
+
+    def test_orcprdqtd_preenchida_vence_o_texto(self) -> None:
+        r = _linhas(_orcamento(_item(grupo=1, texto="PROTETORES 88 Protetores", quantidade=Decimal(3))))
+        assert r.linhas[0]["Quantity"] == 3
+        assert r.notas == ()
 
 
 class TestCamposDaLinhaNoSap:

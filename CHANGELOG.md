@@ -6,6 +6,18 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-18] — Worker WBC: toda linha lê a quantidade do texto, não só porta-paletes
+
+**Exige deploy na .11 (dele).** Pedido 84603: "88 Protetores", "02 Protetores" e "04 Protetores" nasceram no SAP com
+quantidade 1, porque desde 15/09 só a linha de porta-paletes lia o número ("N Módulos"). Decisão dele (18/11): toda
+linha lê. `quantidade_no_texto` (`wbcpython/domain/linhas.py`) mantém a leitura de porta-paletes como prioridade e,
+quando ela não lê, usa `primeira_quantidade`: o primeiro inteiro seguido de uma palavra que não é medida (`mm`, `kgf`…)
+nem palavra do título em caixa alta ("REF 79979/26 ESTANTES" é rótulo). Medido no SAP, só leitura, nas 1.251 linhas WBC
+de 2026 que não são porta-paletes: lê 1.244; as 7 em caixa alta eram todas rótulo. O total da linha não muda (vai
+`LineTotal`, o SAP deriva o preço) e as OPs não dependem da quantidade da linha. Linha lida ganha nota `[quantidade]`
+no log. Limite conhecido, o mesmo do porta-paletes: "480 Pares…, 30 Pares…" lê só o 480. **Pedidos já criados não
+mudam** (o 84603 está congelado): só os novos.
+
 ## [2026-11-12] — OS perde o grupo de OPs quando a linha do pedido é removida (scripts de view)
 
 **✅ Rodados por ele em 12/11 às 09:40 e conferidos** (só leitura, 17 pedidos, um a um: as três views no ar devolvem

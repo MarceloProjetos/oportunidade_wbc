@@ -54,9 +54,9 @@ class ItemOrcamentoWbc(BaseModel):
 
         1. A positive `ORCPRDQTD` is honored. The column is null across the whole table today, but the rule is written
            for the day the WBC starts filling it: this is not a hard-coded `1` in disguise.
-        2. Porta-paletes lines read "N Módulos" from the text (`quantidade_no_texto`). Decision of 15/09/2026: the
-           PORTA-PALETES item was born in SAP as 1 unit when the quote said 14 modules.
-        3. `1` for everything else: empty, null, inconsistent, zero, or a line that is not porta-paletes.
+        2. The quantity written in the text (`quantidade_no_texto`): "N Módulos" on porta-paletes (15/09/2026), the
+           first "N word" on any other line (18/11/2026, "88 Protetores" was born in SAP as 1 unit).
+        3. `1` for everything else: empty, null, inconsistent, zero, or a text with no quantity.
 
         Negative counts as inconsistent: a negative quote quantity has no business meaning and would make SAP compute
         a negative total.

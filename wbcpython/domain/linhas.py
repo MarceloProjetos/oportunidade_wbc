@@ -14,10 +14,10 @@ system.
 
 The three decisions this rule embodies were taken by the business:
 
-1. **Quantity 1** when `ORCPRDQTD` is empty, null, inconsistent or zero, except on a **porta-paletes**
-   (pallet rack) line, where the quantity is read from the text (see `quantidade_no_texto`). `ORCPRDQTD`
-   is null on all 20,997 WBC lines, and the PORTA-PALETES item used to be born in the SAP as 1 unit when
-   the text said "14 Módulos" (report of 15/09/2026).
+1. **Quantity read from the text** when `ORCPRDQTD` is empty, null, inconsistent or zero (see
+   `quantidade_no_texto`), and **1** when the text has no quantity. `ORCPRDQTD` is null on all 20,997 WBC
+   lines. Porta-paletes read "N Módulos" since 15/09/2026; every other line ("88 Protetores", "04 Pares")
+   since 18/11/2026 — until then they were born in the SAP as 1 unit.
 2. **Fallback to Porta-Paletes** (group `2`) when the group is not in the `de_para`, **with a log
    warning**, never silently.
 3. **Warehouse `08`** on every line.
@@ -84,6 +84,14 @@ _MEDIDAS = frozenset({"kgf", "kgs", "mm", "cm", "ton", "und", "conj"})
 
 #: O inteiro imediatamente anterior a "modulo(s)".
 _NUMERO_DE_MODULOS = re.compile(r"\b(\d+)\s*modulos?\b")
+
+#: Theme of the log lines for a quantity read from a line that is not porta-paletes.
+TEMA_QUANTIDADE = "quantidade"
+
+#: "N word" on the ORIGINAL text (letters with accents, case kept): the case is what tells the
+#: quantity ("88 Protetores", "04 Pares") from a number inside the uppercase title ("REF 79979/26
+#: ESTANTES", "ÁREA 1 COMPONENTES").
+_NUMERO_E_PALAVRA_CRU = re.compile(r"\b(\d+)\s*([^\W\d_]+)")
 
 #: Grupo usado quando o grupo da linha não existe no de-para.
 #: `2` é Porta-Paletes — decisão do negócio, herdada do legado.
@@ -176,6 +184,34 @@ def eh_porta_paletes(texto: str) -> bool:
 
 
 def quantidade_no_texto(texto: str) -> int | None:
+    """Quantity written in the line text, or `None` (the caller sends 1).
+
+    Porta-paletes keeps its own reading ("N Módulos", `modulos_de_porta_paletes`) and wins. Any other line, and a
+    porta-paletes text without "Módulos", reads the first "N word" (`primeira_quantidade`). Decision of 18/11/2026
+    (Marcelo, order 84603: "88 Protetores" was born as 1 unit).
+    """
+    return modulos_de_porta_paletes(texto) or primeira_quantidade(texto)
+
+
+def primeira_quantidade(texto: str) -> int | None:
+    """The first integer followed by a word that is neither a measure nor an uppercase title word.
+
+    "PROTETORES DE COLUNAS 88 Protetores" -> 88, "LONGARINAS 04 Pares" -> 4, "MEZANINO 01 Conjunto" -> 1,
+    "TUBO ESPAÇADOR - 300/600/1000 mm 9229 Tubos" -> 9229 (the measure is skipped). An ALL-CAPS word after the
+    number is the title ("REF 79979/26 ESTANTES METÁLICAS 03 Módulos" -> 3). Measured on the 1,251 non-porta-paletes
+    WBC order lines of 2026 (18/11/2026): 1,244 read; the 7 caps cases were all title labels. Known limit, the same as
+    porta-paletes: "480 Pares ..., 30 Pares ..." reads only the first number. The line total does not depend on it.
+    """
+    for encontrado in _NUMERO_E_PALAVRA_CRU.finditer(texto or ""):
+        palavra = encontrado.group(2)
+        normalizada = _sem_acento(palavra)
+        if len(normalizada) <= 2 or normalizada in _MEDIDAS or palavra.isupper():
+            continue
+        return int(encontrado.group(1)) or None
+    return None
+
+
+def modulos_de_porta_paletes(texto: str) -> int | None:
     """Number of modules written in the text of a porta-paletes line.
 
     It is the **integer immediately before the first occurrence of "Módulo(s)"** after "porta-paletes",
@@ -333,9 +369,10 @@ def resolver_linhas(
 
 
 def _anotar_quantidade(item: Any, quantidade: Decimal, notas: list[Nota]) -> None:
-    """Record where the quantity of a porta-paletes line came from.
+    """Record where the quantity of a line came from.
 
-    Three outcomes, only for porta-paletes (other lines stay silent, as they always did):
+    A line that is not porta-paletes gets an INFO note (`[quantidade]`) only when its text gave a quantity. For
+    porta-paletes, three outcomes:
 
     * `ORCPRDQTD` filled in: nothing to say, the column won (precedence).
     * Number read from the text: a note, with the derived unit price, so whoever follows the log sees what
@@ -344,12 +381,33 @@ def _anotar_quantidade(item: Any, quantidade: Decimal, notas: list[Nota]) -> Non
       showed joints, columns, protectors and loose material; quantity 1 is right, but whoever checks needs to
       know it was the fallback and not a reading. It does not become a quote error.
     """
-    if not eh_porta_paletes(item.texto):
-        return
     if item.quantidade is not None and item.quantidade > 0:
         return
-    lida = quantidade_no_texto(item.texto)
+    if not eh_porta_paletes(item.texto):
+        # Since 18/11/2026 any line reads its quantity; only a reading is worth a note (1 stays silent, as always).
+        outra = primeira_quantidade(item.texto)
+        if outra is not None:
+            notas.append(
+                Nota(
+                    f"[{TEMA_QUANTIDADE}] Item {item.orcitm}: quantidade {outra} lida do texto → "
+                    f"Quantity {quantidade:g}, LineTotal R$ {_reais(item.valor)} "
+                    f"(unitário R$ {_reais(item.preco_unitario, casas=4)})"
+                )
+            )
+        return
+    lida = modulos_de_porta_paletes(item.texto)
     if lida is None:
+        outra = primeira_quantidade(item.texto)
+        if outra is not None:
+            notas.append(
+                Nota(
+                    f"[{TEMA_PORTA_PALETES}] Item {item.orcitm}: texto de porta-paletes sem "
+                    f'"N Módulos" — quantidade {outra} lida do texto, LineTotal R$ {_reais(item.valor)}. '
+                    f"Texto: {item.texto.strip()[:80]!r}",
+                    atencao=True,
+                )
+            )
+            return
         notas.append(
             Nota(
                 f"[{TEMA_PORTA_PALETES}] Item {item.orcitm}: texto de porta-paletes sem "
