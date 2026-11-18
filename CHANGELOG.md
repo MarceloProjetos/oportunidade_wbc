@@ -6,6 +6,17 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-18] — Plano: celular e número próprios para a Mira, com segurança
+
+Só documento, nada no ar. `docs/PLANO_CELULAR_MIRA.md`: a Mira passa a ter número próprio num Samsung
+dedicado, e o Marcelo aprova do celular dele. A regra que segura tudo é que o número da Mira nunca aprova:
+quem pega o celular dela (ADB, Claude, ladrão) só alcança o que ela já pode, que é pedir. A .11 não muda.
+Fases: preparar o aparelho, gateway do `web_orcaview_V118` com modo novo e rollback por variável, a troca
+no ar com testes, e o controle pelo Claude via ADB, só com uma pessoa presente. Fechadas: plugado no .90,
+chip da empresa com 5G, só o Marcelo no começo (grupo privado depois, só leitura) e cópia das conversas no
+Supabase por no máximo 15 dias, sem mensagens temporárias, e Wi-Fi da empresa mais 5G de 120 GB/mês (reserva
+de internet só do .90, com limite de consumo e ensaio mensal).
+
 ## [2026-11-18] — Agente pode PEDIR "encerrar as OPs de um pedido" com custo 0,01 (pedido 84537)
 
 **Exige deploy na .11 (dele): CP, API e MCP.** O 84537 (entrega futura, ainda em produção) teve o "Encerrar OPs do
