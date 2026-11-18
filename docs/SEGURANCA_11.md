@@ -103,6 +103,10 @@ regras: `docs/APROVACOES_11.md`. Depois do deploy, para as ferramentas `pedir_*`
 ```powershell
 python -m seguranca acrescentar mcp-servico --escopos pedidos_wbc,servico:reiniciar --declara-usuario
 python -m seguranca acrescentar mcp-marcelo --escopos pedidos_wbc,servico:reiniciar
+# Encerrar OPs (pedir_encerrar_ops_pedidos_fechados / pedir_encerrar_ops_pedido): as DUAS chaves --
+# a do cliente (porta 8078) e a mcp-servico (com que o MCP chama a 8077). Dado em 18/11/2026.
+python -m seguranca acrescentar mcp-marcelo --escopos manutencao_op
+python -m seguranca acrescentar mcp-servico --escopos manutencao_op
 ```
 
 O `--declara-usuario` do `mcp-servico` é o que deixa a .11 registrar **qual** cliente do MCP pediu
