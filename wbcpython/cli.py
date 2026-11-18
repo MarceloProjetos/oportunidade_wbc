@@ -1074,6 +1074,117 @@ def _pesos_das_linhas(
     return mudancas, iguais, sem_peso
 
 
+def _cmd_quantidades(settings: Settings, *, pedido: int | None, simular: bool) -> int:
+    """Give the open orders born before 18/11/2026 the quantity their line text says.
+
+    `--pedido` does one order; without it, every open integration order with a line at quantity 1 (from HANA). Per
+    order: read on the Service Layer, decide (`domain.quantidade_corrigida`), re-read the lines right before the
+    PATCH so a value typed in between is never overwritten, write, re-read and prove (the changed lines, every other
+    line and the `DocTotal`). The first divergence puts the touched lines back as read and stops the run: nothing
+    after it is touched. Only orders created before 18/11/2026 are listed (`CRIADOS_ANTES_DE`). Every write turns
+    `VATFirst` into N (the SL cannot set it back; Marcelo accepted it on 18/11/2026), so its current value is shown.
+    """
+    from dataclasses import replace
+
+    from wbcpython.domain.quantidade_corrigida import divergencias, quantidades_a_corrigir, retrato
+    from wbcpython.infrastructure.hana.quantidades import pedidos_com_linha_em_um
+    from wbcpython.infrastructure.service_layer.client import ServiceLayerClient
+    from wbcpython.infrastructure.service_layer.documentos import (
+        RepositorioDocumentosVendaServiceLayer,
+        TipoDocumento,
+    )
+
+    _preparar_log(settings)
+    log = logging.getLogger("wbcpython.quantidades")
+    relatar, alertar = log.info, log.warning
+    relatar(settings.describe_environment())
+    relatar("Quantidade = a lida do texto da linha (regra de 18/11/2026); total e peso da linha não mudam.")
+    relatar("Simulação: nada será gravado no SAP." if simular else "Cada pedido gravado fica com VATFirst = N.")
+    relatar("")
+
+    try:
+        docnums = [pedido] if pedido is not None else pedidos_com_linha_em_um(settings)
+        relatar(f"{len(docnums)} pedido(s) a examinar.")
+        gravados = linhas_gravadas = 0
+        pulados: list[int] = []
+        with ServiceLayerClient(
+            settings.service_layer,
+            production_company_db=settings.production_company_db,
+            block_production_writes=settings.block_production_writes,
+        ) as cliente:
+            documentos = RepositorioDocumentosVendaServiceLayer(cliente)
+            for docnum in docnums:
+                doc = documentos.buscar_por_docnum(TipoDocumento.PEDIDO, docnum)
+                if doc is None or doc.get("Cancelled") == "tYES" or doc.get("DocumentStatus") != "bost_Open":
+                    if pedido is not None:
+                        alertar(f"{ERRO}Pedido {docnum} não está aberto no SAP.")
+                        return 1
+                    if doc is None:
+                        alertar(f"{AVISO}Pedido {docnum}: o HANA lista, o Service Layer não achou — pulado.")
+                        pulados.append(docnum)
+                    continue
+                mudancas, fora = quantidades_a_corrigir(doc.get("DocumentLines") or ())
+                for motivo in fora:
+                    alertar(f"{AVISO}Pedido {docnum}: {motivo}.")
+                if fora:
+                    pulados.append(docnum)
+                if not mudancas:
+                    continue
+                doc_entry = int(doc["DocEntry"])
+                vat = doc.get("ApplyTaxOnFirstInstallment")
+                relatar(f"Pedido {docnum} (DocEntry {doc_entry}, VATFirst {'Y' if vat == 'tYES' else 'N'}):")
+                for m in mudancas:
+                    relatar(
+                        f"  linha {m.line_num} (ORCITM {m.orcitm}): 1 -> {m.nova} | total {m.total:.2f} | {m.texto!r}"
+                    )
+                if simular:
+                    linhas_gravadas += len(mudancas)
+                    gravados += 1
+                    continue
+                etag, agora = documentos.estado_das_linhas(TipoDocumento.PEDIDO, doc_entry)
+                mexidas = [m.line_num for m in mudancas if agora.get(m.line_num) != (1.0, m.peso)]
+                if mexidas:
+                    alertar(f"{AVISO}Pedido {docnum}: linha(s) {mexidas} mudaram desde a leitura — pulado.")
+                    pulados.append(docnum)
+                    continue
+                antes = retrato(doc.get("DocumentLines") or ())
+                documentos.atualizar_quantidades(TipoDocumento.PEDIDO, doc_entry, mudancas, etag=etag)
+                depois = documentos.buscar_por_docnum(TipoDocumento.PEDIDO, docnum) or {}
+                erros = divergencias(mudancas, depois.get("DocumentLines") or (), antes)
+                total_antes, total_depois = float(doc.get("DocTotal") or 0), float(depois.get("DocTotal") or 0)
+                if abs(total_depois - total_antes) >= 0.005:
+                    erros.append(f"DocTotal mudou: {total_antes:.2f} -> {total_depois:.2f}")
+                if erros:
+                    for erro in erros:
+                        log.error(f"{ERRO}Pedido {docnum}: {erro}")
+                    # Put the touched lines back as they were read (1, same total, same weight), then stop.
+                    volta = [replace(m, nova=1) for m in mudancas]
+                    log.error(f"{ERRO}Desfazendo: linha(s) {[m.line_num for m in volta]} de volta a quantidade 1.")
+                    documentos.atualizar_quantidades(TipoDocumento.PEDIDO, doc_entry, volta)
+                    refeito = documentos.buscar_por_docnum(TipoDocumento.PEDIDO, docnum) or {}
+                    sobrou = divergencias(volta, refeito.get("DocumentLines") or (), antes)
+                    for erro in sobrou:
+                        log.error(f"{ERRO}Pedido {docnum} depois de desfazer: {erro}")
+                    log.error(
+                        f"{ERRO}Parado no pedido {docnum} "
+                        + ("(desfeito e conferido)" if not sobrou else "(NÃO voltou ao original: conferir no SAP)")
+                        + f"; os seguintes não foram tocados. Antes: {antes}"
+                    )
+                    return 1
+                gravados += 1
+                linhas_gravadas += len(mudancas)
+                relatar(f"{OK}Pedido {docnum}: {len(mudancas)} linha(s) gravada(s) e conferida(s).")
+        relatar("")
+        verbo = "mudariam" if simular else "gravada(s)"
+        relatar(f"{OK}{linhas_gravadas} linha(s) {verbo} em {gravados} pedido(s).")
+        if pulados:
+            alertar(f"{AVISO}{len(pulados)} pedido(s) com linha deixada de propósito: {sorted(set(pulados))}.")
+        return 0
+    except Exception as exc:  # noqa: BLE001 — the command reports, never crashes
+        log.error(f"{ERRO}{type(exc).__name__}: {exc}")
+        return 1
+
+
 def _cmd_pesos_reescalados(settings: Settings, *, dias: int, pedido: int | None) -> int:
     """What the worker's rule says about the weights the SAP rescaled — read only.
 
@@ -1251,6 +1362,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="mostra o que mudaria e não grava nada",
     )
 
+    p_qtd = sub.add_parser(
+        "quantidades",
+        help="grava nos pedidos abertos a quantidade que o texto da linha diz (regra de 18/11/2026)",
+    )
+    p_qtd.add_argument("--pedido", type=int, metavar="DOCNUM", help="só este pedido (sem ele: todos os abertos)")
+    p_qtd.add_argument("--simular", action="store_true", help="mostra o que mudaria e não grava nada")
+
     p_reescalados = sub.add_parser(
         "pesos-reescalados",
         help="mostra os pesos que o SAP multiplicou e o que a integração faria (só leitura)",
@@ -1347,6 +1465,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             orcamento=getattr(args, "orcamento", None),
             simular=getattr(args, "simular", False),
         )
+    if args.comando == "quantidades":
+        return _cmd_quantidades(settings, pedido=args.pedido, simular=args.simular)
     if args.comando == "pesos-reescalados":
         return _cmd_pesos_reescalados(settings, dias=args.dias, pedido=args.pedido)
     if args.comando in ("worker", "ciclo"):

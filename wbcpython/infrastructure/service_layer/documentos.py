@@ -346,6 +346,29 @@ class RepositorioDocumentosVendaServiceLayer:
             len(pesos_por_linha),
         )
 
+    def atualizar_quantidades(
+        self, tipo: TipoDocumento, doc_entry: int, mudancas: list[Any], *, etag: str | None = None
+    ) -> None:
+        """Writes `Quantity` on specific lines, re-sending the line's `LineTotal` and `Weight1` unchanged.
+
+        Merge PATCH, like `atualizar_pesos`: no `B1S-ReplaceCollectionsOnPatch`, so the other lines and fields
+        stay. The total and the weight go along because the SAP recomputes both from the quantity otherwise
+        (price × quantity, and the rescaled weight of `domain.peso_reescalado`). `mudancas` are
+        `domain.quantidade_corrigida.QuantidadeCorrigida`; the caller re-reads the order to prove the write.
+        """
+        if not mudancas:
+            return
+        corpo = {
+            "DocumentLines": [
+                {"LineNum": m.line_num, "Quantity": m.nova, "LineTotal": m.total, "Weight1": m.peso}
+                for m in sorted(mudancas, key=lambda m: m.line_num)
+            ]
+        }
+        self._cliente.patch(
+            f"{tipo.value}({doc_entry})", json=corpo, headers={"If-Match": etag} if etag else None
+        )
+        logger.info("%s %s: quantidade gravada em %d linha(s).", tipo.rotulo.capitalize(), doc_entry, len(mudancas))
+
     def estado_das_linhas(
         self, tipo: TipoDocumento, doc_entry: int
     ) -> tuple[str | None, dict[int, tuple[float, float]]]:

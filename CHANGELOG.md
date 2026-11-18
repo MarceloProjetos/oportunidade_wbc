@@ -6,6 +6,17 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-18] — `wbcpython quantidades`: corrige a quantidade dos pedidos abertos antigos
+
+**Exige deploy na .11 (dele) e quem roda é ele.** Comando novo para os pedidos abertos criados antes da regra de
+quantidade em toda linha (entrada abaixo): grava em cada linha aberta da integração, ainda com 1 e não entregue em
+parte, a quantidade que o texto diz, reenviando o mesmo `LineTotal` e o mesmo `Weight1` (PATCH de mescla, como o
+`pesos`). Medido no SAP, só leitura: 52 pedidos abertos (pedido fechado não aceita mudar linha e já virou NF).
+`--simular` só mostra; `--pedido N` faz um. Antes de gravar relê as linhas (valor digitado no meio = pulado); depois
+relê e confere a linha mudada, **todas as outras** e o `DocTotal`; na primeira divergência devolve as linhas ao que
+eram e para. Lista só pedidos criados antes de 18/11. ⚠️ Todo PATCH vira `VATFirst` para N (o SL não volta): 36 dos 52
+estão com Y; decisão dele, 18/11, o fiscal confere o boleto na NF.
+
 ## [2026-11-18] — Worker WBC: toda linha lê a quantidade do texto, não só porta-paletes
 
 **Exige deploy na .11 (dele).** Pedido 84603: "88 Protetores", "02 Protetores" e "04 Protetores" nasceram no SAP com

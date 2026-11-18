@@ -619,3 +619,27 @@ class TestPesosComEtag:
         assert docs.estado_das_linhas(TipoDocumento.PEDIDO, 7)[0] is None
         docs.atualizar_pesos(TipoDocumento.PEDIDO, 7, {0: 1.5})
         assert "If-Match" not in g.requisicoes[-1].headers
+
+
+class TestQuantidadesDoTexto:
+    """`wbcpython quantidades`: merge PATCH with the quantity, the same total and the same weight."""
+
+    def test_patch_leva_quantidade_total_e_peso_sem_substituir_as_linhas(self) -> None:
+        from wbcpython.domain.quantidade_corrigida import QuantidadeCorrigida
+
+        g = Gravador([LOGIN, httpx.Response(204)])
+        mudanca = QuantidadeCorrigida(line_num=1, orcitm="5", nova=88, total=10279.28, peso=436.9, texto="")
+        _docs(g).atualizar_quantidades(TipoDocumento.PEDIDO, 21153, [mudanca], etag='W/"e"')
+
+        pedido = g.requisicoes[-1]
+        assert pedido.method == "PATCH" and g.caminhos[-1] == "/b1s/v1/Orders(21153)"
+        assert "B1S-ReplaceCollectionsOnPatch" not in pedido.headers, "substituir apagaria as outras linhas"
+        assert pedido.headers["If-Match"] == 'W/"e"'
+        assert json.loads(pedido.content) == {
+            "DocumentLines": [{"LineNum": 1, "Quantity": 88, "LineTotal": 10279.28, "Weight1": 436.9}]
+        }
+
+    def test_sem_mudanca_nao_chama_o_sap(self) -> None:
+        g = Gravador([LOGIN])
+        _docs(g).atualizar_quantidades(TipoDocumento.PEDIDO, 7, [])
+        assert g.requisicoes == []

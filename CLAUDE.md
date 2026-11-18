@@ -270,7 +270,7 @@ python -m pytest tests/controleproducao
 python -m ruff check .        # deve ficar em 0. Sem ruff: uvx ruff@0.15.20 check .
 python api.py                 # API local (8077)
 python -m scripts.scheduled_execution
-python -m wbcpython --help    # env, doctor, check-sap, check-hana, pendentes, ciclo, worker, dashboard, pesos, datas-de-abertura, faxina, janela
+python -m wbcpython --help    # env, doctor, check-sap, check-hana, pendentes, ciclo, worker, dashboard, pesos, quantidades, datas-de-abertura, faxina, janela
 python -m wbcpython pendentes --exportar state/wbc_previsao.json   # o que o ciclo FARIA (só leitura)
 python -m controleproducao --help   # web, pedidos-wbc, manutencao-op, conexoes, diag
 python -m controleproducao pedidos-wbc buscar   # só leitura
