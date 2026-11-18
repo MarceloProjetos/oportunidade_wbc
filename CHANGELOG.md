@@ -18,7 +18,12 @@ eram e para. Lista só pedidos criados antes de 18/11. **Nunca desfaz escolha de
 quantidade maior em versão anterior (`ADO1`) fica com 1 — a 1ª simulação na .11 achou 15, 14 delas porta-paletes
 que o `vendas01` baixou de "82 Módulos" para 1 depois de a integração criar certo (84580, 84544, 84420…).
 **Sem `If-Match`:** a 1ª gravação real na .11 levou 412/-2039 ("Another user modified data") no 80074 e no 84603 sem
-ninguém ter mexido (conferido no HANA: nada gravado). A ETag deste SL não serve; a guarda é a releitura das linhas. ⚠️ Todo PATCH vira `VATFirst` para N (o SL não volta): 36 dos 52
+ninguém ter mexido (conferido no HANA: nada gravado). A ETag deste SL não serve; a guarda é a releitura das linhas.
+**Dois PATCH (preço, depois peso):** no 84603, com `Quantity` + `LineTotal` + `Weight1` num PATCH só, o SL manteve o
+preço velho e multiplicou total e peso por 88 (10.279,28 → 904.576,64; DocTotal 286.214,58 → 1.187.299,96); a
+conferência pegou, o comando desfez e parou, e o HANA confirmou o pedido igual ao original. Agora vai `Quantity` +
+`UnitPrice` (4 casas, como o passo 1 do `atualizar`) e depois `Weight1` sozinho. Linha cujo total não fecha ao centavo
+com preço de 4 casas fica (6 hoje). Medido: grava 91 linhas em 41 pedidos; ficam 18 de pessoa, 6 de centavo, 2 entregues. ⚠️ Todo PATCH vira `VATFirst` para N (o SL não volta): 36 dos 52
 estão com Y; decisão dele, 18/11, o fiscal confere o boleto na NF.
 
 ## [2026-11-18] — Worker WBC: toda linha lê a quantidade do texto, não só porta-paletes

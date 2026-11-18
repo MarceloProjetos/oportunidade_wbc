@@ -624,20 +624,23 @@ class TestPesosComEtag:
 class TestQuantidadesDoTexto:
     """`wbcpython quantidades`: merge PATCH with the quantity, the same total and the same weight."""
 
-    def test_patch_leva_quantidade_total_e_peso_sem_substituir_as_linhas(self) -> None:
+    def test_quantidade_com_preco_novo_e_depois_o_peso_sem_substituir_as_linhas(self) -> None:
+        """84603, 18/11/2026: in one PATCH the SL kept the old price and multiplied total and weight by 88."""
         from wbcpython.domain.quantidade_corrigida import QuantidadeCorrigida
 
-        g = Gravador([LOGIN, httpx.Response(204)])
+        g = Gravador([LOGIN, httpx.Response(204), httpx.Response(204)])
         mudanca = QuantidadeCorrigida(line_num=1, orcitm="5", nova=88, total=10279.28, peso=436.9, texto="")
-        _docs(g).atualizar_quantidades(TipoDocumento.PEDIDO, 21153, [mudanca], etag='W/"e"')
+        _docs(g).atualizar_quantidades(TipoDocumento.PEDIDO, 21153, [mudanca])
 
-        pedido = g.requisicoes[-1]
-        assert pedido.method == "PATCH" and g.caminhos[-1] == "/b1s/v1/Orders(21153)"
-        assert "B1S-ReplaceCollectionsOnPatch" not in pedido.headers, "substituir apagaria as outras linhas"
-        assert pedido.headers["If-Match"] == 'W/"e"'
-        assert json.loads(pedido.content) == {
-            "DocumentLines": [{"LineNum": 1, "Quantity": 88, "LineTotal": 10279.28, "Weight1": 436.9}]
+        quantidade, peso = g.requisicoes[-2], g.requisicoes[-1]
+        for pedido in (quantidade, peso):
+            assert pedido.method == "PATCH" and pedido.url.path == "/b1s/v1/Orders(21153)"
+            assert "B1S-ReplaceCollectionsOnPatch" not in pedido.headers, "substituir apagaria as outras linhas"
+            assert "If-Match" not in pedido.headers
+        assert json.loads(quantidade.content) == {
+            "DocumentLines": [{"LineNum": 1, "Quantity": 88, "LineTotal": 10279.28, "UnitPrice": 116.81}]
         }
+        assert json.loads(peso.content) == {"DocumentLines": [{"LineNum": 1, "Weight1": 436.9}]}
 
     def test_sem_mudanca_nao_chama_o_sap(self) -> None:
         g = Gravador([LOGIN])

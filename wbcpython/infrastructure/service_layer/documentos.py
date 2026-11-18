@@ -349,23 +349,32 @@ class RepositorioDocumentosVendaServiceLayer:
     def atualizar_quantidades(
         self, tipo: TipoDocumento, doc_entry: int, mudancas: list[Any], *, etag: str | None = None
     ) -> None:
-        """Writes `Quantity` on specific lines, re-sending the line's `LineTotal` and `Weight1` unchanged.
+        """Writes `Quantity` on specific lines keeping the line's total and weight, in two merge PATCHes.
 
-        Merge PATCH, like `atualizar_pesos`: no `B1S-ReplaceCollectionsOnPatch`, so the other lines and fields
-        stay. The total and the weight go along because the SAP recomputes both from the quantity otherwise
-        (price × quantity, and the rescaled weight of `domain.peso_reescalado`). `mudancas` are
-        `domain.quantidade_corrigida.QuantidadeCorrigida`; the caller re-reads the order to prove the write.
+        Merge, like `atualizar_pesos`: no `B1S-ReplaceCollectionsOnPatch`, so the other lines and fields stay.
+        Measured on 84603 (18/11/2026): with `Quantity` + `LineTotal` + `Weight1` in one PATCH the SL kept the old
+        price and multiplied both (10,279.28 × 88 = 904,576.64; 436.9 kg × 88). So step 1 sends the quantity with
+        the new unit price (`_com_unitario`, the same as `atualizar`'s step 1) and step 2 the weight alone, after
+        the SL's rescale. `mudancas` are `domain.quantidade_corrigida.QuantidadeCorrigida`; the caller re-reads the
+        order to prove the write.
         """
         if not mudancas:
             return
-        corpo = {
-            "DocumentLines": [
-                {"LineNum": m.line_num, "Quantity": m.nova, "LineTotal": m.total, "Weight1": m.peso}
-                for m in sorted(mudancas, key=lambda m: m.line_num)
-            ]
-        }
+        ordenadas = sorted(mudancas, key=lambda m: m.line_num)
+        caminho = f"{tipo.value}({doc_entry})"
+        cabecalho = {"If-Match": etag} if etag else None
         self._cliente.patch(
-            f"{tipo.value}({doc_entry})", json=corpo, headers={"If-Match": etag} if etag else None
+            caminho,
+            json={
+                "DocumentLines": [
+                    _com_unitario({"LineNum": m.line_num, "Quantity": m.nova, "LineTotal": m.total})
+                    for m in ordenadas
+                ]
+            },
+            headers=cabecalho,
+        )
+        self._cliente.patch(
+            caminho, json={"DocumentLines": [{"LineNum": m.line_num, "Weight1": m.peso} for m in ordenadas]}
         )
         logger.info("%s %s: quantidade gravada em %d linha(s).", tipo.rotulo.capitalize(), doc_entry, len(mudancas))
 

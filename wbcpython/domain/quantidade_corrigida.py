@@ -14,11 +14,13 @@ from __future__ import annotations
 
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from wbcpython.domain.linhas import quantidade_no_texto
 
 LINHA_ABERTA = "bost_Open"
+_CENTAVO = Decimal("0.01")
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +63,14 @@ def quantidades_a_corrigir(
         aberta = linha.get("RemainingOpenQuantity")
         if aberta is not None and float(aberta) < quantidade:
             fora.append(f"linha {line_num} (ORCITM {orcitm}) já entregue em parte: fica com 1, o texto diz {nova}")
+            continue
+        total = Decimal(str(linha.get("LineTotal") or 0)).quantize(_CENTAVO, rounding=ROUND_HALF_UP)
+        unitario = (total / nova).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+        if (unitario * nova).quantize(_CENTAVO, rounding=ROUND_HALF_UP) != total:
+            # The SL derives the total from the 4-decimal price: it would land a few cents off and be undone.
+            fora.append(
+                f"linha {line_num} (ORCITM {orcitm}): {total} ÷ {nova} não fecha ao centavo com preço de 4 casas: fica"
+            )
             continue
         mudancas.append(
             QuantidadeCorrigida(

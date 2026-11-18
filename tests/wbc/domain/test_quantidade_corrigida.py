@@ -48,6 +48,14 @@ def test_linha_entregue_em_parte_fica_com_um_e_e_relatada() -> None:
     assert fora == ["linha 1 (ORCITM 5) já entregue em parte: fica com 1, o texto diz 88"]
 
 
+def test_total_que_nao_fecha_com_preco_de_4_casas_fica_e_e_relatado() -> None:
+    """100.00 ÷ 3 = 33.3333 -> 99.9999 -> 100.00 fecha; 0.10 ÷ 3 = 0.0333 -> 0.0999 -> 0.10 fecha; 1.00 ÷ 7 não."""
+    assert quantidades_a_corrigir([_linha(1, "PROTETORES 03 Protetores", total=100.0)])[0][0].nova == 3
+    mudancas, fora = quantidades_a_corrigir([_linha(1, "PROTETORES 1678 Protetores", total=35021.29)])
+    assert mudancas == []
+    assert fora == ["linha 1 (ORCITM 5): 35021.29 ÷ 1678 não fecha ao centavo com preço de 4 casas: fica"]
+
+
 def test_gravacao_conferida_quando_o_sap_guardou_o_que_foi_mandado() -> None:
     m = QuantidadeCorrigida(line_num=1, orcitm="5", nova=88, total=10279.28, peso=436.9, texto="")
     assert divergencias([m], [{"LineNum": 1, "Quantity": 88.0, "LineTotal": 10279.28, "Weight1": 436.9}]) == []
