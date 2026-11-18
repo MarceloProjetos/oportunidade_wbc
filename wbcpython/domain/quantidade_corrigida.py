@@ -12,7 +12,7 @@ quantity, and the SAP rescales `Weight1` when the quantity changes (see `domain.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -33,11 +33,13 @@ class QuantidadeCorrigida:
 
 def quantidades_a_corrigir(
     linhas: Iterable[Mapping[str, Any]],
+    ja_maiores: Collection[int] = (),
 ) -> tuple[list[QuantidadeCorrigida], list[str]]:
     """``(changes, lines left alone on purpose)`` for the Service Layer's `DocumentLines`.
 
-    The second list only names lines that WOULD change but must not (delivered in part): a person has to look at
-    them. A line whose text has no other quantity is simply not mentioned.
+    The second list only names lines that WOULD change but must not: delivered in part, or in ``ja_maiores`` (the
+    `LineNum`s that had a quantity above 1 in an earlier version — a person brought them back to 1). A line whose
+    text has no other quantity is simply not mentioned.
     """
     mudancas: list[QuantidadeCorrigida] = []
     fora: list[str] = []
@@ -53,6 +55,9 @@ def quantidades_a_corrigir(
         if not nova or nova == 1:
             continue
         line_num = int(linha["LineNum"])
+        if line_num in ja_maiores:
+            fora.append(f"linha {line_num} (ORCITM {orcitm}) já teve quantidade maior e alguém voltou para 1: fica")
+            continue
         aberta = linha.get("RemainingOpenQuantity")
         if aberta is not None and float(aberta) < quantidade:
             fora.append(f"linha {line_num} (ORCITM {orcitm}) já entregue em parte: fica com 1, o texto diz {nova}")

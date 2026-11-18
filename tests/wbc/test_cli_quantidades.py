@@ -21,7 +21,7 @@ def _pedido(docnum, *linhas):
             "ApplyTaxOnFirstInstallment": "tYES", "DocTotal": 1000.0, "DocumentLines": list(linhas)}
 
 
-def _ambiente(monkeypatch, *, pedidos, depois=None, estado=None):
+def _ambiente(monkeypatch, *, pedidos, depois=None, estado=None, ja_maiores=None):
     """`pedidos`: DocNum -> document as first read; `depois`: DocNum -> document re-read after the PATCH."""
     from wbcpython.infrastructure.hana import quantidades as mod_hana
     from wbcpython.infrastructure.service_layer import client as mod_client
@@ -62,6 +62,7 @@ def _ambiente(monkeypatch, *, pedidos, depois=None, estado=None):
     monkeypatch.setattr(mod_client, "ServiceLayerClient", ClienteFalso)
     monkeypatch.setattr(mod_doc, "RepositorioDocumentosVendaServiceLayer", DocumentosFalso)
     monkeypatch.setattr(mod_hana, "pedidos_com_linha_em_um", lambda settings: sorted(pedidos))
+    monkeypatch.setattr(mod_hana, "linhas_ja_maiores_que_um", lambda settings: ja_maiores or {})
     return registro
 
 
@@ -131,6 +132,19 @@ def test_linha_mexida_entre_a_leitura_e_a_gravacao_e_pulada(monkeypatch: pytest.
     saida = capsys.readouterr().out
     assert "mudaram desde a leitura — pulado" in saida
     assert "1 pedido(s) com linha deixada de propósito: [84603]" in saida
+
+
+def test_linha_que_ja_foi_maior_e_alguem_voltou_para_um_nunca_e_desfeita(monkeypatch: pytest.MonkeyPatch,
+                                                                         capsys: pytest.CaptureFixture) -> None:
+    """84580: vendas01 turned "82 Módulos" into 1 after the integration created it with 82 (09/11/2026)."""
+    a = _pedido(84580, _linha(0, "PORTA-PALETES - MODELO A 82 Módulos de estruturas"), _linha(1, PROTETORES))
+    registro = _ambiente(monkeypatch, pedidos={84580: a}, depois={84580: _gravado(a, l1=88.0)},
+                         ja_maiores={84580: {0}})
+    assert main(["quantidades"]) == 0
+    assert registro["gravados"] == [(24580, [(1, 88)], 'W/"e"')]
+    saida = capsys.readouterr().out
+    assert "linha 0 (ORCITM 1) já teve quantidade maior e alguém voltou para 1: fica" in saida
+    assert "[84580]" in saida
 
 
 def test_pedido_que_nao_esta_aberto(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:

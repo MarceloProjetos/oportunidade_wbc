@@ -14,7 +14,9 @@ parte, a quantidade que o texto diz, reenviando o mesmo `LineTotal` e o mesmo `W
 `pesos`). Medido no SAP, só leitura: 52 pedidos abertos (pedido fechado não aceita mudar linha e já virou NF).
 `--simular` só mostra; `--pedido N` faz um. Antes de gravar relê as linhas (valor digitado no meio = pulado); depois
 relê e confere a linha mudada, **todas as outras** e o `DocTotal`; na primeira divergência devolve as linhas ao que
-eram e para. Lista só pedidos criados antes de 18/11. ⚠️ Todo PATCH vira `VATFirst` para N (o SL não volta): 36 dos 52
+eram e para. Lista só pedidos criados antes de 18/11. **Nunca desfaz escolha de pessoa:** linha que já teve
+quantidade maior em versão anterior (`ADO1`) fica com 1 — a 1ª simulação na .11 achou 15, 14 delas porta-paletes
+que o `vendas01` baixou de "82 Módulos" para 1 depois de a integração criar certo (84580, 84544, 84420…). ⚠️ Todo PATCH vira `VATFirst` para N (o SL não volta): 36 dos 52
 estão com Y; decisão dele, 18/11, o fiscal confere o boleto na NF.
 
 ## [2026-11-18] — Worker WBC: toda linha lê a quantidade do texto, não só porta-paletes

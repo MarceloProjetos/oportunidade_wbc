@@ -1087,7 +1087,7 @@ def _cmd_quantidades(settings: Settings, *, pedido: int | None, simular: bool) -
     from dataclasses import replace
 
     from wbcpython.domain.quantidade_corrigida import divergencias, quantidades_a_corrigir, retrato
-    from wbcpython.infrastructure.hana.quantidades import pedidos_com_linha_em_um
+    from wbcpython.infrastructure.hana.quantidades import linhas_ja_maiores_que_um, pedidos_com_linha_em_um
     from wbcpython.infrastructure.service_layer.client import ServiceLayerClient
     from wbcpython.infrastructure.service_layer.documentos import (
         RepositorioDocumentosVendaServiceLayer,
@@ -1104,6 +1104,7 @@ def _cmd_quantidades(settings: Settings, *, pedido: int | None, simular: bool) -
 
     try:
         docnums = [pedido] if pedido is not None else pedidos_com_linha_em_um(settings)
+        ja_maiores = linhas_ja_maiores_que_um(settings)
         relatar(f"{len(docnums)} pedido(s) a examinar.")
         gravados = linhas_gravadas = 0
         pulados: list[int] = []
@@ -1123,7 +1124,7 @@ def _cmd_quantidades(settings: Settings, *, pedido: int | None, simular: bool) -
                         alertar(f"{AVISO}Pedido {docnum}: o HANA lista, o Service Layer não achou — pulado.")
                         pulados.append(docnum)
                     continue
-                mudancas, fora = quantidades_a_corrigir(doc.get("DocumentLines") or ())
+                mudancas, fora = quantidades_a_corrigir(doc.get("DocumentLines") or (), ja_maiores.get(docnum, set()))
                 for motivo in fora:
                     alertar(f"{AVISO}Pedido {docnum}: {motivo}.")
                 if fora:

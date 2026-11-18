@@ -42,3 +42,34 @@ ORDER BY R."DocNum"
             cursor.close()
     finally:
         conexao.close()
+
+
+def linhas_ja_maiores_que_um(settings: Settings, *, fabrica_de_conexao: Any = None) -> dict[int, set[int]]:
+    """`DocNum -> LineNum`s of open lines at 1 that had a quantity above 1 in an earlier version (`ADO1`).
+
+    Someone lowered them on purpose: 14 of the 15 found on 18/11/2026 were `vendas01` turning porta-paletes
+    "82 Módulos" into 1 after the integration created them right. The command must never undo a person's choice.
+    """
+    s = citar_identificador(settings.service_layer.company_db, descricao="SL_COMPANY_DB")
+    conexao = (fabrica_de_conexao or (lambda: _abrir_conexao_hdbcli(settings.hana)))()
+    try:
+        cursor = conexao.cursor()
+        try:
+            cursor.execute(
+                f"""
+SELECT DISTINCT R."DocNum", L."LineNum"
+FROM {s}."ORDR" R
+INNER JOIN {s}."RDR1" L ON L."DocEntry" = R."DocEntry"
+INNER JOIN {s}."ADO1" A ON A."ObjType" = '17' AND A."DocEntry" = L."DocEntry" AND A."LineNum" = L."LineNum"
+WHERE R."CANCELED" = 'N' AND R."DocStatus" = 'O' AND L."LineStatus" = 'O' AND L."Quantity" = 1
+  AND A."Quantity" > 1
+"""
+            )
+            mudadas: dict[int, set[int]] = {}
+            for docnum, line_num in cursor.fetchall():
+                mudadas.setdefault(int(docnum), set()).add(int(line_num))
+            return mudadas
+        finally:
+            cursor.close()
+    finally:
+        conexao.close()
