@@ -144,8 +144,9 @@
       {%- else %}Busque os pedidos para selecionar.{% endif -%}
     </span>
     {% if not reprocessar %}
-    <label class="ov-opcao" style="padding-bottom:0"><input type="checkbox" name="force" value="1"
-      id="forcar" disabled> forçar (ignora as checagens de reprocessamento)</label>
+    {# ~30% larger than the shared .ov-opcao (Marcelo, 18/11/2026); inline so style.css and its ?v= stay as they are. #}
+    <label class="ov-opcao" style="padding-bottom:0; font-size:calc(var(--fs-sm) * 1.3)"><input type="checkbox"
+      name="force" value="1" id="forcar" disabled style="width:17px; height:17px"> forçar (ignora as checagens de reprocessamento)</label>
     {% endif %}
   </div>
   {% if reprocessar %}
