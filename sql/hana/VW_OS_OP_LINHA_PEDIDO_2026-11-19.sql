@@ -5,6 +5,8 @@
 -- the 69 OPs of order 84537 that were closed by mistake on 18/11/2026 and then recreated no longer
 -- count as OPs of the order. The OS was listing 14 of them next to the 14 new ones (30 extra rows,
 -- most of them matched by position against the new quote detail, i.e. the wrong item).
+-- The exception is the last line (DocEntry 165921..165990 = the old OPs; the new ones are 166170..166183).
+-- No comment inside the statement: the first run (19/11 11:15) recreated the view WITHOUT the exception.
 -- After running: synchronise the OS of order 84537 so the copy picks it up.
 -- Rollback: run sql/hana/VW_OS_OP_LINHA_PEDIDO_2026-11-12.sql
 CREATE OR REPLACE VIEW "SBOALTAMIRAPROD"."VW_OS_OP_LINHA_PEDIDO" (
@@ -57,8 +59,4 @@ AND (R."U_INO_ORCITM" = O."U_INO_LinhaRef"
 		WHERE X."DocEntry" = P."DocEntry"
 		AND X."U_INO_ORCITM" = O."U_INO_LinhaRef")))
 WHERE O."Status" <> 'C'
--- 19/11/2026, order 84537: its first 69 OPs (DocEntry 165921..165990) were closed by mistake on 18/11
--- and recreated (DocEntry 166170..166183). A closed OP cannot be cancelled in the SAP, so they are
--- left out here: they are not production of this order.
-AND NOT (O."OriginNum" = 84537
-	AND O."DocEntry" BETWEEN 165921 AND 165990) WITH READ ONLY;
+AND NOT (O."OriginNum" = 84537 AND O."DocEntry" BETWEEN 165921 AND 165990) WITH READ ONLY;
