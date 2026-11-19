@@ -17,6 +17,16 @@ chip da empresa com 5G, só o Marcelo no começo (grupo privado depois, só leit
 Supabase por no máximo 15 dias, sem mensagens temporárias, e Wi-Fi da empresa mais 5G de 120 GB/mês (reserva
 de internet só do .90, com limite de consumo e ensaio mensal).
 
+**Revisão de 19/11, contra o código do `web_orcaview` (commit `1d52f22`, 439 testes de WhatsApp/Mira verdes numa
+cópia):** a cópia das conversas no Supabase com 15 dias, a aprovação só do dono pelo autor, o teto de gasto, o
+backup da sessão, o vigia e o relatório do dia já existem. A mudança cabe quase toda no Node (modo "número
+próprio": escutar `message`, mandar o `author`, recorte por grupo e autor). O canal do dono vira um grupo de dois
+(Marcelo + Mira), porque tudo que a Mira envia vai para `MIRA_GRUPO_JID`. Parear é só por QR, em pessoa. O .90
+desliga às 17:45: conferir se a USB carrega com ele desligado. O plano ganhou o mapa da rede.
+Pedido de 19/11: sem internet e sem 5G, o Gemma 4 do .90 assume. Ele já assume sozinho (reserva do web); o que
+falta é a memória, que hoje mora só no Supabase. Proposta no plano: espelho local da memória no .90, com a mesma
+regra de 15 dias. A memória não vai para o celular: o WhatsApp do aparelho não é legível por programa sem root.
+
 ## [2026-11-18] — Agente pode PEDIR "encerrar as OPs de um pedido" com custo 0,01 (pedido 84537)
 
 **Exige deploy na .11 (dele): CP, API e MCP.** O 84537 (entrega futura, ainda em produção) teve o "Encerrar OPs do
