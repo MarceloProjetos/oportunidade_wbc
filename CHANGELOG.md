@@ -15,8 +15,12 @@ as do grupo 20 casadas por posição com o Detalhe novo (item errado) e a longar
 exceção (pedido 84537, DocEntry 165921–165990); Integração e Pintura leem dela e não mudam. Regra geral ("vale a
 geração mais nova") foi descartada: 60 grupos da base têm duas OPs pai legítimas (entrega múltipla, reprocessos
 antigos). Provado só com leitura, com a auxiliar no lugar do nome: 84537 = 30 linhas e 14 OPs; outros 9 pedidos
-idênticos ao ar. Volta: o script de 12/11. Fica de fora: `VW_OS_EXPED_IMPRESSAO_V2` não lê a auxiliar e ainda traz 3
-linhas das OPs antigas (longarina, parafuso e porca); falta o texto dela.
+idênticos ao ar. Volta: o script de 12/11. ✅ Rodado por ele às 11:36 e conferido: view e cópia = 30 linhas, 14 OPs.
+**Expedição (falta ele rodar `sql/hana/VW_OS_EXPED_IMPRESSAO_V2_2026-11-19.sql`):** a `VW_OS_EXPED_IMPRESSAO_V2` lia
+`OWOR` direto e ainda trazia 3 linhas das OPs antigas (longarina, parafuso e porca). Os três blocos de OP passam a
+exigir que a OP esteja na auxiliar (`EXISTS`); nenhuma regra repetida. Provado só com leitura: texto de antes ≡ ar
+em 10 pedidos; novo = ar em 9 e 84537 = 12 linhas (saem só as 3); em 24 meses a auxiliar deixa de fora apenas as
+69 OPs do 84537. Volta: `VW_OS_EXPED_IMPRESSAO_V2_antes_2026-11-19.sql`.
 
 ## [2026-11-18] — Agente pode PEDIR "encerrar as OPs de um pedido" com custo 0,01 (pedido 84537)
 
