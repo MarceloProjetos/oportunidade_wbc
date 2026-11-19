@@ -37,8 +37,11 @@ flowchart LR
 > mermaid abaixo é a cópia que fica no git).
 
 Como imagino as peças. Os endereços vêm de `docs/PORTAS.md` do web e do `wake_altservidor_ia.py`; o IP
-do celular no Wi-Fi ainda não existe (a reservar no roteador). A rede da empresa é uma só,
+do celular no Wi-Fi ainda não existe (a reservar no pfSense). A rede da empresa é uma só,
 `192.168.0.0/21` (de `192.168.0.0` a `192.168.7.255`), com saída por `192.168.0.10`.
+
+Confirmado pelo Marcelo em 19/11: o Wi-Fi está **na mesma rede** dos servidores; a saída é um firewall
+**pfSense** em `192.168.0.10`; a USB do .90 **carrega** com ele desligado.
 
 ```mermaid
 flowchart TB
@@ -50,7 +53,7 @@ flowchart TB
 
     MARC["Celular do Marcelo<br/>qualquer rede<br/>(é quem aprova)"]
     OP["Operadora 5G<br/>120 GB/mês"]
-    GWAY["Roteador / firewall<br/>192.168.0.10"]
+    GWAY["Firewall pfSense<br/>192.168.0.10"]
 
     subgraph LAN["Rede da empresa 192.168.0.0/21"]
         subgraph N90["ALTSERVIDOR-IA (.90) — 192.168.0.90<br/>desliga 17:45, a .11 acorda no boot"]
@@ -65,7 +68,7 @@ flowchart TB
         end
         SAP["SAP HANA 192.168.7.10<br/>Service Layer (VM)"]
         N12["SAP_RDP (.12) 192.168.7.12:8090"]
-        WIFI["Wi-Fi da empresa"]
+        WIFI["Wi-Fi da empresa<br/>(mesma rede dos servidores)"]
     end
 
     CEL["CELULAR DA MIRA<br/>Samsung, número próprio<br/>Wi-Fi: IP a reservar"]
@@ -89,7 +92,7 @@ Três caminhos saem do celular, e cada um tem uma função só:
 
 | Caminho | Liga o celular a | Para quê | O que **não** passa |
 |---|---|---|---|
-| Cabo USB | o .90 | carregar; o Claude controlar (ADB); internet reserva **só quando a da empresa cai** | nada vai para a rede: o ADB escuta só em `127.0.0.1` |
+| Cabo USB | o .90 | carregar (também com o .90 desligado); o Claude controlar (ADB); internet reserva **só quando a da empresa cai** | nada vai para a rede: o ADB escuta só em `127.0.0.1` |
 | Wi-Fi da empresa | a rede `192.168.0.0/21` | WhatsApp do dia a dia; a sentinela olhar o `/health` da .11 e o .90 | nenhuma chave; só rotas abertas |
 | 5G | a operadora | manter o WhatsApp e o SMS de alerta quando a internet ou a energia caem | a .11 nunca sai por ele |
 
@@ -121,8 +124,8 @@ Quatro fatos do código que este plano não sabia:
    celular da Mira para a tela. Depois disso, o `backup_sessoes.py --restaurar` evita QR novo.
 2. **A API de grupos está quebrada nessa versão** (`getChats`/`getChatById` estouram). Conferir os membros
    do grupo por código provavelmente não dá; a defesa é o filtro por autor mais as travas do próprio grupo.
-3. **O .90 desliga sozinho às 17:45** e a .11 o acorda no boot. A USB pode ficar sem energia a noite
-   inteira e o fim de semana inteiro (sexta 17:45 a segunda de manhã, cerca de 60 horas).
+3. **O .90 desliga sozinho às 17:45** e a .11 o acorda no boot. A USB continua carregando o celular com
+   ele desligado (confirmado em 19/11), então a noite e o fim de semana não descarregam o aparelho.
 4. **O cérebro da Mira é a API da Anthropic**, na internet. Sem internet o WhatsApp para e o cérebro
    passa para o Gemma 4 do .90, que acerta menos. A internet reserva pelo 5G mantém os dois originais.
 
@@ -219,17 +222,15 @@ variável (`MIRA_CONVERSAS_RETENCAO_DIAS`), mas guarda mais dado pessoal.
 | Arquivo, link ou áudio armado no grupo | No grupo, no começo, **só texto**: anexo e link não chegam ao modelo. Áudio só do dono. |
 | Cópia das conversas no Supabase (D2) vaza ou fica para sempre | Já existe: `mira_conversas`, apagada pelo próprio app depois de 15 dias. Conferir que a tabela tem RLS ligado. A sessão do WhatsApp (credencial) **nunca** vai para o Supabase. |
 | A sessão do WhatsApp Web no .90 vale a conta inteira | Pasta `.wwebjs_auth*` e os zips do `backup_sessoes.py` só para o usuário do serviço, fora do git, só no .90. Na troca, a sessão da conta do Marcelo fica 7 dias como rollback e depois é **apagada**, com os backups dela. |
-| O celular fica sem bateria num fim de semana (o .90 desliga às 17:45 e a USB pode cortar) | Conferir na BIOS do .90 se a USB carrega com ele desligado; se não, hub USB com fonte própria. Sem carga, a sessão do .90 continua valendo (o celular só precisa de internet a cada 14 dias), mas a sentinela para. |
-| Número bloqueado pelo WhatsApp (automação não oficial) | Número novo que já nasce automatizado é o que mais cai: **aquecer** antes (F1, uso normal à mão por alguns dias). Volume baixo, poucos contatos. Plano B: voltar à conta do Marcelo; mais adiante, a API oficial. |
-| Claude erra no celular pelo MCP | Só em sessão interativa com o Marcelo vendo. Ferramentas de leitura (print, bateria) liberadas; **tocar, digitar e abrir app sempre pedem confirmação** (nunca "permitir tudo" nesse MCP). |
-| Conta Google ou Samsung pessoal no aparelho | Conta dedicada da empresa; nenhum app além do necessário. |
+| O celular fica sem bateria num fim de semana (o .90 desliga às 17:45) | Resolvido: a USB do .90 carrega com ele desligado (confirmado em 19/11). Com a proteção em 80 %, o aparelho pode ficar plugado direto. |
+| O celular está **dentro** da rede dos servidores (o Wi-Fi é a mesma rede) | O pfSense não filtra conversa entre dois aparelhos da mesma rede, então não dá para "liberar o celular só para a .11 e o .90" por ele. O que protege: aparelho só com WhatsApp, atualizado, sem app extra, sem chave nenhuma, e as portas de escrita da .11 exigindo chave. Isolar de verdade pede um Wi-Fi separado (VLAN) com regra no pfSense: decisão para depois, se fizer falta. |
 
 ## Decisões
 
 - **D1 — Onde o celular fica plugado. FECHADA (18/11): no .90** (`192.168.0.90`), que já tem o Claude
   Code. Condições: nenhum agente do .90 com terminal livre ou ADB (leitura rápida de 19/11: só comandos
-  fixos; fechar na F0); o controle pelo Claude é em sessão interativa. O .90 desliga às 17:45: conferir
-  se a USB carrega com ele desligado. **Nunca a .11.**
+  fixos; fechar na F0); o controle pelo Claude é em sessão interativa. O .90 desliga às 17:45, mas a USB
+  segue carregando (confirmado em 19/11). **Nunca a .11.**
 - **D2 — Backup das conversas da Mira. FECHADA (18/11): no Supabase, no máximo 15 dias. JÁ EXISTE.**
   A tabela `mira_conversas` guarda cada turno e o próprio app apaga o que passou de 15 dias (decisão do
   Marcelo de 24/08, `mira_persistencia.py`). A memória de longo prazo da Mira (`mira:*`) e a auditoria
@@ -266,8 +267,9 @@ variável (`MIRA_CONVERSAS_RETENCAO_DIAS`), mas guarda mais dado pessoal.
 
   No Samsung, ligar "Alternar para dados móveis" (Wi-Fi → Wi-Fi inteligente): com o Wi-Fi conectado
   mas sem internet, o celular passa sozinho para o 5G. Atualização de sistema e de apps **só pelo
-  Wi-Fi**. IP reservado no roteador e, se ele permitir, o celular liberado só para a `192.168.7.11:8077`
-  e o `192.168.0.90`.
+  Wi-Fi**. IP reservado no pfSense (mapeamento estático do DHCP), para o celular ter sempre o mesmo
+  endereço e aparecer com nome nos registros. Como o Wi-Fi é a mesma rede dos servidores, o pfSense não
+  limita o que o celular alcança lá dentro (§ Ameaças).
   A franquia sobra para o .90 sozinho; medir o consumo real dele na F0 para saber quantos dias de queda
   ela cobre.
 
@@ -281,7 +283,8 @@ variável (`MIRA_CONVERSAS_RETENCAO_DIAS`), mas guarda mais dado pessoal.
 ### F0 — Agora, antes do celular chegar
 - ✔ Ler o gateway no web (19/11): resultado em "O que o código do web já tem".
 - Fechar a conferência de que nenhum agente do .90 roda comando livre (falta `kairos/` e `tools/`).
-- Conferir na BIOS do .90 se a USB carrega com a máquina desligada.
+- ✔ A USB do .90 carrega com a máquina desligada (confirmado em 19/11).
+- Escolher o IP do celular e criar o mapeamento estático no pfSense.
 - Medir quanto de internet o .90 gasta num dia normal (contador da placa de rede ou do roteador): é o
   número que diz quantos dias de queda os 120 GB cobrem.
 - Conferir que `mira_conversas` tem RLS ligado no Supabase.
@@ -383,9 +386,9 @@ Por ordem de valor. Nenhuma está decidida.
    |---|---|
    | Wi-Fi conectado, sem internet | caiu a internet da empresa |
    | Wi-Fi sumiu **e** parou de carregar | faltou energia (ele avisa a hora da queda e a da volta) |
-   | Parou de carregar, Wi-Fi normal | o .90 desligou ou o cabo soltou |
+   | Parou de carregar, Wi-Fi normal | o cabo soltou, ou faltou energia só no .90 (a USB carrega mesmo com ele desligado, então "desligou" não explica) |
    | `/health` da .11 não responde, resto normal | a API da .11 caiu |
-   | .90 não responde, carregando | o OrçaView travou no .90 |
+   | .90 não responde, carregando | o .90 está desligado (normal depois das 17:45) ou travou (em horário de trabalho, é alerta) |
 
    **Horários de silêncio**, senão vira SMS toda noite: o .90 desligado das 17:45 até a .11 acordá-lo;
    a .11 reiniciando por volta das 06:12; a .12 dormindo à noite; fins de semana e feriados.
@@ -403,7 +406,10 @@ Por ordem de valor. Nenhuma está decidida.
      ele (a máquina que escreve no SAP não ganha um caminho novo para a internet). Sem internet, as
      cargas da .11 para o Supabase esperam e retomam sozinhas.
    - Ancoragem e carga juntas esquentam o aparelho.
-   - Para a empresa inteira, o certo é um roteador com segunda saída 5G e chip próprio.
+   - Para a empresa inteira, o caminho é o próprio **pfSense**: ele aceita uma segunda saída (um modem
+     ou roteador 5G com chip próprio) e troca sozinho quando a principal cai (grupo de gateways). Aí
+     todos os servidores ganham reserva sem script nenhum, e o celular da Mira fica só para o WhatsApp.
+     Vale orçar: é mais simples e mais seguro que a ancoragem pelo .90.
 3. **Segundo despertador do .90.** O `wake_altservidor_ia.py` só usa biblioteca padrão e Python 3.8+:
    roda no Termux sem mudança. Se a sentinela vir o .90 desligado em horário de trabalho, manda o
    magic packet pelo Wi-Fi da empresa, sem depender da .11 ter reiniciado.

@@ -26,6 +26,9 @@ desliga às 17:45: conferir se a USB carrega com ele desligado. O plano ganhou o
 Pedido de 19/11: sem internet e sem 5G, o Gemma 4 do .90 assume. Ele já assume sozinho (reserva do web); o que
 falta é a memória, que hoje mora só no Supabase. Proposta no plano: espelho local da memória no .90, com a mesma
 regra de 15 dias. A memória não vai para o celular: o WhatsApp do aparelho não é legível por programa sem root.
+Confirmado pelo Marcelo em 19/11: o Wi-Fi é a mesma rede dos servidores, a saída é um pfSense em `192.168.0.10`
+e a USB do .90 carrega com ele desligado. Consequências no plano: o pfSense não isola o celular dentro da rede, e
+a reserva de internet da empresa inteira pode ser uma segunda saída 5G no próprio pfSense.
 
 ## [2026-11-18] — Agente pode PEDIR "encerrar as OPs de um pedido" com custo 0,01 (pedido 84537)
 
