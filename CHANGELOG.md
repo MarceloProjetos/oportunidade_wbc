@@ -6,6 +6,18 @@ Mudanças notáveis deste projeto. Formato inspirado em
 Meses anteriores em `docs/changelog/AAAA-MM.md` (a raiz guarda só o mês corrente; ao virar
 o mês, mova as entradas do mês que fechou para lá).
 
+## [2026-11-19] — OS do 84537 com itens a mais: as OPs encerradas por engano saem da view auxiliar
+
+**Quem roda é ele, no HANA: `sql/hana/VW_OS_OP_LINHA_PEDIDO_2026-11-19.sql`; depois sincronizar a OS do 84537.** As 69
+OPs do 84537 foram encerradas por engano em 18/11 e recriadas (14 novas, 164240–164253). OP encerrada não se cancela no
+SAP, e a `VW_OS_INTEGRACAO` (`Status <> 'C'`) seguia listando 14 das antigas ao lado das novas: 60 linhas em vez de 30,
+as do grupo 20 casadas por posição com o Detalhe novo (item errado) e a longarina em dobro. A auxiliar ganha uma única
+exceção (pedido 84537, DocEntry 165921–165990); Integração e Pintura leem dela e não mudam. Regra geral ("vale a
+geração mais nova") foi descartada: 60 grupos da base têm duas OPs pai legítimas (entrega múltipla, reprocessos
+antigos). Provado só com leitura, com a auxiliar no lugar do nome: 84537 = 30 linhas e 14 OPs; outros 9 pedidos
+idênticos ao ar. Volta: o script de 12/11. Fica de fora: `VW_OS_EXPED_IMPRESSAO_V2` não lê a auxiliar e ainda traz 3
+linhas das OPs antigas (longarina, parafuso e porca); falta o texto dela.
+
 ## [2026-11-18] — Agente pode PEDIR "encerrar as OPs de um pedido" com custo 0,01 (pedido 84537)
 
 **Exige deploy na .11 (dele): CP, API e MCP.** O 84537 (entrega futura, ainda em produção) teve o "Encerrar OPs do
