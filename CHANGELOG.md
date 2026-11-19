@@ -29,6 +29,9 @@ regra de 15 dias. A memória não vai para o celular: o WhatsApp do aparelho nã
 Confirmado pelo Marcelo em 19/11: o Wi-Fi é a mesma rede dos servidores, a saída é um pfSense em `192.168.0.10`
 e a USB do .90 carrega com ele desligado. Consequências no plano: o pfSense não isola o celular dentro da rede, e
 a reserva de internet da empresa inteira pode ser uma segunda saída 5G no próprio pfSense.
+Decisões de 19/11: fazer o espelho local da memória no .90 (F6: escrita dupla, leitura do espelho só quando o
+Supabase não responde, esquecer vale nos dois, auditoria não espelhada) e o resumo do dia aprovado, com prazo
+maior que os 15 dias da conversa (F7). As duas fases são código do `web_orcaview` e ainda não foram escritas.
 
 ## [2026-11-18] — Agente pode PEDIR "encerrar as OPs de um pedido" com custo 0,01 (pedido 84537)
 

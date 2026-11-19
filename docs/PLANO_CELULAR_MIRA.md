@@ -5,8 +5,8 @@
 > repositório do web (`MarceloProjetos/web_orcaview`, pasta `web_orcaview_V118` no .90) foi lido no commit
 > `1d52f22` e os 439 testes de WhatsApp/Mira rodaram numa cópia, todos verdes. O que essa leitura mudou
 > está em "O que o código do web já tem". A F2 é código do web (não deste repo). **A .11 não muda** (só
-> ganha, na vez do grupo das pessoas, uma credencial de leitura). Abertas: D7 (memória sem internet) e
-> D8 (por quanto tempo a Mira lembra).
+> ganha, na vez do grupo das pessoas, uma credencial de leitura). Fechadas em 19/11: D7 (espelho local
+> da memória no .90) e D8 (conversa 15 dias + resumo do dia aprovado, com prazo maior).
 
 ## O que muda
 
@@ -273,10 +273,9 @@ variável (`MIRA_CONVERSAS_RETENCAO_DIAS`), mas guarda mais dado pessoal.
   A franquia sobra para o .90 sozinho; medir o consumo real dele na F0 para saber quantos dias de queda
   ela cobre.
 
-- **D7 — ABERTA: memória sem internet.** Recomendo o espelho local no .90 (acima). Sem ele, o Gemma
-  assume sem lembrar de nada.
-- **D8 — ABERTA: por quanto tempo a Mira lembra.** Recomendo manter os 15 dias da conversa e criar o
-  resumo do dia aprovado, com prazo maior (acima).
+- **D7 — Memória sem internet. FECHADA (19/11): fazer o espelho local no .90** (F6).
+- **D8 — Por quanto tempo a Mira lembra. FECHADA (19/11):** a conversa continua em 15 dias, e nasce o
+  **resumo do dia aprovado**, com prazo maior (F7).
 
 ## Fases
 
@@ -290,7 +289,6 @@ variável (`MIRA_CONVERSAS_RETENCAO_DIAS`), mas guarda mais dado pessoal.
 - Conferir que `mira_conversas` tem RLS ligado no Supabase.
 - **Ensaio sem internet** (fora do expediente, 10 minutos, cabo da internet fora e ancoragem desligada):
   o Gemma responde nas telas? consulta o SAP? o que a Mira diz sem memória? a Central da .11 aprova?
-- Fechar D7 e D8.
 - Registrar na .11 a credencial só de leitura do grupo das pessoas (D4), quando chegar a vez dele.
 
 ### F1 — Preparar o celular (o Marcelo, à mão, ~1 h, ainda sem a Mira)
@@ -370,6 +368,46 @@ A mudança é quase toda no **Node**. O Python já decide pelo autor.
 O que importa é a **sessão do Node 3335 estar conectada** (o celular só precisa entrar na internet a cada
 14 dias). O vigia de fora do app já olha isso a cada 12 minutos. Se um dia o celular também for vigiado,
 por comandos fixos de leitura (bateria, Wi-Fi), nunca toque nem texto.
+
+### F6 — Espelho local da memória no .90 (código no `web_orcaview`, D7)
+Não depende do celular: pode ser feito antes de ele chegar.
+
+Toda leitura e escrita da memória da Mira passa por um arquivo só, `backend/services/mira_persistencia.py`
+(tabela `mira_conversas`: conversa, fatos aprovados `mira:memoria`, propostas, jornal). O espelho entra aí.
+
+- **Arquivo local:** um SQLite no .90 (WAL), fora do git, com as mesmas colunas da tabela.
+- **Escrita:** cada turno vai para o Supabase **e** para o espelho. Se o Supabase não responder, a linha
+  fica marcada como pendente no espelho e sobe quando a internet voltar.
+- **Leitura:** Supabase primeiro, como hoje. Só quando ele não responde, a leitura vem do espelho
+  (`carregar_historico`, `buscar_conversas`, `memoria_listar`). **Com internet, nada muda.**
+- **Encher e conferir:** no boot e na rotina horária, o espelho puxa do Supabase o que falta dos últimos
+  15 dias.
+- **Esquecer vale nos dois:** a faxina de 15 dias (que poupa `mira:*`) e o `esquecer` de um fato apagam
+  também no espelho. Sem isso o espelho viraria a memória que nunca esquece.
+- **A auditoria não é espelhada.** `mira_auditoria` é gravada antes de cada ação ("sem registro, sem
+  ação"). Sem internet o registro não grava, então a Mira **só consulta, não age**. É o comportamento
+  certo para o Gemma sozinho, e fica como está.
+- **Proteção do arquivo:** tem o texto das conversas. Pasta só para o usuário do serviço, fora dos
+  backups que saem da máquina.
+- Testes: escrita dupla; Supabase fora → lê do espelho; pendente sobe uma vez só (sem duplicar);
+  faxina e `esquecer` apagam nos dois; com Supabase no ar, a resposta é idêntica à de hoje.
+- Conferência final: o **ensaio sem internet** da F0, agora esperando que a Mira lembre.
+
+### F7 — Resumo do dia aprovado (código no `web_orcaview`, D8)
+A conversa crua continua saindo em 15 dias. O que fica por mais tempo é um resumo curto, que o Marcelo
+aprova.
+
+- **Quando:** junto do relatório do dia, antes do desligamento das 17:45 (`relatorio_dia.py`).
+- **O que tem:** decisões tomadas, pendências e combinados do dia, em poucas linhas. Sem a conversa
+  crua, sem telefone, sem dado pessoal que não precise estar lá.
+- **Aprovação:** o resumo é só uma **proposta** até o Marcelo responder `CONFIRMAR <código>`, o mesmo
+  caminho que a ferramenta `lembrar` já usa (o modelo propõe, o código grava depois do sim). Sem
+  resposta, o resumo não é guardado.
+- **Onde fica:** em `mira_conversas`, num chat próprio (`mira:resumos`), poupado da faxina de 15 dias
+  como os outros `mira:*`, e no espelho local (F6).
+- **Como é usado:** entra na busca de memória (`buscar_memoria`) como mais uma fonte, só para o dono.
+- Recomendações a confirmar antes de codar: **prazo de 90 dias** por resumo; o Marcelo pode corrigir o
+  texto antes de confirmar; `esquecer resumo de <data>` apaga um.
 
 ## Ideias para depois: o celular ajudando o servidor
 
